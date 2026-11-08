@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { CronAutoRecovery } from '../electron/cron-auto-recovery';
@@ -39,6 +39,36 @@ test('Automatic recovery defaults off, persists explicit bounded consent and con
   await f.service.disable('D:/project');
   await f.service.run();
   assert.equal(f.launches(), 1);
+});
+test('Temporary file locks retry atomic authorization replacement without starting a host', async t => {
+  const f = await fixture(t);
+  let failures = 0, attempts = 0;
+  const service = new CronAutoRecovery(f.root, async () => f.current(), async () => assert.fail('No host may start'),
+    () => true, () => 1000, undefined, undefined, async (source, destination) => {
+      attempts++;
+      if (failures-- > 0) throw Object.assign(new Error('File is in use'), { code: 'EPERM' });
+      await rename(source, destination);
+    });
+  await service.enable('key', f.current());
+  attempts = 0; failures = 2;
+  await service.block('D:/project');
+  assert.equal(attempts, 3);
+  assert.equal((await service.status('D:/project'))?.state, 'blocked');
+  assert.equal((await readdir(f.root)).some(name => name.endsWith('.tmp')), false);
+});
+test('Persistent replacement locks remain failures and other filesystem errors are not retried', async t => {
+  for (const [code, expectedAttempts] of [['EACCES', 5], ['EIO', 1]] as const) {
+    const f = await fixture(t);
+    let attempts = 0;
+    const service = new CronAutoRecovery(f.root, async () => f.current(), async () => assert.fail('No host may start'),
+      () => true, () => 1000, undefined, undefined, async () => {
+        attempts++;
+        throw Object.assign(new Error('Cannot replace authorization'), { code });
+      });
+    await assert.rejects(service.enable('key', f.current()), (error: NodeJS.ErrnoException) => error.code === code);
+    assert.equal(attempts, expectedAttempts);
+    assert.equal(await service.status('D:/project'), undefined);
+  }
 });
 for (const [name, change] of Object.entries({
   account: { configurationRef: 'b'.repeat(64) }, model: { model: { id: 'other', provider: 'step' } },

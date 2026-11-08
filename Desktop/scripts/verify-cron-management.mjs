@@ -429,6 +429,8 @@ try {
       const preview = await window.desktop.cronRecoveryPreview(key, 'queue-demo');
       return window.desktop.cronRecover(preview.token, true);
     }, task.key);
+    assert.equal((await page.evaluate(() => window.desktop.cronList())).tasks.find(row => row.key === task.key)?.automatic?.state,
+      'enabled', 'Queue recovery scenario starts with explicit automatic authorization');
     await page.locator('.session-row').filter({ hasText: '队列交互示例（本地模拟）' }).locator('button').first().click();
     await page.evaluate(id => { void window.desktop.command('prompt', { message: 'Isolated queue preservation check' }, id).catch(() => {}); }, recovered.runtimeId);
     await until(async () => fixture.requests.length === 1
@@ -440,10 +442,20 @@ try {
       return !state.state?.isStreaming && state.pendingMessages?.length === 1 && !state.requests.length ? state : undefined;
     }, 'stopped chat retains its queued message');
     await terminateSchedulingChild();
-    await until(async () => {
-      const state = await page.evaluate(() => window.desktop.cronList());
-      return state.tasks[0]?.automatic?.state === 'blocked';
-    }, 'unsent queue blocks automatic recovery');
+    let recoveryState;
+    try {
+      await until(async () => {
+        const overview = await page.evaluate(() => window.desktop.cronList());
+        const snapshot = await page.evaluate(() => window.desktop.snapshot());
+        recoveryState = { automatic: overview.tasks.find(row => row.key === task.key)?.automatic,
+          issues: overview.issues.map(row => row.reason), hosts: overview.hosts.length,
+          status: snapshot.status, pending: snapshot.pendingMessages?.length, runtimes: snapshot.runtimes.length };
+        return recoveryState.status === 'disconnected' && recoveryState.automatic?.state === 'blocked';
+      }, 'unsent queue blocks automatic recovery');
+    } catch (error) {
+      console.error('Isolated queue recovery state:', JSON.stringify(recoveryState));
+      throw error;
+    }
     await page.waitForTimeout(1500);
     const disconnected = await page.evaluate(() => window.desktop.snapshot());
     assert.equal(disconnected.runtimeId, stopped.runtimeId);

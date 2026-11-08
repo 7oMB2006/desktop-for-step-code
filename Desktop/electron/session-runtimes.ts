@@ -115,7 +115,7 @@ export class SessionRuntimes {
       messages?: (worker: SessionRuntime, messages: Message[]) => Promise<Message[]>;
       initializeModel?: (worker: SessionRuntime, restoring: boolean) => Promise<void>;
       startup?: (diagnostic: RuntimeStartupDiagnostic) => void;
-      idleLimit?: () => number; backgroundAvailable?: () => boolean;
+      idleLimit?: () => number; backgroundAvailable?: () => boolean; retain?: (worker: SessionRuntime) => boolean;
       beforePrompt?: (worker: SessionRuntime, message: string) => Promise<void> } = {},
   ) {}
   get active() { return this.activeId ? this.workers.get(this.activeId) : undefined; }
@@ -217,7 +217,7 @@ export class SessionRuntimes {
       const candidates = [...this.workers.values()].filter(worker =>
         workspaceKey(worker.cwd) === key && worker.status === 'connected' && worker.state?.sessionId &&
         !worker.messages.length && !worker.state.isStreaming && !this.isBusy(worker) && !hasBackgroundWork(worker) && !worker.mutating &&
-        !worker.failed && !worker.interrupted && !worker.remoteAttached);
+        !worker.failed && !worker.interrupted && !worker.remoteAttached && !this.hooks.retain?.(worker));
       const empty = candidates.find(worker => !worker.operations);
       if (empty) {
         const transport = empty.rpc;
@@ -235,8 +235,8 @@ export class SessionRuntimes {
     try { return await opening; }
     finally { if (this.openingEmpty.get(key) === opening) this.openingEmpty.delete(key); }
   }
-  prepare(node: string, entry: string, cwd: string, env: NodeJS.ProcessEnv, sessionPath?: string) {
-    return this.openWorker(node, entry, cwd, env, sessionPath, undefined, false);
+  prepare(node: string, entry: string, cwd: string, env: NodeJS.ProcessEnv, sessionPath?: string, branch?: BranchOperation) {
+    return this.openWorker(node, entry, cwd, env, sessionPath, branch, false);
   }
   private assertStartupOwner(worker: SessionRuntime, transport: WorkerTransport) {
     if (this.workers.get(worker.id) !== worker || worker.rpc !== transport || worker.status === 'disconnected')
@@ -840,7 +840,7 @@ export class SessionRuntimes {
   }
   async recycle(retain: (worker: SessionRuntime) => boolean = () => false) {
     const recyclable = (worker: SessionRuntime) => this.workers.get(worker.id) === worker &&
-      !retain(worker) && !worker.remoteAttached && worker.id !== this.activeId && worker.status === 'connected' && !this.isBusy(worker) &&
+      !retain(worker) && !this.hooks.retain?.(worker) && !worker.remoteAttached && worker.id !== this.activeId && worker.status === 'connected' && !this.isBusy(worker) &&
       !hasBackgroundWork(worker) &&
       worker.launch?.goal?.status !== 'active' &&
       !hasScheduledCron(worker.cron) &&

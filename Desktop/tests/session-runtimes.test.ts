@@ -39,6 +39,35 @@ function fixture(hooks: ConstructorParameters<typeof SessionRuntimes>[2] = {}) {
   return { pool, transports, events, open };
 }
 
+test('a MiniChat-selected empty runtime is not reused or recycled by main navigation', async () => {
+  let retained: string | undefined;
+  const { pool, open, transports } = fixture({ idleLimit: () => 0, retain: worker => worker.id === retained });
+  try {
+    const mini = await open('same-project');
+    retained = mini.id;
+    const main = await open('same-project');
+    assert.notEqual(main.id, mini.id);
+    assert.equal(pool.activeId, main.id);
+    mini.messages = [{ role: 'assistant', content: 'Persisted answer' }];
+    mini.touched = 0;
+    await pool.recycle();
+    assert.equal(transports[0].stopped, false);
+    retained = undefined;
+    await pool.recycle();
+    assert.equal(transports[0].stopped, true);
+  } finally { await pool.stopAll(); }
+});
+
+test('preparing a MiniChat runtime never activates it in the main window', async () => {
+  const { pool, open } = fixture();
+  try {
+    const main = await open('main-project');
+    const mini = await pool.prepare('node', 'step', 'mini-project', {}, 'saved-session.jsonl');
+    assert.notEqual(main.id, mini.id);
+    assert.equal(pool.activeId, main.id);
+  } finally { await pool.stopAll(); }
+});
+
 test('Remote retains its host, rejects history mutation and does not reuse an attached empty session', async () => {
   const f = fixture({ idleLimit: () => 0 });
   try {

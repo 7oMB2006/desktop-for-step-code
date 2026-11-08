@@ -1,8 +1,35 @@
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import { runInNewContext } from 'node:vm';
 import test from 'node:test';
+import ts from 'typescript';
 
 const { waitForNewSessionButton, waitForSessionFixtureSnapshot } = await import(new URL('../scripts/session-fixture.mjs', import.meta.url).href);
+
+test('first-run acceptance never polls an async predicate through browser Promise truthiness', async () => {
+  const source = ts.createSourceFile('verify-first-run.mjs',
+    await readFile(new URL('../scripts/verify-first-run.mjs', import.meta.url), 'utf8'),
+    ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
+  let snapshotPolls = 0;
+  const visit = (node: ts.Node) => {
+    if (ts.isCallExpression(node)) {
+      if (ts.isPropertyAccessExpression(node.expression) && node.expression.name.text === 'waitForFunction') {
+        const predicate = node.arguments[0];
+        assert.ok(predicate && (ts.isArrowFunction(predicate) || ts.isFunctionExpression(predicate)),
+          'browser polling must use an inspectable synchronous predicate');
+        assert.equal(predicate.modifiers?.some(modifier => modifier.kind === ts.SyntaxKind.AsyncKeyword) ?? false, false,
+          'async IPC predicates belong in the awaited Node-side snapshot poller');
+      }
+      if (ts.isIdentifier(node.expression) && node.expression.text === 'waitForSessionFixtureSnapshot') {
+        snapshotPolls++;
+        assert.ok(ts.isAwaitExpression(node.parent), 'snapshot polling must finish before persistence assertions');
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+  assert.ok(snapshotPolls >= 2, 'reply completion and restored permissions both poll resolved IPC snapshots');
+});
 
 test('new-session readiness polls through missing and disabled buttons after reload', async () => {
   const buttons = [null, { disabled: true }, { disabled: false }];

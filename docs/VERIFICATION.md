@@ -1,5 +1,464 @@
 # Verification
 
+## PR #211 First-Run IPC Polling (2026-11-08)
+
+Head `95997df` passes the Windows runtime and sessions groups, but macOS
+interface job `128660255985` still reads the first session before it exists.
+The event ordering predicate alone was insufficient: Playwright 1.60 browser
+polling treats its async callback's Promise as truthy and resolves even when
+the eventual predicate result is false. The awaited event condition therefore
+was not actually being polled.
+
+First-run acceptance now waits for the completed run with a synchronous browser
+predicate and uses the existing `waitForSessionFixtureSnapshot` Node poller for
+resolved IPC state, both before reading the saved reply and when restoring Ask
+permissions. No sleep, file-read retry, weakened history assertion or expanded
+timeout is added. A TypeScript-AST regression rejects async browser pollers in
+this verifier and requires awaited snapshot polls. The existing helper tests
+cover false async results, delayed snapshots, timeout and IPC failure.
+
+All 35 focused shutdown/onboarding/polling tests pass. The immediately preceding
+full suite on Node 24.16.0 with `CI=true` reports 1,511 passes and 19 platform or
+resource skips, with zero failures; the added AST guard has separate evidence.
+The corrected first-run verifier passes three consecutive native Windows runs
+through `runGroup` / `executeScript`, with the same Node version and `CI=true`
+(81.19, 79.51 and 74.83 seconds). Each includes durable reply, exact restored
+session identity, permissions and the remaining onboarding scenarios.
+Replacement cloud checks remain required for the final commit.
+
+## PR #211 Windows Shutdown Wait Cycle (2026-11-08)
+
+The first lifecycle repair did not resolve Windows run `42454598542`.
+Running the verifier directly passes locally, but running the same verifier
+through `runGroup`/`executeScript`, with CI's Node 24.16.0 and `CI=true`,
+reproduces the 30-second shutdown timeout. The launcher exits 0 and no owned
+application processes or windows remain, while every inherited launcher pipe
+stays open and the actual browser-context close event has not arrived.
+`context.isClosed()` is true here because closure has started, not completed.
+
+Requiring context closure before releasing exited-launcher pipes creates a wait
+cycle. Pipe release now requires successful launcher exit and closed windows,
+and remains deferred until page/exit event delivery finishes. Separately,
+`closeDesktopFixtureAndWait` explicitly awaits the real context close event
+alongside driver completion and process exit. A successful exit or an already
+closing context cannot substitute for that event. Driver errors, missing close
+events and the unchanged 30-second deadline still fail.
+
+The same launcher also reproduces a first-run read before the session file
+exists, despite the earlier runtime-only settled checkpoint. The fixture now
+tracks `agent_start`, the expected reply's `message_end`, and a subsequent
+`agent_settled` for that runtime. A prior idle event or a streamed message whose
+temporary stop reason is already `stop` cannot satisfy completion. The saved
+header/reply and exact session identity after relaunch remain mandatory.
+
+The new inherited-pipe/context wait-cycle regression fails with the previous
+helper and passes with this repair. All 28 shutdown/onboarding tests and
+typecheck pass. Four native `then_run` checks through the actual CI launcher
+pass, including RPC/UI, orderly controller/context/process closure and
+subsequent native shell probes. First-run native acceptance through that
+launcher also passes with the ordered completion checkpoint.
+Cloud verification for the final head remains required. Diagnostic logging
+contains only fixture PIDs, process names/parent IDs and pipe lifecycle state,
+not command lines, credentials or environment values. No production behavior,
+runtime pin, package, shortcut or running user application changes.
+
+## PR #211 Acceptance Lifecycle Repair (2026-11-08)
+
+Merged head `35f4b73` failed macOS source `verify-first-run.mjs` at history
+restoration and Windows `verify-then-run.mjs` during controller shutdown after
+all functional assertions passed. Windows reported launcher exit 0, a closed
+context and zero windows, but the driver close did not settle within 30 seconds.
+
+The fixture pipe guard now defers disposal until the close event has finished
+dispatching, then rechecks the successful launcher exit, actual context close
+event and all closed windows. The original implementation fails the new
+remaining-close-listener regression; the repaired implementation passes it.
+Cancellation of a scheduled release also has a regression. Driver errors and
+stalls remain failures, and neither the 30-second bound nor CI inventory changes.
+
+First-run acceptance now observes the matching runtime's `agent_settled`,
+checks the saved JSONL header and completed reply, and waits for both controller
+closure and successful launcher exit before reusing the profile. Relaunch must
+still list exactly one session with the original identity. These checkpoints
+distinguish incomplete persistence from shutdown or discovery failure instead
+of relying only on visible text and a streaming flag.
+
+Local typecheck, all 27 shutdown/onboarding unit tests, source first-run native
+acceptance and source `then_run` RPC/UI plus native command probes pass.
+The unmodified native verifiers also passed locally, so those local results
+alone do not establish the cause or resolution of every intermittent cloud
+failure. Replacement Windows/macOS cloud checks remain required. No production
+behavior, runtime pin, package, shortcut or running user application changes.
+
+## PR #211 Main Synchronization (2026-11-08)
+
+Merge main `20774ca` after #214's linked-path guards and fixture cleanup.
+The only conflict is concurrent top-level additions to this document; retain
+both complete histories. Mechanical section checks preserve all 260 sections
+from the previous MiniChat head and all 255 sections from main without altering
+their text. Runtime pin and MiniChat behavior are unchanged by this resolution.
+
+Typecheck, production build and whitespace checks pass. The focused suite
+reports 70 tests: 56 pass and 14 capability-worker failures at Windows process
+termination. An isolated catalog retry has the same termination failure.
+CI policy/inventory tests report 14 pass and one Windows process-tree cleanup
+failure. These are failed local runs, not acceptance passes: native `taskkill`
+against an exact owned fixture also exits 1 with `Unspecified error`, and
+independent WMI process queries fail with the same diagnostic. Only verified
+test-owned leftover processes are stopped to drain the failed test runners;
+no product/test workaround or Windows service change is made.
+
+Previous head `bb6e088` passed both full Windows and macOS cloud gates; those
+results do not establish this merged candidate's status. New-head cloud and
+native acceptance remain separate. No package, installer, shortcut change,
+runtime restaging or user-application restart is part of this conflict fix.
+
+## MiniChat Project Picker (2026-11-08, Local)
+
+The titlebar conversation picker now uses an anchored native popover with
+project groups, cross-project search and a separate independent-session group.
+Current-project expansion, counts, duplicate project paths and project-specific
+Plus actions use existing catalog/typed IPC. Search and disclosure state are
+local to MiniChat; archives, session order and pinned project order are retained.
+Retargeting an unsubmitted draft preserves its identity, input and options.
+Popover dismissal only handles its own `toggle` event, not nested project
+`details` events. Browser regressions collapse both current and other projects,
+then select another project's session using mouse and keyboard in light/dark,
+narrow/short and reduced-motion layouts. Native Electron repeats current-project
+mouse collapse, another-project keyboard collapse and cross-project selection.
+
+Shared text tooltips now use a manual native popover, keeping project Plus
+hints above the picker without changing focus or intercepting clicks. Layer
+acceptance compares decoded screenshot pixels with/without the tooltip over
+the actual parent popover. Browser coverage includes light/dark, narrow/short
+windows, hover/keyboard focus, duplicate-project paths, Esc, programmatic parent
+closure, trigger removal and successful Plus clicks. Native checks repeat the
+paint probe for hover and a keyboard-focused long temporary-project path.
+Intrinsic width remains stable when switching from short to multiline hints;
+focus-driven scrolling settles before tooltip placement. The shared Context
+inspector regression also exercises ordinary multiline hover/focus hints.
+
+Local typecheck, production build, 32 focused unit tests and the complete browser
+and native MiniChat acceptance pass. The native fixture registers three actual
+temporary projects (two named `web-app`) and independent history, selects a
+same-title session by its project, creates a draft in an exact project, retargets
+it to independent, and verifies the main worker and sidebar preferences remain
+unchanged without invoking the model. Browser acceptance adds searchable long
+lists, temporary expansion/restoration, empty results, keyboard/IME, outside/Esc
+dismissal, light/dark/English, narrow/short windows and complete search focus
+gutters. Screenshots are under `Desktop/test-results/mini-chat-preview/` and
+`Desktop/test-results/mini-chat-native/`. These are local source receipts, not
+packaged, cloud-CI, native macOS or real-account acceptance.
+
+## MiniChat Navigation Geometry (2026-11-08, Local)
+
+The native verifier reproduces the old scroll handle extending over the composer.
+The fixed MiniChat keeps its scroll handle and turn ruler at the full-width
+transcript's right edge, reserves space for text and bounds the session switcher
+without consuming the header's drag region.
+Native acceptance covers 360-, 900- and 1600-pixel windows, light/dark appearance,
+wheel input over prose/markers/handle, handle dragging, exact turn location and
+session-menu placement. Existing native MiniChat and main-conversation scroll
+acceptance pass, alongside typecheck, build and 14 focused unit tests.
+The browser fixture now includes the actual shared navigation components; its
+complete acceptance passes using installed Chrome because the matching Playwright
+headless-shell revision is unavailable. These are local source receipts, not a
+new package, cloud-CI result or macOS acceptance.
+
+## MiniChat Review And CI Follow-up (2026-11-07)
+
+HTTP(S) message links in MiniChat now transfer its conversation, reading state
+and pending draft to main before opening the existing native browser. MiniChat
+does not gain browser listing/layout IPC. Reopening the same link explicitly
+reveals the panel instead of toggling it closed. The real-runtime verifier uses
+a loopback page and checks main navigation away from Remote, exact selected
+session, retained input, native view visibility, repeated opening and no model
+request caused by the handoff.
+
+Specific workflow cards transfer their tool-call identity and reveal that run's
+overview, including historical runs and repeated clicks. Bare `/workflows` still
+opens the read-only saved catalog. Native verification checks both paths after
+main navigates to another conversation. Its simultaneous-send check gates the
+real draft-consumption IPC until both clicks arrive, preventing an automation
+click from accidentally hitting a button that has already changed to Stop.
+
+Returning from MiniChat also restores an expanded bottom terminal to its dock
+before revealing requested content. Native workflow, `/todos` and web-link
+handoffs verify the requested panel is visible, the conversation is not inert,
+and the existing terminal process remains running.
+Repeated file and individual subagent handoffs also explicitly reveal their
+selected content; they do not inherit the main-window click-to-collapse behavior.
+Native verification opens the same real Markdown file and subagent record twice.
+MiniChat can read validated installed theme scenes and posters, but cannot mutate
+plugins. Native acceptance copies the repository's Stellar pack into its isolated
+profile, verifies both loaders, a ready scene or decoded poster, and rejected
+uninstalled themes and plugin changes.
+Side-question commands use the same availability and length checks in both
+windows before clearing shared input. Native checks retain rejected new-session
+and oversized questions, then exercise a valid main-window side-question handoff.
+Provider refresh updates each distinct main/MiniChat draft and rebinds shared
+identities after restoring options. Unit cases cover shared, MiniChat-only and
+separate drafts; native acceptance deletes a selected loopback provider while
+only MiniChat holds a draft and checks replacement models, input, task options
+and successful first submission after an explicit model-picker selection,
+without moving the main conversation or silently changing the billing route.
+Project relocation refuses drafts held only by MiniChat until they return to
+main, retaining their project, input and launch options. Unit cases cover an
+independently selected main conversation or draft; native acceptance verifies
+the actual IPC rejection without opening a folder dialog.
+Cron authorization replacement retries transient file-sharing errors a bounded
+number of times without deleting the previous file. Injected filesystem tests
+cover successful retry, exhausted locks and non-retryable errors; failures still
+surface and cannot start a host.
+
+Windows startup now uses the same native `normal` topmost level as MiniChat;
+source startup acceptance verifies the actual OS topmost state and disposal.
+
+The old CI assertions now distinguish a restored nonempty draft (which pauses
+the greeting) from an empty draft's per-character animation, hold both RPC and
+event preference acknowledgements, and allow the macOS MiniChat button while
+still rejecting Windows-style window controls. No script is excluded and no
+runtime pin, product animation or preference synchronization is disabled.
+The draft-clear check waits for the actual editor state and main-owned value
+before reload, using editor keyboard transactions rather than DOM-only clearing;
+the animation sample includes a complete greeting cycle.
+Command dispatch retains mouse submission coverage, using Enter while overlay
+inspectors may cover the send button on constrained native displays.
+First-run acceptance waits for an idle runtime and committed assistant response
+before relaunch, rather than an obsolete stop-button selector; its local provider
+deliberately separates visible text from the final completion frame.
+MiniChat resolves its temporary profile and session workspace before checking
+fixture-only file writes, preserving containment across platform path aliases.
+Fixture shutdown releases inherited launcher pipes only after the browser context
+has delivered its close event, all pages have closed and the launcher exited
+successfully. A merely closing context is insufficient; controller errors and
+shutdown timeouts remain failures.
+The browser-only MiniChat reading scenario holds its simulated completion until
+the verifier releases it, so close/reopen-during-streaming assertions do not
+depend on the machine finishing UI actions inside a short response timer.
+
+Local typecheck, production build, browser MiniChat, native MiniChat,
+new-session and appearance checks pass. All 28 draft/composer/greeting tests
+pass; the 21 CI-runner tests have 20 passes and one platform skip. The complete
+unit suite after main synchronization finished with 1,469 passes, 19 platform
+skips and zero failures (1,488 tests). Workflow handoff and startup follow-ups
+have additional native checks; that complete run predates those final edits.
+These receipts do not substitute for current-head cloud, native macOS,
+packaged or real-account acceptance.
+
+## MiniChat Main Synchronization (2026-11-07, Local Candidate)
+
+The candidate integrates main `e419143`, retaining Remote, Stellar presentation,
+plugin recovery and both Remote/MiniChat runtime retention guards. Explicit
+MiniChat Return now reveals the main conversation even when Remote, settings or
+another full-page tool was open. Native acceptance covers Remote-to-conversation
+Return and retains the message reading anchor.
+
+Typecheck, production build, native MiniChat and command-dispatch acceptance pass
+after synchronization. The shared CI inventory now includes the self-contained
+MiniChat preview and native MiniChat verification. Native verification honors
+`DESKTOP_VERIFY_EXE`, so packaged CI launches the candidate executable rather
+than silently retesting source. The 27 Windows/macOS CI-policy tests have
+26 passes and one platform skip; this is not native macOS acceptance.
+
+The first integrated complete unit run finished 1,488 tests: 1,460 passes,
+19 platform skips and nine failures. Eight were the extracted draft-setup
+fixture missing main's newly added `capabilityService.recover` dependency; one
+used the old locally staged admin adapter without compaction-settings RPC.
+After updating that fixture and the worktree-local generated adapters, the
+25 draft/composer tests and native compaction-settings test all pass. The full
+integrated suite has not been rerun after those repairs; the earlier 1,136-test
+complete pass below belongs to the pre-synchronization candidate. Cloud CI,
+packaged/native macOS and real-account acceptance remain pending.
+The synchronized browser-preview rerun could not launch because the local
+Playwright headless-shell revision was absent. Its download did not complete
+and was stopped; the pre-synchronization browser pass is not a new receipt.
+
+## Native MiniChat (2026-11-07, Local Candidate)
+
+The titlebar entry now opens one native, frameless Electron window with real
+resize, drag and OS pinning. It loads the same application, conversation,
+composer, tool cards, queue and approval components. Navigation and transient
+editor UI remain independent; the selected session has one runtime, including
+simultaneous cold opens from both windows. Closing only hides the view.
+Reopening resumes its selection; explicit Return transfers selection,
+message-anchored reading position and disclosure choices to main. Larger tools
+and settings hand off to the main window instead of duplicating their surfaces.
+
+Main owns revision-checked draft text, references/annotations and attachments.
+Two-window sends consume a draft once. Genuine concurrent edits retain the
+local version for an explicit conflict choice; failed delivery restores sent
+input alongside newer input, even after renderer reload. Text-only updates
+omit unchanged image payloads. Draft creation promotes both views to the same
+session without losing pending input or selected task options. Unsubmitted
+takes belong to the issuing renderer and are restored on reload/crash; already
+submitted receipts remain main-owned and cannot be restored twice. First-send
+setup locks changes to that shared draft's project/options, while independent
+navigation remains possible. Failure cleanup rechecks selection after removal.
+
+Runtime work and approvals are not owned by the window. Hide/reload cannot
+approve, cancel or restart them. Pending decisions still use the current
+runtime request, and completion sound is delivered only by the primary
+renderer. MiniChat-selected workers are not reused/recycled behind the view;
+viewed-session deletion is guarded and runtime replacement reconciles the
+mini selection. Account changes that retire its transport retain readable
+history and input but do not label a missing transport connected or successful.
+That conversation requires an explicit reopen before further execution.
+
+The mini renderer remains sandboxed with context isolation and no Node access.
+Its IPC surface is allowlisted; account/configuration changes and unrelated
+browser/terminal layout operations stay in main. Window geometry/pin is saved
+under Desktop userData, clamped to display bounds; conversation drafts and
+reading/disclosure memory survive window hide/reload, not application exit.
+Editor caret/undo remains local to each editor. Windows pinning uses native
+topmost placement without taskbar-relative repositioning; default floating
+placement lost topmost status in the local minimal-window probe.
+
+`scripts/verify-mini-chat-electron.mjs` uses an isolated profile and a loopback
+model provider with the pinned real runtime. It covers coalesced startup,
+independent navigation, shared drafts/references/options, once-only send/sound,
+stream/stop, real write-file approval, hide/reopen/reload, anchor transfer,
+restart, deletion guards, first-message promotion, OS pin state and a focused
+380x400 English/light layout. Native screenshots and the result receipt are in
+`Desktop/test-results/mini-chat-native/`. This does not establish cloud,
+macOS native, packaged/installer or real-account acceptance.
+
+Local verification passed typecheck, production build and `git diff --check`.
+The complete test suite ran with concurrency 2: 1,136 tests, 1,123 passed,
+13 platform skips and no failures. Native MiniChat, session navigation,
+composer editing/menu, command dispatch and task-progress Electron checks
+passed, as did the browser MiniChat and disclosure/summary regressions.
+The initial high-concurrency suite hit an unrelated terminal cleanup timeout;
+its unchanged six-test terminal suite and the bounded complete rerun passed.
+Local review added eleven regressions for rejected concurrent writes,
+abandoned/claimed submissions and draft setup/promotion/failure interleavings.
+
+## MiniChat Frontend Preview (2026-11-07)
+
+`Desktop/tests/fixtures/mini-chat.html` previews the titlebar entry immediately
+before Minimize and a compact conversation window. `WindowBar` uses an
+optional action; the native candidate now wires that action in the normal app.
+The reusable frame uses existing tokens, icons and the native shared menu.
+Conversation bodies, tool/thinking disclosures, timestamps, selection actions,
+quotes, composer, permission and model/effort pickers are the real components.
+
+The isolated fixture uses synthetic sessions and replies, with no model,
+profile or filesystem access. Browser-local dragging, resizing and pin state
+do not establish native-window or OS always-on-top support. Switching the mini
+selection leaves the main selection alone; return explicitly selects the mini
+conversation in the main surface, retaining its draft and pending quotes.
+The isolated preview itself does not change the runtime pin, preload or main;
+native integration is recorded separately above.
+
+Reading continuity reuses `session-reading` message anchors. Each surface/session
+keeps its own reading position and opt-in disclosure memory; return explicitly
+transfers the mini position and disclosure choices even when main already shows
+that conversation. Closing/reopening resumes the mini selection. Thinking,
+tool/group and nested input/output choices survive remounting without retaining
+mounted transcripts. Disclosure memory is bounded to 512 entries per surface/session;
+records without stable message/call identity are not matched by array position.
+Streaming and settlement do not pull an older reader to the tail, while readers
+at the tail continue following. Position memory is browser-session-local, not
+cross-launch persistence or native-window geometry support.
+
+The main conversation and preview now share `ScrollToBottomButton` and its
+existing composer-context-row style. It appears while reading older content,
+resumes following the moving tail on activation, restores editor focus and
+honors reduced motion. Wheel, keyboard and touch intents reuse the main
+conversation's scroll policy; an upward gesture pauses even near the bottom.
+Stopping a simulated response does not reset reading position.
+
+The local-review fixes preserve manual disclosure choices when a live message
+first receives its saved entry ID, including without opt-in memory. Different
+known identities and explicit settings resets still invalidate old choices.
+Preview retry-editing refuses to overwrite pending text or reference-only
+drafts. Quote and annotation removal uses the latest shared state; clearing one
+kind preserves the other. Whole-message Markdown references locate their saved
+source identity rather than trying to match rendered text to Markdown offsets.
+Composer menus have instance-specific option/ARIA IDs and only the focused
+editor discovers a synchronized draft token. Moving between the add-reference
+button and editor retains explicit reference keyboard navigation.
+
+Typecheck, production build and `scripts/verify-mini-chat-preview.mjs` pass.
+Browser verification covers entry placement/no-drag behavior, session switching,
+draft/reference handoff, simulated streaming, menu and quote interaction,
+dragging, focus restoration, reduced motion, light/dark and Chinese/English at
+1440, 760, 440 and 390px. Four-sided composer focus gutters and picker widths
+are checked. Low-height 900x400 light/dark and 390x400 dark cases cover eight-line
+drafts plus a quote, visible Send/Stop and header, real send/stop clicks and
+drag-then-resize recovery. The editor height follows the mini frame's available
+block size; normal-window dimensions remain unchanged.
+`?stress=reading` exercises long transcripts, independent disclosure
+choices, same-session main handoff, per-session scroll restoration, close/reopen
+during streaming, no duplicate requests, return-to-bottom with keyboard focus,
+gesture-aware pause/resume, stopped-response reading position and tail following.
+The button is checked in light/dark, narrow, English and reduced-motion layouts.
+The shared `verify-disclosure-summary.mjs` regression and 61 focused navigation,
+presentation, scrolling, grouping, command and quote unit tests also pass.
+The rebuilt isolated Electron composer-menu verifier passes, including reference
+selection at the attachment limit after focus returns to the editor.
+`verify-project-instructions-preview.mjs` also passes against the main application
+at 1280/390/320px in Chinese/English, light/dark and the Wine palette.
+Screenshots are in `Desktop/test-results/mini-chat-preview/`.
+An additional real-RPC timing test was attempted but failed at Windows runtime
+cleanup with `Runtime process-tree termination failed (1)` and was interrupted
+after its test server remained open. It is not counted as passing runtime acceptance.
+This is a design preview, not native Electron, installer, cloud or account
+acceptance. The existing `/todos` work remains a separate implementation.
+
+### MiniChat State Ownership
+
+The native candidate implements this contract within the local acceptance
+boundary above; the synthetic preview independently exercises presentation.
+
+| State | Ownership and restoration |
+| --- | --- |
+| Messages, thinking/execution/compaction, stopped/failed/completed results | One authoritative runtime per session, observed by both windows. Reopen reads the current snapshot; a disconnected or missing runtime is not inferred to be successful or still running. |
+| Pending tool/Plan approvals | Keep the real request and reviewed version. Closing a view neither approves nor cancels; a decision is validated once against the current request. |
+| Draft text, quotes/annotations, attachments | Main-owned session draft, not a second independent task. Revision-checked writes and once-only submission receipts protect newer input and recover rejected delivery. |
+| Selected conversation, scroll/follow, expanded details | Per window/session presentation memory. Explicit return transfers the reading state; casual background updates do not steal it. Saves during navigation cannot attribute a target preview to the previous session. |
+| Window bounds/pin and editor caret/undo | Native geometry/pin preferences survive application restart. Caret/undo belong to each editor; opaque editor history is not copied between windows. Browser preview pinning is only a simulation. |
+| Menus, hover, selection toolbar, copied checkmark | Transient UI closes when its view closes; pending quoted text/annotations remain draft data. |
+| Completion motion/sound/notifications | Event-owned and deduplicated per real run. Remounting or restoring historical UI must not replay completion signals. |
+
+## Desktop Task-plan Shortcut (2026-11-07, Local Candidate)
+
+Based on main `7fdfc76` (merged PR #208), standalone `/todos` now opens the
+existing Summary board and reveals its task heading. The request is scoped to
+the current worker, session and draft, then consumed once. Repeating it on an
+open board retains task/history disclosures and the mounted progress animation;
+ordinary polling cannot steal the composer's focus. No runtime pin, IPC or
+canonical task/history storage is changed.
+
+Typecheck and the production build pass. All 44 focused tests pass, covering
+command recognition/catalog deduplication, source icons, composer behavior,
+native slash handlers and task/agent history projection. Parameters, prose,
+code, attachments and quotes do not acquire the new local shortcut.
+
+The rebuilt isolated Electron command-dispatch verifier passes a real fresh
+draft with no worker/session creation, then controlled summary data for empty
+plans, folded history, current counts, repeated focus/scroll, retained manual
+disclosures and failed-read retries. Four Chinese/English, light/dark and
+desktop/narrow combinations include reduced-motion checks and complete focus
+outline bounds. Screenshots under `Desktop/test-results/todos/` were inspected.
+The expanded verifier uses keyboard submission in narrow overlays, where the
+existing Summary surface can cover the main composer's send button.
+
+The pinned real-runtime task-progress verifier passes through `/todos` both
+before and during a task. It confirms no shortcut message in native history,
+no queued input or premature sound/settlement, and the existing completion
+impact, green sweep, sound, next-turn retirement and renderer-reload behavior.
+All model responses are from an isolated deterministic loopback provider.
+The existing Electron composer-menu verifier also passes filtering, icons,
+selection, IME, cancellation, quotes, model controls and narrow layouts.
+
+No acceptance installer, shortcut update, installed-app change, public release
+or paid-model test is part of this work. Cloud/native macOS and packaged
+acceptance remain separate; the complete Desktop suite was not rerun for this
+renderer-only shortcut. Excluding junction targets, current QA inputs occupy
+10.13 MiB in `dist`, 62.96 MiB in `terminal-runtime`, 0.10 MiB in the runtime
+facade and 2.60 MiB in `test-results`; no historical package is deleted.
+
 ## Artifact Fixture Link Cleanup (2026-11-07, separate local candidate)
 
 Main synchronization note (2026-11-08): this branch now merges main `6995910`,

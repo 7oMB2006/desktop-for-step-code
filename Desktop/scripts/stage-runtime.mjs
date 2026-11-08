@@ -88,6 +88,8 @@ await cp('electron/admin.mjs', join(runtime, 'admin.mjs'));
 await build({ entryPoints: ['electron/compaction-configuration.ts'], outfile: join(runtime, 'compaction-configuration.mjs'),
   bundle: true, platform: 'node', format: 'esm', target: 'node24' });
 await cp('electron/capability-admin.mjs', join(runtime, 'capability-admin.mjs'));
+await cp('electron/capability-failure.mjs', join(runtime, 'capability-failure.mjs'));
+await cp('electron/marketplace-refresh.mjs', join(runtime, 'marketplace-refresh.mjs'));
 await cp('electron/capability-settings.mjs', join(runtime, 'capability-settings.mjs'));
 await cp('electron/plugin-files.mjs', join(runtime, 'plugin-files.mjs'));
 await cp('electron/plugin-update.mjs', join(runtime, 'plugin-update.mjs'));

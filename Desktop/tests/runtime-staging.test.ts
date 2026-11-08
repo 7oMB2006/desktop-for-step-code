@@ -197,3 +197,16 @@ test('runtime packaging and standalone worker helpers use the current integratio
       `${helper} still selects an older integration manifest`);
   }
 });
+
+test('staging includes the capability admin failure classifier', async () => {
+  const stage = await readFile(resolve('scripts/stage-runtime.mjs'), 'utf8');
+  const admin = await readFile(resolve('electron/capability-admin.mjs'), 'utf8');
+  assert.match(admin, /from '\.\/capability-failure\.mjs'/);
+  assert.ok(stage.includes("await cp('electron/capability-failure.mjs', join(runtime, 'capability-failure.mjs'))"));
+  assert.match(admin, /refreshMarketplace: refreshGitMarketplace/);
+  assert.ok(stage.includes("await cp('electron/marketplace-refresh.mjs', join(runtime, 'marketplace-refresh.mjs'))"));
+  for (const name of ['build-plugin-center-verification.mjs', 'package-plugin-center-preview.mjs']) {
+    const script = await readFile(resolve('scripts', name), 'utf8');
+    assert.ok(script.includes("'marketplace-refresh.mjs'"), `${name} must include the Git refresher`);
+  }
+});

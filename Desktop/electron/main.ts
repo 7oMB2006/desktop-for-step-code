@@ -53,6 +53,9 @@ import { RemoteStore } from './remote-store';
 import { AccountAllowanceService } from './account-allowance';
 import { StepPagePreparer } from './steppage-prepare';
 import { CapabilityService, assertPluginUnused } from './capability-service';
+import { CapabilityGate } from './capability-gate';
+import { diagnoseCapabilityMutation, type CapabilityPhaseMarker } from './capability-diagnostics';
+import { capabilityFailureDetails } from './capability-failure.mjs';
 import { UsageEstimates } from './usage-estimates';
 import { providerInfos, providerModelNames, runtimeAuth, mergeRuntimeAuth, saveProviderAuth, deleteProviderAuth, projectProviders, discoverProviderModels, keylessEnvironment } from './custom-providers';
 import { testProvider } from './provider-diagnostic';
@@ -149,6 +152,7 @@ function publishUpdate() {
 let status = 'disconnected';
 let transition = false;
 let settingsMutation = false;
+const capabilityGate = new CapabilityGate();
 let deletingArchived = false;
 let quitting = false;
 let quitPending = false;
@@ -279,6 +283,16 @@ async function refreshThemePacks() {
   }
 }
 const capabilityService = new CapabilityService({ root: dataRoot, runtime: runtimeRoot, node: nodePath,
+  guardRecovery: async id => {
+    const alreadyMutating = settingsMutation;
+    settingsMutation = true;
+    try {
+      await runtimes.assertAllIdle({ stopHost: false, resources: true });
+      await assertPluginUnused(id, runtimes.workers.values());
+      await runtimes.assertAllIdle({ stopHost: false, resources: true });
+      return () => { settingsMutation = alreadyMutating || !capabilityService.runtimeAvailable; };
+    } catch (error) { settingsMutation = alreadyMutating || !capabilityService.runtimeAvailable; throw error; }
+  },
   fetchRepository: (url, options) => net.fetch(url instanceof URL ? url.href : url, { ...options, credentials: 'omit' }),
   environment: () => isolatedEnvironment(dataRoot), validateImage: bytes => {
     const image = nativeImage.createFromBuffer(bytes), size = image.getSize();
@@ -315,7 +329,8 @@ const accountAllowance = new AccountAllowanceService(() => appliedAuthData,
   Date.now, () => performance.now(), 12000, async signal => {
     const credential = appliedAuthData.step;
     const next = await admin.request('refresh_allowance_credential', { credential }, 11000);
-    if (signal.aborted || settingsMutation || appliedAuthData.step !== credential || authData.step !== credential)
+    if (signal.aborted || settingsMutation || capabilityGate.active || !capabilityService.available
+      || appliedAuthData.step !== credential || authData.step !== credential)
       throw new Error('Allowance credential changed');
     if (!next || next.type !== 'oauth' || typeof next.access !== 'string' || !next.access.trim()
       || typeof next.expires !== 'number' || next.expires <= Date.now() + 60000
@@ -325,7 +340,7 @@ const accountAllowance = new AccountAllowanceService(() => appliedAuthData,
     try {
       await persistAuth({ ...authData, step: next });
       appliedAuthData = { ...appliedAuthData, step: next };
-    } finally { settingsMutation = false; }
+    } finally { settingsMutation = !capabilityService.runtimeAvailable; }
   });
 let providerSettingsPending = false;
 let providerApplyFailed = false;
@@ -829,12 +844,12 @@ async function snapshot(worker = runtimes.active, refresh = true, ignoreDraft = 
     sessions, independent: draft ? !draft.workspace : !worker || !(await sessionWorkspacePath(worker.cwd)),
   };
 }
-async function guardIdle(options: { stopHost?: boolean } = {}) {
+async function guardIdle(options: { stopHost?: boolean; allowRemote?: boolean; resources?: boolean } = {}) {
   if (transition) throw new Error('Workspace operation in progress');
   await runtimes.assertAllIdle(options);
 }
 function canApplyProviders() {
-  return !providerApplyFailed && !transition && !undoBusy && !runtimes.running && !admin.hasPendingRequests
+  return capabilityService.available && !capabilityGate.active && !providerApplyFailed && !transition && !undoBusy && !runtimes.running && !admin.hasPendingRequests
     && [...runtimes.workers.values()].every(worker => worker.status !== 'connecting'
       && !worker.operations && !worker.mutating && !worker.stopping && !worker.remoteAttached);
 }
@@ -846,7 +861,7 @@ function applyProviderSettings(): Promise<void> {
   providerApplication = performProviderSettings().catch(error => {
     providerApplyFailed = true;
     throw error;
-  }).finally(() => { settingsMutation = alreadyMutating; providerApplication = undefined; });
+  }).finally(() => { settingsMutation = alreadyMutating || !capabilityService.runtimeAvailable; providerApplication = undefined; });
   return providerApplication;
 }
 async function performProviderSettings() {
@@ -1070,7 +1085,7 @@ async function beginSession(workspace?: string, surface: Surface = 'main') {
   } finally { transition = false; }
 }
 const text = (value: unknown, max = 100000): string => { if (typeof value !== 'string' || value.length > max) throw new Error('Invalid text'); return value; };
-async function handle(method: string, args: any[], surface: Surface = 'main') {
+async function handle(method: string, args: any[], surface: Surface = 'main', markCapabilityPhase?: CapabilityPhaseMarker) {
   const originWindow = () => surface === 'mini' ? miniChat!.window! : window;
   const viewSnapshot = (worker?: SessionRuntime, refresh = true, ignoreDraft = false) => snapshot(worker, refresh, ignoreDraft, surface);
   if (surface === 'mini' && method === 'preferences'
@@ -2436,13 +2451,37 @@ async function handle(method: string, args: any[], surface: Surface = 'main') {
     }
     case 'themePoster': return themePacks.poster(args[0]);
     case 'capabilityMutate': {
-      await guardIdle({ stopHost: false });
-      if (['plugin-remove', 'plugin-update'].includes(args[0]?.action))
-        await assertPluginUnused(text(args[0].id, 128), runtimes.workers.values());
-      const result = await capabilityService.mutate(args[0]);
-      await refreshThemePacks();
-      window.webContents.send('runtime-event', { type: 'desktop_theme_packs', packs: themePacks.packs, preferences });
-      return result;
+      return capabilityGate.run(async () => {
+        markCapabilityPhase?.('idle-check');
+        let refreshThemes = false;
+        const result = await capabilityService.mutate(args[0], async policy => {
+          refreshThemes = policy.scope === 'theme'
+            || ['plugin-install', 'plugin-remove', 'plugin-update'].includes(args[0]?.action);
+          const release = await capabilityGate.guard(policy, {
+            assertAvailable: () => {
+              if (settingsMutation || undoBusy || transition || updateInstalling || quitting || quitPending)
+                throw new Error('Shared settings operation in progress');
+            },
+            acquireRuntime: () => {
+              settingsMutation = true;
+              return () => { settingsMutation = !capabilityService.runtimeAvailable; };
+            },
+            assertIdle: () => guardIdle({ stopHost: false, resources: true }),
+            assertResource: async id => {
+              markCapabilityPhase?.('resource-check');
+              await assertPluginUnused(id, runtimes.workers.values());
+            },
+          });
+          markCapabilityPhase?.('mutation');
+          return release;
+        });
+        if (refreshThemes) {
+          markCapabilityPhase?.('theme-refresh');
+          await refreshThemePacks();
+          window.webContents.send('runtime-event', { type: 'desktop_theme_packs', packs: themePacks.packs, preferences });
+        }
+        return result;
+      });
     }
     case 'capabilityImportSkill': {
       await guardIdle({ stopHost: false });
@@ -2636,6 +2675,7 @@ else app.whenReady().then(async () => {
   await mkdir(dataRoot, { recursive: true });
   await mkdir(join(dataRoot, 'sessions'), { recursive: true });
   await capabilityService.recover();
+  await capabilityService.initialize();
   await collaboration.start();
   await bvrBridge.start();
   // Load credentials before admin/rpc start so the migrated vault content reaches both;
@@ -2773,28 +2813,41 @@ else app.whenReady().then(async () => {
     if (surface === 'main' && (event.sender !== window.webContents || event.senderFrame !== window.webContents.mainFrame)) throw new Error('Untrusted sender');
     if (surface === 'mini' && !miniMethods.has(method)) throw new Error('Return to the main window for this operation');
     const senderId = event.sender.id, generation = rendererGenerations.get(senderId);
-    const execute = async () => {
-    if (method === 'quitRespond' || method === 'windowControl') return handle(method, args, surface);
-    // Reads must not observe the admin transport halfway through an idle reload.
-    if (providerApplication) await providerApplication;
-    const capabilityMutation = ['capabilityMutate', 'capabilityImportSkill', 'bvrSaveConfiguration', 'pluginSaveConfiguration', 'saveCompactionSettings'].includes(method);
-    const shared = capabilityMutation || ['login', 'logout', 'saveMcp', 'saveProvider', 'deleteProvider', 'prepareStepPage', 'finishFirstRun'].includes(method);
-    if (capabilityMutation && (settingsMutation || undoBusy || transition || updateInstalling || quitting || quitPending))
-      throw new Error('Shared settings operation in progress');
-    if (undoBusy && ['moveSessionToProject', 'prepareStepPage', 'removeWorkspace', 'relocateWorkspace', 'beginSession', 'chooseSessionProject', 'createDraftSession', 'command', 'branchSession', 'cloneSession', 'retryMessage', 'restart', 'workspace', 'chooseWorkspace',
-      'switchSession', 'navigateSession', 'newIndependentSession', 'deleteSession', 'deleteArchivedSessions', 'login', 'logout', 'saveMcp', 'saveProvider', 'deleteProvider'].includes(method))
-      throw new Error('Undo in progress');
-    if (settingsMutation && ['moveSessionToProject', 'prepareStepPage', 'removeWorkspace', 'relocateWorkspace', 'beginSession', 'chooseSessionProject', 'createDraftSession', 'command', 'branchSession', 'cloneSession', 'retryMessage', 'restart', 'workspace', 'chooseWorkspace', 'switchSession', 'navigateSession', 'newIndependentSession', 'login', 'logout', 'saveMcp', 'saveProvider', 'deleteProvider', 'finishFirstRun'].includes(method)) throw new Error('Shared settings operation in progress');
-    if (!updateInstalling && providerSettingsPending && !settingsMutation && canApplyProviders()) {
-      await applyProviderSettings();
-    }
-    if (rendererGenerations.get(senderId) !== generation) throw new Error('Window reloaded; retry the current action');
-    if (shared && miniNavigation.busy) throw new Error('MiniChat conversation is opening');
-    if (shared) settingsMutation = true;
-    try { return await handle(method, args, surface); }
-    catch (error) { throw new Error(error instanceof Error ? error.message : 'Desktop operation failed'); }
-    finally { if (shared) settingsMutation = false; }
-    };
+    const execute = () => diagnoseCapabilityMutation(method, args[0], async markCapabilityPhase => {
+      if (method === 'quitRespond' || method === 'windowControl') return handle(method, args, surface);
+      // Reads must not observe the admin transport halfway through an idle reload.
+      if (providerApplication) await providerApplication;
+      const capabilityMutation = ['capabilityMutate', 'capabilityImportSkill', 'bvrSaveConfiguration', 'pluginSaveConfiguration', 'saveCompactionSettings'].includes(method);
+      const capabilityRead = ['capabilityCatalog', 'pluginDocument', 'pluginRepositoryInfo', 'pluginConfiguration',
+        'pluginChoosePath', 'themeScene', 'themePoster', 'bvrConfiguration', 'bvrCheckEnvironment', 'bvrChoosePath'].includes(method);
+      // CapabilityService selects its trusted scope after freezing the package.
+      // Discovery network work and data-only themes must not block Remote I/O.
+      const shared = capabilityMutation && method !== 'capabilityMutate'
+        || ['login', 'logout', 'saveMcp', 'saveProvider', 'deleteProvider', 'prepareStepPage', 'finishFirstRun'].includes(method);
+      if ((shared || method === 'capabilityMutate') && capabilityGate.active)
+        throw new Error('Shared settings operation in progress');
+      if ((shared || method === 'capabilityMutate') && !capabilityService.available)
+        throw new Error('capability:management-unavailable');
+      if (capabilityMutation && (settingsMutation || undoBusy || transition || updateInstalling || quitting || quitPending))
+        throw new Error('Shared settings operation in progress');
+      if (undoBusy && ['moveSessionToProject', 'prepareStepPage', 'removeWorkspace', 'relocateWorkspace', 'beginSession', 'chooseSessionProject', 'createDraftSession', 'command', 'branchSession', 'cloneSession', 'retryMessage', 'restart', 'workspace', 'chooseWorkspace',
+        'switchSession', 'navigateSession', 'newIndependentSession', 'deleteSession', 'deleteArchivedSessions', 'login', 'logout', 'saveMcp', 'saveProvider', 'deleteProvider'].includes(method))
+        throw new Error('Undo in progress');
+      if (settingsMutation && ['moveSessionToProject', 'prepareStepPage', 'removeWorkspace', 'relocateWorkspace', 'beginSession', 'chooseSessionProject', 'createDraftSession', 'command', 'branchSession', 'cloneSession', 'retryMessage', 'restart', 'workspace', 'chooseWorkspace', 'switchSession', 'navigateSession', 'newIndependentSession', 'login', 'logout', 'saveMcp', 'saveProvider', 'deleteProvider', 'finishFirstRun'].includes(method)) throw new Error('Shared settings operation in progress');
+      if (!capabilityRead && method !== 'capabilityMutate' && !updateInstalling && providerSettingsPending && !settingsMutation && canApplyProviders()) {
+        await applyProviderSettings();
+      }
+      if (rendererGenerations.get(senderId) !== generation) throw new Error('Window reloaded; retry the current action');
+      if (shared && miniNavigation.busy) throw new Error('MiniChat conversation is opening');
+      if (shared) settingsMutation = true;
+      try { return await handle(method, args, surface, markCapabilityPhase); }
+      catch (error) {
+        const failure = new Error(error instanceof Error ? error.message : 'Desktop operation failed');
+        if (method === 'capabilityMutate') Object.assign(failure, { details: capabilityFailureDetails(error) });
+        throw failure;
+      }
+      finally { if (shared) settingsMutation = !capabilityService.runtimeAvailable; }
+    }, (error, details) => crashLog.record('capability-operation', error, details));
     if (method === 'command' && args[0] === 'prompt' && args[1]?.composerReceipt !== undefined) {
       const worker = runtimes.workers.get(args[2] ?? selectedRuntime(surface)!);
       return composers.submit(text(args[1].composerReceipt, 80), worker?.state?.sessionId ? { sessionId: worker.state.sessionId } : undefined, execute);

@@ -654,17 +654,23 @@ export class SessionRuntimes {
     this.launchReads.set(worker, read);
     return read;
   }
-  async assertIdle(worker: SessionRuntime, options: { stopHost?: boolean } = {}) {
+  async assertIdle(worker: SessionRuntime, options: { stopHost?: boolean; allowRemote?: boolean; resources?: boolean } = {}) {
+    const rpc = worker.rpc, sessionId = worker.state?.sessionId;
     const assertHost = () => {
-      if (worker.remoteAttached) throw new Error('Unbind Remote before changing this session runtime');
+      if (this.workers.get(worker.id) !== worker || worker.rpc !== rpc || worker.state?.sessionId !== sessionId)
+        throw new Error('Session operation in progress');
+      if (worker.remoteAttached && !(options.stopHost === false && options.allowRemote))
+        throw new Error('Unbind Remote before changing this session runtime');
       if (worker.btwActive) throw new Error('Finish or cancel the side question first');
       if (hasBackgroundWork(worker)) throw new Error('Stop background agents before changing this session runtime');
       if (options.stopHost && hasScheduledCron(worker.cron)) throw new Error('Delete scheduled Cron jobs before restarting or changing this runtime; Cron state must be available');
+      if (options.resources && hasScheduledCron(worker.cron)) throw new Error('capability:scheduled-work');
+      if (worker.launch?.goal?.status === 'active') throw new Error('Pause the active goal first');
+      if (worker.queued) throw new Error('Send or withdraw the pending messages first');
+      if (worker.stopping) throw new Error('Session operation in progress');
+      if (this.isBusy(worker)) throw new Error('Stop this session task first');
     };
     assertHost();
-    if (worker.launch?.goal?.status === 'active') throw new Error('Pause the active goal first');
-    if (worker.queued) throw new Error('Send or withdraw the pending messages first');
-    if (this.isBusy(worker)) throw new Error('Stop this session task first');
     if (worker.status === 'connected') {
       const state = await worker.rpc.request('get_state');
       assertHost();
@@ -716,11 +722,18 @@ export class SessionRuntimes {
       throw error;
     } finally { worker.submissions--; this.publish(); }
   }
-  async assertAllIdle(options: { stopHost?: boolean } = {}) {
-    for (const worker of this.workers.values()) {
+  async assertAllIdle(options: { stopHost?: boolean; allowRemote?: boolean; resources?: boolean } = {}) {
+    const workers = [...this.workers.values()];
+    for (const worker of workers) {
       if (worker.mutating) throw new Error('Session operation in progress');
-      await this.assertIdle(worker, { stopHost: options.stopHost !== false });
+      await this.assertIdle(worker, { ...options, stopHost: options.stopHost !== false });
     }
+    if (workers.length !== this.workers.size || workers.some(worker => this.workers.get(worker.id) !== worker
+      || worker.mutating || worker.stopping || worker.queued || this.isBusy(worker)
+      || worker.btwActive || hasBackgroundWork(worker) || worker.launch?.goal?.status === 'active'
+      || worker.remoteAttached && !(options.stopHost === false && options.allowRemote)
+      || (options.stopHost !== false || options.resources) && hasScheduledCron(worker.cron)))
+      throw new Error('Session operation in progress');
   }
   async refresh(worker: SessionRuntime, node: string, entry: string, env: NodeJS.ProcessEnv,
     options: { allowUnavailableModel?: boolean } = {}) {

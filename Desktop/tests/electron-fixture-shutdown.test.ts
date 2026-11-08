@@ -34,8 +34,10 @@ test('driver close errors remain failures even after a successful launcher exit'
 
 test('driver closure alone cannot complete shutdown before the launcher exits', async () => {
   const child = Object.assign(new EventEmitter(), { exitCode: null as number | null });
+  const context = new EventEmitter();
   let settled = false;
-  const closing = closeDesktopFixtureAndWait({ process: () => child, windows: () => [], context: () => new EventEmitter(), close: async () => {} }, 1000)
+  const closing = closeDesktopFixtureAndWait({ process: () => child, windows: () => [], context: () => context,
+    close: async () => { context.emit('close'); } }, 1000)
     .then(() => { settled = true; });
   await new Promise(resolve => setImmediate(resolve));
   assert.equal(settled, false);
@@ -102,8 +104,6 @@ test('orderly fixture shutdown releases inherited pipes only after successful ex
       assert.equal(child.stdout.destroyed, false);
       page.closed = true;
       page.emit('close');
-      assert.equal(child.stdout.destroyed, false, 'closed pages cannot overtake the context close event');
-      context.emit('close');
       assert.equal(child.stdout.destroyed, false, 'pipe disposal must not interrupt close event delivery');
       await new Promise(resolve => setImmediate(resolve));
       assert.ok(child.stdio.every(pipe => pipe === null || pipe.destroyed));
@@ -157,20 +157,39 @@ test('fixture pipe release waits for a successful process exit and every page to
   } finally { dispose(); }
 });
 
-test('a context marked closing must deliver its close event before launcher pipes are released', async () => {
+test('context closure can wait for inherited launcher pipes without deadlocking shutdown', async () => {
   const { child, page, context, dispose } = fixture();
+  dispose();
   Object.assign(context, { isClosed: () => true });
-  try {
-    child.exitCode = 0;
-    page.closed = true;
-    child.emit('exit', 0);
-    page.emit('close');
-    assert.ok(child.stdio.every(pipe => pipe === null || !pipe.destroyed));
-    context.emit('close');
-    await new Promise(resolve => setImmediate(resolve));
-    assert.ok(child.stdio.every(pipe => pipe === null || pipe.destroyed));
-  } finally { dispose(); }
+  const pipesClosed = Promise.all(child.stdio.filter(pipe => pipe !== null).map(pipe =>
+    new Promise<void>(resolve => pipe.once('close', resolve))));
+  let driverClosed = false;
+  await closeDesktopFixtureAndWait({
+    process: () => child, windows: () => [page], context: () => context,
+    close: async () => {
+      child.exitCode = 0;
+      child.emit('exit', 0);
+      page.closed = true;
+      page.emit('close');
+      await pipesClosed;
+      context.emit('close');
+      driverClosed = true;
+    },
+  }, 1000);
+  assert.equal(driverClosed, true);
+  assert.ok(child.stdio.every(pipe => pipe === null || pipe.destroyed));
   assert.equal(context.listenerCount('close'), 0);
+});
+
+test('successful exit and driver completion cannot replace the actual context close event', async () => {
+  const child = Object.assign(new EventEmitter(), { exitCode: null as number | null });
+  const context = Object.assign(new EventEmitter(), { isClosed: () => true });
+  await assert.rejects(closeDesktopFixtureAndWait({
+    process: () => child, windows: () => [], context: () => context,
+    close: async () => { child.exitCode = 0; child.emit('exit', 0); },
+  }, 20), /shutdown timed out/);
+  assert.equal(context.listenerCount('close'), 0);
+  assert.equal(child.listenerCount('exit'), 0);
 });
 
 test('closed pages cannot release a live process pipe', async () => {
@@ -221,18 +240,18 @@ test('all application pages must close before any pipe is released', async () =>
   } finally { dispose(); }
 });
 
-test('pipe disposal cannot overtake remaining context close listeners', async () => {
+test('pipe disposal cannot overtake remaining page close listeners', async () => {
   const { child, page, context, dispose } = fixture();
   child.exitCode = 0;
   page.closed = true;
   let forwarded = false;
-  context.on('close', () => {
+  page.on('close', () => {
     assert.equal(child.stdout.destroyed, false);
     assert.equal(child.stderr.destroyed, false);
     forwarded = true;
   });
   try {
-    context.emit('close');
+    page.emit('close');
     assert.equal(forwarded, true);
     assert.equal(child.stdout.destroyed, false);
     await new Promise(resolve => setImmediate(resolve));
@@ -244,7 +263,7 @@ test('disposing a scheduled pipe release leaves the driver pipes intact', async 
   const { child, page, context, dispose } = fixture();
   child.exitCode = 0;
   page.closed = true;
-  context.emit('close');
+  child.emit('exit', 0);
   dispose();
   await new Promise(resolve => setImmediate(resolve));
   assert.ok(child.stdio.every(pipe => pipe === null || !pipe.destroyed));

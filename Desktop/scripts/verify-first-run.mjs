@@ -291,9 +291,18 @@ try {
   assert.equal((await readFile(join(customRoot, 'step-runtime/auth.dpapi'))).includes(Buffer.from(secret)), false);
   assert.ok(!(await page.locator('body').innerText()).includes(secret));
   await page.evaluate(() => {
-    window.firstRunSettledRuntime = undefined;
+    window.firstRunCompletion = undefined;
     window.desktop.onEvent(event => {
-      if (event.type === 'agent_settled') window.firstRunSettledRuntime = event.runtimeId;
+      if (event.type === 'agent_start') {
+        window.firstRunCompletion = { runtimeId: event.runtimeId, replyEnded: false, settled: false };
+      }
+      const run = window.firstRunCompletion;
+      if (!run || run.runtimeId !== event.runtimeId) return;
+      if (event.type === 'message_end' && event.message?.role === 'assistant'
+        && event.message.stopReason === 'stop' && JSON.stringify(event.message.content).includes('First-run loopback reply.')) {
+        run.replyEnded = true;
+      }
+      if (event.type === 'agent_settled' && run.replyEnded) run.settled = true;
     });
   });
   await page.getByRole('textbox', { name: '消息', exact: true }).fill('Reply using the onboarding provider.');
@@ -302,7 +311,7 @@ try {
   assert.equal(requests.length, 1, 'only the explicit first send invokes the configured model');
   await page.waitForFunction(async () => {
     const value = await window.desktop.snapshot();
-    return window.firstRunSettledRuntime === value.runtimeId && !value.state?.isStreaming
+    return window.firstRunCompletion?.settled && window.firstRunCompletion.runtimeId === value.runtimeId && !value.state?.isStreaming
       && value.messages.some(message => message.role === 'assistant'
       && message.stopReason === 'stop' && JSON.stringify(message.content).includes('First-run loopback reply.'));
   });

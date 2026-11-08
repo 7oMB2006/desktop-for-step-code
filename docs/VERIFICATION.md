@@ -1,5 +1,41 @@
 # Verification
 
+## PR #211 Windows Shutdown Wait Cycle (2026-11-08)
+
+The first lifecycle repair did not resolve Windows run `42454598542`.
+Running the verifier directly passes locally, but running the same verifier
+through `runGroup`/`executeScript`, with CI's Node 24.16.0 and `CI=true`,
+reproduces the 30-second shutdown timeout. The launcher exits 0 and no owned
+application processes or windows remain, while every inherited launcher pipe
+stays open and the actual browser-context close event has not arrived.
+`context.isClosed()` is true here because closure has started, not completed.
+
+Requiring context closure before releasing exited-launcher pipes creates a wait
+cycle. Pipe release now requires successful launcher exit and closed windows,
+and remains deferred until page/exit event delivery finishes. Separately,
+`closeDesktopFixtureAndWait` explicitly awaits the real context close event
+alongside driver completion and process exit. A successful exit or an already
+closing context cannot substitute for that event. Driver errors, missing close
+events and the unchanged 30-second deadline still fail.
+
+The same launcher also reproduces a first-run read before the session file
+exists, despite the earlier runtime-only settled checkpoint. The fixture now
+tracks `agent_start`, the expected reply's `message_end`, and a subsequent
+`agent_settled` for that runtime. A prior idle event or a streamed message whose
+temporary stop reason is already `stop` cannot satisfy completion. The saved
+header/reply and exact session identity after relaunch remain mandatory.
+
+The new inherited-pipe/context wait-cycle regression fails with the previous
+helper and passes with this repair. All 28 shutdown/onboarding tests and
+typecheck pass. Four native `then_run` checks through the actual CI launcher
+pass, including RPC/UI, orderly controller/context/process closure and
+subsequent native shell probes. First-run native acceptance through that
+launcher also passes with the ordered completion checkpoint.
+Cloud verification for the final head remains required. Diagnostic logging
+contains only fixture PIDs, process names/parent IDs and pipe lifecycle state,
+not command lines, credentials or environment values. No production behavior,
+runtime pin, package, shortcut or running user application changes.
+
 ## PR #211 Acceptance Lifecycle Repair (2026-11-08)
 
 Merged head `35f4b73` failed macOS source `verify-first-run.mjs` at history

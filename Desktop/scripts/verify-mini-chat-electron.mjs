@@ -523,11 +523,14 @@ try {
     const handler = ipcMain._invokeHandlers.get('desktop');
     let release;
     const gate = new Promise(resolve => { release = resolve; });
-    globalThis.miniPresentationGate = { handler, release, saves: [] };
+    globalThis.miniPresentationGate = { handler, release, pending: false, saves: [] };
     ipcMain.removeHandler('desktop');
     ipcMain.handle('desktop', async (event, method, ...args) => {
-      if (event.sender.id === windowId && method === 'snapshot') await gate;
-      if (event.sender.id === windowId && method === 'windowPresentation')
+      if (event.sender.id === windowId && method === 'snapshot') {
+        globalThis.miniPresentationGate.pending = true;
+        await gate;
+      }
+      if (event.sender.id === windowId && method === 'windowPresentation' && globalThis.miniPresentationGate.pending)
         globalThis.miniPresentationGate.saves.push(args[1].position);
       return handler(event, method, ...args);
     });
@@ -537,6 +540,8 @@ try {
     await main.getByRole('region', { name: '远程访问', exact: true }).waitFor({ state: 'detached' });
     await main.evaluate(() => window.dispatchEvent(new Event('blur')));
     await main.evaluate(() => window.desktop.miniChatState());
+    assert.equal(await app.evaluate(() => globalThis.miniPresentationGate.pending), true,
+      'The main renderer is waiting for its handoff snapshot before the blur save');
     assert.deepEqual(await app.evaluate(() => globalThis.miniPresentationGate.saves), [],
       'Presentation saves stay suspended until the transferred snapshot is installed');
   } finally {

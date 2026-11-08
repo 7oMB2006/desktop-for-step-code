@@ -1,5 +1,42 @@
 # Verification
 
+## Capability Management Main Synchronization (2026-11-08)
+
+The closeout combines the local capability-management and Remote cleanup
+repairs with main `20774ca`, retaining #213 crash-log redaction and #214 linked
+path guards. Both branches' earlier evidence remains below; those dated
+entries are historical observations, not statements that supersede this
+combined verification.
+
+The combined source `71f4c74` passes typecheck, an isolated production build,
+691 focused capability/plugin/Remote/path/log regressions, and 148 additional
+runtime ownership, background, Cron, side-question, provider and quit tests.
+The separate native RPC suite passes 11 tests with two POSIX-only skips,
+including confirmed process exit/restart and streamed-session restoration.
+CI policy, inventory and runner self-tests pass 39 cases with one platform
+skip. A new regression preserves correlated Git metadata through main's
+crash-log redaction without publishing the original failure payload.
+
+The isolated Electron verifier passes all 12 scenarios with no renderer
+errors and confirmed owned-process cleanup. Single and partial Git failures
+retain their real exit code and elapsed time; a healthy market advances and
+an explicit refresh after source restoration succeeds. Native/Remote worker
+identity and the binding survive theme/market maintenance, including while a
+peer streams; executable-plugin removal is still refused. Desktop and narrow
+screenshots are inspected.
+
+Evidence is in `Desktop/test-results/host-closeout-focused.log`,
+`Desktop/test-results/host-closeout-runtime-guards.log`, and
+`Desktop/test-results/host-closeout-electron-20261108/results.json`.
+Native RPC evidence is `Desktop/test-results/host-closeout-rpc.log`.
+The isolated build has about 7.6 MB of its own files and links immutable
+runtime directories; no shared runtime is restaged. The owner's running r2
+package, real profile, Remote binding and shortcut are not switched or
+modified. No new distributable, cloud CI, native macOS, real-account or release
+acceptance is established by these local checks. The original occasional
+market-refresh failure and Windows process-tree termination failure remain
+unresolved as root-cause claims.
+
 ## Marketplace Refresh Failure Evidence (2026-11-08)
 
 The owner's earlier `marketplace-update` diagnostic `6ad7692a50bd` identifies

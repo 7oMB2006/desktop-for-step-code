@@ -4,9 +4,16 @@ export function releaseExitedFixturePipes(app) {
   const pages = app.windows();
   const context = app.context();
   let contextClosed = false;
+  let pendingRelease;
+  const ready = () => contextClosed && child.exitCode === 0 && !app.windows().some(page => !page.isClosed());
   const release = () => {
-    if (!contextClosed || child.exitCode !== 0 || app.windows().some(page => !page.isClosed())) return;
-    for (const pipe of child.stdio ?? [child.stdout, child.stderr]) pipe?.destroy();
+    if (!ready() || pendingRelease) return;
+    // Let Playwright finish forwarding the close event before pipe disposal can
+    // emit the launcher's close and dispose its pending controller request.
+    pendingRelease = setImmediate(() => {
+      pendingRelease = undefined;
+      if (ready()) for (const pipe of child.stdio ?? [child.stdout, child.stderr]) pipe?.destroy();
+    });
   };
   // The launcher close disposes Playwright's context channel. Preserve its close
   // event first; isClosed() also returns true while a context is merely closing.
@@ -16,6 +23,7 @@ export function releaseExitedFixturePipes(app) {
   for (const page of pages) page.on('close', release);
   release();
   return () => {
+    clearImmediate(pendingRelease);
     context.off('close', onContextClose);
     child.off('exit', release);
     for (const page of pages) page.off('close', release);

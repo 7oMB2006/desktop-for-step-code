@@ -104,6 +104,8 @@ test('orderly fixture shutdown releases inherited pipes only after successful ex
       page.emit('close');
       assert.equal(child.stdout.destroyed, false, 'closed pages cannot overtake the context close event');
       context.emit('close');
+      assert.equal(child.stdout.destroyed, false, 'pipe disposal must not interrupt close event delivery');
+      await new Promise(resolve => setImmediate(resolve));
       assert.ok(child.stdio.every(pipe => pipe === null || pipe.destroyed));
     },
   });
@@ -139,7 +141,7 @@ function fixture() {
   return { child, page, context, dispose };
 }
 
-test('fixture pipe release waits for a successful process exit and every page to close', () => {
+test('fixture pipe release waits for a successful process exit and every page to close', async () => {
   const { child, page, context, dispose } = fixture();
   try {
     child.exitCode = 0;
@@ -150,11 +152,12 @@ test('fixture pipe release waits for a successful process exit and every page to
     page.emit('close');
     assert.equal(child.stdout.destroyed, false);
     context.emit('close');
+    await new Promise(resolve => setImmediate(resolve));
     assert.ok(child.stdio.every(pipe => pipe === null || pipe.destroyed), 'extra Playwright pipes must also close');
   } finally { dispose(); }
 });
 
-test('a context marked closing must deliver its close event before launcher pipes are released', () => {
+test('a context marked closing must deliver its close event before launcher pipes are released', async () => {
   const { child, page, context, dispose } = fixture();
   Object.assign(context, { isClosed: () => true });
   try {
@@ -164,12 +167,13 @@ test('a context marked closing must deliver its close event before launcher pipe
     page.emit('close');
     assert.ok(child.stdio.every(pipe => pipe === null || !pipe.destroyed));
     context.emit('close');
+    await new Promise(resolve => setImmediate(resolve));
     assert.ok(child.stdio.every(pipe => pipe === null || pipe.destroyed));
   } finally { dispose(); }
   assert.equal(context.listenerCount('close'), 0);
 });
 
-test('closed pages cannot release a live process pipe', () => {
+test('closed pages cannot release a live process pipe', async () => {
   const { child, page, context, dispose } = fixture();
   try {
     page.closed = true;
@@ -180,6 +184,7 @@ test('closed pages cannot release a live process pipe', () => {
     assert.ok(child.stdio.every(pipe => pipe === null || !pipe.destroyed));
     child.exitCode = 0;
     child.emit('exit', 0);
+    await new Promise(resolve => setImmediate(resolve));
     assert.equal(child.stdout.destroyed, true);
     assert.equal(child.stderr.destroyed, true);
   } finally { dispose(); }
@@ -199,7 +204,7 @@ test('failed process exit cannot be turned into graceful fixture success', () =>
   } finally { dispose(); }
 });
 
-test('all application pages must close before any pipe is released', () => {
+test('all application pages must close before any pipe is released', async () => {
   const child = Object.assign(new EventEmitter(), {
     exitCode: 0, stdout: new PassThrough(), stderr: new PassThrough(),
   });
@@ -211,8 +216,38 @@ test('all application pages must close before any pipe is released', () => {
     assert.equal(child.stdout.destroyed, false);
     pages[1].isClosed = () => true;
     pages[1].emit('close');
+    await new Promise(resolve => setImmediate(resolve));
     assert.equal(child.stdout.destroyed, true);
   } finally { dispose(); }
+});
+
+test('pipe disposal cannot overtake remaining context close listeners', async () => {
+  const { child, page, context, dispose } = fixture();
+  child.exitCode = 0;
+  page.closed = true;
+  let forwarded = false;
+  context.on('close', () => {
+    assert.equal(child.stdout.destroyed, false);
+    assert.equal(child.stderr.destroyed, false);
+    forwarded = true;
+  });
+  try {
+    context.emit('close');
+    assert.equal(forwarded, true);
+    assert.equal(child.stdout.destroyed, false);
+    await new Promise(resolve => setImmediate(resolve));
+    assert.ok(child.stdio.every(pipe => pipe === null || pipe.destroyed));
+  } finally { dispose(); }
+});
+
+test('disposing a scheduled pipe release leaves the driver pipes intact', async () => {
+  const { child, page, context, dispose } = fixture();
+  child.exitCode = 0;
+  page.closed = true;
+  context.emit('close');
+  dispose();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.ok(child.stdio.every(pipe => pipe === null || !pipe.destroyed));
 });
 
 test('disposing the fixture guard removes process and page listeners', () => {

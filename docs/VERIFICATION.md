@@ -1,5 +1,33 @@
 # Verification
 
+## PR #211 Acceptance Lifecycle Repair (2026-11-08)
+
+Merged head `35f4b73` failed macOS source `verify-first-run.mjs` at history
+restoration and Windows `verify-then-run.mjs` during controller shutdown after
+all functional assertions passed. Windows reported launcher exit 0, a closed
+context and zero windows, but the driver close did not settle within 30 seconds.
+
+The fixture pipe guard now defers disposal until the close event has finished
+dispatching, then rechecks the successful launcher exit, actual context close
+event and all closed windows. The original implementation fails the new
+remaining-close-listener regression; the repaired implementation passes it.
+Cancellation of a scheduled release also has a regression. Driver errors and
+stalls remain failures, and neither the 30-second bound nor CI inventory changes.
+
+First-run acceptance now observes the matching runtime's `agent_settled`,
+checks the saved JSONL header and completed reply, and waits for both controller
+closure and successful launcher exit before reusing the profile. Relaunch must
+still list exactly one session with the original identity. These checkpoints
+distinguish incomplete persistence from shutdown or discovery failure instead
+of relying only on visible text and a streaming flag.
+
+Local typecheck, all 27 shutdown/onboarding unit tests, source first-run native
+acceptance and source `then_run` RPC/UI plus native command probes pass.
+The unmodified native verifiers also passed locally, so those local results
+alone do not establish the cause or resolution of every intermittent cloud
+failure. Replacement Windows/macOS cloud checks remain required. No production
+behavior, runtime pin, package, shortcut or running user application changes.
+
 ## PR #211 Main Synchronization (2026-11-08)
 
 Merge main `20774ca` after #214's linked-path guards and fixture cleanup.

@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { createServer } from 'node:http';
 import { assertFocusVisible } from './assert-focus-visible.mjs';
-import { closeDesktopFixture } from './close-desktop-fixture.mjs';
+import { closeDesktopFixtureAndWait } from './close-desktop-fixture.mjs';
 import { settleLayout } from './settle-layout.mjs';
 
 const output = resolve('test-results/first-run-native');
@@ -121,7 +121,14 @@ const launch = async root => {
     dialog.showMessageBox = async () => ({ response: 1 });
   });
 };
-const close = async () => { if (app) { await closeDesktopFixture(app); app = undefined; } };
+const close = async () => {
+  if (!app) return;
+  const child = app.process();
+  await closeDesktopFixtureAndWait(app);
+  assert.equal(child.exitCode, 0, 'first-run launcher exits successfully before reusing its profile');
+  assert.equal(app.windows().length, 0, 'first-run windows close before relaunch');
+  app = undefined;
+};
 const snapshot = () => page.evaluate(() => window.desktop.snapshot());
 const stopIntro = async () => {
   await page.getByRole('heading', { name: '连接模型服务', exact: true }).waitFor({ timeout: 60000 });
@@ -283,21 +290,35 @@ try {
   assert.equal(requests.length, 0);
   assert.equal((await readFile(join(customRoot, 'step-runtime/auth.dpapi'))).includes(Buffer.from(secret)), false);
   assert.ok(!(await page.locator('body').innerText()).includes(secret));
+  await page.evaluate(() => {
+    window.firstRunSettledRuntime = undefined;
+    window.desktop.onEvent(event => {
+      if (event.type === 'agent_settled') window.firstRunSettledRuntime = event.runtimeId;
+    });
+  });
   await page.getByRole('textbox', { name: '消息', exact: true }).fill('Reply using the onboarding provider.');
   await page.getByRole('button', { name: '发送', exact: true }).click();
   await page.getByText('First-run loopback reply.', { exact: true }).waitFor({ timeout: 60000 });
   assert.equal(requests.length, 1, 'only the explicit first send invokes the configured model');
   await page.waitForFunction(async () => {
     const value = await window.desktop.snapshot();
-    return !value.state?.isStreaming && value.messages.some(message => message.role === 'assistant'
+    return window.firstRunSettledRuntime === value.runtimeId && !value.state?.isStreaming
+      && value.messages.some(message => message.role === 'assistant'
       && message.stopReason === 'stop' && JSON.stringify(message.content).includes('First-run loopback reply.'));
   });
-  assert.equal((await snapshot()).state.model.id, 'first-run-alternative');
+  const completed = await snapshot();
+  assert.equal(completed.state.model.id, 'first-run-alternative');
+  const saved = (await readFile(completed.state.sessionFile, 'utf8')).trim().split('\n').map(line => JSON.parse(line));
+  assert.equal(saved[0].id, completed.state.sessionId, 'the completed session has a durable header');
+  assert.ok(saved.some(entry => entry.type === 'message' && entry.message.role === 'assistant'
+    && entry.message.stopReason === 'stop' && JSON.stringify(entry.message.content).includes('First-run loopback reply.')),
+  'the first reply is saved before quitting');
   await close();
   await launch(customRoot);
   await page.locator('.new-session').waitFor({ timeout: 60000 });
   assert.equal(await page.locator('.first-run-production').count(), 0, 'completed setup never reappears on an update');
   assert.equal((await snapshot()).sessions.length, 1, 'history remains after relaunch');
+  assert.equal((await snapshot()).sessions[0].id, completed.state.sessionId, 'relaunch lists the saved session identity');
   mark('restored history keeps runtime controls available after renderer reload');
   await page.evaluate(id => window.desktop.switchSession(id), (await snapshot()).sessions[0].id);
   await page.reload();

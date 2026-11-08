@@ -21794,10 +21794,10 @@ var errorResult = (error2) => ({ isError: true, content: [{
 server.registerTool("host_context", {
   description: "Read host capability availability; never calls a model.",
   inputSchema: {}
-}, async () => {
+}, async (_arguments, extra) => {
   try {
     if (!host) throw new HostClientError(startupCode);
-    return { content: [{ type: "text", text: JSON.stringify(await host.context()) }] };
+    return { content: [{ type: "text", text: JSON.stringify(await host.context({ signal: extra.signal })) }] };
   } catch (error2) {
     return errorResult(error2);
   }
@@ -21805,10 +21805,10 @@ server.registerTool("host_context", {
 server.registerTool("summarize_text", {
   description: "Request a summary through the explicitly authorized host model; no independent-key fallback.",
   inputSchema: { text: external_exports.string().min(1).max(16384) }
-}, async ({ text: text2 }) => {
+}, async ({ text: text2 }, extra) => {
   try {
     if (!host) throw new HostClientError(startupCode);
-    const context = await host.context();
+    const context = await host.context({ signal: extra.signal });
     const available = context.capabilities.find((item) => item.id === "model.text");
     if (!available?.available) throw new HostClientError(available?.reason ?? "CAPABILITY_UNAVAILABLE");
     const result = await host.invoke({
@@ -21819,7 +21819,7 @@ server.registerTool("summarize_text", {
         { role: "system", content: "Summarize the supplied text concisely." },
         { role: "user", content: text2 }
       ] }
-    });
+    }, { signal: extra.signal });
     return { content: [{ type: "text", text: result.text }] };
   } catch (error2) {
     return errorResult(error2);

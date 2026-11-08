@@ -9341,3 +9341,45 @@ TTS、BVR 旧桥迁移、Cron 恢复自动接线、实包和跨仓库发布仍�
 预览只模拟状态，不能据此宣称模型权益可用。未生成安装包或更新快捷方式。
 可重建产物盘点：本工作树 `Desktop/runtime` 124.17 MiB、`Desktop/dist`
 11.82 MiB、新界面截图 0.42 MiB；均保留，未删除旧包或修改其他预览服务。
+
+## 插件宿主生产确认链路隔离验收（2026-11-08）
+
+`verify-plugin-host-authorization-electron.mjs` 已加入共享 interface 验收清单。
+它将实际 SDK 插件安装到新建的隔离 profile，保留原生发现、主进程 broker、
+Step provider、typed IPC 和生产 renderer，不注入确认结果或私有 renderer RPC。
+主进程与原生子进程的官方模型网络请求在保存测试账户前即改接 loopback，
+其余外部模型地址拒绝；测试不读取个人 profile 或真实账户凭据。
+StepPage bundle 固定为隔离目录内不存在的路径，并断言没有额外启用的
+StepPage server，避免 Windows 启动回退发现个人安装。
+
+本地 Node.js 24.16.0 / Windows 源码 Electron 验收通过：
+
+- 来源保存、启动、可用性查询不发送模型请求；
+- 生产确认展示插件、能力、模型、API 渠道、地区及费用边界；
+- 拒绝后返回 `DENIED`，没有 provider 调用或授权；
+- 实际 MCP `notifications/cancelled` 撤下未批准弹窗，不授予权限；
+- 点击批准后才收到 loopback 模型请求，同次启动同能力复用授权；
+- 在途取消实际中断 provider HTTP 请求，不声称撤销已发生费用；
+- 经生产登录入口换到另一地区账户，旧启动及授权失效，新账户重新确认；
+- 测试专用原生代理保留旧假租约，换号后重放旧 `/context` 和 `/invoke`，
+  均返回 `STALE_CONTEXT`，不新增确认或 provider 请求；租约不经过 renderer；
+- renderer 保持 Node 隔离，公开快照和界面不含凭据、启动密钥或租约。
+
+SDK 示例修正了未转发 MCP 取消信号的问题，两个工具的上下文查询和
+模型调用均传递 `extra.signal`。新增四项真实 MCP 取消回归，旧 bundle 上
+四项均失败，重建后完整 11 项通过，取消回归连续三轮通过。
+截图保存在 `Desktop/test-results/plugin-host-authorization/`，已检查生产确认图。
+
+设置页 verifier 的模式选择与密钥清空改为等待实际 DOM 状态，
+原断言保留，不通过固定睡眠或放宽断言处理 React 更新竞态。
+修复后浏览器矩阵通过。CI 策略及 Win/mac runner 共 31 项：
+30 项通过，1 项仅 macOS 的进程组场景在 Windows 跳过。
+
+云端仍单独验收：`d458e77` 的 Windows run `42467361509` 和 macOS run
+`42467361479` 在依赖安装阶段遇到 GitHub 发布资源 504，
+涉及 Electron、Node 与 canvas 预编译下载；并非本轮授权断言失败，
+也不能据本地通过宣称云端已绿。保留所有结果与产物上传门禁。
+早先 #218 的八槽位重试准备超时尚无已证实根因，诊断增强不算根因修复。
+
+本轮没有真实账户/付费请求、安装包、市场同步、BVR/StepAudio 迁移、
+合并或发布；未切换快捷方式，也未清理旧包。

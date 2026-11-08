@@ -49,12 +49,25 @@ lockfile 锁定官方 MCP SDK 1.27.1，与当前固定 runtime 的 SDK 主线一
 测试将可安装目录复制到全新的临时目录，从其外部启动入口，
 使用真正的官方 MCP client 握手及调用；该目录没有 `node_modules`。
 依赖许可证、无 Key 跟随、授权前拒绝、撤销和后代不继承分别验证。
-当前共有 7 项测试，其中 2 项把实际主进程 broker 和 Step provider 编译到临时目录，
+当前共有 11 项测试，其中 4 项把实际主进程 broker 和 Step provider 编译到临时目录，
 再由真正 SDK 子进程跨 HTTP 调用，验证确认、固定渠道、拒绝后不重弹及撤销。
 这些测试的账户、确认回调、原生消费者核验和 provider fetch 仍是假数据，
 没有连接真实账户或证明正式启动链已接入。服务边界见
 `docs/PLUGIN_HOST_BROKER.md`（仓库根目录）。
 这不是作者仓库到社区固定提交同步或正式客户端验收，后两者仍需另做。
+
+## 取消请求
+
+MCP 工具回调收到的 `extra.signal` 必须同时传入 `host.context({ signal })`
+和 `host.invoke(input, { signal })`。只取消 MCP 客户端等待，不代表宿主确认或模型请求已停止。
+示例验证真正的 `notifications/cancelled`：读取上下文时关闭 HTTP 等待，
+确认前取消会撤下待确认请求且不授权，调用后取消会中断 provider 请求。
+取消不能保证免除服务端已处理请求产生的费用，也不能改走其他账户、渠道或独立 Key。
+
+宿主仓库另用 `Desktop/scripts/verify-plugin-host-authorization-electron.mjs`
+覆盖实际原生发现、SDK 子进程和生产确认弹窗，含拒绝、批准、取消、
+同次启动复用和换账户后重新确认。该验收只有隔离测试账户与 loopback 网络出口，
+不等同于真实账户、安装包或市场发布验收。
 
 ## 安装与依赖
 

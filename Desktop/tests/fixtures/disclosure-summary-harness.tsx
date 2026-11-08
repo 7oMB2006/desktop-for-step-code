@@ -1,8 +1,9 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { ConversationMessages } from '../../src/ConversationMessages';
 import { SummaryBoard } from '../../src/SummaryBoard';
 import { AppTooltip } from '../../src/AppTooltip';
+import { ConversationDisclosureMemory, type ConversationDisclosureState } from '../../src/ConversationDisclosureState';
 import { selectInterfacePreset } from '../../src/interface-presets';
 import { applyAppearance, defaultAppearance } from '../../src/appearance';
 import type { DesktopBridge, Message, SessionSummary } from '../../src/contracts';
@@ -30,11 +31,16 @@ function Harness() {
   const [messages, setMessages] = useState<Message[]>([thought]);
   const [busy, setBusy] = useState(true);
   const [revision, setRevision] = useState(0);
+  const [mountRevision, setMountRevision] = useState(0);
+  const [disclosureRevision, setDisclosureRevision] = useState(0);
+  const disclosures = useRef<ConversationDisclosureState>(new Map());
   const [target, setTarget] = useState('');
   const [preset, setPreset] = useState<'simple' | 'standard' | 'detailed'>('simple');
   Object.assign(window, { disclosureFixture: {
     load: (items: Message[], active = false) => { setMessages(items); setBusy(active); },
     summary: (value: SessionSummary) => { currentSummary = value; setRevision(value => value + 1); },
+    remount: () => setMountRevision(value => value + 1),
+    resetDisclosures: () => setDisclosureRevision(value => value + 1),
     thought, command, result,
   } });
   const agents: Message[] = [{ role: 'assistant', content: [{ type: 'toolCall', id: 'agents', name: 'subagent', arguments: { tasks: [{ agent: 'reviewer', task: '核对交互边界' }] } }] },
@@ -65,9 +71,12 @@ function Harness() {
     </nav>
     <div className="disclosure-fixture-layout">
       <div className="messages">
-        <ConversationMessages messages={messages} language={language} busy={busy} canEdit={false}
-          interfaceSettings={selectInterfacePreset(preset)} openImage={() => {}} edit={async () => {}} branch={() => {}}
-          onError={setTarget} onOpenSubagent={task => setTarget(task.task)}/>
+        <ConversationDisclosureMemory.Provider value={params.has('memory') ? disclosures.current : undefined}>
+          <ConversationMessages key={mountRevision} messages={messages} language={language} busy={busy} canEdit={false}
+            interfaceSettings={selectInterfacePreset(preset)} interfaceRevision={disclosureRevision}
+            openImage={() => {}} edit={async () => {}} branch={() => {}}
+            onError={setTarget} onOpenSubagent={task => setTarget(task.task)}/>
+        </ConversationDisclosureMemory.Provider>
         {target && <p role="status">{target}</p>}
       </div>
       <aside className="summary-board" aria-label={language === 'zh' ? '摘要' : 'Summary'}>

@@ -20,7 +20,8 @@ export class CronAutoRecovery {
     private launch: (plan: CronRecoveryPlan) => Promise<unknown>,
     private safe: (workspace: string) => boolean, private now = Date.now,
     private blocked?: (workspace: string, sessionId: string) => void,
-    private unavailable?: (error: unknown) => void) {}
+    private unavailable?: (error: unknown) => void,
+    private replace: typeof rename = rename) {}
   private file(workspace: string) {
     return join(this.root, createHash('sha256').update(normalizedWorkspaceKey(workspace, process.platform)).digest('hex') + '.json');
   }
@@ -28,7 +29,14 @@ export class CronAutoRecovery {
     await mkdir(this.root, { recursive: true });
     const file = this.file(grant.workspace), temporary = `${file}.${randomUUID()}.tmp`;
     await writeFile(temporary, JSON.stringify(grant), { mode: 0o600 });
-    await rename(temporary, file);
+    // Windows can briefly deny replacement while another reader holds the file.
+    for (let attempt = 0; ; attempt++) {
+      try { await this.replace(temporary, file); break; }
+      catch (error) {
+        if (attempt >= 4 || !['EPERM', 'EACCES', 'EBUSY'].includes((error as NodeJS.ErrnoException).code ?? '')) throw error;
+        await new Promise(resolve => setTimeout(resolve, 25 * (attempt + 1)));
+      }
+    }
   }
   private async read(file: string): Promise<Grant | undefined> {
     try {

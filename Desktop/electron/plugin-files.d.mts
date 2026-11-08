@@ -13,6 +13,7 @@ export function packagePath(value: unknown): string;
 export function plainFile(root: string, path: string, limit?: number): Promise<Buffer>;
 export function optionalFile(root: string, path: string, limit?: number): Promise<Buffer | undefined>;
 export function packageFingerprint(root: string): Promise<string>;
+export function dataOnlyThemeFingerprint(root: string, id: string): Promise<string | undefined>;
 export function scanInstalled(root: string): Promise<Array<{ folder: string; id: string }>>;
 export function readReceipts(root: string): Promise<InstallationReceipts>;
 export function writeReceipts(root: string, value: InstallationReceipts): Promise<void>;

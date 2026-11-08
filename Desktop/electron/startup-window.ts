@@ -27,6 +27,7 @@ export class StartupWindow {
       webPreferences: { nodeIntegration: false, contextIsolation: true, sandbox: true, backgroundThrottling: false },
     });
     this.splash = splash;
+    if (process.platform === 'win32') splash.setAlwaysOnTop(true, 'normal');
     splash.setIgnoreMouseEvents(true);
     splash.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
     splash.webContents.on('will-navigate', event => event.preventDefault());

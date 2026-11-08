@@ -53,6 +53,7 @@ function harness(reducedMotion = false) {
     const useRef = current => ({ current });
     const useCallback = callback => callback;
     const window = { matchMedia: () => ({ matches: reducedMotion }) };
+    const isMini = false;
     let mcpEdit = null;
     const setMcpEdit = value => { mcpEdit = value; state.edit = value; };
     const setError = value => { state.error = value; };
@@ -66,6 +67,8 @@ function harness(reducedMotion = false) {
     const setCapabilityTarget = () => {};
     const openPlugins = () => finishSettingsClose();
     const t = (_zh, en) => en;
+    const latestData = { current: { preferences: { language: 'en' } } };
+    const composerErrorText = error => String(error);
     ${runtime}
     return {
       manage: ${jsxCallback('PluginCenter', 'onManageMcp')},

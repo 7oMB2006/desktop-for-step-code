@@ -3,6 +3,8 @@ import { ArrowDownToLine, ArrowLeft, BookOpen, Check, Globe, LoaderCircle, Plug,
 import type { McpServer, SessionSummary } from './contracts';
 import type { CapabilityCatalog, CapabilityMutation, CapabilityPlugin, MarketplacePlugin, PluginPackage, PluginStarSnapshot } from './capabilities';
 import type { CapabilityTarget, PluginTab } from './capability-command';
+import { capabilityNeedsIdle } from './capability-locks';
+import { capabilityWarningText } from './capability-errors';
 import { CapabilityDisclosure, CapabilityPluginIconView, capabilityErrorText, type CapabilityBridge } from './CapabilitySettings';
 import { BvrConfigurationForm, type BvrSettingsBridge } from './BvrConfigurationForm';
 import { PluginConfigurationForm } from './PluginConfigurationForm';
@@ -128,7 +130,7 @@ export function PluginCenter({ bridge, language, busy, active, runtimeId, settin
     })),
     checking: checkingUpdates,
     onCheck: async () => {
-      if (operation.current || updateOperation.current || busy || bvrState.pending) return;
+      if (operation.current || updateOperation.current || bvrState.pending) return;
       operation.current = true; setCheckingUpdates(true); setError('');
       try {
         const result = await bridge.capabilityMutate({ action: 'plugin-check-updates' });
@@ -152,7 +154,10 @@ export function PluginCenter({ bridge, language, busy, active, runtimeId, settin
         catch (error) { if (alive.current) setError(capabilityErrorText(error, language === 'zh')); }
         if (alive.current) {
           setWarnings(result.warnings);
-          setUpdateStates(current => ({ ...current, [pluginId]: { phase: 'updated', version, restartRequired: Boolean(runtimeId) } }));
+          const restartRequired = Boolean(runtimeId) && capabilityNeedsIdle({
+            action: 'plugin-update', id: pluginId, ref: plugin.package!.ref, candidate: candidate.ref!,
+          }, catalog);
+          setUpdateStates(current => ({ ...current, [pluginId]: { phase: 'updated', version, restartRequired } }));
         }
         return true;
       } catch (error) {
@@ -169,7 +174,14 @@ export function PluginCenter({ bridge, language, busy, active, runtimeId, settin
   const isBvr = entry?.installed?.id === 'bilibili-video-research';
   const isStepPage = entry?.installed?.id === 'steppage';
   const updating = Boolean(updates && Object.values(updates.items).some(pluginUpdatePending));
-  const locked = busy || pending || loading || bvrState.pending || updating || updateBusy || Boolean(updates?.checking);
+  const operationLocked = pending || loading || bvrState.pending || updating || updateBusy || Boolean(updates?.checking);
+  const locked = busy || operationLocked;
+  const mutationLocked = (input: CapabilityMutation) => operationLocked || busy && capabilityNeedsIdle(input, catalog);
+  const installLocked = (item: Entry) => !item.available || mutationLocked({ action: 'plugin-install',
+    name: item.available.name, marketplace: item.available.marketplace, ref: item.package?.ref });
+  const updateLocked = (plugin: CapabilityPlugin) => mutationLocked({
+    action: 'plugin-update', id: plugin.id, ref: plugin.package?.ref ?? '', candidate: plugin.update?.ref ?? '',
+  });
   const configurationPackage = entry?.installed?.package;
   const hasConfigurationForm = Boolean(isBvr || configurationPackage?.configurationAvailable);
   const canEditBvr = Boolean(hasConfigurationForm && bvrState.ready);
@@ -235,13 +247,13 @@ export function PluginCenter({ bridge, language, busy, active, runtimeId, settin
     setBvrState({ dirty: false, pending: false, ready: false });
   });
   const perform = async (input: CapabilityMutation) => {
-    if (operation.current || locked) return;
+    if (operation.current || mutationLocked(input)) return;
     operation.current = true; setPending(true); setError(''); setWarnings([]);
     try {
       const result = await bridge.capabilityMutate(input);
       if (!alive.current) return;
       setWarnings(result.warnings);
-      if (!input.action.startsWith('marketplace-')) setChanged(true);
+      if (capabilityNeedsIdle(input, catalog)) setChanged(true);
       if (input.action === 'plugin-remove') { setSelected(undefined); setBvrState({ dirty: false, pending: false, ready: false }); }
       if (input.action === 'marketplace-add') { setAdding(false); setSource(''); }
       const next = await bridge.capabilityCatalog();
@@ -253,7 +265,11 @@ export function PluginCenter({ bridge, language, busy, active, runtimeId, settin
         }
       }
       await onChanged();
-    } catch (error) { if (alive.current) setError(capabilityErrorText(error, language === 'zh')); }
+    } catch (error) {
+      if (alive.current) setError(capabilityErrorText(error, language === 'zh'));
+      // Even a failed worker mutation can retire document references.
+      try { const next = await bridge.capabilityCatalog(); if (alive.current) acceptCatalog(next); } catch {}
+    }
     finally { operation.current = false; if (alive.current) setPending(false); }
   };
   const restart = async () => {
@@ -316,7 +332,8 @@ export function PluginCenter({ bridge, language, busy, active, runtimeId, settin
   }, [active, bridge, repositoryKey, repositoryRevision]);
   const back = () => navigate(() => { setSelected(undefined); setBvrState({ dirty: false, pending: false, ready: false }); });
   const updatePlugin = (pluginId: string) => navigate(() => {
-    if (!updates || locked || updateOperation.current) return;
+    const plugin = catalog?.plugins.find(item => item.id === pluginId);
+    if (!updates || !plugin || updateLocked(plugin) || updateOperation.current) return;
     updateOperation.current = true; setUpdateBusy(true);
     void updates.onUpdate(pluginId).then(async success => {
       if (!success || !alive.current) return;
@@ -343,7 +360,7 @@ export function PluginCenter({ bridge, language, busy, active, runtimeId, settin
   return <section className="plugin-center pc-center" aria-label={t('插件中心', 'Plugin center')} data-level={entry ? 'detail' : 'catalog'} hidden={!active}>
     <header className="pc-page-header" hidden={Boolean(entry)}><div><button className="icon-button" aria-label={t('返回会话', 'Back to conversation')} onClick={onBack}><ArrowLeft size={18}/></button>
       <Plug size={23}/><h1>{t('插件', 'Plugins')}</h1><span className="pc-count">{catalog?.plugins.length ?? ''}</span></div>
-      {updates ? <button type="button" className="pc-check-updates" disabled={locked || updates.checking}
+      {updates ? <button type="button" className="pc-check-updates" disabled={operationLocked || updates.checking}
         aria-label={t('检查插件更新', 'Check plugin updates')} onClick={() => navigate(() => void updates.onCheck()
           .catch(error => { if (alive.current) setError(capabilityErrorText(error, language === 'zh')); }))}>
         <RefreshCw size={14} className={updates.checking ? 'pc-spin' : undefined}/>{updates.checking ? t('正在检查', 'Checking') : t('检查更新', 'Check updates')}</button>
@@ -351,7 +368,7 @@ export function PluginCenter({ bridge, language, busy, active, runtimeId, settin
           onClick={() => void refresh(true)}><RefreshCw size={16} className={loading ? 'pc-spin' : undefined}/></button>}</header>
     {pending && <p className="cap-pending" role="status"><LoaderCircle size={14} className="pc-spin"/>{t('正在处理', 'Working')}</p>}
     {error && <div className="cap-error" role="alert">{error}</div>}
-    {!!warnings.length && <ul className="cap-notes">{warnings.map((value, index) => <li key={index}>{value}</li>)}</ul>}
+    {!!warnings.length && <ul className="cap-notes">{warnings.map((value, index) => <li key={index}>{capabilityWarningText(value, language === 'zh')}</li>)}</ul>}
     {!entry ? <div className="pc-catalog-page">
       <div className="pc-catalog-toolbar">
         <div className="cap-tabs pc-catalog-tabs" role="tablist" aria-label={t('插件目录', 'Plugin catalog')} onKeyDown={tabKeyboard}>
@@ -365,16 +382,16 @@ export function PluginCenter({ bridge, language, busy, active, runtimeId, settin
       <div className="pc-catalog-body" id={`${id}-catalog`} role="tabpanel" aria-labelledby={`${id}-${tab}`}>
         {!catalog ? <div className="pc-list-empty">{loading ? t('加载中', 'Loading') : <button onClick={() => void refresh()}>{t('重试', 'Retry')}</button>}</div>
           : tab === 'sources' ? <div className="pc-sources">
-            <div className="pc-section-title"><h3>{t('市场来源', 'Marketplaces')}</h3><button disabled={locked} onClick={() => setAdding(!adding)}><Plus size={15}/>{t('添加市场', 'Add marketplace')}</button></div>
+            <div className="pc-section-title"><h3>{t('市场来源', 'Marketplaces')}</h3><button disabled={operationLocked} onClick={() => setAdding(!adding)}><Plus size={15}/>{t('添加市场', 'Add marketplace')}</button></div>
             {adding && <form className="pc-source-form" onSubmit={event => { event.preventDefault(); void perform({ action: 'marketplace-add', source }); }}>
-              <label>{t('市场来源', 'Marketplace source')}<input autoFocus required value={source} disabled={locked} placeholder="owner/repo" onChange={event => setSource(event.target.value)}/></label>
-              <button type="button" disabled={pending} onClick={() => setAdding(false)}>{t('取消', 'Cancel')}</button><button className="primary" disabled={locked || !source.trim()}><Plus size={14}/>{t('添加', 'Add')}</button></form>}
+              <label>{t('市场来源', 'Marketplace source')}<input autoFocus required value={source} disabled={operationLocked} placeholder="owner/repo" onChange={event => setSource(event.target.value)}/></label>
+              <button type="button" disabled={pending} onClick={() => setAdding(false)}>{t('取消', 'Cancel')}</button><button className="primary" disabled={operationLocked || !source.trim()}><Plus size={14}/>{t('添加', 'Add')}</button></form>}
             {catalog.marketplaces.filter(market => `${market.name} ${market.origin ?? ''}`.toLocaleLowerCase().includes(query.toLocaleLowerCase())).map(market =>
               <div className="pc-source-row" key={market.name}><Globe size={20}/><div><strong>{market.name}</strong><small>{market.origin ?? t('随运行时提供', 'Provided by runtime')}</small></div>
                 {market.kind === 'builtin' ? <span className="pc-status">{t('内置', 'Built-in')}</span> : <>
-                  <button className="icon-button" disabled={locked} aria-label={t(`更新市场 ${market.name}`, `Update marketplace ${market.name}`)}
+                  <button className="icon-button" disabled={operationLocked} aria-label={t(`更新市场 ${market.name}`, `Update marketplace ${market.name}`)}
                     onClick={() => void perform({ action: 'marketplace-update', name: market.name })}><RefreshCw size={15}/></button>
-                  <button className="icon-button pc-danger-button" disabled={locked} aria-label={t(`移除市场 ${market.name}`, `Remove marketplace ${market.name}`)}
+                  <button className="icon-button pc-danger-button" disabled={operationLocked} aria-label={t(`移除市场 ${market.name}`, `Remove marketplace ${market.name}`)}
                     onClick={() => setConfirmation({ title: t(`移除市场 ${market.name}？已安装插件将保留。`, `Remove marketplace ${market.name}? Installed plugins are kept.`),
                       action: () => void perform({ action: 'marketplace-remove', name: market.name }) })}><Trash2 size={15}/></button></>}
               </div>)}
@@ -391,12 +408,12 @@ export function PluginCenter({ bridge, language, busy, active, runtimeId, settin
                   </span>
               </button>
               <footer className="pc-card-footer"><div className="pc-card-state">{item.installed ? <>{toggle(item.installed)}<span className="pc-status">{status(item.installed)}</span></>
-                : <button disabled={locked || item.available?.installed || item.available?.blocked} onClick={() => item.available && void perform({ action: 'plugin-install', name: item.available.name, marketplace: item.available.marketplace, ref: item.package?.ref })}>
+                : <button disabled={installLocked(item) || item.available?.installed || item.available?.blocked} onClick={() => item.available && void perform({ action: 'plugin-install', name: item.available.name, marketplace: item.available.marketplace, ref: item.package?.ref })}>
                   {item.available?.installed ? <Check size={14}/> : <ArrowDownToLine size={14}/>} {item.available?.installed ? t('已安装', 'Installed') : t('安装', 'Install')}</button>}</div>
                 <div className="pc-card-actions">
                   {item.installed && <PluginUpdateAction state={updates?.items[item.installed.id]} name={item.name}
-                    language={language} disabled={locked} onUpdate={() => updatePlugin(item.installed!.id)}
-                    onRestart={runtimeId ? () => void restart().catch(error => setError(capabilityErrorText(error, language === 'zh'))) : undefined}/>}
+                    language={language} disabled={updateLocked(item.installed)} onUpdate={() => updatePlugin(item.installed!.id)}
+                    onRestart={runtimeId && !locked ? () => void restart().catch(error => setError(capabilityErrorText(error, language === 'zh'))) : undefined}/>}
                   <ProjectLink entry={item} language={language}/>
                   <button className="icon-button pc-card-settings" aria-label={t(`配置 ${item.name}`, `Configure ${item.name}`)} onClick={event => choose(item, event.currentTarget)}><Settings size={16}/></button></div></footer>
             </article>)}</div>
@@ -422,14 +439,14 @@ export function PluginCenter({ bridge, language, busy, active, runtimeId, settin
           <div className="pc-header-actions"><span className="pc-repository"><ProjectLink entry={entry} language={language}/><PluginStars value={entry.repository && entry.package ? entry.package.stars ?? { status: 'unknown' } : undefined} language={language}/>
             {entry.repository && entry.package && <button className="icon-button" disabled={repositoryPending} aria-label={t('刷新仓库信息', 'Refresh repository information')}
               onClick={() => void refreshRepository()}><RefreshCw size={13} className={repositoryPending ? 'pc-spin' : undefined}/></button>}</span>{entry.installed ? <>
-            {toggle(entry.installed)}<button className="icon-button pc-danger-button" disabled={locked} aria-label={t('卸载插件', 'Uninstall plugin')}
+            {toggle(entry.installed)}<button className="icon-button pc-danger-button" disabled={mutationLocked({ action: 'plugin-remove', id: entry.installed.id })} aria-label={t('卸载插件', 'Uninstall plugin')}
               onClick={() => navigate(() => setConfirmation({ title: t(`卸载 ${entry.name}？`, `Uninstall ${entry.name}?`),
                 action: () => void perform({ action: 'plugin-remove', id: entry.installed!.id }) }))}><Trash2 size={16}/></button></>
-            : <button className="primary" disabled={locked || entry.available?.installed || entry.available?.blocked} onClick={() => entry.available && void perform({ action: 'plugin-install', name: entry.available.name, marketplace: entry.available.marketplace, ref: entry.package?.ref })}>
+            : <button className="primary" disabled={installLocked(entry) || entry.available?.installed || entry.available?.blocked} onClick={() => entry.available && void perform({ action: 'plugin-install', name: entry.available.name, marketplace: entry.available.marketplace, ref: entry.package?.ref })}>
               <ArrowDownToLine size={15}/>{entry.available?.installed ? t('已安装', 'Installed') : t('安装', 'Install')}</button>}</div></header>
         {entry.installed && <PluginUpdateRow state={updates?.items[entry.installed.id]} name={entry.name} currentVersion={entry.installed.version}
-          language={language} disabled={locked} onUpdate={() => updatePlugin(entry.installed!.id)}
-          onRestart={runtimeId ? () => void restart().catch(error => setError(capabilityErrorText(error, language === 'zh'))) : undefined}/>}
+          language={language} disabled={updateLocked(entry.installed)} onUpdate={() => updatePlugin(entry.installed!.id)}
+          onRestart={runtimeId && !locked ? () => void restart().catch(error => setError(capabilityErrorText(error, language === 'zh'))) : undefined}/>}
         {entry.package?.stars && ['stale', 'limited', 'unavailable'].includes(entry.package.stars.status) && <p className="pc-hint" role="status">
           {entry.package.stars.status === 'stale' ? t('仓库信息为旧快照，查询时间见 Star。', 'Repository information is a previous snapshot; see its timestamp.')
             : entry.package.stars.status === 'limited' ? t('GitHub 查询受限，请稍后重试。', 'GitHub requests are limited. Retry later.')
@@ -472,7 +489,7 @@ export function PluginCenter({ bridge, language, busy, active, runtimeId, settin
               <dd>{entry.package.keywords.join(' · ')}</dd></dl>}
             <PluginDocumentation presentation={entry.package} description={entry.description} version={entry.version} language={language}
               fileName={entry.package?.documentation.readme}
-              reader={active && detailTab === 'about' && entry.package?.documentation.readme
+              reader={active && !pending && !checkingUpdates && detailTab === 'about' && entry.package?.documentation.readme
                 ? <PluginDocumentReader key={`${entry.package.ref}-${entry.package.documentation.readme}`} bridge={bridge} pkg={entry.package} kind="readme" language={language}/> : undefined}/>
             {entry.package?.provenance === 'unknown' && <p className="cap-notes">{t('安装来源未确认', 'Installation source unconfirmed')}</p>}
             {!!entry.package?.warnings.length && <ul className="cap-notes">{entry.package.warnings.map((value, index) => <li key={index}>{value}</li>)}</ul>}
@@ -482,7 +499,7 @@ export function PluginCenter({ bridge, language, busy, active, runtimeId, settin
           </div>
           {entry.package?.documentation.changelog && <div id={`${id}-updates-panel`} role="tabpanel" aria-labelledby={`${id}-detail-updates`} hidden={detailTab !== 'updates'}>
             <div className="pc-document-heading"><span>{t('更新记录', 'Changelog')}</span><span>{entry.package.documentation.changelog}</span></div>
-            {active && detailTab === 'updates' && <PluginDocumentReader key={`${entry.package.ref}-${entry.package.documentation.changelog}`} bridge={bridge} pkg={entry.package} kind="changelog" language={language}/>}
+            {active && !pending && !checkingUpdates && detailTab === 'updates' && <PluginDocumentReader key={`${entry.package.ref}-${entry.package.documentation.changelog}`} bridge={bridge} pkg={entry.package} kind="changelog" language={language}/>}
           </div>}
         </div>
       </div></div><ScrollThumb scrollRef={scroll} language={language === 'zh' ? 'zh' : 'en'} sessionId={`${entry.key}-${detailTab}`} messageCount={1}

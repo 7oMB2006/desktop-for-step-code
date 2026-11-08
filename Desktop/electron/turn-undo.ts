@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { lstat, mkdir, open, readFile, realpath, rename, writeFile } from 'node:fs/promises';
-import { isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { lstat, mkdir, open, readFile, readdir, realpath, rename, writeFile } from 'node:fs/promises';
+import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { applyPatch, parsePatch, reversePatch } from 'diff';
 import { normalizedWorkspaceKey } from '../src/workspace-key';
 import { turnChanges } from '../src/turn-changes';
@@ -49,6 +49,15 @@ async function guardedPath(root: string, path: string) {
     current = join(current, part);
     const info = await lstat(current);
     if (info.isSymbolicLink()) throw new Error('Linked paths cannot be undone');
+    // lstat can classify a Windows junction as a plain directory; the parent
+    // directory entry classifies the same reparse point reliably.
+    try {
+      const linked = await readdir(dirname(current), { withFileTypes: true })
+        .then(entries => entries.some(entry => entry.name === part && entry.isSymbolicLink()));
+      if (linked) throw new Error('Linked paths cannot be undone');
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    }
   }
   const info = await lstat(target);
   if (!info.isFile() || info.nlink !== 1 || info.size > MAX_FILE) throw new Error('File is not eligible for undo');

@@ -33,7 +33,10 @@ new MutationObserver(() => {
 
 const invoke = (method: string, ...args: unknown[]) => ipcRenderer.invoke('desktop', method, ...args);
 const bridge: DesktopBridge = {
-  surface: process.argv.includes('--desktop-mini-chat') ? 'mini' : 'main',
+  surface: process.argv.includes('--desktop-plugin-window') ? 'plugin' : process.argv.includes('--desktop-mini-chat') ? 'mini' : 'main',
+  pluginWindowOpen: input => invoke('pluginWindowOpen', input),
+  pluginWindowState: () => invoke('pluginWindowState'),
+  pluginWindowConfigure: () => invoke('pluginWindowConfigure'),
   miniChatOpen: () => invoke('miniChatOpen'),
   miniChatState: () => invoke('miniChatState'),
   miniChatPin: pinned => invoke('miniChatPin', pinned),

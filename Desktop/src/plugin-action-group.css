@@ -1,0 +1,25 @@
+.plugin-action-group {
+  display: flex; flex: 0 0 auto; align-items: center; gap: 0;
+  height: 100%; padding-inline: 4px; -webkit-app-region: no-drag;
+}
+.plugin-action-button {
+  width: 38px; height: 34px; min-height: 34px; padding: 0; flex: 0 0 38px;
+  border: 0; border-radius: 5px; background: transparent; color: var(--muted);
+  -webkit-app-region: no-drag;
+}
+.plugin-action-button:hover:not(:disabled),
+.plugin-action-button[aria-pressed="true"],
+.plugin-action-button[aria-expanded="true"],
+.plugin-action-button[data-active] { color: var(--ink); background: var(--surface); }
+.plugin-action-button:focus-visible { outline-offset: -2px; }
+.plugin-action-icon,
+.plugin-action-icon > span { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.plugin-action-icon > span { width: 100%; height: 100%; }
+.plugin-action-icon img { display: block; width: 100%; height: 100%; object-fit: contain; }
+.plugin-action-icon .plugin-action-icon-dark { display: none; }
+[data-theme="dark"] .plugin-action-icon.has-dark-icon .plugin-action-icon-light { display: none; }
+[data-theme="dark"] .plugin-action-icon.has-dark-icon .plugin-action-icon-dark { display: inline-flex; }
+@media (max-width: 600px) {
+  .plugin-action-group { padding-inline: 2px; }
+  .plugin-action-button { width: 32px; flex-basis: 32px; }
+}

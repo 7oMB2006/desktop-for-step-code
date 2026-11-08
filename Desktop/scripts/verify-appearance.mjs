@@ -104,12 +104,19 @@ try {
     }
   }
   const semantic = await colors();
-  // Persistence can finish before the renderer receives its preference reply.
-  await app.evaluate(({ ipcMain }) => {
+  // Hold both acknowledgement channels: preferences now also sync by event.
+  await app.evaluate(({ ipcMain, BrowserWindow }) => {
     const handler = ipcMain._invokeHandlers.get('desktop');
+    const contents = BrowserWindow.getAllWindows()[0].webContents;
+    const send = contents.send.bind(contents), events = [];
+    contents.send = (channel, event, ...args) => {
+      if (channel === 'runtime-event' && event?.type === 'desktop_preferences'
+        && event.preferences.accentColor === '#487bd1') events.push([channel, event, ...args]);
+      else send(channel, event, ...args);
+    };
     let release;
     const gate = new Promise(resolve => { release = resolve; });
-    globalThis.accentReplyFixture = { handler, release };
+    globalThis.accentReplyFixture = { handler, release, contents, send, events };
     ipcMain.removeHandler('desktop');
     ipcMain.handle('desktop', async (event, method, ...args) => {
       const result = await handler(event, method, ...args);
@@ -123,9 +130,11 @@ try {
   assert.equal(await blueSwatch.getAttribute('aria-pressed'), 'false', 'saved preferences do not imply a rendered acknowledgement');
   assert.equal((await colors())['--primary'], semantic['--primary'], 'the held reply leaves the previous rendered accent intact');
   await app.evaluate(({ ipcMain }) => {
-    const { handler, release } = globalThis.accentReplyFixture;
+    const { handler, release, contents, send, events } = globalThis.accentReplyFixture;
     ipcMain.removeHandler('desktop');
     ipcMain.handle('desktop', handler);
+    contents.send = send;
+    for (const event of events) send(...event);
     release();
     delete globalThis.accentReplyFixture;
   });

@@ -17,7 +17,7 @@ const builtins = {
   usage: { labels: ['用量统计', 'Usage'], description: '查看用量统计；account 打开账户与额度', Icon: ChartBar },
   goal: { labels: ['目标', 'Goal'], description: '查看或设置持续推进的目标', Icon: Goal },
   plan: { labels: ['计划模式', 'Plan mode'], description: '进入或退出计划模式', Icon: Lightbulb },
-  todos: { labels: ['推进清单', 'Tasks'], description: '查看当前会话的任务清单', Icon: ListTodo },
+  todos: { labels: ['推进清单', 'Tasks'], description: '打开右栏推进清单与历史计划', Icon: ListTodo },
   todo: { labels: ['推进清单', 'Tasks'], description: '查看当前会话的任务清单', Icon: ListTodo },
   workflows: { labels: ['工作流', 'Workflows'], description: '查看已保存的工作流与近期运行记录', Icon: Workflow },
   ultracode: { labels: ['多代理编排', 'Ultracode'], description: '开启、关闭或查看多代理编排', Icon: Network },

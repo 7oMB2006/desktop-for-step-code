@@ -1,6 +1,6 @@
 import { lstat, realpath, rename, rm } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
-import { object, optionalFile, packageFingerprint, readReceipts, writePrivateData, writePrivateJson,
+import { dataOnlyThemeFingerprint, digest, object, optionalFile, packageFingerprint, readReceipts, writePrivateData, writePrivateJson,
   writeReceipts, PluginFileError } from './plugin-files.mjs';
 
 const equal = (a, b) => JSON.stringify(a) === JSON.stringify(b);
@@ -59,15 +59,18 @@ async function observed(root, journal) {
   if (![journal.binding, nextBinding(journal)].some(item => equal(item, binding))) fail();
   return { receipts, index, binding };
 }
-async function cleanup(root, journal, staging) {
+async function assertJournal(root, fingerprint) {
+  const bytes = await optionalFile(root, journalPath, 65536);
+  if (!bytes || digest(bytes) !== fingerprint) fail();
+}
+async function cleanup(root, journal, staging, expectedJournal) {
   // Every recursive removal is confined to one validated, private transaction directory.
   await paths(root, journal);
+  if (expectedJournal !== undefined) await assertJournal(root, expectedJournal);
   await rm(join(root, journalPath), { force: true });
   await rm(staging, { recursive: true, force: true, maxRetries: 3 });
 }
-export async function recoverPluginUpdate(root) {
-  const bytes = await optionalFile(root, journalPath, 65536);
-  if (!bytes) return;
+function readJournal(bytes) {
   const journal = parse(bytes);
   if (!object(journal) || journal.version !== 1 || !uuid(journal.transaction)
     || !['prepared', 'committed'].includes(journal.phase)
@@ -78,13 +81,28 @@ export async function recoverPluginUpdate(root) {
       || journal.binding.instance !== journal.previous.instance || journal.binding.id !== journal.previous.id
       || !journal.binding.revoked && (journal.binding.fingerprint !== journal.previous.fingerprint
         || !['schemaHash', 'revision', 'contentHash'].every(key => hash(journal.binding[key]))))) fail();
+  return journal;
+}
+export async function inspectPluginUpdate(root) {
+  const bytes = await optionalFile(root, journalPath, 65536);
+  if (!bytes) return;
+  return { id: readJournal(bytes).previous.id, fingerprint: digest(bytes) };
+}
+export async function recoverPluginUpdate(root, options = {}) {
+  const bytes = await optionalFile(root, journalPath, 65536);
+  if (options.expectedJournal !== undefined
+    && (!hash(options.expectedJournal) || !bytes || digest(bytes) !== options.expectedJournal)) fail();
+  if (!bytes) return;
+  if (options.allowRecovery === false) fail();
+  const journalFingerprint = digest(bytes);
+  const journal = readJournal(bytes);
   const location = await paths(root, journal);
   const state = await observed(root, journal);
   const current = await fingerprint(location.target);
   if (journal.phase === 'committed') {
     if (current !== journal.next.fingerprint || !equal(state.receipts.installations[state.index], journal.next)
       || !equal(state.binding, nextBinding(journal))) fail();
-    await cleanup(root, journal, location.staging);
+    await cleanup(root, journal, location.staging, journalFingerprint);
     return;
   }
   const backup = await fingerprint(location.backup);
@@ -92,18 +110,22 @@ export async function recoverPluginUpdate(root) {
   if (backup) {
     if (current !== undefined) {
       if (current !== journal.next.fingerprint || await fingerprint(location.discard) !== undefined) fail();
+      await assertJournal(root, journalFingerprint);
       await rename(location.target, location.discard);
     }
+    await assertJournal(root, journalFingerprint);
     await rename(location.backup, location.target);
   } else if (current !== journal.previous.fingerprint) fail();
   if (await fingerprint(location.target) !== journal.previous.fingerprint) fail();
+  await assertJournal(root, journalFingerprint);
   if (!equal(state.binding, journal.binding)) await writePrivateData(root, bindingPath(journal.previous), journal.binding);
   state.receipts.installations[state.index] = journal.previous;
   await writeReceipts(root, state.receipts);
-  await cleanup(root, journal, location.staging);
+  await cleanup(root, journal, location.staging, journalFingerprint);
 }
 
-export async function applyPluginUpdate(root, transaction) {
+export async function applyPluginUpdate(root, transaction, options = {}) {
+  if (await optionalFile(root, journalPath, 65536)) fail();
   const journal = { version: 1, ...transaction, phase: 'prepared' };
   const location = await paths(root, journal);
   const state = await observed(root, journal);
@@ -111,6 +133,11 @@ export async function applyPluginUpdate(root, transaction) {
     || !equal(state.binding, journal.binding)
     || await fingerprint(location.target) !== journal.previous.fingerprint
     || await fingerprint(location.candidate) !== journal.next.fingerprint) throw new PluginFileError('stale');
+  if (options.preserveRuntime === true
+    && (await dataOnlyThemeFingerprint(location.target, journal.previous.id) !== journal.previous.fingerprint
+      || await dataOnlyThemeFingerprint(location.candidate, journal.next.id) !== journal.next.fingerprint))
+    throw new PluginFileError('stale');
+  if (await optionalFile(root, journalPath, 65536)) fail();
   await writePrivateJson(root, 'update-transaction.json', journal);
   try {
     await rename(location.target, location.backup);

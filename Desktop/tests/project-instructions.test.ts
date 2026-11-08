@@ -162,6 +162,7 @@ async function submissionFixture(cwd: string) {
   const pendingMessages = new PendingMessages(() => {}, (_worker, error) => assert.fail(String(error)));
   const handle = runInNewContext(javascript + '\nhandle', {
     updateInstalling: false, transition: false, sessionNavigation: {}, sessionDraft: null, runtimes,
+    selectedDraft: () => undefined, selectedRuntime: () => worker.id,
     text: (value: string) => value, isProjectInstructionsCommand, projectInstructionsMessage, promptNeedsQueue,
     isProjectTrustInput: () => false, preferences: { language: 'zh' }, pendingMessages, emptyLaunch, reviewPayload, reserveReview,
     launchControls: { consume() {}, input: (_worker: unknown, payload: unknown) => payload },

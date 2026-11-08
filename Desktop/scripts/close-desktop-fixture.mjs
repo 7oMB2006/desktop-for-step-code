@@ -2,14 +2,22 @@
 export function releaseExitedFixturePipes(app) {
   const child = app.process();
   const pages = app.windows();
+  let pendingRelease;
+  const ready = () => child.exitCode === 0 && !app.windows().some(page => !page.isClosed());
   const release = () => {
-    if (child.exitCode !== 0 || app.windows().some(page => !page.isClosed())) return;
-    for (const pipe of child.stdio ?? [child.stdout, child.stderr]) pipe?.destroy();
+    if (!ready() || pendingRelease) return;
+    // Finish forwarding page/exit events before disposal. Context closure can
+    // itself wait for launcher pipe EOF, so it cannot gate releasing these pipes.
+    pendingRelease = setImmediate(() => {
+      pendingRelease = undefined;
+      if (ready()) for (const pipe of child.stdio ?? [child.stdout, child.stderr]) pipe?.destroy();
+    });
   };
   child.on('exit', release);
   for (const page of pages) page.on('close', release);
   release();
   return () => {
+    clearImmediate(pendingRelease);
     child.off('exit', release);
     for (const page of pages) page.off('close', release);
   };
@@ -18,6 +26,12 @@ export function releaseExitedFixturePipes(app) {
 // Both the launcher and controller must finish; an exit event cannot abandon app.close().
 export async function closeDesktopFixtureAndWait(app, timeout = 30000) {
   const child = app.process();
+  const context = app.context();
+  let onContextClose;
+  const contextClosed = new Promise(resolve => {
+    onContextClose = resolve;
+    context.once('close', onContextClose);
+  });
   let onExit;
   const exited = new Promise(resolve => {
     if (child.exitCode !== null) resolve();
@@ -26,13 +40,14 @@ export async function closeDesktopFixtureAndWait(app, timeout = 30000) {
   let timer;
   try {
     await Promise.race([
-      Promise.all([closeDesktopFixture(app), exited]),
+      Promise.all([closeDesktopFixture(app), exited, contextClosed]),
       new Promise((_, reject) => {
         timer = setTimeout(() => reject(new Error(`Fixture shutdown timed out after ${timeout}ms`)), timeout);
       }),
     ]);
   } finally {
     clearTimeout(timer);
+    context.off('close', onContextClose);
     if (onExit) child.off('exit', onExit);
   }
 }

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdir, readdir, readFile, copyFile, symlink, access } from 'node:fs/promises';
+import { mkdir, readdir, readFile, copyFile, symlink, access, realpath, stat } from 'node:fs/promises';
 import { resolve, join, isAbsolute } from 'node:path';
 import { build } from 'esbuild';
 import { build as viteBuild } from 'vite';
@@ -18,13 +18,15 @@ catch (error) { if (error.code !== 'ENOENT') throw error; }
 await mkdir(join(output, 'runtime'), { recursive: true });
 for (const name of await readdir(runtime, { withFileTypes: true })) {
   const source = join(runtime, name.name), target = join(output, 'runtime', name.name);
-  if (name.isDirectory()) await symlink(source, target, process.platform === 'win32' ? 'junction' : 'dir');
+  if ((await stat(source)).isDirectory())
+    await symlink(await realpath(source), target, process.platform === 'win32' ? 'junction' : 'dir');
   else {
     const current = resolve('electron', name.name);
     await copyFile(await access(current).then(() => current).catch(() => source), target);
   }
 }
-await copyFile(resolve('electron/plugin-files.mjs'), join(output, 'runtime/plugin-files.mjs'));
+for (const name of ['plugin-files.mjs', 'marketplace-refresh.mjs'])
+  await copyFile(resolve('electron', name), join(output, 'runtime', name));
 const define = { DESKTOP_USAGE_OVERVIEW_PREVIEW: 'false' };
 await build({ entryPoints: ['electron/main.ts', 'electron/preload.ts', 'electron/tray-preload.ts', 'electron/keyless-fetch.ts'],
   outdir: output, outExtension: { '.js': '.cjs' }, bundle: true, platform: 'node', format: 'cjs', external: ['electron'], define });

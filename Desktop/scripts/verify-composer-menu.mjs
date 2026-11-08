@@ -440,6 +440,9 @@ try {
   await page.getByRole('button', { name: '添加附件', exact: true }).click();
   assert.equal(await menu.getByRole('option', { name: /文件和图片/ }).isDisabled(), true);
   await input.press('ArrowDown');
+  assert.equal(await menu.count(), 1, 'returning keyboard focus to the editor preserves an explicit reference menu');
+  assert.match(await menu.getByRole('option', { selected: true }).innerText(), /项目包含桌面界面/,
+    'keyboard navigation still selects references when attachments are full');
   await input.press('Enter');
   assert.equal(await page.locator('.composer-quotes').count(), 1, 'references remain accessible at attachment limit');
   assert.equal(await input.evaluate(element => element.value), '普通消息');

@@ -1,5 +1,26 @@
 # Verification
 
+## 宿主叠加 PR 的 CI 依赖准备（2026-11-08）
+
+#218 的 `9d5f0a3` 与 #220 的 `9914784` 在依赖准备阶段仍失败，
+尚未进入本轮授权验收。canvas 安装器没有取得预编译包，随后在 Windows
+回退编译时找不到支持的 Visual Studio，在 macOS 缺少 pangocairo。
+此前另有 Electron 下载 504；这些现象不能证明授权断言失败，也不能
+仅凭安装器的 “No prebuilt binaries found” 判断官方资产不存在。
+
+本轮只复用另一工作分支的公共 CI 修复（`585b359`、`32cd89a`、
+`4a69dc9`），不引入 #219 的产品改动及其验收记录。预取固定版本的
+官方 canvas 和 Electron 归档，Release 下载失败时只尝试同一官方资产
+的 GitHub API；每个下载有有限期限及重试，校验 SHA-256 后才交给
+原安装器。保留 frozen-lockfile、正常安装生命周期、测试及产物门禁，
+不改 runtime pin、Node 24.16.0、依赖版本或镜像。
+
+本地 CI 策略、Win/mac runner、产物回执、摘要和预取回归共 50 项：
+49 通过，1 项 POSIX 专属场景在 Windows 跳过。已从官方 Release
+metadata 独立核对两个平台的 canvas/Electron 资产 ID 和 SHA-256。
+该结果不等于本轮云端新下载或 macOS 原生验收通过，须按新提交单独确认。
+未安装依赖、构建安装包、触碰日用账户或快捷方式。
+
 ## MCP 凭据默认隔离候选（2026-11-08）
 
 候选基于 main `6995910`，是宿主能力计划 #212 的一个独立实施切片，

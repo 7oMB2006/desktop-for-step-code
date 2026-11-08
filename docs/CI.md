@@ -42,8 +42,52 @@ request. The runner tests also run on each Windows job, including owned-process
 tree cancellation. Run them locally without installing Desktop dependencies:
 
 ```sh
-node --test scripts/ci-policy.test.mjs scripts/ci-windows.test.mjs scripts/windows-ci-summary.test.mjs
+node --test scripts/ci-policy.test.mjs scripts/ci-windows.test.mjs scripts/windows-ci-summary.test.mjs scripts/ci-canvas-prebuild.test.mjs scripts/ci-electron-prebuild.test.mjs
 ```
+
+## Native Canvas Prebuilds
+
+Windows x64 and macOS ARM64 prepare the existing pinned `canvas@3.2.3`
+official Release archive before installing the frozen upstream dependencies.
+`scripts/ci-canvas-prebuild.mjs` restricts the platform selection, downloads
+only from Automattic/node-canvas's GitHub Release or the same asset's official
+GitHub API endpoint, and verifies the asset's recorded SHA-256 before atomically
+publishing the local archive. An existing
+archive is also checked before reuse. Downloads have finite deadlines and at
+most two retries per endpoint; HTTP errors, interrupted downloads and checksum mismatches
+fail preparation rather than becoming successful installation evidence.
+The API fallback uses the fixed official asset ID and the same digest, without
+credentials or a third-party mirror. It runs only after Release download fails.
+
+The original `prebuild-install` lifecycle consumes this archive through its
+supported `npm_config_canvas_local_prebuilds` setting. It still installs the
+native module; no lifecycle scripts or dependencies are skipped. This avoids
+falling back to unrelated native compilation when the installer's single
+30-second download attempt fails. That installer can report a non-200
+download response as "No prebuilt binaries found"; this message alone does not
+prove that a matching platform asset is absent.
+
+Each runner has its own temporary prebuild directory. Nothing is shared with
+user profiles or across jobs, and there is no mirror, dependency/runtime
+version change or weaker test gate. Updating the pinned dependency requires
+reviewing the official assets and digests again. Windows failure summaries
+include preparation as a named stage. Local checksum and Windows native
+rendering checks do not replace cloud installation or macOS native acceptance.
+
+## Electron Download Preparation
+
+After the normal Desktop dependency install, `scripts/ci-electron-prebuild.mjs`
+prepares the unchanged `electron@44.4.5` archive in a runner-owned
+`electron_config_cache`. It uses the installed `@electron/get` cache
+implementation instead of duplicating its layout. The installed Electron
+package's published `checksums.json` supplies the required digest. The same
+bounded official-Release/API downloader verifies the archive before caching it.
+
+The normal `node node_modules/electron/install.js` still extracts and validates
+Electron. No checksum checks or install steps are bypassed. A future Electron
+version or another platform requires reviewing the official asset IDs; a
+missing checksum fails preparation. This is an isolated CI cache, not an
+application/runtime upgrade or a change to the author's running package.
 
 ## Acceptance Inventory
 

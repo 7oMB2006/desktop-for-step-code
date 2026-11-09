@@ -87,6 +87,16 @@ produced and no historical package was deleted. The owner's checkout, running
 client, profile, Remote binding and shortcut remain unchanged. This evidence
 does not establish native macOS, installer, real-model or release acceptance.
 
+## 主题组合 CI 后续焦点检查（2026-11-09）
+
+`082e773` 的 Windows runtime 组已通过协议测试，随后在
+`verify-cron-management.mjs` 的矮窗口原始坐标点击后，报告文本框未聚焦。
+测试现在等待前一个输入框的原生聚焦滚动和人工滚动各自跨过两帧，
+再确认文本框确实部分裁切、点击点确实命中它，然后点击并保留原来的
+完整四侧焦点边框断言。没有自动重试点击、再次聚焦或改变产品焦点行为。
+本机隔离 Electron 在 684px 高度完成四组明暗／宽窄焦点矩阵并生成截图。
+这不代表完整 Cron、默认进程关闭或替换提交的云端 CI 已通过。
+
 ## Theme Composition Foundation (2026-11-09)
 
 The version 2 source contract separates host-owned UI adapters from default

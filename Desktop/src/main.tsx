@@ -1365,6 +1365,8 @@ function App() {
           firstSend.current = true; switching.current = true; setLoading(true);
           try {
             const created = await bridge!.createDraftSession(data.draftId);
+            // The creation reply can precede its separately published promotion event.
+            if (created.state?.sessionId) composer.client.promote(data.draftId, created.state.sessionId);
             installSnapshot(created);
             id = created.runtimeId;
             sessionId = created.state?.sessionId;

@@ -376,10 +376,22 @@ try {
     await main.getByRole('button', { name: 'MiniChat', exact: true }).click();
     await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().find(window => window.getTitle() === 'MiniChat').showInactive());
   };
+  // A repeated handoff may leave identical content mounted in main. Its old
+  // content cannot acknowledge the new action; observe the native hide first.
+  const waitForHandoff = async () => {
+    const hidden = await app.evaluate(async ({ BrowserWindow }, id) => {
+      const window = BrowserWindow.fromId(id), deadline = Date.now() + 5000;
+      while (window.isVisible() && Date.now() < deadline)
+        await new Promise(resolve => setTimeout(resolve, 20));
+      return !window.isVisible();
+    }, minimizeState.miniId);
+    assert.equal(hidden, true, 'The new handoff hides the native MiniChat window');
+  };
   for (let repeat = 0; repeat < 2; repeat++) {
     const terminal = repeat ? undefined : await expandMainTerminal();
     if (repeat) await reopenMini();
     await workflowCard.click();
+    await waitForHandoff();
     const overview = main.locator('#subagent-panel[aria-hidden="false"] .workflow-overview-heading strong');
     await overview.waitFor();
     assert.equal(await overview.textContent(), 'Selected Mini workflow');
@@ -388,19 +400,23 @@ try {
     if (terminal) await verifyTerminalRestored(terminal);
   }
   await main.locator('#subagent-panel').getByRole('button', { name: '关闭面板', exact: true }).click();
+  await main.locator('#subagent-panel').waitFor({ state: 'detached' });
   await reopenMini();
   const subagentArticle = mini.locator('article.message.assistant').filter({ hasText: 'Answer 6' });
   await subagentArticle.locator('.historical-agents > summary').click();
   for (let repeat = 0; repeat < 2; repeat++) {
     if (repeat) await reopenMini();
     await subagentArticle.locator('.lane-row[data-lane-agent="review"]').click();
+    await waitForHandoff();
     const description = main.locator('#subagent-panel[aria-hidden="false"] .subagent-task');
     await description.waitFor();
     assert.equal(await description.textContent(), subagentTask.task);
   }
   await main.locator('#subagent-panel').getByRole('button', { name: '关闭面板', exact: true }).click();
+  await main.locator('#subagent-panel').waitFor({ state: 'detached' });
   await reopenMini();
   await editor.fill('/workflows'); await editor.press('Escape'); await editor.press('Enter');
+  await waitForHandoff();
   await main.locator('#workflow-catalog-panel[aria-hidden="false"]').waitFor();
   assert.equal(await main.locator('#subagent-panel[aria-hidden="false"]').count(), 0, 'Bare workflows opens the saved catalog, not run details');
   await main.keyboard.press('Escape');

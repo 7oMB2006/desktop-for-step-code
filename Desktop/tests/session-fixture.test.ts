@@ -31,6 +31,29 @@ test('first-run acceptance never polls an async predicate through browser Promis
   assert.ok(snapshotPolls >= 2, 'reply completion and restored permissions both poll resolved IPC snapshots');
 });
 
+test('update installer fixture awaits native startup before creating a separate harness window', async () => {
+  const source = ts.createSourceFile('verify-update-installer.mjs',
+    await readFile(new URL('../scripts/verify-update-installer.mjs', import.meta.url), 'utf8'),
+    ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
+  const body = source.statements.find(ts.isTryStatement)!;
+  const statements = body.tryBlock.statements;
+  const harnessIndex = statements.findIndex(statement => statement.getText(source).includes("app.waitForEvent('window')"));
+  assert.ok(harnessIndex > 0);
+  const startup = statements.slice(0, harnessIndex).map(statement => statement.getText(source));
+  assert.ok(startup.some(statement => statement.includes('await app.firstWindow()')));
+  assert.ok(startup.some(statement => statement.includes('await mainPage.waitForFunction(')
+    && statement.includes('.first-run-production')), 'the native renderer must finish loading first');
+  assert.ok(startup.some(statement => statement.includes('await mainPage.evaluate(() => window.desktop.snapshot())')),
+    'preload availability alone cannot establish completed main-process startup');
+  const shutdown = body.finallyBlock!.statements[0];
+  assert.ok(ts.isExpressionStatement(shutdown) && ts.isAwaitExpression(shutdown.expression)
+    && ts.isCallExpression(shutdown.expression.expression)
+    && shutdown.expression.expression.expression.getText(source) === 'closeDesktopFixtureAndWait',
+  'assertion failures must still perform bounded, orderly shutdown');
+  const success = source.statements.find(statement => statement.getText(source).includes('Update UI acceptance passed:'))!;
+  assert.ok(success.getStart(source) > body.end, 'acceptance cannot pass before Electron has actually closed');
+});
+
 test('new-session readiness polls through missing and disabled buttons after reload', async () => {
   const buttons = [null, { disabled: true }, { disabled: false }];
   const results: boolean[] = [];

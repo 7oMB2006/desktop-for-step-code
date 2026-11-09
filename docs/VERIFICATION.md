@@ -39,6 +39,17 @@ product behavior or removes assertions. Initial failed runs remain in the
 evidence directory. Light/dark desktop and narrow highlighter captures are
 produced; the dark narrow capture is inspected.
 
+The first cloud Windows interface run completes every update-installer UI
+assertion but times out during Electron shutdown. The fixture now waits for
+the native first-run renderer and its startup snapshot before creating the
+separate test window, uses bounded orderly shutdown, and reports acceptance
+only after closure. No UI assertion or product behavior changes. Five normal
+local runs and an instrumented five-second native-renderer load delay pass,
+along with all 24 readiness/shutdown regressions and Desktop typecheck.
+This addresses a fixture startup/shutdown race risk; the original cloud
+timeout does not establish its exact cause. Replacement cloud checks remain
+required.
+
 This source combination has its own verification logs under
 `D:\Desktop Runtime Builds\performance-pr-20261109`. It does not replace the
 fourteen-check package or owner-experience evidence below. No new installer,

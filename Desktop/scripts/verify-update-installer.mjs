@@ -4,7 +4,7 @@ import { mkdir, mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import assert from 'node:assert/strict';
-import { closeDesktopFixture } from './close-desktop-fixture.mjs';
+import { closeDesktopFixtureAndWait } from './close-desktop-fixture.mjs';
 
 await mkdir('test-results', { recursive: true });
 const output = await build({ entryPoints: ['tests/fixtures/update-installer-harness.tsx'], bundle: true, write: false,
@@ -16,6 +16,12 @@ delete env.ELECTRON_RUN_AS_NODE;
 const app = await electron.launch({ ...(process.env.DESKTOP_VERIFY_EXE ? { executablePath: process.env.DESKTOP_VERIFY_EXE } : { args: [resolve('.')] }), env });
 const errors = [];
 try {
+  // Do not let the native renderer's first load race the harness window or shutdown.
+  const mainPage = await app.firstWindow();
+  await mainPage.waitForFunction(() => Boolean(window.desktop && document.querySelector('.first-run-production')),
+    undefined, { timeout: 60000 });
+  await mainPage.evaluate(() => window.desktop.snapshot());
+  console.log('Update UI fixture: native startup ready.');
   const windowPromise = app.waitForEvent('window');
   await app.evaluate(async ({ BrowserWindow }) => {
     const window = new BrowserWindow({ width: 780, height: 660, show: false, focusable: false,
@@ -62,5 +68,6 @@ try {
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
   await page.screenshot({ path: 'test-results/updater-download-narrow.png' });
   assert.deepEqual(errors, []);
-  console.log('Update UI acceptance passed: progress, cancel/retry, ready, blocked install, failure, narrow layout.');
-} finally { await closeDesktopFixture(app); }
+  console.log('Update UI fixture: assertions complete; closing Electron.');
+} finally { await closeDesktopFixtureAndWait(app); }
+console.log('Update UI acceptance passed: progress, cancel/retry, ready, blocked install, failure, narrow layout, orderly shutdown.');

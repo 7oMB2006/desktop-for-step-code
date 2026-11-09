@@ -21,6 +21,7 @@ export const stages = Object.freeze({
   protocol: 'Protocol tests',
   desktop_build: 'Desktop build',
   acceptance: 'Serial Electron acceptance',
+  cron_browser: 'Cron manager browser regressions',
 });
 
 const outcomes = new Set(['success', 'failure', 'cancelled', 'skipped']);

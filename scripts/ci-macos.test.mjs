@@ -43,7 +43,7 @@ test('Mac CI runs the same serial inventory against source and package and stage
   assert.match(acceptance, /DESKTOP_VERIFY_EXE:/);
   assert.match(acceptance, /tests\/macos-terminal.test.ts/);
   assert.match(acceptance, /if: inputs\.group == 'runtime'/);
-  assert.match(workflow, /node --test scripts\/motion-helpers.test.mjs/);
+  assert.match(workflow, /node --test scripts\/motion-helpers.test.mjs scripts\/cron-manager.test.mjs/);
   assert.match(workflow, /^  group: macos-preview-\$\{\{ github\.workflow \}\}-\$\{\{ github\.ref \}\}$/m);
   assert.match(workflow, /^  cancel-in-progress: true$/m);
   for (const group of Object.keys(macosAcceptanceGroups)) {

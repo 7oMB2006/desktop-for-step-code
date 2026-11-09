@@ -72,6 +72,37 @@ matching light, dark-narrow, conflict and override-path screenshots. This is
 local Windows source acceptance, not paid-model obedience, native macOS,
 current cloud CI, package acceptance or a public release.
 
+## Cron 管理页读写协调（2026-11-09）
+
+`6a50595` 的 Windows 三组及最终汇总通过；macOS runtime 在源码 Cron
+验收中，点击恢复后等待“暂停任务 Beta”超时。截图显示任务仍暂停，自动恢复
+授权已失效。旧日志没有操作拒绝原因，不能仅凭超时确定云端根因。
+
+受控浏览器测试挂载真实 `CronManager`，保持事件触发的列表读取未完成，
+稳定复现了管理页仍发送修改、被宿主读取锁拒绝的竞争；也确认写入尚未完成时
+事件会再次启动读取。这两项在修复前失败。管理页现在等待自己的读取结束后
+只发送一次写入，写入期间合并刷新，确认或失败后再读取列表。并行快照先失败
+时也等待列表读取结束；此边界单独先复现失败，再验证修复通过。
+
+后端忙碌锁、任务 revision、自动恢复授权失效规则与原生断言不变；
+不自动重试不确定的写入，不将等待期间的新任务版本套到旧操作上。
+关闭管理页会取消仍在等待读取的写入。失败现场增加仅含固定界面状态的诊断，
+不输出任务原文、完整快照、凭据或环境变量。
+
+六项协调回归与原有十七项动画／搜索回归共二十三项通过，已接入两平台 CI。
+CI 执行器、策略及 Windows 汇总回归四十二项：四十一项通过、
+一项既有平台跳过；Windows 汇总能单独标记浏览器协调测试失败。
+类型检查与工作树生产构建通过。完整原生 Cron 十四场景在普通高度和限制
+684px 内容高度下均通过，搜索原生验收通过；这是本地隔离 Windows 源码验收，
+不是完整 CI 分组、原生 macOS、付费模型、安装包或发布验收。
+Node 24.16 完整协议测试 1,855 项：1,841 项通过、14 项条件跳过、零失败。
+
+证据在共享 D: 的 `output/theme-composition-main-sync-20261109`：
+`cron-manager-before-serialization.log`、`cron-manager-snapshot-before-drain.log`、
+`browser-cron-serialization-final.log`、`ci-cron-serialization-final.log` 及
+`native-cron-serialization*.log`。新提交仍须等待云端完整验收；
+未合并 PR、生成安装包、改变运行时或用户配置，#223 保持草稿且未同步。
+
 ## 主题组合与全局指令主线同步（2026-11-09）
 
 - 合入主线 `4308435`（PR #224 全局指令）。仅验收文档有文本冲突，

@@ -506,6 +506,15 @@ try {
 } catch (error) {
   console.error('Cron management acceptance error:', error.stack ?? String(error));
   const page = await app?.firstWindow().catch(() => undefined);
+  const state = await page?.evaluate(() => ({
+    alert: document.querySelector('.scheduled-failure')?.textContent,
+    issue: document.querySelector('.scheduled-tasks > .scheduled-boundary')?.textContent,
+    inert: document.querySelector('.scheduled-page')?.inert,
+    actions: [...document.querySelectorAll('.scheduled-detail-footer button')].map(button => ({
+      label: button.textContent?.trim(), disabled: button.disabled,
+    })),
+  })).catch(() => undefined);
+  console.error('Cron management failure state:', JSON.stringify({ ...state, completedCases: results.length, pageErrors: errors.length }));
   await page?.screenshot({ path: 'test-results/cron-management-failure.png' }).catch(() => {});
   throw error;
 } finally {

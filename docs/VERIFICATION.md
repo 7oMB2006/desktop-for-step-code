@@ -14,6 +14,78 @@ The full native verifier did not pass: its later runtime-restart step reports
 Host CIM process queries also fail. Only this fixture's verified processes were
 stopped. No package, shortcut, cloud or macOS acceptance is claimed.
 
+## 全局指令 PR 验收脚本修复（2026-11-09）
+
+PR #224 的 Windows/macOS sessions 验收严格比较路径时，把临时目录的
+别名当作预期值：Windows 短路径与长路径、macOS `/var` 与 `/private/var`
+表示同一个目录。验收现在先对新建的隔离 profile 调用 `realpath`，
+仍严格比较界面、IPC 和复制结果的完整路径，不修改产品路径选择。
+本机用目录 junction 复现了旧脚本的失败，修复后在同一别名环境通过。
+
+Windows runtime 验收在权限菜单点击返回、原生权限 RPC 尚未完成时提交了
+任务，被现有 `Session operation in progress` 保护拒绝。发送助手现在同时
+等待权限按钮恢复和原有 Send 就绪条件。受控回归保持真实风险确认未回答，
+明确验证 Send 虽已启用、权限事务仍未完成时助手必须阻塞；旧条件在此失败。
+快照等待复用 Node 侧的已解析值轮询，关闭复用现有有界 fixture 关闭助手。
+没有修改产品权限策略、worker 并发保护、原有断言或通过超时。
+
+提交 `4f1f01b` 的 Windows sessions/runtime 全组通过；interface 在已有插件
+验收的卸载关闭步骤失败：原生窗口已关闭，但该页面的 `evaluate` 回包随之
+中断。脚本现在并行等待真实 close 事件和关闭 RPC，仅接受页面销毁对应的
+Playwright 错误，其他错误仍抛出，并保留主窗口存活断言。
+
+本地 Windows 验证结果：
+
+- 源码全局指令验收在 junction 临时目录下通过；权限验收连续三次通过。
+- 同一目录别名环境下，两项脚本也通过现有免安装包
+  `global-instructions-20261109-preview-r2`（产品提交 `4d28ad5`）。
+  均经现有串行 CI runner 执行，仅限定这两项，不声称全组已执行。
+- 类型检查通过；CI 清单、执行器、策略和汇总测试 41 项中 40 项通过、
+  1 项既有 POSIX 平台跳过；fixture 关闭回归 16 项全部通过。
+- 插件完整源码验收连续两次通过八组检查，均确认零推理请求、零渲染器错误、
+  启动器退出码 0 和零剩余窗口。额外的现有 Windows 包执行通过八组业务断言，
+  但最后退出整个 fixture 超时 30 秒，结果仍记为失败，不算包验收通过。
+  后续未发现该 r2 包的残留进程；未据此修改产品或放宽退出判定。
+
+日志为 `Desktop/test-results/pr224-ci-targeted-source.log` 和
+`Desktop/test-results/pr224-ci-targeted-package.log`，插件追加执行日志为
+`Desktop/test-results/pr224-ci-plugin-close.log`，详细结果在对应
+`pr224-plugin-close-{source-1,source-2,package}/verification.json`。
+以上是隔离 profile、
+本地 HTTP/SSE fixture 验证，不替代新提交的云端 CI、原生 macOS 或付费模型
+验收。未重新打包，也未改用户应用、快捷方式、个人配置或共享 runtime。
+
+## Global Instructions File Transparency (2026-11-09)
+
+The settings editor now displays the actual native context file selected by
+the main process, including an existing override or fallback, and provides a
+copy-path action through the existing clipboard bridge. A missing profile shows
+the future `AGENTS.md` path without creating the file. Read, unchanged-save,
+changed-save and clear responses retain that same trusted path; no arbitrary
+filesystem API is added.
+
+Status copy distinguishes a missing file, a loaded local file and a completed
+file save. It does not claim that a resident conversation has loaded the saved
+instructions. The lifecycle note explicitly requires a new conversation or a
+manual runtime restart; saving still does not interrupt or hot-update existing
+workers.
+
+Local typecheck/build passed. The focused store, runtime, session ownership,
+MiniChat catalog and plugin-window policy run passed 123 of 125 tests, with two
+existing POSIX-only skips and no failures. The production Electron verifier
+passed through an isolated local HTTP/SSE provider, inspecting actual system
+requests before and after saving, new sessions, manual restart and cold restore.
+It additionally checks actual/default/override paths, exact clipboard payloads,
+copy failure without draft loss, override-only saves, light/dark/640px English
+layout and four-sided editor/copy-button focus visibility. Clipboard writes are
+stubbed only in the fixture's main process, leaving the user's clipboard intact.
+The light and narrow dark screenshots were inspected.
+
+Evidence is in `Desktop/test-results/global-instructions-results.json` and the
+matching light, dark-narrow, conflict and override-path screenshots. This is
+local Windows source acceptance, not paid-model obedience, native macOS,
+current cloud CI, package acceptance or a public release.
+
 ## 插件工作区验收就绪时序修复（2026-11-09）
 
 PR #221 的 macOS 界面验收在 `verify-plugin-workspace.mjs:27` 失败：
@@ -79,6 +151,66 @@ establish cloud acceptance of this new source. No native macOS, installed-client
 upgrade, installer, release or Hermes/Feishu business-flow acceptance is claimed.
 The owner's running application, personal profile, credentials, shortcut and
 upstream runtime checkout were not changed.
+
+## Global Instructions (2026-11-09)
+
+Settings > Global instructions edits native global context in the Desktop-owned
+`step-runtime/agent/` directory, normally `AGENTS.md`. Reads and saves follow
+native context-file precedence, preserve existing fallback files, validate UTF-8
+and size, reject linked files/directories, serialize app writes, and compare an
+opaque revision before atomic replacement. Conflicts retain the local editor
+draft. The default is empty; Clear requires Save. These plaintext instructions
+are model-visible preferences, not credential storage or permission enforcement.
+
+Saving does not interrupt or hot-reload resident conversations. Newly started
+runtime processes load the current native global context, including restarted
+and cold-restored histories; resident navigation retains its existing context.
+Changed saves exclude older empty workers from new-session reuse. Product,
+Desktop collaboration and project rules remain present, and user messages and
+permissions are unchanged. No new enforced instruction hierarchy or
+model-obedience guarantee is claimed.
+
+The implementation was isolated from the old shared release worktree, adapted
+to main `6edeb18`, then rebased onto the plugin-workspace merge `9e493ed`.
+The editor state is retained above the keyed settings content,
+preserving the single content container, existing category transitions and
+unsaved text across tabs. The dedicated acceptance is registered in the shared
+Windows/macOS CI session inventory; only local Windows execution is claimed.
+
+On the initial `6edeb18` base, typecheck, production build and 104 focused
+store/runtime tests passed. The full serial unit/protocol run completed 1,797 tests: 1,784 passed, 13
+platform-specific tests skipped and none failed. CI inventory/runner regression
+completed 25 tests: 24 passed and one POSIX-only test skipped. Electron checks
+passed for global instructions, proposed new sessions, settings-dialog layout
+(including the new category), concurrent sessions and account settings.
+The build retains existing bundler warnings.
+
+After rebasing onto `9e493ed`, typecheck/build, 123 focused store/runtime/IPC/plugin
+tests and the same CI runner regression passed again. The five Electron checks
+above were repeated against the rebuilt source. The complete unit/protocol suite
+was not repeated after that rebase; its 1,797-test result belongs to the prior
+base and does not cover the newly merged plugin-workspace tests.
+
+The isolated Electron acceptance uses the existing staged v0.1.7 Step runtime
+and a local HTTP/SSE provider. It inspects actual system requests for global,
+project, product and Desktop rules and unchanged user text. It covers old empty
+workers, unchanged running sessions, cross-project/new independent sessions,
+restart with preserved identity, clearing, strict IPC validation, external-edit
+conflicts, full app relaunch with cold history restoration, keyboard focus and
+light/dark/640px English layout. Four-sided focus indicators are checked against
+clipping ancestors. Screenshots and results are in
+`Desktop/test-results/global-instructions-{light,conflict,dark-narrow-en}.png`
+and `global-instructions-results.json`.
+
+This is source-only local fixture acceptance, not paid-model instruction-following
+acceptance, native macOS execution, installer validation or a public release.
+Upstream source, personal CLI profiles, the user's application/shortcuts and
+existing packages were not changed. No installer was generated or deleted.
+
+Artifact inventory: this isolated worktree's `Desktop/dist` totals 12,511,607
+bytes (about 11.93 MiB). The six instruction acceptance profiles created during
+PR preparation total about 53.87 MiB. Small screenshot/JSON/log evidence and test
+profiles were retained; existing packages were neither duplicated nor deleted.
 
 ## 管理 worker 异常退出后的应用关闭回归（2026-11-08）
 

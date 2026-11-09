@@ -27,6 +27,18 @@ Integrated typecheck and production build pass; the complete serial protocol
 suite records 1,930 passes, 13 platform skips and zero failures. CI policy and
 acceptance inventory tests record 40 passes and one platform skip.
 
+The final local integration pass completes thirteen checks: native session
+navigation, MiniChat, chat quotes, BTW, stream motion, summary resize,
+conversation scrolling, viewport code highlighting, streaming Markdown,
+selection inheritance, sidebar interaction, panel gestures and the complete
+long-session interaction fixture. Typecheck and all seventeen shared-composer
+tests pass again. The quote failure fixture now rejects through native
+submission ownership so real receipt rollback restores input; the long-session
+fixture supplies the current plugin catalog bridge. Neither correction changes
+product behavior or removes assertions. Initial failed runs remain in the
+evidence directory. Light/dark desktop and narrow highlighter captures are
+produced; the dark narrow capture is inspected.
+
 This source combination has its own verification logs under
 `D:\Desktop Runtime Builds\performance-pr-20261109`. It does not replace the
 fourteen-check package or owner-experience evidence below. No new installer,

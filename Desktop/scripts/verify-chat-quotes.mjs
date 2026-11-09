@@ -251,12 +251,21 @@ try {
   await app.evaluate(({ ipcMain }, snapshot) => {
     globalThis.quoteFixture = { snapshot, calls: [], fail: true, handler: ipcMain._invokeHandlers.get('desktop') };
     ipcMain.removeHandler('desktop');
-    ipcMain.handle('desktop', (event, method, ...args) => {
+    ipcMain.handle('desktop', async (event, method, ...args) => {
       const fixture = globalThis.quoteFixture;
       if (method === 'snapshot') return fixture.snapshot;
       if (method === 'command') {
         fixture.calls.push(args);
-        if (args[0] === 'prompt' && fixture.fail) throw new Error('Fixture quote send failure');
+        if (args[0] === 'prompt' && fixture.fail) {
+          // Reject through native receipt submission so its real rollback restores the draft.
+          try {
+            await fixture.handler(event, method, args[0], args[1], 'quote-unavailable-runtime');
+          } catch (error) {
+            if (!String(error).includes('Draft submission belongs to a different conversation')) throw error;
+            throw new Error('Fixture quote send failure');
+          }
+          throw new Error('Fixture submission unexpectedly succeeded');
+        }
         return {};
       }
       return fixture.handler(event, method, ...args);

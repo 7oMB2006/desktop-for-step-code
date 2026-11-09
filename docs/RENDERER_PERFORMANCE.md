@@ -20,6 +20,14 @@ The integrated source passes typecheck, production build and the complete
 serial protocol suite: 1,930 passes, 13 platform skips and zero failures.
 CI policy/inventory tests have 40 passes and one platform skip.
 
+Thirteen final integration checks pass across native navigation/MiniChat/quotes,
+BTW, stream motion, window resize, scrolling, viewport code highlighting,
+streaming Markdown, exact selection parity, sidebar interaction, panel gestures
+and complete long-session interaction. Typecheck and seventeen shared-composer
+tests also pass again. The quote fixture uses real receipt rollback on a rejected
+submission, and the long-session fixture implements main's plugin catalog bridge;
+these are test-only integration corrections, with content assertions retained.
+
 This integration is a new source combination, not a rebuild or replacement of
 the accepted package below. Cloud CI, merge and release remain separate gates.
 Source verification logs are under

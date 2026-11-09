@@ -270,6 +270,7 @@ function App() {
   const previewPosition = useRef<ReadingPosition | undefined>(undefined);
   const readingRestore = useRef<{ runtimeId?: string; position: ReadingPosition; expectedTop?: number } | undefined>(undefined);
   const pendingPresentationRestores = useRef(0);
+  const presentationRevision = useRef(data.windowPresentationRevision ?? 0);
   const [awayFromBottom, setAwayFromBottom] = useState(false);
   const collapsedWorkspaces = new Set(data.preferences.collapsedWorkspaces ?? []);
   const workspaceDisclosureSave = useRef<Promise<void>>(Promise.resolve());
@@ -731,7 +732,8 @@ function App() {
   const saveWindowPresentation = () => {
     if (navigationPending.current || switching.current || pendingPresentationRestores.current) return;
     const owner = composerOwner(latestData.current);
-    if (owner && bridge?.windowPresentation) void bridge.windowPresentation(owner, currentPresentation()).catch(() => {});
+    if (owner && bridge?.windowPresentation)
+      void bridge.windowPresentation(owner, currentPresentation(), latestData.current.windowPresentationRevision ?? 0).catch(() => {});
   };
   savePresentationRef.current = saveWindowPresentation;
   useEffect(() => {
@@ -751,7 +753,7 @@ function App() {
   const handoff = async (action?: string, payload?: unknown) => {
     await composer.client.flush();
     const owner = composerOwner(latestData.current);
-    if (owner) await bridge!.windowPresentation(owner, currentPresentation());
+    if (owner) await bridge!.windowPresentation(owner, currentPresentation(), latestData.current.windowPresentationRevision ?? 0);
     if (action) await bridge!.miniChatMainAction(action, payload);
     else await bridge!.miniChatReturn(currentPresentation());
   };
@@ -771,13 +773,16 @@ function App() {
     }
   };
   const installSnapshot = (value: Snapshot) => {
+    const revision = value.windowPresentationRevision ?? 0;
+    if (revision < presentationRevision.current) return false;
     acceptQuitReview(value.quitReview);
     if (!messageRevision.current.acceptSnapshot(value)) return false;
     registerPluginThemes(value.themePacks ?? []);
     const previous = view.current;
     const changedOwner = composerKey(composerOwner(value)) !== composerKey(previous.draftId ? { draftId: previous.draftId }
       : previous.sessionId ? { sessionId: previous.sessionId } : undefined);
-    if (previous.runtimeId !== value.runtimeId || changedOwner || navigationPending.current) {
+    if (previous.runtimeId !== value.runtimeId || changedOwner || navigationPending.current
+      || revision !== presentationRevision.current) {
       if (!navigationPending.current) rememberView();
       const saved = value.state?.sessionId ? composerBySession.current.get(value.state.sessionId) : undefined;
       composer.client.select(composerOwner(value));
@@ -792,6 +797,7 @@ function App() {
       restoreWindowPresentation(value, navigationPending.current?.reading ? saved : undefined);
     }
     viewId.current = value.runtimeId;
+    presentationRevision.current = revision;
     composer.client.select(composerOwner(value));
     setUnavailableWorkspace(value.workspaceIssue ?? null);
     readingCache.current.retain(value.sessions);
@@ -920,7 +926,7 @@ function App() {
             const value = await bridge.snapshot();
             if (event.restorePresentation) {
               // Do not persist the previous viewport while the handoff is in flight.
-              flushSync(() => { installSnapshot(value); restoreWindowPresentation(value); });
+              flushSync(() => { if (installSnapshot(value)) restoreWindowPresentation(value); });
               followLayout();
             } else installSnapshot(value);
           } finally {
@@ -1082,7 +1088,7 @@ function App() {
       if (viewId.current === id) { setLevels((data.modelSelection?.model ?? data.state?.model)?.thinkingServiceDefault ? [] : effort.levels); setCommands(desktopCommands(available.commands)); }
     });
   }, [connected, data.runtimeId, data.draftId, data.state?.model?.id, data.state?.model?.provider, data.state?.model?.thinkingLevels, data.state?.model?.thinkingServiceDefault, data.modelSelection?.model]);
-  useLayoutEffect(followLayout, [data.messages, data.pendingMessages, busy, followLayout]);
+  useLayoutEffect(followLayout, [data.messages, data.pendingMessages, data.windowPresentationRevision, busy, followLayout]);
   useLayoutEffect(() => {
     const viewport = scroll.current;
     const content = transcript.current;
@@ -1822,7 +1828,7 @@ function App() {
       onAction={(action, value) => rawCommand('goal_action', { action, value })}/> };
   mainActionRef.current = async event => {
     const value = await bridge!.snapshot();
-    installSnapshot(value); restoreWindowPresentation(value);
+    if (installSnapshot(value)) restoreWindowPresentation(value);
     if (event.action === 'settings') { setTab(typeof event.payload === 'string' ? event.payload : 'account'); await openSettings(); }
     else if (event.action === 'usage') openUsage();
     else if (event.action === 'cron') openScheduled();

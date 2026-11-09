@@ -54,6 +54,48 @@ test('update installer fixture awaits native startup before creating a separate 
   assert.ok(success.getStart(source) > body.end, 'acceptance cannot pass before Electron has actually closed');
 });
 
+test('capability restart readiness rejects the old connected worker and the connecting replacement', async () => {
+  const source = ts.createSourceFile('verify-capabilities.mjs',
+    await readFile(new URL('../scripts/verify-capabilities.mjs', import.meta.url), 'utf8'),
+    ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
+  let initializer: string | undefined;
+  const visit = (node: ts.Node) => {
+    if (ts.isVariableDeclaration(node) && node.name.getText(source) === 'restartSession')
+      initializer = node.initializer?.getText(source);
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+  assert.ok(initializer);
+  const snapshots = [
+    { runtimeId: 'old', status: 'connected' },
+    { runtimeId: 'old', status: 'connected' },
+    { runtimeId: 'new', status: 'connecting' },
+    { runtimeId: 'new', status: 'connected' },
+  ];
+  let reads = 0, clicks = 0, buttonChecks = 0;
+  const page = {
+    evaluate: async () => snapshots[reads++],
+    locator: (selector: string) => {
+      assert.equal(selector, '.cap-footer');
+      return { getByRole: () => ({ click: async () => { clicks++; } }) };
+    },
+    waitForFunction: async (predicate: (footer: string) => boolean, footer: string) => {
+      assert.equal(reads, 4, 'an enabled button cannot replace actual connected-worker readiness');
+      assert.equal(footer, '.cap-footer');
+      assert.equal(runInNewContext(`(${predicate.toString()})(footer)`, {
+        footer,
+        document: { querySelector: () => ({ disabled: false }) },
+      }), true);
+      buttonChecks++;
+    },
+  };
+  const restart = runInNewContext(`(${initializer})`, { page, waitForSessionFixtureSnapshot });
+  await restart();
+  assert.equal(clicks, 1);
+  assert.equal(reads, 4);
+  assert.equal(buttonChecks, 1);
+});
+
 test('new-session readiness polls through missing and disabled buttons after reload', async () => {
   const buttons = [null, { disabled: true }, { disabled: false }];
   const results: boolean[] = [];

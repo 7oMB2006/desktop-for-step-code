@@ -50,6 +50,18 @@ This addresses a fixture startup/shutdown race risk; the original cloud
 timeout does not establish its exact cause. Replacement cloud checks remain
 required.
 
+The replacement Windows run confirms update UI acceptance, including orderly
+shutdown, in 3.486 seconds. It then exposes an immediate capability-search
+assertion reading the retained plugin view before the navigation effect applies
+its filter. The fixture now awaits the exact expected filter without removing
+the equality assertion. A local run also catches commands reading the retired
+runtime after restart; all six restart checks now await a different runtime ID
+in the connected state before inspecting commands or MCP state. The complete
+native capability acceptance, 43 focused regressions and typecheck pass locally.
+The latest full local protocol run records 1,931 passes and 13 platform skips
+before the new restart-readiness regression is added. No product source changes,
+model requests, skipped assertions or relaxed timeouts are introduced.
+
 This source combination has its own verification logs under
 `D:\Desktop Runtime Builds\performance-pr-20261109`. It does not replace the
 fourteen-check package or owner-experience evidence below. No new installer,

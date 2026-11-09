@@ -576,26 +576,50 @@ try {
   // Hold the return snapshot while the old main view emits presentation-saving events.
   await app.evaluate(({ ipcMain, BrowserWindow }, mainWindowId) => {
     const handler = ipcMain._invokeHandlers.get('desktop');
-    const mainContentsId = BrowserWindow.fromId(mainWindowId).webContents.id;
-    let release, arrived;
+    const contents = BrowserWindow.fromId(mainWindowId).webContents, send = contents.send;
+    const mainContentsId = contents.id;
+    let release, arrived, releaseTransfer, entered;
     const gate = new Promise(resolve => { release = resolve; });
     const ready = new Promise(resolve => { arrived = resolve; });
-    globalThis.miniReturnGate = { handler, release, ready, returning: false, writes: [] };
+    const beforeTransfer = new Promise(resolve => { releaseTransfer = resolve; });
+    const entering = new Promise(resolve => { entered = resolve; });
+    globalThis.miniReturnGate = {
+      handler, contents, send, release, ready, releaseTransfer, entering,
+      returning: false, transferred: false, beforeWrites: [], writes: [],
+    };
+    contents.send = function (channel, ...args) {
+      if (channel === 'runtime-event' && args[0]?.type === 'desktop_view_changed'
+        && args[0].surface === 'main' && args[0].restorePresentation)
+        globalThis.miniReturnGate.transferred = true;
+      return send.call(this, channel, ...args);
+    };
     ipcMain.removeHandler('desktop');
     ipcMain.handle('desktop', async (event, method, ...args) => {
       const probe = globalThis.miniReturnGate;
       if (method === 'miniChatReturn') {
         probe.returning = true;
+        entered(); await beforeTransfer;
       }
       if (probe.returning && event.sender.id === mainContentsId) {
-        if (method === 'windowPresentation') probe.writes.push(args[1].position);
-        if (method === 'snapshot') { arrived(); await gate; }
+        if (method === 'windowPresentation')
+          (probe.transferred ? probe.writes : probe.beforeWrites).push(args[1].position);
+        if (probe.transferred && method === 'snapshot') { arrived(); await gate; }
       }
       return handler(event, method, ...args);
     });
   }, mainWindowId);
   try {
     await mini.getByRole('button', { name: '回到主窗口', exact: true }).click();
+    await app.evaluate(() => globalThis.miniReturnGate.entering);
+    // A save before the host commits the transfer is valid and must be superseded.
+    await main.evaluate(async () => {
+      const value = await window.desktop.snapshot();
+      await window.desktop.windowPresentation({ sessionId: value.state.sessionId },
+        { position: { follow: true, top: 0 }, disclosures: [] });
+    });
+    assert.ok(await app.evaluate(() => globalThis.miniReturnGate.beforeWrites
+      .some(position => position.follow && position.top === 0)));
+    await app.evaluate(() => globalThis.miniReturnGate.releaseTransfer());
     await main.getByRole('region', { name: '远程访问', exact: true }).waitFor({ state: 'detached' });
     await main.locator('main .conversation').waitFor({ state: 'visible' });
     await app.evaluate(() => globalThis.miniReturnGate.ready);
@@ -608,9 +632,10 @@ try {
       'The old main view cannot overwrite the transferred reading position while its snapshot is pending');
   } finally {
     await app.evaluate(({ ipcMain }) => {
-      const { handler, release } = globalThis.miniReturnGate;
+      const { handler, contents, send, release, releaseTransfer } = globalThis.miniReturnGate;
+      contents.send = send;
       ipcMain.removeHandler('desktop'); ipcMain.handle('desktop', handler);
-      release(); delete globalThis.miniReturnGate;
+      releaseTransfer(); release(); delete globalThis.miniReturnGate;
     });
   }
   await main.waitForFunction(anchor => {

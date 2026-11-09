@@ -4,7 +4,7 @@ import { PassThrough } from 'node:stream';
 import { runInNewContext } from 'node:vm';
 import test from 'node:test';
 
-const { closeDesktopFixture, closeDesktopFixtureAndWait, releaseExitedFixturePipes } = await import(new URL('../scripts/close-desktop-fixture.mjs', import.meta.url).href);
+const { closeDesktopFixture, closeDesktopFixtureAndWait, releaseExitedFixturePipes, releaseExitedFixtureInspector } = await import(new URL('../scripts/close-desktop-fixture.mjs', import.meta.url).href);
 
 test('launcher exit cannot complete shutdown before the driver close settles', async () => {
   const { child, page, context, dispose } = fixture();
@@ -314,4 +314,61 @@ test('disposing the fixture guard removes process and page listeners', () => {
   page.emit('close');
   context.emit('close');
   assert.equal(child.stdout.destroyed, false);
+});
+
+test('inspector cleanup requires successful launcher exit, closed pages and a dead native process', async () => {
+  const child = { exitCode: null as number | null };
+  let pageClosed = false, nativeAlive = true;
+  const socket = Object.assign(new PassThrough(), { remoteAddress: '127.0.0.1', remotePort: 34567 });
+  const other = Object.assign(new PassThrough(), { remoteAddress: '127.0.0.1', remotePort: 34568 });
+  const app = { process: () => child, windows: () => [{ isClosed: () => pageClosed }] };
+  const dispose = releaseExitedFixtureInspector(app, { pid: 12345, debugPort: 34567 }, [socket, other],
+    (pid: number) => { assert.equal(pid, 12345); return nativeAlive; });
+  const tick = () => new Promise(resolve => setTimeout(resolve, 50));
+  try {
+    await tick();
+    assert.equal(socket.destroyed, false);
+    child.exitCode = 1; pageClosed = true; nativeAlive = false;
+    await tick();
+    assert.equal(socket.destroyed, false, 'a failed exit cannot be turned into a graceful close');
+    child.exitCode = 0; pageClosed = false;
+    await tick();
+    assert.equal(socket.destroyed, false, 'an open page keeps its inspector');
+    pageClosed = true; nativeAlive = true;
+    await tick();
+    assert.equal(socket.destroyed, false, 'a dead shell launcher does not prove native Electron exited');
+    nativeAlive = false;
+    await tick();
+    assert.equal(socket.destroyed, true);
+    assert.equal(other.destroyed, false, 'unrelated sockets remain untouched');
+  } finally { dispose(); socket.destroy(); other.destroy(); }
+});
+
+test('inspector cleanup refuses ambiguous, external and invalid launch identities', async () => {
+  const app = { process: () => ({ exitCode: 0 }), windows: () => [] };
+  const sockets = [
+    Object.assign(new PassThrough(), { remoteAddress: '127.0.0.1', remotePort: 34567 }),
+    Object.assign(new PassThrough(), { remoteAddress: '127.0.0.1', remotePort: 34567 }),
+    Object.assign(new PassThrough(), { remoteAddress: '192.0.2.1', remotePort: 34568 }),
+  ];
+  const disposers = [
+    releaseExitedFixtureInspector(app, { pid: 12345, debugPort: 34567 }, sockets, () => false),
+    releaseExitedFixtureInspector(app, { pid: 12345, debugPort: 34568 }, sockets, () => false),
+    releaseExitedFixtureInspector(app, { pid: 0, debugPort: 34567 }, [sockets[0]], () => false),
+    releaseExitedFixtureInspector(app, { pid: 12345, debugPort: 0 }, [sockets[0]], () => false),
+  ];
+  try {
+    await new Promise(resolve => setTimeout(resolve, 50));
+    assert.ok(sockets.every(socket => !socket.destroyed));
+  } finally { for (const dispose of disposers) dispose(); for (const socket of sockets) socket.destroy(); }
+});
+
+test('disposing an inspector guard leaves its captured socket intact', async () => {
+  const socket = Object.assign(new PassThrough(), { remoteAddress: '127.0.0.1', remotePort: 34567 });
+  const dispose = releaseExitedFixtureInspector({ process: () => ({ exitCode: 0 }), windows: () => [] },
+    { pid: 12345, debugPort: 34567 }, [socket], () => false);
+  dispose();
+  await new Promise(resolve => setTimeout(resolve, 50));
+  assert.equal(socket.destroyed, false);
+  socket.destroy();
 });

@@ -58,7 +58,7 @@ await writeFile(join(root, 'models.json'), JSON.stringify({ providers: { fixture
 } } }));
 const env = { ...process.env, DESKTOP_TEST_USER_DATA: profile, DESKTOP_TEST_NO_FOCUS: '1', TEMP: profile, TMP: profile, TMPDIR: profile };
 delete env.ELECTRON_RUN_AS_NODE;
-let app, page, runtime, electronPid;
+let app, page, runtime, electronPid, electronDebugPort;
 let contextCloseObserved = false;
 const wait = async predicate => {
   const deadline = Date.now() + 30000;
@@ -77,8 +77,10 @@ try {
   app.process().once('exit', (code, signal) => console.log(`then_run fixture process exited: code=${code} signal=${signal}`));
   app.process().once('close', (code, signal) => console.log(`then_run fixture process closed: code=${code} signal=${signal}`));
   app.context().once('close', () => { contextCloseObserved = true; console.log('then_run fixture context close observed'); });
-  electronPid = await app.evaluate(() => process.pid);
-  console.log(`then_run fixture processes: launcher=${app.process().pid} electron=${electronPid}`);
+  ({ pid: electronPid, debugPort: electronDebugPort } = await app.evaluate(() => ({
+    pid: process.pid, debugPort: process.debugPort,
+  })));
+  console.log(`then_run fixture processes: launcher=${app.process().pid} electron=${electronPid} inspector=${electronDebugPort}`);
   runtime = await app.evaluate(({ app }) => app.isPackaged ? `${process.resourcesPath}/runtime` : undefined) ?? resolve('runtime');
   page = await app.firstWindow();
   page.on('pageerror', error => errors.push(error.message));
@@ -271,7 +273,7 @@ try {
       }));
       console.error('then_run shutdown resources:', JSON.stringify({ exitCode: child.exitCode,
         resources: process.getActiveResourcesInfo(), contextClosed: context.isClosed(),
-        contextCloseObserved, windows: app.windows().length, sockets,
+        contextCloseObserved, electronPid, electronDebugPort, windows: app.windows().length, sockets,
         pipes: child.stdio.map(pipe => pipe && ({ destroyed: pipe.destroyed, closed: pipe.closed,
           readableEnded: pipe.readableEnded, writableFinished: pipe.writableFinished })) }));
       if (process.platform === 'win32') {

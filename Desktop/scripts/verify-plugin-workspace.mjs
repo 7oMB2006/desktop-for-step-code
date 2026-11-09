@@ -268,7 +268,7 @@ try {
     assert.equal(overlapping, false, 'task title does not overlap phase');
     await page.screenshot({ path: `${output}/connection-${language}-${theme}-${width}.png`, fullPage: true });
   }
-  const quick = page.getByRole('dialog', { name: 'Hermes 工程桥 · Agent 状态', exact: true });
+  const quick = page.getByRole('dialog', { name: 'Hermes 工程桥 · 智能体状态', exact: true });
   await page.setViewportSize({ width: 1440, height: 940 });
   await page.goto(`${url}?mode=single&connection=1`);
   await button.waitFor();
@@ -353,7 +353,7 @@ try {
       await anchor.click();
       await page.getByRole('menuitemradio', { name: 'Hermes 工程桥', exact: true }).click();
     } else await anchor.click();
-    const popup = page.getByRole('dialog', { name: `Hermes 工程桥 · ${zh ? 'Agent 状态' : 'Agent status'}`, exact: true });
+    const popup = page.getByRole('dialog', { name: `Hermes 工程桥 · ${zh ? '智能体状态' : 'Agent status'}`, exact: true });
     await popup.getByRole('heading', { name: zh ? '只读连接已核验' : 'Read-only connection verified', exact: true }).waitFor();
     await settleLayout(popup);
     const box = await popup.boundingBox(), anchorBox = await anchor.boundingBox();

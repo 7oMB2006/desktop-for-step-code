@@ -41,7 +41,7 @@ export function PluginStatusPopover({ id, entry, anchor, bridge, language, onClo
     };
   }, [anchor, onClose]);
   return createPortal(<div ref={panel} id={id} popover="auto" role="dialog" tabIndex={-1}
-    aria-label={`${entry.desktop.title} · ${zh ? 'Agent 状态' : 'Agent status'}`} className="plugin-status-popover"
+    aria-label={`${entry.desktop.title} · ${zh ? '智能体状态' : 'Agent status'}`} className="plugin-status-popover"
     style={{ left: position?.left ?? 0, top: position?.top ?? 0, maxHeight: position?.height,
       visibility: position ? undefined : 'hidden' }}
     onToggle={event => {

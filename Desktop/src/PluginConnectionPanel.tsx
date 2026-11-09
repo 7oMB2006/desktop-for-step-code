@@ -15,8 +15,8 @@ const copy = {
     profile: 'Profile 目录', identity: '连接身份', roots: '可见目录', noRoots: '当前身份没有可见的授权目录。',
     tasks: '任务摘要', batch: '首批记录 · 最多 20 项', noTasks: '首批记录中没有符合当前身份与目录范围的任务。',
     checked: '检查于', untitled: '未命名任务',
-    agentStatus: 'Agent 状态', quickBatch: '首批记录 · 最多 5 项',
-    quickReady: '当前身份已核验。仅显示本次查询结果，不代表 companion 已加载或可派工。',
+    agentStatus: '智能体状态', quickBatch: '首批记录 · 最多 5 项',
+    quickReady: '当前身份已核验。仅显示本次查询结果，不代表配套组件已加载或可以派工。',
     quickSetup: '请打开完整工作台，在连接页选择已安装 companion 的本机 profile。',
     status: {
       unselected: ['尚未选择 profile', '选择已安装 companion 的本机 profile 目录。插件市场安装不会自动连接 Hermes。'],

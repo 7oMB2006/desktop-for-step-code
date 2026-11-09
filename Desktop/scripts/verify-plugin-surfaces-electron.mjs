@@ -697,6 +697,30 @@ try {
         await quick.waitFor({ state: 'hidden' });
       }
       checks.push('actual Hermes approved titlebar icon opens the compact connected Agent status in both themes while leaving the conversation visible');
+      await main.evaluate(() => window.desktop.preferences({ language: 'zh' }));
+      await main.waitForFunction(() => document.documentElement.lang === 'zh-CN');
+      for (const theme of ['light', 'dark']) {
+        await main.evaluate(theme => window.desktop.preferences({ theme }), theme);
+        await main.waitForFunction(theme => document.documentElement.dataset.theme === theme, theme);
+        await action(hermes).click();
+        const quick = main.getByRole('dialog', { name: `${hermes.title} · 智能体状态`, exact: true });
+        await quick.getByRole('heading', { name: '只读连接已核验', exact: true }).waitFor();
+        await quick.getByRole('heading', { name: '智能体状态', exact: true }).waitFor();
+        await quick.getByRole('button', { name: '重新检查', exact: true }).waitFor();
+        await quick.getByRole('button', { name: '打开完整工作台', exact: true }).waitFor();
+        assert.ok((await quick.innerText()).includes('检查于'));
+        assert.ok((await quick.innerText()).includes('待审查'));
+        assert.ok(!(await quick.innerText()).includes('Agent status'));
+        assert.ok(!(await quick.innerText()).includes('Open full workspace'));
+        await settleLayout(quick);
+        await main.screenshot({ path: join(output, `hermes-status-zh-${theme}.png`) });
+        const bounds = await quick.boundingBox();
+        await main.screenshot({ path: join(output, `hermes-status-zh-${theme}-detail.png`),
+          clip: { x: Math.max(0, bounds.x - 8), y: 0, width: bounds.width + 16, height: bounds.y + bounds.height + 8 } });
+        await main.keyboard.press('Escape');
+        await quick.waitFor({ state: 'hidden' });
+      }
+      checks.push('actual Chinese Hermes status uses localized headings, actions, task phase and checked time in both themes');
     }
     for (const surface of ['market-detail', 'toolbar-direct', 'toolbar-overflow', 'workspace'])
       for (const theme of ['light', 'dark'])

@@ -64,7 +64,7 @@ for (const [id, cwd] of [['one', workspace], ['two', workspace], ['three', works
 }
 await writeFile(join(root, 'config.toml'), 'defaultProvider = "fixture"\ndefaultModel = "fixture"\npermissionPreset = "ask"\n[telemetry]\nenabled = false\n');
 await writeFile(join(profile, 'preferences.json'), JSON.stringify({ language: 'zh', theme: 'dark', workspace,
-  workspaces: [workspace, webLocal, webClient], terminalDock: 'bottom' }));
+  workspaces: [workspace, webLocal, webClient], terminalDock: 'bottom', completionSound: true }));
 const requests = [];
 const held = new Map();
 const chunk = (delta, finish_reason = null) => `data: ${JSON.stringify({ id: 'mini-fixture', object: 'chat.completion.chunk', model: 'fixture',

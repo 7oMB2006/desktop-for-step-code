@@ -56,6 +56,24 @@ No installer, release, shortcut change, real-account inference or cloud CI
 acceptance is claimed; the owner's running app, profile and prior packages
 remain untouched.
 
+## Notification CI Fixture Follow-up (2026-11-09)
+
+The first PR #226 cloud run failed both Windows and macOS sessions jobs at
+`verify-mini-chat-electron.mjs:477`: the existing one-sound assertion waited
+30 seconds, but its isolated profile had not opted into the new default-off
+completion sound. The two aggregate checks failed because those jobs failed.
+The MiniChat fixture now explicitly sets `completionSound: true`, matching the
+concurrency and task-progress fixtures. Product defaults, sound de-duplication
+assertions, deadlines and CI coverage are unchanged.
+
+The local Windows rerun passed the full MiniChat verifier (nine local fixture
+model requests, zero renderer errors, orderly shutdown), all seven notification
+verifier groups, 14 notification/audio unit tests, and 24 CI runner/policy tests
+with one existing platform skip. Evidence is under
+`Desktop/test-results/mini-chat-native/` and `Desktop/test-results/notifications/`.
+`git diff --check` passed. These source checks do not establish a cloud rerun,
+macOS native behavior or packaged acceptance.
+
 ## 插件工作区验收就绪时序修复（2026-11-09）
 
 PR #221 的 macOS 界面验收在 `verify-plugin-workspace.mjs:27` 失败：

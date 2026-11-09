@@ -11,6 +11,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { RpcProcess, isolatedEnvironment } from './runtime';
 import { SessionImports, importedProjectDirectory } from './session-import';
 import { SessionRuntimes, firstUserText, type SessionRuntime } from './session-runtimes';
+import { GlobalInstructionsStore } from './global-instructions';
 import { inspectProjectInstructions, projectInstructionsMessage } from './project-instructions';
 import { isProjectInstructionsCommand, projectInstructionsInput } from '../src/project-instructions';
 import { hasBackgroundWork } from './background-work';
@@ -235,6 +236,8 @@ async function importAttachment(path: string) {
 }
 const runtimeRoot = app.isPackaged ? join(process.resourcesPath, 'runtime') : resolve('runtime');
 const dataRoot = join(app.getPath('userData'), 'step-runtime');
+const globalInstructions = new GlobalInstructionsStore(join(dataRoot, 'agent'));
+const outdatedInstructions = new WeakSet<SessionRuntime>();
 const independentRoot = join(app.getPath('userData'), 'workspaces', 'independent');
 const pathKey = (path: string) => normalizedWorkspaceKey(resolve(path), process.platform);
 async function samePath(a: string, b: string) {
@@ -497,6 +500,7 @@ const runtimes: SessionRuntimes = new SessionRuntimes(event => {
     return decorateSessionMessages(worker.state.sessionId, worker.cwd, messages);
   },
   beforePrompt: (worker, message) => modelSelections.prepare(worker, message),
+  canReuseEmpty: worker => !outdatedInstructions.has(worker),
   // Keep at most two extra idle children when Windows has ample free memory.
   // This is a retention budget, never permission to speculatively start agents.
   idleLimit: () => process.platform === 'win32' && freemem() >= 3 * 1024 ** 3 ? 4 : 2,
@@ -2339,6 +2343,13 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
     }
     case 'compactionSettings': return admin.request('compaction_settings');
     case 'saveCompactionSettings': return admin.request('save_compaction_settings', { update: args[0] });
+    case 'globalInstructions': return globalInstructions.read();
+    case 'saveGlobalInstructions': {
+      const saved = await globalInstructions.save(args[0], args[1]);
+      // Resident conversations keep their context; new sessions must not reuse older empty workers.
+      if (saved.revision !== args[1]) for (const worker of runtimes.workers.values()) outdatedInstructions.add(worker);
+      return saved;
+    }
     case 'settings': return { ...await admin.request('settings', { cwd: (sessionDraft ? sessionDraft.workspace : preferences.workspace) ?? app.getPath('documents') }), providers: providerInfos(authData) };
     case 'discoverProviderModels': return discoverProviderModels(authData, args[0], args[1]);
     case 'cancelProviderTest': providerTestController?.abort(); return;

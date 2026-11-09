@@ -3,5 +3,16 @@
   "authors": [{ "name": "Desktop for Step Code contributors" }],
   "maintainers": [{ "name": "Desktop for Step Code contributors" }],
   "license": "MIT",
-  "documentation": { "readme": "README.md" }
+  "documentation": { "readme": "README.md" },
+  "desktop": {
+    "title": "Checklist workspace",
+    "surface": "main-view",
+    "symbol": "book",
+    "defaultPage": "start",
+    "pages": [
+      { "id": "start", "title": "Get started", "document": "docs/start.md" },
+      { "id": "first-task", "title": "First checklist", "document": "docs/first-task.md" },
+      { "id": "troubleshooting", "title": "Troubleshooting", "document": "docs/troubleshooting.md" }
+    ]
+  }
 }

@@ -1,0 +1,17 @@
+.plugin-workspace-fixture { --sidebar-track: 0px; }
+.plugin-workspace-fixture::before { display: none; }
+.plugin-fixture-main[hidden], .plugin-fixture-workspaces[hidden], .plugin-fixture-side[hidden] { display: none; }
+.plugin-fixture-main { min-width: 0; overflow: auto; }
+.plugin-fixture-conversation { width: min(100%, 840px); margin: 0 auto; padding: 48px 32px; }
+.plugin-fixture-conversation h1 { font-size: 20px; }
+.plugin-fixture-conversation p, .plugin-fixture-conversation li { font-size: 13px; line-height: 1.8; }
+.plugin-fixture-draft { margin-top: 48px; }
+.plugin-fixture-draft textarea { width: 100%; min-height: 100px; }
+.plugin-fixture-workspaces { display: flex; flex: 1; min-height: 0; min-width: 0; }
+.plugin-fixture-side { display: flex; flex: 0 0 min(440px, calc(100vw - 32px)); min-width: 0; min-height: 0; border-left: 1px solid var(--border); }
+.plugin-fixture-side .plugin-workspace-header { padding: 16px 16px 12px; }
+.plugin-fixture-side .plugin-workspace-tabs { padding-inline: 20px; }
+.plugin-fixture-side .plugin-workspace-page { padding: 16px 12px 24px; }
+@media (max-width: 700px) {
+  .plugin-fixture-side { position: absolute; top: var(--window-bar-height); right: 0; bottom: 0; width: calc(100vw - 32px); background: var(--bg); }
+}

@@ -34,6 +34,7 @@
 .mini-preview-floating .mini-chat-header { -webkit-app-region: no-drag; cursor: grab; touch-action: none; }
 .mini-preview-floating .mini-chat-header:active { cursor: grabbing; }
 .mini-preview-floating[data-pinned="true"] { box-shadow: 0 10px 36px oklch(0 0 0 / .22), 0 1px 5px oklch(0 0 0 / .08); }
+.mini-preview-floating[data-minimized="true"] { visibility: hidden; }
 .mini-preview-floating .mini-chat-header .icon-button { cursor: pointer; }
 .mini-preview-error { display: flex; align-items: center; gap: 8px; padding: 4px 16px; color: var(--danger); font-size: 12px; }
 .mini-preview-error > span { flex: 1; }

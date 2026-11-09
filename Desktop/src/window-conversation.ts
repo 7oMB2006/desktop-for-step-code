@@ -42,7 +42,7 @@ export function composerErrorText(error: unknown, language: 'zh' | 'en') {
 }
 
 export interface WindowConversationBridge {
-  readonly surface?: 'main' | 'mini';
+  readonly surface?: 'main' | 'mini' | 'plugin';
   miniChatOpen(): Promise<MiniChatState>;
   miniChatState(): Promise<MiniChatState>;
   miniChatPin(pinned: boolean): Promise<MiniChatState>;

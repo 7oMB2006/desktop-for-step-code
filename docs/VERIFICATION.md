@@ -1,5 +1,22 @@
 # Verification
 
+## 市场刷新诊断夹具的文件替换间隙（2026-11-10）
+
+#218 Windows interface run `42703156585` 在
+`verify-capability-diagnostics.mjs:390` 读健康市场的 manifest 时遇到
+`ENOENT`，此前单市场失败诊断和 Remote 保留检查均已完成。
+夹具直接轮询 Git 正在更新的文件，缺少文件暂时不存在这一等待状态。
+两个在途 manifest 轮询现在仅将 `ENOENT` 当作尚未发布；仍须读到指定
+新修订才通过，非法 JSON、权限和其他 I/O 错误继续立即失败。
+保留原 60 秒期限、100ms 间隔、Remote 身份和流式任务断言。
+
+受控回归真实移走旧文件，确认旧读法当场失败；在第一次空快照后发布新
+文件，确认轮询只在新描述出现后完成。56 项定向回归、类型检查及生产
+构建通过，完整 Windows 市场诊断 12 个场景通过且确认清理完成。
+日志为 `Desktop/test-results/goal218-manifest-native-20261110.log`。
+源码、包内与新 head 云端结果仍分别验收，不将该夹具修复当作任何
+产品刷新错误的豁免。
+
 ## MiniChat 交接后的迟到保存保护（2026-11-10）
 
 #216 macOS run `42687909764` 的源码场景通过，但包内 MiniChat 在

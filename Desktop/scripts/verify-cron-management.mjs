@@ -112,21 +112,29 @@ try {
     if (height === 684) {
       // A click/focus may expose only the textarea caret while its lower edge
       // remains clipped. Test the resulting focus without refocusing it.
-      await page.getByLabel('执行时间（本机时区）', { exact: true }).focus();
       const prompt = page.getByLabel('任务指令', { exact: true });
-      await prompt.evaluate(element => {
-        const scroller = element.closest('.scheduled-tasks');
-        scroller.scrollTop += element.getBoundingClientRect().bottom - scroller.getBoundingClientRect().bottom - 20;
-      });
+      const partiallyClipPrompt = async () => {
+        await page.getByLabel('执行时间（本机时区）', { exact: true }).focus();
+        // Native focus scrolling must settle before positioning the raw pointer.
+        await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+        await prompt.evaluate(element => {
+          const scroller = element.closest('.scheduled-tasks');
+          scroller.scrollTop += element.getBoundingClientRect().bottom - scroller.getBoundingClientRect().bottom - 20;
+        });
+        await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+        const point = await prompt.evaluate(element => {
+          const box = element.getBoundingClientRect(), bounds = element.closest('.scheduled-tasks').getBoundingClientRect();
+          const x = box.left + 12, y = box.top + 12;
+          return { x, y, clipped: box.bottom > bounds.bottom, hit: document.elementFromPoint(x, y) === element };
+        });
+        assert.ok(point.clipped && point.hit, `Partially clipped textarea has a visible pointer target: ${JSON.stringify(point)}`);
+        return point;
+      };
+      await partiallyClipPrompt();
       await prompt.focus();
       await assertFocusVisible(page, prompt, `cron ${theme} ${width} partially scrolled multiline`, { focus: false });
-      await page.getByLabel('执行时间（本机时区）', { exact: true }).focus();
-      await prompt.evaluate(element => {
-        const scroller = element.closest('.scheduled-tasks');
-        scroller.scrollTop += element.getBoundingClientRect().bottom - scroller.getBoundingClientRect().bottom - 20;
-      });
-      const box = await prompt.boundingBox();
-      await page.mouse.click(box.x + 12, box.y + 12);
+      const point = await partiallyClipPrompt();
+      await page.mouse.click(point.x, point.y);
       await assertFocusVisible(page, prompt, `cron ${theme} ${width} mouse-focused multiline`, { focus: false });
     }
     focusChecks.push({ theme, requested: { width, height }, viewport: await page.evaluate(() => ({ width: innerWidth, height: innerHeight })) });

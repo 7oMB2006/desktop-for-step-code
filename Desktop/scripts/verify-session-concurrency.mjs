@@ -50,7 +50,7 @@ const projectB = join(profile, 'project-b');
 await mkdir(projectADirectory); await mkdir(projectB);
 await symlink(projectADirectory, projectA, process.platform === 'win32' ? 'junction' : 'dir');
 await mkdir(join(root, 'sessions'), { recursive: true });
-await writeFile(join(profile, 'preferences.json'), JSON.stringify({ language: 'zh', theme: 'light', workspaces: [projectA, projectB] }));
+await writeFile(join(profile, 'preferences.json'), JSON.stringify({ language: 'zh', theme: 'light', workspaces: [projectA, projectB], completionSound: true }));
 await writeFile(join(root, 'config.toml'), 'defaultProvider = "fixture"\ndefaultModel = "fixture"\npermissionPreset = "ask"\n[telemetry]\nenabled = false\n');
 const config = join(profile, 'fixture.json');
 await writeFile(config, JSON.stringify({

@@ -264,9 +264,14 @@ try {
       assert.equal(app.windows().length, 0, 'Every application window must close');
       console.log('then_run fixture: driver and launcher closed');
     } catch (error) {
+      const sockets = process._getActiveHandles().filter(handle => handle.remotePort).map(socket => ({
+        localAddress: socket.localAddress, localPort: socket.localPort,
+        remoteAddress: socket.remoteAddress, remotePort: socket.remotePort,
+        destroyed: socket.destroyed, readyState: socket.readyState,
+      }));
       console.error('then_run shutdown resources:', JSON.stringify({ exitCode: child.exitCode,
         resources: process.getActiveResourcesInfo(), contextClosed: context.isClosed(),
-        contextCloseObserved, windows: app.windows().length,
+        contextCloseObserved, windows: app.windows().length, sockets,
         pipes: child.stdio.map(pipe => pipe && ({ destroyed: pipe.destroyed, closed: pipe.closed,
           readableEnded: pipe.readableEnded, writableFinished: pipe.writableFinished })) }));
       if (process.platform === 'win32') {
@@ -277,6 +282,15 @@ try {
           + '@($all | Where-Object { $owned.Contains([int]$_.ProcessId) } | Select-Object ProcessId,ParentProcessId,Name) | ConvertTo-Json -Compress'],
         { encoding: 'utf8', windowsHide: true, timeout: 5000 }).catch(failure => ({ stdout: `Unavailable: ${failure.message}` }));
         console.error('then_run shutdown owned processes:', owned.stdout.trim());
+        const ports = [...new Set(sockets.flatMap(socket => [socket.localPort, socket.remotePort]))];
+        if (ports.length) {
+          const connections = await promisify(execFile)('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command',
+            `$ports = @(${ports.join(',')}); Get-NetTCPConnection -ErrorAction SilentlyContinue | `
+            + 'Where-Object { $_.LocalPort -in $ports -or $_.RemotePort -in $ports } | '
+            + 'Select-Object LocalAddress,LocalPort,RemoteAddress,RemotePort,State,OwningProcess | ConvertTo-Json -Compress'],
+          { encoding: 'utf8', windowsHide: true, timeout: 5000 }).catch(failure => ({ stdout: `Unavailable: ${failure.message}` }));
+          console.error('then_run shutdown socket owners:', connections.stdout.trim());
+        }
       }
       throw error;
     }

@@ -596,6 +596,7 @@ try {
     ipcMain.removeHandler('desktop');
     ipcMain.handle('desktop', async (event, method, ...args) => {
       const probe = globalThis.miniReturnGate;
+      const afterTransfer = probe.transferred;
       if (method === 'miniChatReturn') {
         probe.returning = true;
         entered(); await beforeTransfer;
@@ -606,7 +607,7 @@ try {
       }
       const result = await handler(event, method, ...args);
       if (probe.returning && event.sender.id === mainContentsId && method === 'windowPresentation') {
-        const writes = probe.transferred ? probe.writes : probe.beforeWrites;
+        const writes = afterTransfer ? probe.writes : probe.beforeWrites;
         if (result === true) writes.push(args[1].position);
       }
       return result;

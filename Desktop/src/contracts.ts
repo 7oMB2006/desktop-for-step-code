@@ -115,6 +115,8 @@ export interface DesktopBridge extends SessionImportBridge, BtwBridge, Backgroun
   pluginWindowOpen(input: { ref: string }): Promise<void>;
   pluginWindowState(): Promise<PluginWindowSnapshot>;
   pluginWindowConfigure(): Promise<void>;
+  globalInstructions(): Promise<import('./global-instructions').GlobalInstructions>;
+  saveGlobalInstructions(content: string, revision: string): Promise<import('./global-instructions').GlobalInstructions>;
   projectInstructions(owner: import('./project-instructions').ProjectInstructionsOwner): Promise<import('./project-instructions').ProjectInstructionsStatus>;
   finishFirstRun(outcome: 'completed' | 'skipped'): Promise<Snapshot>;
   capabilityCatalog(): Promise<import('./capabilities').CapabilityCatalog>;

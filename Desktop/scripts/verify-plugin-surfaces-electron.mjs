@@ -477,8 +477,10 @@ try {
     /capability:stale/);
   await assert.rejects(native.evaluate(() => window.desktop.pluginWindowState()), /capability:stale/);
   const closed = native.waitForEvent('close');
-  await native.evaluate(() => { void window.desktop.windowControl('close'); });
-  await closed;
+  // Closing can destroy this renderer before its IPC/evaluate reply reaches Playwright.
+  await Promise.all([closed, native.evaluate(() => window.desktop.windowControl('close')).catch(error => {
+    if (!/Target page, context or browser has been closed/.test(error.message)) throw error;
+  })]);
   assert.ok(await app.evaluate(({ BrowserWindow }, id) => !BrowserWindow.fromId(id).isDestroyed(), mainId));
   checks.push('real uninstall removes the shortcut, rejects old package/state reads, clears native content and still permits closing only the plugin window');
   if (hermes) {

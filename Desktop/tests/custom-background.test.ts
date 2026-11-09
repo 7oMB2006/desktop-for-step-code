@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { test } from 'node:test';
 import { mkdir, mkdtemp, readFile, readdir, realpath, rm, symlink, unlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -219,6 +220,65 @@ test('an atomic state-write failure preserves the prior asset and removes its ow
   assert.deepEqual(store.state(), first);
   assert.deepEqual((await readdir(directory)).sort(), [`image-${first.image!.revision}.png`, 'state.json'].sort());
   assert.equal((await store.image(first.image!.revision)).width, 1);
+}));
+
+test('interrupted image candidates are repaired on import, including after restart and UI removal', async () => {
+  for (const damaged of [Buffer.alloc(0), pixel.subarray(0, 20), Buffer.alloc(MAX_THEME_IMAGE_BYTES + 1)]) {
+    await fixture(async ({ root, source }) => {
+      const directory = join(root, 'custom-background');
+      const revision = createHash('sha256').update(pixel).digest('hex');
+      const asset = join(directory, `image-${revision}.png`);
+      await writeFile(asset, damaged);
+      const restarted = new CustomBackgroundStore(root, decode);
+      await restarted.initialize();
+      await restarted.remove();
+      const imported = await restarted.importFile(source);
+      assert.equal(imported.image!.revision, revision);
+      assert.equal(imported.options.enabled, true);
+      assert.deepEqual(await readFile(asset), pixel);
+      assert.deepEqual((await readdir(directory)).sort(), [`image-${revision}.png`, 'state.json']);
+      assert.deepEqual(await restarted.importFile(source), imported);
+    });
+  }
+});
+
+test('repairing a committed damaged image survives a later metadata-write failure', async () => fixture(async ({ root, source, store }) => {
+  const first = await store.importFile(source);
+  const directory = join(root, 'custom-background');
+  const asset = join(directory, `image-${first.image!.revision}.png`);
+  await writeFile(asset, pixel.subarray(0, 20));
+  const restarted = new CustomBackgroundStore(root, decode);
+  assert.equal((await restarted.initialize()).issue, 'invalid');
+  await unlink(join(directory, 'state.json'));
+  await mkdir(join(directory, 'state.json'));
+  await assert.rejects(restarted.importFile(source), /storage/);
+  assert.deepEqual(await readFile(asset), pixel);
+  assert.equal((await restarted.image(first.image!.revision)).width, 1);
+  assert.deepEqual(restarted.state(), first);
+  assert.deepEqual((await readdir(directory)).sort(), [`image-${first.image!.revision}.png`, 'state.json']);
+}));
+
+test('candidate directory links are not repaired or followed and abandoned temporary files stay untouched', async () => fixture(async ({ root, source, store }) => {
+  const directory = join(root, 'custom-background');
+  const revision = createHash('sha256').update(pixel).digest('hex');
+  const asset = join(directory, `image-${revision}.png`);
+  const abandoned = join(directory, 'image-interrupted.tmp');
+  await writeFile(abandoned, 'partial');
+  await mkdir(asset);
+  await assert.rejects(store.importFile(source), /storage/);
+  assert.equal(store.state().image, undefined);
+  await rm(asset, { recursive: true });
+  const external = join(root, 'external-candidate');
+  await mkdir(external);
+  await writeFile(join(external, 'keep.txt'), 'untouched');
+  await symlink(external, asset, process.platform === 'win32' ? 'junction' : 'dir');
+  try {
+    await assert.rejects(store.importFile(source), /storage/);
+    assert.equal(await readFile(join(external, 'keep.txt'), 'utf8'), 'untouched');
+  } finally { await removeLinkEntry(asset); }
+  await store.importFile(source);
+  assert.equal(await readFile(abandoned, 'utf8'), 'partial');
+  assert.deepEqual((await readdir(directory)).sort(), [`image-${revision}.png`, 'image-interrupted.tmp', 'state.json'].sort());
 }));
 
 test('missing, corrupt and malformed startup state fail closed without losing valid selections', async () => fixture(async ({ root, source, store }) => {

@@ -44,6 +44,13 @@ plugin package files. The renderer receives a revision, dimensions and options,
 not the source path or arbitrary filesystem access. Image bytes are available
 only through the bounded current-revision read.
 
+Images are written and synced to an exclusively created temporary file before
+atomic publication. Reimporting safely replaces incomplete regular-file
+candidates left by older interrupted writes; links, directories and changed
+entries remain rejected. A repaired image already referenced by committed
+metadata survives a later metadata-write failure. Unrelated abandoned files
+are not swept or followed.
+
 The adapter requires a unique, recorded installation with a current complete
 package fingerprint and exact `dfsc.appearance.json` marker. Its manifest must
 have empty execution capabilities. A plugin ID or marketplace category alone

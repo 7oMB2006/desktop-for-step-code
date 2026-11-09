@@ -184,23 +184,38 @@ export class CustomBackgroundStore {
   private async stage(bytes: Buffer, image: BackgroundImageDescriptor): Promise<boolean> {
     const directory = await this.directory(true);
     const name = assetName(image.revision);
-    try {
-      const existing = await this.leaf(name, MAX_THEME_IMAGE_BYTES);
-      if (!existing.equals(bytes)) throw failure();
-      return false;
-    } catch (error: any) { if (error.code !== 'ENOENT') throw failure(); }
     const target = join(this.root, name);
+    let existing: Stats | undefined;
+    try {
+      existing = await lstat(target);
+      if (!existing.isFile() || existing.isSymbolicLink()) throw failure();
+      if (existing.size <= MAX_THEME_IMAGE_BYTES && (await this.leaf(name, MAX_THEME_IMAGE_BYTES)).equals(bytes))
+        return false;
+    } catch (error: any) { if (error.code !== 'ENOENT') throw failure(); }
+    // Publish only complete images; an interrupted legacy write may have left a partial candidate.
+    const temporary = `image-${randomUUID()}.tmp`;
     let created = false;
     try {
-      const handle = await open(target, 'wx', 0o600);
+      const handle = await open(join(this.root, temporary), 'wx', 0o600);
       created = true;
       try { await handle.writeFile(bytes); await handle.sync(); }
       finally { await handle.close(); }
       await this.directory(false, directory);
-      return true;
+      let current: Stats | undefined;
+      try { current = await lstat(target); }
+      catch (error: any) { if (error.code !== 'ENOENT') throw error; }
+      if (existing ? !current || !current.isFile() || current.isSymbolicLink()
+        || !sameFile(existing, current) || existing.size !== current.size || existing.mtimeMs !== current.mtimeMs
+        : current !== undefined) throw failure();
+      await rename(join(this.root, temporary), target);
+      created = false;
+      await this.directory(false, directory);
+      // A repaired image already referenced by committed metadata must survive metadata-write failure.
+      return this.current.image?.revision !== image.revision;
     } catch {
-      if (created) await this.removeTemporary(name, directory);
       throw failure();
+    } finally {
+      if (created) await this.removeTemporary(temporary, directory);
     }
   }
 

@@ -1,5 +1,26 @@
 # Verification
 
+## 自定义背景 Review 与 CI 修复（2026-11-09）
+
+- 基础 PR #222 的原生插件夹具漏拷贝 `theme-composition.mjs`，
+  已在 `082e773` 补齐，并合入插件分支；未修改产品权限或测试断言。
+- PR #223 的 P2 已复现并修复：图片先写独占临时文件并同步，再原子发布。
+  再次导入可修复旧版本中断留下的普通文件；仍拒绝目录、链接和被替换的条目。
+  修复已被元数据引用的图片后，即使元数据提交失败，也不会误删该图片。
+- 存储、实际 main、插件权限和操作门回归共 89 项：88 通过，
+  1 项因本机文件符号链接权限跳过；目录 junction 拒绝测试实际运行。
+  新增空文件、截断文件、超限残留、重启后重选、删除后重选及提交失败回滚覆盖。
+- 类型检查、隔离生产构建通过。本机原生插件完整重跑在最后一项清理时
+  报 `Runtime process-tree termination failed (1)`，并留下测试进程；
+  单项重跑以及带 `--test-force-exit` 的诊断重跑分别为 1/1 和 9/9。
+  后者不是默认退出流程验收，未据此宣称关闭行为通过。
+- `custom-background-20261109-review-r4` 的隔离 Electron 完成七项导入、
+  解码、编辑和主题兼容检查，页面错误为空，但在正常关闭时超时，完整验收失败。
+  证据保存在 `output/custom-background-20261109/review-r4/failure.json`。
+  已按本轮精确进程路径清理残留，没有修改终止策略或放宽关闭断言。
+- 新构建约 7.5 MiB，另有只读运行时链接；未生成安装包、删除历史构建、
+  切换快捷方式或触碰个人档案。新提交的云端 CI 仍需独立确认。
+
 ## Custom Background MVP (2026-11-09)
 
 The optional host-adapter package now opens a real local PNG/JPEG editor.
@@ -48,9 +69,10 @@ or cancellation assertion was weakened.
 Foundation PR #222 cloud review reports no findings, but its Windows protocol
 jobs and macOS ARM64 preparation fail because the isolated native-plugin fixture
 does not copy the new `theme-composition.mjs` dependency. Both platforms report
-the same nine native-plugin startup failures. The narrow fixture correction was
-proposed and awaits owner approval; cloud CI is not green. This is separate from
-the local product acceptance above.
+the same nine native-plugin startup failures. After owner approval, the fixture
+copy list includes the missing dependency in `082e773`. Replacement cloud CI is
+running; it is not yet a green result. This is separate from the local product
+acceptance above.
 
 Final native evidence is in
 `D:\Desktop For Step Code\output\custom-background-20261109\electron-final`.

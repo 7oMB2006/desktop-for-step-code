@@ -15,6 +15,12 @@
 - `git diff --check` 通过。没有重跑完整 Desktop 套件，不宣称物理
   麦克风、真实服务、安装包或 macOS 已验收。
 
+PR #229 首轮 CI 在分类检查发现 `verify-speech.mjs` 漏登记，
+尚未运行 Windows 验收。已将其加入共享 interface 组，不改断言、
+期限或排除列表。对应 CI 策略测试本地 24 项全部通过；macOS
+清单、策略和运行器测试 15 项通过、1 项平台场景跳过。
+这些结果不代替补推后云端各验收任务的最终结果。
+
 只读盘点：当前 `Desktop/dist` 12.10 MiB，`Desktop/terminal-runtime`
 62.96 MiB，本次强调色验收证据和隔离 profile 共 14.14 MiB。
 没有删除产物、修改共享 junction、重启预览或改动日用安装。

@@ -11,6 +11,7 @@ export const acceptanceGroups = {
     'verify-appearance.mjs',
     'verify-interface-settings.mjs',
     'verify-compaction-settings.mjs',
+    'verify-speech.mjs',
     'verify-interface-preferences.mjs',
     'verify-question-tool-layout.mjs',
     'verify-disclosure-summary.mjs',

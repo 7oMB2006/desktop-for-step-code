@@ -587,16 +587,20 @@ try {
   await page.getByText('未登录', { exact: true }).waitFor();
   await page.getByRole('button', { name: '通用', exact: true }).click();
   assert.equal(await page.evaluate(() => CSS.supports('appearance', 'base-select')), true);
-  const languagePicker = page.getByRole('dialog').getByLabel(/语言|Language/);
+  const languagePicker = page.getByRole('dialog').getByLabel(/^(语言|Language)$/);
+  assert.equal(await languagePicker.count(), 1);
+  const recognitionLanguage = await page.getByRole('dialog').getByLabel('识别语言', { exact: true }).inputValue();
   await languagePicker.click();
   await page.screenshot({ path: 'test-results/select-light.png' });
   await page.keyboard.press('Escape');
   await page.getByRole('button', { name: '外观', exact: true }).click();
   await page.getByRole('button', { name: '暗', exact: true }).click();
   await page.getByRole('button', { name: '通用', exact: true }).click();
-  await page.getByRole('dialog').getByLabel(/语言|Language/).selectOption('en');
+  await page.getByRole('dialog').getByLabel(/^(语言|Language)$/).selectOption('en');
   await page.getByRole('button', { name: 'Model and thinking level' }).waitFor();
   await page.getByRole('button', { name: 'Access permissions' }).waitFor();
+  assert.equal(await page.getByRole('dialog').getByLabel('Recognition language', { exact: true }).inputValue(),
+    recognitionLanguage, 'Changing the interface language must not change the ASR language');
   assert.equal(await page.locator('.permission-trigger span').textContent(), 'Ask');
   assert.equal(await page.getByRole('meter', { name: 'Context usage' }).getAttribute('title'), null);
   assert.equal(await page.locator('.model-effort-level').textContent(), 'off');
@@ -621,8 +625,9 @@ try {
   await page.getByRole('button', { name: 'Remove attachment', exact: true }).click();
   await page.getByRole('button', { name: 'Account settings', exact: true }).click();
   await page.getByRole('button', { name: 'General', exact: true }).click();
-  await page.getByRole('dialog').getByLabel(/语言|Language/).selectOption('zh');
+  await page.getByRole('dialog').getByLabel(/^(语言|Language)$/).selectOption('zh');
   await page.getByRole('button', { name: '模型与思考强度' }).waitFor();
+  assert.equal(await page.getByRole('dialog').getByLabel('识别语言', { exact: true }).inputValue(), recognitionLanguage);
   assert.equal(await page.locator('.permission-trigger span').textContent(), '请求批准');
   assert.equal(await page.locator('.model-effort-level').textContent(), '关闭');
   await languagePicker.click();
@@ -641,7 +646,8 @@ try {
   await page.mouse.move(0, 0);
   await tooltip.waitFor({ state: 'hidden' });
   const controlOrder = await composerTools.evaluate(element => [...element.children].map(child => child.getAttribute('aria-label') ?? child.className));
-  assert.deepEqual(controlOrder, ['添加附件', 'permission-picker', 'spacer', '上下文用量', 'model-effort', '发送']);
+  assert.deepEqual(controlOrder, ['添加附件', 'permission-picker', 'spacer', '上下文用量', 'speech-input', 'model-effort', '发送']);
+  assert.equal(await composerTools.getByRole('button', { name: '语音听写', exact: true }).locator('svg.lucide-mic').count(), 1);
   const permissionTrigger = composerTools.getByRole('button', { name: '访问权限' });
   assert.equal(await permissionTrigger.locator('svg.lucide-hand').count(), 1);
   await permissionTrigger.click();

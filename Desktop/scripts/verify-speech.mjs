@@ -18,6 +18,19 @@ await writeFile(join(root, 'auth.json'), JSON.stringify({ step: {
   type: 'oauth', profile: 'step_plan', access: 'speech-fixture-plan-key', expires: Date.now() + 3600000,
 } }));
 await writeFile(join(root, 'config.toml'), 'defaultProvider = "step"\ndefaultModel = "step-5-preview"\n[telemetry]\nenabled = false\n');
+// Loop a voiced PCM fixture so short recordings do not depend on the default
+// fake microphone's timing and actually exercise ASR rather than silent discard.
+const microphone = join(profile, 'microphone.wav');
+const wav = Buffer.alloc(44 + 16000 * 2);
+wav.write('RIFF', 0); wav.writeUInt32LE(wav.length - 8, 4); wav.write('WAVEfmt ', 8);
+wav.writeUInt32LE(16, 16); wav.writeUInt16LE(1, 20); wav.writeUInt16LE(1, 22);
+wav.writeUInt32LE(16000, 24); wav.writeUInt32LE(32000, 28);
+wav.writeUInt16LE(2, 32); wav.writeUInt16LE(16, 34); wav.write('data', 36);
+wav.writeUInt32LE(wav.length - 44, 40);
+for (let sample = 0; sample < 16000; sample++) {
+  wav.writeInt16LE(Math.round(0.2 * 32767 * Math.sin(2 * Math.PI * 440 * sample / 16000)), 44 + sample * 2);
+}
+await writeFile(microphone, wav);
 let mode = 'ok';
 const calls = [], failures = [];
 const server = createServer(async (request, response) => {
@@ -100,7 +113,8 @@ for (const key of Object.keys(env)) {
 let app, page;
 const errors = [];
 const launch = async () => {
-  app = await electron.launch({ args: [entry, '--use-fake-device-for-media-stream'], env, timeout: 60000 });
+  app = await electron.launch({ args: [entry, '--use-fake-device-for-media-stream',
+    `--use-file-for-fake-audio-capture=${microphone}`], env, timeout: 60000 });
   page = await app.firstWindow();
   await page.emulateMedia({ reducedMotion: 'no-preference' });
   page.on('pageerror', error => errors.push(error.message));
@@ -110,6 +124,25 @@ const launch = async () => {
   });
   await page.getByRole('textbox', { name: '消息', exact: true }).waitFor();
   await page.waitForFunction(() => document.querySelector('.composer-input')?.getAttribute('aria-disabled') === 'false');
+  await page.evaluate(() => {
+    const Original = window.AudioWorkletNode;
+    window.AudioWorkletNode = class extends Original {
+      constructor(...args) {
+        super(...args);
+        if (args[1] !== 'desktop-speech-capture') return;
+        const capture = { samples: 0, voicedSamples: 0 };
+        window.__speechFixtureCapture = capture;
+        // Observe the production worklet without replacing capture or transcription.
+        this.port.addEventListener('message', ({ data }) => {
+          if (data?.type !== 'samples') return;
+          capture.samples += data.samples.length;
+          let energy = 0;
+          for (const sample of data.samples) energy += sample * sample;
+          if (Math.sqrt(energy / Math.max(1, data.samples.length)) >= 0.01) capture.voicedSamples += data.samples.length;
+        });
+      }
+    };
+  });
 };
 const snapshot = () => page.evaluate(() => window.desktop.snapshot());
 const settingsValue = () => page.evaluate(() => window.desktop.speechSettings());
@@ -120,7 +153,8 @@ const begin = async () => {
   await page.getByRole('button', { name: '结束听写', exact: true }).waitFor();
 };
 const finish = async () => {
-  await new Promise(done => setTimeout(done, 700));
+  const voiced = await page.evaluate(() => window.__speechFixtureCapture.voicedSamples);
+  await page.waitForFunction(voiced => window.__speechFixtureCapture.voicedSamples >= voiced + 6400, voiced, { timeout: 20000 });
   await page.getByRole('button', { name: '结束听写', exact: true }).click();
 };
 const until = async (condition, label, timeout = 20000) => {
@@ -254,6 +288,7 @@ try {
   mode = 'error';
   await begin(); await finish();
   await page.locator('.speech-error[role="alert"]').waitFor();
+  assert.equal(calls.length, completed + 1, 'The error case must reach the real ASR transport');
   await settleLayout(page.locator('.speech-error'));
   assert.equal(await statusDoesNotOverlap(), true, 'Errors also stay in the context row');
   await assertGeometry(cancelGeometry);
@@ -436,6 +471,9 @@ try {
 } catch (error) {
   if (page && !page.isClosed()) {
     await page.screenshot({ path: join(evidence, 'failure.png') });
+    await writeFile(join(evidence, 'failure-diagnostic.json'), JSON.stringify({
+      calls, failures, errors, capture: await page.evaluate(() => window.__speechFixtureCapture),
+    }, null, 2));
     console.error(await page.locator('body').innerText());
   }
   throw error;

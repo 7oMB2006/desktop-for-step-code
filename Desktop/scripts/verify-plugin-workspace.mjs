@@ -5,7 +5,7 @@ import { createServer } from 'vite';
 
 const output = process.env.PLUGIN_WORKSPACE_OUTPUT || 'test-results/plugin-workspace';
 await mkdir(output, { recursive: true });
-let server, browser;
+let server, browser, releaseIcon;
 const errors = [];
 try {
   if (!process.env.DESKTOP_PREVIEW_URL) {
@@ -20,10 +20,21 @@ try {
   const page = await browser.newPage({ viewport: { width: 1440, height: 940 } });
   page.on('pageerror', error => errors.push(error.message));
   const url = `${base}/tests/fixtures/plugin-workspace.html`;
+  // Navigation can finish before the fixture's top-level icon fetch and React mount.
+  const iconPattern = '**/plugin-center-assets/bvr.png';
+  const iconGate = new Promise(resolve => { releaseIcon = resolve; });
+  const delayIcon = async route => { await iconGate; await route.continue(); };
+  await page.route(iconPattern, delayIcon);
+  const iconRequested = page.waitForRequest(iconPattern);
   await page.goto(url);
+  await iconRequested;
   const group = page.getByRole('group', { name: '插件快捷入口', exact: true });
   const main = page.locator('[data-plugin-workspace="plugin-0"]');
   const button = page.getByRole('button', { name: 'Hermes 工程桥', exact: true });
+  assert.equal(await group.count(), 0, 'navigation alone does not establish fixture readiness');
+  releaseIcon();
+  await group.waitFor();
+  await page.unroute(iconPattern, delayIcon);
   assert.equal(await group.locator(':scope > button').count(), 4, 'three visible entries plus overflow');
   const mini = page.getByRole('button', { name: 'MiniChat', exact: true });
   const minimize = page.getByRole('button', { name: '最小化', exact: true });
@@ -32,7 +43,9 @@ try {
   assert.equal(miniBox.x + miniBox.width, minimizeBox.x, 'MiniChat adjacency is unchanged');
   assert.equal(await group.evaluate(element => element.parentElement.classList.contains('window-bar')), true);
   assert.equal(await button.evaluate(element => getComputedStyle(element).webkitAppRegion), 'no-drag');
-  assert.equal(await group.locator('[data-plugin-action="plugin-1"] svg').count(), 1, 'bad PNG falls back to a fixed Lucide icon');
+  const fallbackIcon = group.locator('[data-plugin-action="plugin-1"] svg');
+  await fallbackIcon.waitFor();
+  assert.equal(await fallbackIcon.count(), 1, 'bad PNG falls back to a fixed Lucide icon');
   await page.locator('#draft').fill('保留这个需求');
   await button.click();
   await main.getByRole('heading', { name: '从第一项委托开始', exact: true }).waitFor();
@@ -111,6 +124,7 @@ try {
     await page.screenshot({ path: `${output}/${name}-focused.png`, fullPage: true });
   }
   await page.goto(`${url}?mode=single&open=1`);
+  await group.waitFor();
   assert.equal(await page.getByRole('button', { name: '更多插件', exact: true }).count(), 0);
   assert.equal(await group.locator(':scope > button').count(), 1);
   await page.goto(`${base}/tests/fixtures/plugin-window.html`);
@@ -174,8 +188,9 @@ try {
   assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
   await page.screenshot({ path: `${output}/native-window-desktop-dark.png`, fullPage: true });
   assert.deepEqual(errors, []);
-  console.log(JSON.stringify({ ok: true, screenshots: output, checks: ['titlebar isolation', 'MiniChat order', 'safe icon fallback', 'document retry', 'tab/history/scroll preservation', 'overflow keyboard/outside/Escape', 'main draft retention', 'responsive layouts and full focus outlines', 'native plugin window isolation', 'theme/preferences refresh', 'native package-ref remount', 'stale-response protection', 'unavailable retry'] }, null, 2));
+  console.log(JSON.stringify({ ok: true, screenshots: output, checks: ['delayed fixture readiness', 'titlebar isolation', 'MiniChat order', 'safe icon fallback', 'document retry', 'tab/history/scroll preservation', 'overflow keyboard/outside/Escape', 'main draft retention', 'responsive layouts and full focus outlines', 'native plugin window isolation', 'theme/preferences refresh', 'native package-ref remount', 'stale-response protection', 'unavailable retry'] }, null, 2));
 } finally {
+  releaseIcon?.();
   await browser?.close();
   await server?.close();
 }

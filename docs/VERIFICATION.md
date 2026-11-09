@@ -1,5 +1,24 @@
 # Verification
 
+## 插件工作区验收就绪时序修复（2026-11-09）
+
+PR #221 的 macOS 界面验收在 `verify-plugin-workspace.mjs:27` 失败：
+按钮数预期为 4，实际为 0。测试页面在顶层等待图标 fetch 和 FileReader，
+完成后才挂载 React；`page.goto()` 返回不代表这一步已完成。
+本地拦住图标响应可稳定重现：导航已完成时按钮数为 0，
+放行并等待插件按钮区挂载后为 4。
+
+验收脚本新增这一受控慢加载回归，首次打开和单插件页面均等待按钮区可见，
+损坏图标的回退断言也等待实际 SVG 出现。按钮数量、布局、隔离和错误检查
+保持不变，未增加固定休眠、放宽断言或修改产品代码。
+
+本地工作区验收 14 组、实际渲染器界面验收 11 组及类型检查通过；
+CI 清单、执行器和策略测试共 31 项，30 项通过、1 项既有平台跳过；
+`git diff --check` 通过。证据截图位于
+`D:\DFSC-Preview-QA\plugin-ci-readiness-20261109`。
+本机使用现有 Chromium headless shell 1243，未下载浏览器；
+这不替代修复提交的云端 macOS 和打包验收。
+
 ## Generic Plugin Workspace Interaction Closeout (2026-11-09)
 
 This closes the generic data-only workspace interaction layer, not a Hermes

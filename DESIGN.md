@@ -19,7 +19,10 @@ MiniChat is a native view of a normal conversation, not BTW or a second agent.
 Reuse the actual conversation/composer/queue/approval components and shared
 tokens; omit unrelated rails and the performance footer. The titlebar entry
 sits immediately before Minimize. A draggable compact header provides the
-shared session menu, pin, Return and Close. Close hides without affecting work;
+shared session menu, pin, Return, Minimize and Close. Minimize uses the native
+window action, affects only MiniChat and preserves its session, draft and reading
+state while work continues. Restore it from the taskbar/Dock or MiniChat entry.
+Close hides without affecting work;
 reopen resumes the mini selection, and Return explicitly transfers it to main.
 Draft text, quotes/annotations and attachments are session-owned. Presentation
 state is per window/session; streaming must not pull an older reader to the
@@ -98,6 +101,29 @@ guarantee. Show actual session model, channel, region and per-capability approva
 only when confirmed. Saving, failed saves, management changes and session/restart
 changes invalidate the observation without discarding unsaved fields. Do not
 restart a session, grant access or renew a lease from this form.
+
+Installed plugins may contribute one data-only desktop workspace with a
+`main-view`, `side-panel` or `window` surface. All three render the same bounded,
+host-owned Markdown pages; they are not arbitrary frontend execution points.
+Their titlebar entry belongs to an independent plugin action group beside
+MiniChat, never inside application menus or native window controls. The group
+has its own component, DOM region, styles, focus and event handling, and reserves
+no empty space when no valid installed contribution exists. Use fixed-size
+icon buttons with accessible names and tooltips; narrow layouts must preserve
+window controls and a usable drag region. Package raster icons have verified
+light/dark variants with a host symbol fallback, not remote image requests.
+Opening, tabbing and closing a workspace preserve conversation drafts and do not
+submit prompts, grant permissions or claim a connected backend. Any configuration
+action navigates to the existing plugin configuration flow. Missing or stale
+packages clear the actionable workspace rather than displaying another package.
+Main-view and side-panel shortcuts toggle their visible workspace; a window
+shortcut opens or focuses its one native window. Opening a workspace transfers
+keyboard focus into its selected tab, or restores its last visible focused
+control when reopened. Returning restores the original entry, including the
+overflow trigger. Main views use Back; side panels and native windows use an
+explicit Close action with the correct accessible name.
+This optional author contract requires a new host build, not a package-name
+exception or an implied capability in all published 0.6.0 clients.
 
 Plugin authoring, fixed layout, control/copy conventions and the BVR mapping
 are documented in `docs/PLUGIN_AUTHORING.md`. `examples/plugins` separates a
@@ -380,6 +406,10 @@ The home screen and all user-facing new-session controls open a proposed session
 Session navigation remains available during execution. Viewing a different session does not stop or replace a running worker. Seven-pixel sidebar status dots sit in the empty gutter beneath each group icon, outside the session selection background. Titles use the original nine-pixel padding, without a second empty status slot inside the row. Running uses the transcript's rose pulse; blue means a successful background reply is unread, not merely that history completed. Opening the session clears its unread dot, and completion in the currently viewed session is already read. Unread flags belong to session IDs and survive worker recycling within the app lifetime; they are not inferred from restored history or persisted across app relaunch. Interruption/failure or approval waiting uses static yellow with distinct accessible labels. The dots have no hover tooltip. Reduced-motion disables the pulse. Successful foreground or background task completion plays the supplied camera-dial WAV once; manual stop, failure, crash and history restoration are silent. Resident-session navigation returns the main process's live worker cache immediately and refreshes full history, models, statistics and the catalog after the initial paint. Cold sessions still need worker startup. The composer, stop action, permissions and model controls belong to the viewed session; drafts, quotes, attachments and reading position survive navigation and idle-worker recycling. Background approval never opens over another conversation. A foreground approval can be deferred with Review later and reopened from an inline notice without cancelling it. Shared account/MCP changes remain guarded across all running sessions, and quitting confirms stopping every background task. Same-directory concurrent sends proceed directly without a generic confirmation.
 
 Session workers append shared-workspace collaboration guidance through the runtime's existing system-prompt option. This preserves product and project instructions and does not alter visible user prompts. Agents are instructed to inspect Git state, re-read before narrow edits, preserve others' changes, stage only their task's paths or hunks, and ask about specific ambiguous overlaps rather than treating concurrent activity as a blocker. This is behavioral guidance, not file locking, an ownership registry, worktree isolation or automatic shared access to other conversations. Existing tool permission approvals remain unchanged.
+
+Settings > Global instructions edits the Desktop profile's native global context file under Electron userData `step-runtime/agent/`, normally `AGENTS.md`. Existing context files follow the runtime's discovery order (`AGENTS.override.md`, `AGENTS.md`, case variants, then `CLAUDE.md`); editing uses the active file instead of silently shadowing or replacing other files. The main process owns bounded UTF-8 reads, serialized revision-checked saves and atomic replacement, and refuses linked instruction files/directories. The renderer receives text and an opaque revision only. Instructions are plaintext preferences sent to the configured model, not credential storage or an access-control boundary.
+
+Global instructions supplement the native product prompt, Desktop collaboration rules and project context, without changing user messages or permissions. The runtime loads global context before ancestor/project context; this ordering is not a guarantee of model obedience or a new enforced instruction hierarchy. Saving does not reload, stop or mutate resident conversations. Newly started runtimes, including restarted or cold-restored history, load the current file; navigating to an already resident conversation retains its loaded context. A configuration save excludes older empty workers from new-session reuse. The editor retains unsaved text across settings tabs, supports save/discard/clear/reload, and preserves local edits on revision conflict. Clearing is persisted only by Save. No personal CLI profile or upstream runtime source is modified.
 
 Desktop-owned extensions expose explicit peer-session tools through a main-process loopback broker. Listing covers resident sessions in this Desktop profile, not cold history; reads return recent user/assistant prose only, never reasoning, tool payloads or images. Reads neither navigate nor clear unread status. Peer text is reference, not an instruction or authorization from the user. Sending one message always requires a source-session confirmation displaying the exact target, folder and text, even in bypass mode; read-only sources cannot send. Background confirmations stay with their source conversation and can be deferred. Accepted messages queue behind an active turn or start an idle peer; there is no cross-session interrupt, stop, broadcast or automatic reply loop. Delivery acknowledgement is not task completion. Tokens are per worker, revoked at disposal and never exposed through the renderer bridge.
 

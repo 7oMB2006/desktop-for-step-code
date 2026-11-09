@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, useState } from 'react';
-import { ArrowDownToLine, ArrowLeft, BookOpen, Check, Globe, LoaderCircle, Plug, Plus, RefreshCw, RotateCcw, Save, Search, Settings, Trash2, X } from 'lucide-react';
+import { ArrowDownToLine, ArrowLeft, BookOpen, Check, ExternalLink, Globe, LoaderCircle, Plug, Plus, RefreshCw, RotateCcw, Save, Search, Settings, Trash2, X } from 'lucide-react';
 import type { McpServer, SessionSummary } from './contracts';
 import type { CapabilityCatalog, CapabilityMutation, CapabilityPlugin, MarketplacePlugin, PluginPackage, PluginStarSnapshot } from './capabilities';
 import type { CapabilityTarget, PluginTab } from './capability-command';
@@ -39,11 +39,12 @@ function ProjectLink({ entry, language }: { entry: Entry; language: string }) {
     aria-label={language === 'zh' ? `打开 ${entry.name} GitHub 项目` : `Open ${entry.name} on GitHub`}>
     <span className="pc-github-mark" aria-hidden="true"/></a>;
 }
-export function PluginCenter({ bridge, language, busy, active, runtimeId, settings, target, updates: previewUpdates, onChanged, onRestart, onManageMcp, onBack }: {
+export function PluginCenter({ bridge, language, busy, active, runtimeId, settings, target, updates: previewUpdates, onChanged, onRestart, onManageMcp, onBack, onOpenDesktop }: {
   bridge: PluginCenterBridge; language: string; busy: boolean; active: boolean; runtimeId?: string;
   settings?: { mcp: Record<string, McpServer> }; target?: CapabilityTarget;
   updates?: PluginUpdatesPresentation;
   onChanged(): Promise<void>; onRestart(): Promise<void>; onManageMcp(name?: string): void; onBack(): void;
+  onOpenDesktop?(plugin: CapabilityPlugin): void;
 }) {
   const t = (cn: string, en: string) => language === 'zh' ? cn : en;
   const [catalog, setCatalog] = useState<CapabilityCatalog>();
@@ -208,11 +209,14 @@ export function PluginCenter({ bridge, language, busy, active, runtimeId, settin
   }, [active, settings]);
   useEffect(() => {
     if (!target || target.page !== 'plugins') return;
+    if (target.pluginId && !catalog) return;
     navigate(() => {
-      setSelected(undefined); setBvrState({ dirty: false, pending: false, ready: false });
+      setSelected(target.pluginId && catalog?.plugins.some(plugin => plugin.id === target.pluginId) ? `i:${target.pluginId}` : undefined);
+      setDetailTab(target.detail ?? 'config');
+      setBvrState({ dirty: false, pending: false, ready: false });
       setTab(target.tab ?? 'installed'); setQuery(target.query ?? ''); setAdding(Boolean(target.source)); setSource(target.source ?? '');
     });
-  }, [target]);
+  }, [target, Boolean(catalog)]);
   useEffect(() => {
     if (!active || !runtimeId || !entry?.installed) { setLive(undefined); return; }
     let valid = true, running = false;
@@ -265,7 +269,8 @@ export function PluginCenter({ bridge, language, busy, active, runtimeId, settin
         acceptCatalog(next);
         if (input.action === 'plugin-install') {
           const added = next.available.find(item => item.name === input.name && item.marketplace === input.marketplace);
-          if (added?.installedId) { setSelected(`i:${added.installedId}`); setDetailTab('config'); }
+          if (added?.installedId) { setSelected(`i:${added.installedId}`);
+            setDetailTab(next.plugins.find(plugin => plugin.id === added.installedId)?.package?.desktop ? 'about' : 'config'); }
         }
       }
       await onChanged();
@@ -444,6 +449,9 @@ export function PluginCenter({ bridge, language, busy, active, runtimeId, settin
           <div className="pc-header-actions"><span className="pc-repository"><ProjectLink entry={entry} language={language}/><PluginStars value={entry.repository && entry.package ? entry.package.stars ?? { status: 'unknown' } : undefined} language={language}/>
             {entry.repository && entry.package && <button className="icon-button" disabled={repositoryPending} aria-label={t('刷新仓库信息', 'Refresh repository information')}
               onClick={() => void refreshRepository()}><RefreshCw size={13} className={repositoryPending ? 'pc-spin' : undefined}/></button>}</span>{entry.installed ? <>
+            {onOpenDesktop && entry.installed.package?.provenance === 'recorded' && entry.installed.package.desktop &&
+              <button type="button" disabled={operationLocked} onClick={() => navigate(() => onOpenDesktop(entry.installed!))}>
+                <ExternalLink size={15}/>{t('打开', 'Open')} {entry.installed.package.desktop.title}</button>}
             {toggle(entry.installed)}<button className="icon-button pc-danger-button" disabled={mutationLocked({ action: 'plugin-remove', id: entry.installed.id })} aria-label={t('卸载插件', 'Uninstall plugin')}
               onClick={() => navigate(() => setConfirmation({ title: t(`卸载 ${entry.name}？`, `Uninstall ${entry.name}?`),
                 action: () => void perform({ action: 'plugin-remove', id: entry.installed!.id }) }))}><Trash2 size={16}/></button></>

@@ -32,6 +32,7 @@ The original idea was to explore a community-built desktop client for Step Code 
 - Summary, context and diff inspection, with bounded recorded-change undo
 - A terminal, user-operated browser, file previews and delivery references
 - Step account sign-in, MCP configuration, and resource discovery
+- Global custom instructions (current source): edit in Settings across projects; newly started session runtimes load them without hot-updating resident conversations. See [verification](docs/VERIFICATION.md#global-instructions-2026-11-09).
 - Chinese and English UI, with light and dark themes
 - GitHub update checks and notifications, with selectable release channels
 - Background tray operation and window restoration

@@ -1,6 +1,9 @@
 export type CapabilityPage = 'plugins' | 'mcp' | 'skills';
 export type PluginTab = 'installed' | 'discover' | 'sources';
-export interface CapabilityTarget { page: CapabilityPage; tab?: PluginTab; query?: string; source?: string }
+export interface CapabilityTarget {
+  page: CapabilityPage; tab?: PluginTab; query?: string; source?: string;
+  pluginId?: string; detail?: 'about' | 'config' | 'capabilities' | 'updates';
+}
 
 // Management commands navigate to a reviewable UI, never mutate from a prompt.
 export function capabilityCommand(value: string, attachments = 0, quotes = 0): CapabilityTarget | null {

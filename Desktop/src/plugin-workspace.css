@@ -1,0 +1,45 @@
+.plugin-workspace {
+  display: flex; flex: 1; flex-direction: column; width: 100%; min-width: 0; min-height: 0;
+  color: var(--ink); background: var(--bg);
+}
+.plugin-workspace[hidden], .plugin-workspace-page[hidden] { display: none; }
+.plugin-workspace-header {
+  display: flex; align-items: center; gap: 12px; flex: 0 0 auto; min-height: 82px;
+  width: min(100%, 1040px); margin-inline: auto; padding: 20px 32px 16px;
+}
+.plugin-workspace-header > .icon-button { width: 32px; height: 32px; min-height: 32px; }
+.plugin-workspace-identity { flex: 1; min-width: 0; }
+.plugin-workspace-identity h1 { margin: 0; font-size: 18px; font-weight: 600; line-height: 1.5; overflow-wrap: anywhere; }
+.plugin-workspace-identity > span { display: block; margin-top: 2px; font-size: 11px; color: var(--muted); overflow-wrap: anywhere; }
+.plugin-workspace-tabs {
+  display: flex; flex: 0 0 auto; align-items: stretch; gap: 20px; min-height: 46px;
+  width: min(100%, 1040px); margin-inline: auto; padding: 4px 36px;
+  overflow-x: auto; scrollbar-width: none; scroll-padding-inline: 36px;
+}
+.plugin-workspace-tabs::-webkit-scrollbar { display: none; }
+.plugin-workspace-tabs > button {
+  position: relative; flex: 0 0 auto; min-width: 0; max-width: 220px; min-height: 34px; padding: 4px 0;
+  border: 0; border-radius: 2px; background: transparent; color: var(--muted); font-size: 12px;
+}
+.plugin-workspace-tabs > button > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.plugin-workspace-tabs > button:hover:not(:disabled) { background: transparent; color: var(--ink); }
+.plugin-workspace-tabs > button[aria-selected="true"] { color: var(--ink); font-weight: 600; }
+.plugin-workspace-tabs > button[aria-selected="true"]::after {
+  content: ''; position: absolute; bottom: 0; left: 0; right: 0; height: 2px; background: var(--primary);
+}
+.plugin-workspace-pages { flex: 1; min-height: 0; min-width: 0; border-top: 1px solid var(--border); }
+.plugin-workspace-page { height: 100%; min-width: 0; overflow-y: auto; padding: 20px 28px 36px; scroll-padding: 12px; }
+.plugin-workspace-page:focus-visible { outline-offset: -4px; }
+.plugin-workspace-document { width: min(100%, 976px); min-width: 0; margin-inline: auto; }
+.plugin-workspace-document .pc-document-reader { padding: 4px 8px 8px; }
+.plugin-workspace-document :is(button,a) { scroll-margin: 8px; }
+.plugin-workspace-document a:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; border-radius: 3px; }
+.plugin-workspace-document .pc-document-markdown :is(h1,h2) { font-size: 17px; }
+.plugin-workspace-document .pc-document-markdown { line-height: 1.85; }
+@media (max-width: 700px) {
+  .plugin-workspace-header { gap: 9px; min-height: 72px; padding: 14px 16px 12px; }
+  .plugin-workspace-identity h1 { font-size: 16px; }
+  .plugin-workspace-tabs { padding-inline: 20px; gap: 18px; scroll-padding-inline: 20px; }
+  .plugin-workspace-page { padding: 16px 12px 28px; }
+  .plugin-workspace-document .pc-document-reader { padding-inline: 8px; }
+}

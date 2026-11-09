@@ -56,6 +56,27 @@ let closed = false;
 const errors = [];
 try {
   const page = await app.firstWindow();
+  await app.evaluate(({ app, BrowserWindow, webContents }) => {
+    globalThis.browserFixtureLifecycle = [];
+    const record = (event, detail = {}) => {
+      globalThis.browserFixtureLifecycle.push({ event, ...detail });
+      if (globalThis.browserFixtureLifecycle.length > 100) globalThis.browserFixtureLifecycle.shift();
+    };
+    const watch = contents => {
+      const id = contents.id;
+      record('created', { id, type: contents.getType() });
+      contents.on('did-navigate', (_event, url) => record('navigated', { id, url }));
+      contents.on('did-fail-load', (_event, code, _description, url, mainFrame) => {
+        if (mainFrame) record('load-failed', { id, code, url });
+      });
+      contents.on('render-process-gone', (_event, detail) => record('renderer-exited', { id, reason: detail.reason, exitCode: detail.exitCode }));
+      contents.once('destroyed', () => record('destroyed', { id }));
+    };
+    for (const contents of webContents.getAllWebContents()) watch(contents);
+    app.on('web-contents-created', (_event, contents) => watch(contents));
+    app.on('before-quit', () => record('before-quit'));
+    for (const window of BrowserWindow.getAllWindows()) window.on('close', () => record('window-close', { id: window.id }));
+  });
   await page.emulateMedia({ reducedMotion: 'no-preference' });
   page.setDefaultTimeout(15000);
   page.on('pageerror', error => errors.push(error.message));
@@ -468,6 +489,30 @@ try {
   await app.close(); closed = true;
   console.log(JSON.stringify({ profile, isolation, context, permission, screenshots: 'test-results/browser-*.png',
     checks: 'navigation, editable input, image loading, scroll, zoom, popup tabs, reload restore, modal/native layering, cubic expansion, narrow bounds, error/retry, protocol guards, tab limit and real WebContents cleanup' }, null, 2));
+} catch (error) {
+  console.error('Browser fixture failed:', error);
+  const diagnostic = {
+    packaged: Boolean(executablePath),
+    rendererErrors: errors,
+    native: await app.evaluate(({ BrowserWindow, webContents }) => ({
+      lifecycle: globalThis.browserFixtureLifecycle,
+      contents: webContents.getAllWebContents().map(contents => ({
+        id: contents.id, type: contents.getType(), url: contents.getURL(), loading: contents.isLoading(),
+      })),
+      windows: BrowserWindow.getAllWindows().map(window => ({
+        id: window.id, visible: window.isVisible(), views: window.contentView.children.map(view => ({
+          destroyed: view.webContents?.isDestroyed(), visible: view.getVisible(), bounds: view.getBounds(),
+          url: view.webContents && !view.webContents.isDestroyed() ? view.webContents.getURL() : undefined,
+        })),
+      })),
+    })).catch(() => ({ unavailable: true })),
+  };
+  const page = app.windows().find(value => !value.isClosed() && value.url().startsWith('file:'));
+  diagnostic.tabs = await page?.evaluate(() => window.desktop.browserList()).catch(() => undefined);
+  await page?.screenshot({ path: 'test-results/browser-failure.png' }).catch(() => {});
+  console.error('Browser fixture diagnostic:', JSON.stringify(diagnostic));
+  await writeFile('test-results/browser-failure.json', JSON.stringify(diagnostic, null, 2) + '\n').catch(() => {});
+  throw error;
 } finally {
   if (!closed) await app.close().catch(() => {});
   server.closeAllConnections();

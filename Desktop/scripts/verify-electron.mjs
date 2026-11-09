@@ -1047,17 +1047,25 @@ try {
   await page.getByText('disabled-test', { exact: true }).waitFor();
   await page.screenshot({ path: 'test-results/settings-mcp.png' });
   await page.getByRole('button', { name: 'Close', exact: true }).click();
-  await app.evaluate(({ BrowserWindow }) => {
+  const resizeCompact = () => app.evaluate(({ BrowserWindow }) => {
     const window = BrowserWindow.getAllWindows()[0];
     if (window.isMaximized()) window.unmaximize();
     window.setSize(700, 620);
   });
-  await page.waitForFunction(() => document.querySelector('.app')?.classList.contains('sidebar-compact'));
+  await settleLayout(page.locator('.app'));
   if (!motionReduced) {
-    await page.waitForTimeout(65);
-    const track = await page.locator('.app').evaluate(element => parseFloat(getComputedStyle(element, '::before').width));
-    assert.ok(track > 0 && track < 244, `Sidebar track should animate at compact threshold: ${track}`);
-  }
+    const sample = await sampleMotion(page, {
+      label: 'Sidebar compact threshold',
+      state: { selector: '.app.sidebar-compact' },
+      targets: [{ name: 'app', selector: '.app', pseudoProperties: { '::before': ['flex-basis'] }, pseudoElements: ['::before'] }],
+      duration: 280, easing: 'cubic-bezier(0.65, 0, 0.35, 1)',
+    }, resizeCompact);
+    const tracks = sample.frames.map(frame => frame.app.pseudo['::before'].width);
+    assert.equal(sample.before.app.pseudo['::before'].width, 244);
+    assert.ok(tracks.some(track => track > 0 && track < 244), `Sidebar track should animate at compact threshold: ${tracks}`);
+    assert.equal(tracks.at(-1), 0);
+  } else await resizeCompact();
+  await page.waitForFunction(() => document.querySelector('.app')?.classList.contains('sidebar-compact'));
   await page.locator('.sidebar').waitFor({ state: 'hidden' });
   assert.equal(await page.locator('.sidebar-identity').isVisible(), false);
   assert.equal(await page.getByRole('button', { name: '侧栏', exact: true }).getAttribute('aria-expanded'), 'false');

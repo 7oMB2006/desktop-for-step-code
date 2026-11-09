@@ -15,6 +15,9 @@ resource-starter/
     dfsc.plugin.json
     LICENSE
     README.md
+    docs/start.md
+    docs/first-task.md
+    docs/troubleshooting.md
     docs/assets/capabilities.png
     commands/dfsc-example.md
     skills/dfsc-example/SKILL.md
@@ -25,6 +28,14 @@ resource-starter/
 已有会话手动重启后加载技能和 `/dfsc-example`。
 命令是提示模板，发送后仍然使用当前会话模型，可能消耗当前账户额度。
 安装和浏览本身不调用模型。
+
+包含插件工作区能力的新宿主还会在右上方独立插件动作组显示
+Checklist workspace，入口邻近 MiniChat 但不属于窗口控制。
+示例的 `desktop.surface` 为 `main-view`；可在自己的本地测试副本中分别改为
+`side-panel` 和 `window` 验收另外两种宿主绘制方式。
+三者都只能读取声明的同包 Markdown，不执行插件前端脚本。
+旧构建仍可加载原有资源，不能仅凭相同版本号预期新入口存在。
+此新增工作区的界面和原生窗口验收另行记录，既有安装截图不证明它已通过。
 
 它故意不包含 MCP、本体安装器、远程地址、Key 或账户桥。
 因此其服务开关不可用，这是正确行为，不是插件安装失败。

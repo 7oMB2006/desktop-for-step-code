@@ -19,6 +19,7 @@
       "items": { "type": "string", "minLength": 1, "maxLength": 48, "pattern": "^[^\\u0000-\\u001f]+$" }
     },
     "documentation": { "$ref": "#/definitions/documentation" },
+    "desktop": { "$ref": "#/definitions/desktop" },
     "locales": {
       "type": "object", "additionalProperties": false,
       "properties": {
@@ -51,6 +52,46 @@
     }
   },
   "definitions": {
+    "desktop": {
+      "type": "object", "required": ["title", "surface", "pages"], "additionalProperties": false,
+      "description": "A data-only workspace for an installed, recorded plugin. This grants no runtime or filesystem permission.",
+      "properties": {
+        "title": { "$ref": "#/definitions/label" },
+        "surface": { "enum": ["main-view", "side-panel", "window"] },
+        "symbol": { "enum": ["plug", "bot", "book", "wrench", "sparkles"] },
+        "icon": {
+          "type": "object", "required": ["light"], "additionalProperties": false,
+          "properties": {
+            "light": { "$ref": "#/definitions/rasterPath" },
+            "dark": { "$ref": "#/definitions/rasterPath" }
+          }
+        },
+        "defaultPage": {
+          "$ref": "#/definitions/desktopPageId",
+          "description": "Must match one declared page ID; the host validates this relationship."
+        },
+        "pages": {
+          "type": "array", "minItems": 1, "maxItems": 8,
+          "description": "Page IDs must be unique and documents must exist in the installed package; the host validates these constraints.",
+          "items": {
+            "type": "object", "required": ["id", "title", "document"], "additionalProperties": false,
+            "properties": {
+              "id": { "$ref": "#/definitions/desktopPageId" },
+              "title": { "$ref": "#/definitions/label" },
+              "document": { "$ref": "#/definitions/markdownPath" }
+            }
+          }
+        }
+      }
+    },
+    "desktopPageId": {
+      "type": "string", "minLength": 1, "maxLength": 64,
+      "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$"
+    },
+    "rasterPath": {
+      "type": "string", "minLength": 5, "maxLength": 256,
+      "pattern": "^(?!/)(?!.*(?:^|/)\\.{1,2}(?:/|$))(?!.*[:\\\\\\u0000-\\u001f?#])(?!.*//).+\\.(?:[pP][nN][gG]|[jJ][pP][eE]?[gG]|[wW][eE][bB][pP]|[iI][cC][oO])$"
+    },
     "documentation": {
       "type": "object", "additionalProperties": false,
       "properties": {
@@ -78,5 +119,22 @@
         "properties": { "name": { "$ref": "#/definitions/label" } }
       }
     }
-  }
+  },
+  "examples": [
+    {
+      "schemaVersion": 1,
+      "documentation": { "readme": "README.md" },
+      "desktop": {
+        "title": "Engineering Bridge",
+        "surface": "main-view",
+        "symbol": "bot",
+        "icon": { "light": "assets/bridge-light.png", "dark": "assets/bridge-dark.png" },
+        "defaultPage": "start",
+        "pages": [
+          { "id": "start", "title": "Get started", "document": "docs/start.md" },
+          { "id": "connections", "title": "Connections", "document": "docs/connections.md" }
+        ]
+      }
+    }
+  ]
 }

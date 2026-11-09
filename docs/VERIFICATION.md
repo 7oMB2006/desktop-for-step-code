@@ -1,5 +1,27 @@
 # Verification
 
+## 主题组合与主线插件工作区同步（2026-11-09）
+
+- 同步主线 `9e493ed`，合并只读 IPC 白名单中的 `themeImage` 与
+  `pluginWindowOpen`，保留双方的测试和验收记录。
+  MiniChat 仍拒绝打开插件窗口；插件窗口仍拒绝主题场景、海报和图片读取，
+  不扩大独立窗口的权限。
+- 类型检查及 D: 隔离生产构建通过。完整协议测试 1,843 项：
+  1,829 通过、14 项平台／资源条件跳过、0 失败。
+  CI 清单、策略与执行器测试 31 项：30 通过、1 项既有平台跳过。
+- 主题组合浏览器检查 10 项、桌面／窄屏非空与色彩像素检查 4 组通过；
+  插件工作区 14 组和实际渲染器注入 bridge 验收 11 组通过。
+  检查了桌面、390px 窄屏及四侧焦点截图。
+  插件浏览器验收复用已安装 headless shell 1243，非默认预期版本；
+  主题组合浏览器验收使用本机 Chrome，不替代云端同版本验收。
+- 隔离 Electron 主题验收通过 PNG/JPEG 原生解码、主题切换、UI 保留、
+  动效偏好、重启及缺包回退。真实本地 Git 市场的插件主／侧／独立窗口
+  验收通过 8 组，0 推理请求、0 页面错误，启动器退出码 0、窗口归零。
+- 证据在 `output/theme-composition-main-sync-20261109`，浏览器证据在
+  `output/playwright/theme-composition-main-sync-20261109`，均位于共享 D: 目录。
+  新提交仍需云端 Windows/macOS 完整 CI；旧 head 的绿灯不代表同步后通过。
+  未合并 PR、生成安装包、修改运行时版本、个人档案、客户端或快捷方式。
+
 ## 主题组合 CI 后续焦点检查（2026-11-09）
 
 `082e773` 的 Windows runtime 组已通过协议测试，随后在
@@ -59,6 +81,72 @@ directories. No installer was produced and no existing artifact was deleted.
 The owner's checkout, running package, profile, Remote binding and shortcuts
 are unchanged. These checks do not establish cloud CI, native macOS, installer,
 real-model or release acceptance.
+
+## 插件工作区验收就绪时序修复（2026-11-09）
+
+PR #221 的 macOS 界面验收在 `verify-plugin-workspace.mjs:27` 失败：
+按钮数预期为 4，实际为 0。测试页面在顶层等待图标 fetch 和 FileReader，
+完成后才挂载 React；`page.goto()` 返回不代表这一步已完成。
+本地拦住图标响应可稳定重现：导航已完成时按钮数为 0，
+放行并等待插件按钮区挂载后为 4。
+
+验收脚本新增这一受控慢加载回归，首次打开和单插件页面均等待按钮区可见，
+损坏图标的回退断言也等待实际 SVG 出现。按钮数量、布局、隔离和错误检查
+保持不变，未增加固定休眠、放宽断言或修改产品代码。
+
+本地工作区验收 14 组、实际渲染器界面验收 11 组及类型检查通过；
+CI 清单、执行器和策略测试共 31 项，30 项通过、1 项既有平台跳过；
+`git diff --check` 通过。证据截图位于
+`D:\DFSC-Preview-QA\plugin-ci-readiness-20261109`。
+本机使用现有 Chromium headless shell 1243，未下载浏览器；
+这不替代修复提交的云端 macOS 和打包验收。
+
+## Generic Plugin Workspace Interaction Closeout (2026-11-09)
+
+This closes the generic data-only workspace interaction layer, not a Hermes
+business frontend or an arbitrary third-party frontend SDK. Main-view shortcuts
+now toggle their visible workspace. Opening transfers keyboard focus into the
+selected tab, or restores a still-visible enabled control when reopening.
+Side panels and native windows expose correctly named Close actions instead of
+claiming to return to the workspace. Native window launchers are not announced
+as pressed main-view toggles. Conversation drafts and reading state are retained.
+
+Local evidence on the updated source:
+
+- Typecheck, production build and whitespace checks passed.
+- The complete protocol rerun passed 1,794 of 1,807 tests, with 13 platform
+  skips and no failures. The first attempt had one Windows `UNKNOWN: read`
+  failure in `plugin-configuration.test.ts`; its isolated eight-test rerun and
+  the subsequent complete run passed without source changes to that module.
+  The initial failure remains recorded; its underlying cause is not established.
+- Component-browser and actual-shell injected-bridge verifiers passed.
+  Light/dark, desktop/narrow and reduced-motion layouts were inspected, and
+  keyboard tab focus outlines were measured on all four sides inside the
+  clipping tab scroller. Reopening preserves the selected page, scroll and
+  page-local focus; returning restores direct or overflow entry focus.
+- The isolated native window verifier passed seven groups. The full production
+  Electron verifier passed eight groups with a real local Git marketplace and
+  four generic fixture plugins, not a Hermes package. It covers install,
+  main/side/window routing, toggle/close/focus behavior, keyboard overflow entry,
+  exact installed configuration routing, update/uninstall reference invalidation,
+  denied unrelated IPC, native close/reopen independence and draft retention.
+  It recorded zero inference requests, no renderer errors, exit code zero and
+  zero remaining windows. Production light/dark main and narrow side screenshots
+  were inspected.
+
+Evidence is under
+`D:\DFSC-Preview-QA\plugin-generic-closeout-20261109`, with final production
+results in `electron-final\verification.json`, complete test results in
+`protocol-recheck.log` and the first failure in `protocol.log`. The separate
+native manager result is
+`D:\DFSC-Preview-QA\plugin-windows-H0lTuE\verification.json`.
+
+The prior PR head's Windows checks passed, but its macOS sessions acceptance
+timed out in `verify-mini-chat-electron.mjs:675`. Those historical results do not
+establish cloud acceptance of this new source. No native macOS, installed-client
+upgrade, installer, release or Hermes/Feishu business-flow acceptance is claimed.
+The owner's running application, personal profile, credentials, shortcut and
+upstream runtime checkout were not changed.
 
 ## 管理 worker 异常退出后的应用关闭回归（2026-11-08）
 
@@ -10249,3 +10337,87 @@ The active staged runtime and replay evidence are isolated under
 and existing installer are unchanged. This is local source acceptance, not
 real-account/billing, native macOS, current cloud CI or installer acceptance.
 See [the implementation contract](COMPLETION_REVIEW.md).
+
+## Plugin Desktop Workspaces (2026-11-09, Local Source Verification)
+
+This source change adds an optional `dfsc.plugin.json.desktop` contract for one
+host-rendered workspace per recorded installed plugin. `main-view`,
+`side-panel` and `window` select a host surface, not arbitrary plugin frontend
+execution. Pages remain bounded, same-package Markdown behind opaque package
+references. Optional light/dark raster icons are signature-checked, bounded to
+128 KiB and 512px, and require native validation before projected data URLs.
+No package-name exception, new account permission, model request, dependency
+installation or released-client capability is implied.
+
+Completed local source evidence:
+
+- Metadata, library and plugin-window policy tests passed 24/24, with no failures
+  or skips. These cover bounds, raw page-ID validation, provenance, packaged
+  document existence and limits, linked-path rejection, stale references,
+  native image validation/fallback, schema consistency and the resource-starter's
+  actual package files. Invalid icon declarations reject the workspace;
+  valid declarations with missing or undecodable files retain the pages.
+- The integrated focused host run passed 29 tests, including execution of the
+  actual plugin-window IPC handler extracted from production `main.ts` with
+  mocked services. It checks owner/frame scoping, stale-reference revalidation,
+  configuration-only navigation, denied conversation operations and independent
+  window controls. This is not a full Electron application launch.
+- `scripts/verify-plugin-workspace.mjs` passed 13 browser check groups against
+  component fixtures; `scripts/verify-plugin-shell.mjs` passed 10 groups against
+  the actual `main.tsx` shell with an injected bridge. They cover independent
+  titlebar grouping, MiniChat order, icon fallback, retry, keyboard/focus and
+  overflow behavior, page/history/scroll retention, actual ProseMirror draft
+  preservation, side-panel replacement/Escape, theme/preferences refresh,
+  package-reference remounting and stale-response/unavailable cleanup.
+  Light/dark desktop and 390px narrow screenshots were manually inspected.
+  Evidence is under `Desktop/test-results/plugin-workspace/` and
+  `Desktop/test-results/plugin-shell/`. Injected bridges do not establish real
+  preload or production IPC acceptance.
+- `scripts/verify-plugin-windows.mjs` passed seven isolated native Electron
+  groups using production `PluginWindows`, production preload and production
+  method policy, but fixture state/documents rather than the full application.
+  It checks sandboxing, own-ref access, denied operations, exact projected
+  broadcast payloads, a dedicated configuration action, blocked navigation and
+  popups, credential-free HTTPS through a mocked opener, stale replacement,
+  maximize/state events, minimize/close independence, the eight-window bound,
+  released slots and failed-load cleanup. Latest evidence:
+  `D:\DFSC-Preview-QA\plugin-windows-et3Wq4\verification.json`.
+- The complete Desktop suite completed 1,807 tests: 1,794 passed, 13 platform skips,
+  no failures. Desktop typecheck and production build passed. The initial
+  attempt without a staged runtime failed with missing-file errors and is not
+  counted as passing evidence. CI policy/inventory verification passed 24
+  tests locally; this does not claim a cloud CI run. `git diff --check` passed.
+- `scripts/verify-plugin-surfaces-electron.mjs` passed eight groups through the
+  full production Desktop main, preload, renderer, capability service and
+  staged runtime, with an isolated profile and real local Git marketplace.
+  Actual install immediately exposes shortcuts; all three surfaces open;
+  main draft/transcript position and plugin tab/scroll survive; configuration
+  targets the exact installed plugin; the side panel yields to official tools
+  and restores focus; and the optional actual Hermes package displays all four
+  onboarding tabs and its decoded icon in light/dark/narrow screenshots.
+  The supplied 256px Hermes avatar's exact image bytes and decoded dimensions
+  are verified in marketplace catalog/detail, direct/overflow shortcuts and
+  workspace headers; the corresponding screenshots were manually inspected.
+  Production native IPC rejects conversation/model/mutation and foreign/private
+  document access. Actual marketplace refresh, update and uninstall invalidate
+  old references, clear stale native content and preserve the selected runtime;
+  stale plugin windows can still close independently. The run recorded zero
+  inference requests, no renderer errors, exit code zero and zero remaining
+  windows. Evidence:
+  `D:\DFSC-Preview-QA\plugin-surfaces-electron-20261109-020304\verification.json`.
+
+The application fixture uses an isolated runtime at
+`D:\Desktop For Step Code\Desktop\release\plugin-workspaces-runtime`, reached by
+this worktree's `Desktop/runtime` junction. Its reused bundle came from the
+existing `capability-management-phase1-20261108-preview-r2` package. Before
+reuse, its Windows/x64 commit and exact set of 47 patched-source hashes matched
+the current integration manifest, and the Node v24.16.0 binary matched its
+recorded SHA-256. The copied node/step/remote files were hash-checked, 20 current
+host helper files were copied and three helper bundles rebuilt. No shared
+runtime or upstream checkout was changed, and no upstream rebuild is claimed.
+
+The resource-starter's prior installation screenshot predates this feature.
+It is not evidence for the new titlebar group, side panel or native plugin
+window. No installer, public release, cloud CI, native macOS, real-account or
+Hermes/Feishu business-flow acceptance is claimed by this local source record.
+No live-model inference or active-model-task continuity was exercised.

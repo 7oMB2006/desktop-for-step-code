@@ -64,7 +64,7 @@ for (const [id, cwd] of [['one', workspace], ['two', workspace], ['three', works
 }
 await writeFile(join(root, 'config.toml'), 'defaultProvider = "fixture"\ndefaultModel = "fixture"\npermissionPreset = "ask"\n[telemetry]\nenabled = false\n');
 await writeFile(join(profile, 'preferences.json'), JSON.stringify({ language: 'zh', theme: 'dark', workspace,
-  workspaces: [workspace, webLocal, webClient], terminalDock: 'bottom' }));
+  workspaces: [workspace, webLocal, webClient], terminalDock: 'bottom', completionSound: true }));
 const requests = [];
 const held = new Map();
 const chunk = (delta, finish_reason = null) => `data: ${JSON.stringify({ id: 'mini-fixture', object: 'chat.completion.chunk', model: 'fixture',
@@ -573,41 +573,46 @@ try {
   });
   await main.getByRole('button', { name: '远程访问', exact: true }).click();
   await main.getByRole('region', { name: '远程访问', exact: true }).waitFor();
-  // A slow snapshot must not let blur/scroll saves replace the transferred anchor.
-  await app.evaluate(({ ipcMain }, windowId) => {
+  // Hold the return snapshot while the old main view emits presentation-saving events.
+  await app.evaluate(({ ipcMain, BrowserWindow }, mainWindowId) => {
     const handler = ipcMain._invokeHandlers.get('desktop');
-    let release;
+    const mainContentsId = BrowserWindow.fromId(mainWindowId).webContents.id;
+    let release, arrived;
     const gate = new Promise(resolve => { release = resolve; });
-    globalThis.miniPresentationGate = { handler, release, pending: false, saves: [] };
+    const ready = new Promise(resolve => { arrived = resolve; });
+    globalThis.miniReturnGate = { handler, release, ready, returning: false, writes: [] };
     ipcMain.removeHandler('desktop');
     ipcMain.handle('desktop', async (event, method, ...args) => {
-      if (event.sender.id === windowId && method === 'snapshot') {
-        globalThis.miniPresentationGate.pending = true;
-        await gate;
+      const probe = globalThis.miniReturnGate;
+      if (method === 'miniChatReturn') {
+        probe.returning = true;
       }
-      if (event.sender.id === windowId && method === 'windowPresentation' && globalThis.miniPresentationGate.pending)
-        globalThis.miniPresentationGate.saves.push(args[1].position);
+      if (probe.returning && event.sender.id === mainContentsId) {
+        if (method === 'windowPresentation') probe.writes.push(args[1].position);
+        if (method === 'snapshot') { arrived(); await gate; }
+      }
       return handler(event, method, ...args);
     });
-  }, await app.evaluate(({ BrowserWindow }, id) => BrowserWindow.fromId(id).webContents.id, mainWindowId));
+  }, mainWindowId);
   try {
     await mini.getByRole('button', { name: '回到主窗口', exact: true }).click();
     await main.getByRole('region', { name: '远程访问', exact: true }).waitFor({ state: 'detached' });
-    await main.evaluate(() => window.dispatchEvent(new Event('blur')));
-    await main.evaluate(() => window.desktop.miniChatState());
-    assert.equal(await app.evaluate(() => globalThis.miniPresentationGate.pending), true,
-      'The main renderer is waiting for its handoff snapshot before the blur save');
-    assert.deepEqual(await app.evaluate(() => globalThis.miniPresentationGate.saves), [],
-      'Presentation saves stay suspended until the transferred snapshot is installed');
+    await main.locator('main .conversation').waitFor({ state: 'visible' });
+    await app.evaluate(() => globalThis.miniReturnGate.ready);
+    await main.evaluate(async () => {
+      document.querySelector('.conversation').dispatchEvent(new Event('scroll', { bubbles: true }));
+      window.dispatchEvent(new Event('blur'));
+      await window.desktop.miniChatState();
+    });
+    assert.deepEqual(await app.evaluate(() => globalThis.miniReturnGate.writes), [],
+      'The old main view cannot overwrite the transferred reading position while its snapshot is pending');
   } finally {
     await app.evaluate(({ ipcMain }) => {
-      const { handler, release } = globalThis.miniPresentationGate;
+      const { handler, release } = globalThis.miniReturnGate;
       ipcMain.removeHandler('desktop'); ipcMain.handle('desktop', handler);
-      release(); delete globalThis.miniPresentationGate;
+      release(); delete globalThis.miniReturnGate;
     });
   }
-  await main.getByRole('region', { name: '远程访问', exact: true }).waitFor({ state: 'detached' });
-  await main.locator('main .conversation').waitFor({ state: 'visible' });
   await main.waitForFunction(anchor => {
     const viewport = document.querySelector('.conversation');
     const article = viewport.querySelector(`article[data-message-index="${anchor.index}"]`);
@@ -758,9 +763,26 @@ try {
   await mini.waitForFunction(() => window.desktop.snapshot().then(value => value.state?.model?.provider === 'fixture'));
   await editor.press('Escape');
   await mini.evaluate(() => window.desktop.command('set_launch_mode', { mode: 'review', enabled: false }));
-  await editor.fill('MINI-PROVIDER-REFRESH'); await editor.press('Enter');
+  // Match the editing verifier: native fill() selection can race ProseMirror.
+  await editor.press('ControlOrMeta+a');
+  await editor.press('Backspace');
+  await mini.waitForFunction(() => {
+    const input = document.querySelector('main .composer-input');
+    return input?.value === '' && input.dataset.empty === 'true';
+  });
+  const providerPrompt = 'MINI-PROVIDER-REFRESH';
+  await editor.pressSequentially(providerPrompt);
+  await mini.waitForFunction(async ({ draftId, text }) => {
+    const input = document.querySelector('main .composer-input');
+    return input?.value === text && input.textContent === text && input.dataset.empty === 'false'
+      && (await window.desktop.composerRead({ draftId })).value.text === text;
+  }, { draftId: providerDraft, text: providerPrompt });
+  await editor.press('Enter');
   await mini.getByText('Completed MINI-PROVIDER-REFRESH.', { exact: true }).waitFor();
   await mini.waitForFunction(async () => !(await window.desktop.snapshot()).state.isStreaming);
+  assert.equal(requests.length, beforeProviderRequests + 1, 'The refreshed draft submits exactly one request');
+  assert.equal(textOf(requests.at(-1).messages.findLast(message => message.role === 'user')?.content), providerPrompt,
+    'The submitted prompt contains no previous draft text');
   await main.evaluate(() => window.desktop.preferences({ theme: 'light', language: 'en' }));
   await mini.getByRole('button', { name: 'Switch MiniChat conversation', exact: true }).waitFor();
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().find(window => window.getTitle() === 'MiniChat').setSize(380, 400));

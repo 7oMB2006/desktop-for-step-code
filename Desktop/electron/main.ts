@@ -1,7 +1,7 @@
 import { normalizedWorkspaceKey } from '../src/workspace-key';
 import { statusAccount } from './status-account';
 import { statusBuild } from './session-status';
-import { app, BrowserWindow, dialog, ipcMain, shell, session, net, clipboard, ClipboardItem, nativeImage, nativeTheme, Menu } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, shell, session, net, clipboard, ClipboardItem, nativeImage, nativeTheme, Menu, Notification } from 'electron';
 import { join, resolve, extname, basename } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { existsSync, readFileSync, realpathSync } from 'node:fs';
@@ -90,6 +90,8 @@ import { MacUpdateDriver, macUpdateVersion, acknowledgeMacUpdate } from './macos
 import { NativeUpdateDriver } from './native-update-driver';
 import { cleanInstalledUpdate } from './update-cache';
 import { DesktopTray } from './desktop-tray';
+import { DesktopNotifications } from './desktop-notifications';
+import { notificationPreferences, notificationPreferencePatch } from '../src/notification-preferences';
 import { QuitReview, quitReasons, needsQuitReview } from './quit-review';
 import { quitConfirmation } from '../src/quit-confirmation';
 import { StartupWindow } from './startup-window';
@@ -423,6 +425,8 @@ function publishModelSelection(worker: import('./session-runtimes').SessionRunti
     state: worker.state ? { ...worker.state, model: worker.state.model ? providerModelNames([worker.state.model], appliedAuthData)[0] : undefined } : undefined });
 }
 const runtimes: SessionRuntimes = new SessionRuntimes(event => {
+  notifications.handle(event);
+  if (event.type === 'desktop_task_completed') event = { ...event, playSound: preferences.completionSound === true };
   const queueWorker = runtimes.workers.get(event.runtimeId);
   if (event.type === 'desktop_btw') {
     if (queueWorker) btw.event(queueWorker, event);
@@ -518,6 +522,32 @@ const runtimes: SessionRuntimes = new SessionRuntimes(event => {
     collaboration.detach(worker);
     if (worker.status === 'disconnected' && worker.queued) pendingMessages.recover(worker);
     else pendingMessages.clear(worker);
+  },
+});
+const notifications = new DesktopNotifications({
+  preferences: () => preferences,
+  workers: () => runtimes.workers,
+  foreground: sessionId => {
+    const focused = (view?: BrowserWindow) => Boolean(view && !view.isDestroyed()
+      && view.isVisible() && !view.isMinimized() && view.isFocused());
+    return !sessionDraft && runtimes.active?.state?.sessionId === sessionId && focused(window)
+      || !miniView.draft && miniView.worker?.state?.sessionId === sessionId && focused(miniChat?.window);
+  },
+  create: options => Notification.isSupported() ? new Notification({
+    ...options, icon: app.isPackaged ? join(process.resourcesPath, process.platform === 'darwin' ? 'icon.png' : 'icon.ico')
+      : resolve(process.platform === 'darwin' ? 'build/icon.png' : 'build/icon.ico'),
+  }) : undefined,
+  open: (sessionId, kind) => {
+    if (quitting || quitPending) return;
+    showMainWindow();
+    const contents = window?.webContents;
+    if (!contents || contents.isDestroyed()) return;
+    const send = () => {
+      if (!quitting && !contents.isDestroyed())
+        contents.send('runtime-event', { type: 'desktop_notification_open', sessionId, kind });
+    };
+    if (contents.isLoadingMainFrame()) contents.once('did-finish-load', send);
+    else send();
   },
 });
 const bvrBridge = new BvrBridge(dataRoot, runtimes, () => appliedAuthData,
@@ -2530,6 +2560,7 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
     }
     case 'preferences': {
       const patch = args[0] ?? {};
+      const notificationPatch = notificationPreferencePatch(patch);
       const panelPatch = panelPreferencePatch(patch);
       const interfaceSettings = patch.interfaceSettings === undefined ? undefined : validateInterfaceSettings(patch.interfaceSettings);
       const colorPatch = themePreferencePatch(patch);
@@ -2568,11 +2599,17 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
       Object.assign(preferences, sidebarPatch, updatePatch, panelPatch);
       if (interfaceSettings) preferences.interfaceSettings = interfaceSettings;
       const previousFavorites = preferences.favoriteModels;
+      const previousNotifications = notificationPreferences(preferences);
+      Object.assign(preferences, notificationPatch);
       if (favoriteModels) preferences.favoriteModels = favoriteModels;
       try { await savePreferences(); } catch (error) {
         if (favoriteModels && preferences.favoriteModels === favoriteModels) preferences.favoriteModels = previousFavorites;
+        for (const key of Object.keys(notificationPatch) as (keyof typeof notificationPatch)[]) {
+          if (preferences[key] === notificationPatch[key]) preferences[key] = previousNotifications[key];
+        }
         throw error;
       }
+      notifications.sync();
       window.setBackgroundColor(resolveTheme(preferences.theme, nativeTheme.shouldUseDarkColors, preferences.accentColor).tokens['--bg']);
       miniChat?.window?.setBackgroundColor(resolveTheme(preferences.theme, nativeTheme.shouldUseDarkColors, preferences.accentColor).tokens['--bg']);
       pluginWindows?.setBackground(resolveTheme(preferences.theme, nativeTheme.shouldUseDarkColors, preferences.accentColor).tokens['--bg']);
@@ -2645,7 +2682,7 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
     default: throw new Error('Unknown desktop operation');
   }
 }
-app.on('will-quit', () => { startupWindow?.destroy(); tray?.dispose(); tray = undefined; localPages.dispose(); updates.dispose(); installer.dispose(); });
+app.on('will-quit', () => { notifications.dispose(); startupWindow?.destroy(); tray?.dispose(); tray = undefined; localPages.dispose(); updates.dispose(); installer.dispose(); });
 app.on('before-quit', event => {
   if (quitting) return;
   event.preventDefault();
@@ -2714,6 +2751,7 @@ else app.whenReady().then(async () => {
   try { preferences = { ...preferences, ...JSON.parse(await readFile(preferencesFile, 'utf8')) }; } catch {}
   preferences = migrateWorkspaceIdentity(preferences);
   Object.assign(preferences, normalizePanelPreferences(preferences));
+  Object.assign(preferences, notificationPreferences(preferences));
   preferences.preferredModel = modelPreference(preferences.preferredModel);
   preferences.favoriteModels = normalizeFavoriteModels(preferences.favoriteModels);
   delete (preferences as Preferences & { recentModels?: unknown }).recentModels;
@@ -2771,7 +2809,10 @@ else app.whenReady().then(async () => {
     background: () => resolvedColors().tokens['--bg'], noFocus: backgroundAcceptance,
     changed: state => emit({ type: 'desktop_mini_chat', state }),
     error: error => { void crashLog.record('mini-chat-window', error); },
-    created: watchComposerWindow,
+    created: view => {
+      watchComposerWindow(view);
+      view.on('focus', () => notifications.sync());
+    },
   });
   pluginWindows = new PluginWindows({
     preload: join(__dirname, 'preload.cjs'), file: join(__dirname, 'renderer/index.html'),
@@ -2817,6 +2858,7 @@ else app.whenReady().then(async () => {
   window.on('enter-full-screen', windowState);
   window.on('leave-full-screen', windowState);
   window.on('focus', windowState);
+  window.on('focus', () => notifications.sync());
   window.on('blur', windowState);
   window.webContents.setWindowOpenHandler(({ url }) => { try { const u = new URL(url); if (['https:', 'http:'].includes(u.protocol)) void shell.openExternal(u.href); } catch {} return { action: 'deny' }; });
   window.webContents.on('will-navigate', event => event.preventDefault());

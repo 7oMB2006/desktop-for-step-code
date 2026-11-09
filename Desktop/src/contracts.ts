@@ -29,6 +29,8 @@ export interface Model { id: string; provider: string; name: string; providerNam
 export interface Preferences { preferredModel?: Pick<Model, 'provider' | 'id' | 'name'> }
 export interface Preferences { favoriteModels?: import('./model-favorites').ModelIdentity[] }
 export interface Preferences extends Partial<import('./panel-preferences').PanelPreferences> {}
+export interface NotificationPreferences { approvalNotifications: boolean; completionNotifications: boolean; completionSound: boolean }
+export interface Preferences extends Partial<NotificationPreferences> {}
 export interface Content { type: string; text?: string; thinking?: string; id?: string; name?: string; arguments?: unknown; data?: string; mimeType?: string }
 export type ComposerAttachment = { kind: 'image'; name: string; content: Content } | { kind: 'file'; id: string; name: string; size: number };
 export interface PendingMessage { id: string; message: string; attachmentCount: number; version: number; sending?: boolean; steered?: boolean }

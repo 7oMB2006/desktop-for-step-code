@@ -104,6 +104,7 @@ import { FirstRun } from './FirstRun';
 import { AppUpdates, useAppUpdates } from './AppUpdates';
 import { AppearanceSettings } from './AppearanceSettings';
 import { CompactionSettings } from './CompactionSettings';
+import { NotificationSettings } from './NotificationSettings';
 import { GlobalInstructionsSettings, useGlobalInstructionsEditor } from './GlobalInstructionsSettings';
 import { InterfaceSettings } from './InterfaceSettings';
 import { normalizeInterfaceSettings } from './interface-presets';
@@ -225,7 +226,6 @@ function App() {
   const { setDraft, setQuotes, setAttachments } = composer;
   const [miniState, setMiniState] = useState({ open: false, pinned: false });
   const savePresentationRef = useRef<() => void>(() => {});
-  const presentationRestores = useRef(0);
   const disclosuresByOwner = useRef(new Map<string, ConversationDisclosureState>());
   const [disclosures, setDisclosures] = useState<ConversationDisclosureState>(() => new Map());
   const [workflowCatalogRequest, setWorkflowCatalogRequest] = useState<{ runtimeId?: string; sessionId?: string; id: number } | null>(null);
@@ -269,6 +269,7 @@ function App() {
   const readingCache = useRef(new SessionReadingCache());
   const previewPosition = useRef<ReadingPosition | undefined>(undefined);
   const readingRestore = useRef<{ runtimeId?: string; position: ReadingPosition; expectedTop?: number } | undefined>(undefined);
+  const pendingPresentationRestores = useRef(0);
   const [awayFromBottom, setAwayFromBottom] = useState(false);
   const collapsedWorkspaces = new Set(data.preferences.collapsedWorkspaces ?? []);
   const workspaceDisclosureSave = useRef<Promise<void>>(Promise.resolve());
@@ -728,7 +729,7 @@ function App() {
     disclosures: [...(disclosuresByOwner.current.get(composerKey(composerOwner(latestData.current))) ?? disclosures)].slice(-512),
   });
   const saveWindowPresentation = () => {
-    if (navigationPending.current || switching.current || presentationRestores.current) return;
+    if (navigationPending.current || switching.current || pendingPresentationRestores.current) return;
     const owner = composerOwner(latestData.current);
     if (owner && bridge?.windowPresentation) void bridge.windowPresentation(owner, currentPresentation()).catch(() => {});
   };
@@ -893,6 +894,7 @@ function App() {
   };
   const command = async (type: string, args?: Record<string, unknown>) => run(() => rawCommand(type, args));
   const mainActionRef = useRef<(event: RuntimeEvent) => Promise<void>>(async () => {});
+  const notificationOpenRef = useRef<(event: RuntimeEvent) => Promise<void>>(async () => {});
   useEffect(() => {
     void run(refresh).finally(() => setLoading(false));
     if (!bridge) return;
@@ -905,7 +907,8 @@ function App() {
         setData(value => ({ ...value, preferences: { ...event.preferences, workspace: value.preferences.workspace } })); return;
       }
       if (event.type === 'desktop_view_changed' && event.surface === (isMini ? 'mini' : 'main')) {
-        if (event.restorePresentation) presentationRestores.current++;
+        // Revealing the old view can emit scroll/blur before the transferred snapshot arrives.
+        if (event.restorePresentation) pendingPresentationRestores.current++;
         if (!isMini && event.restorePresentation) {
           finishSettingsClose();
           setRemoteOpen(false); setUsageOpen(false); setScheduledOpen(false);
@@ -921,7 +924,7 @@ function App() {
               followLayout();
             } else installSnapshot(value);
           } finally {
-            if (event.restorePresentation) presentationRestores.current--;
+            if (event.restorePresentation) pendingPresentationRestores.current--;
           }
         }); return;
       }
@@ -934,10 +937,14 @@ function App() {
       if (event.type === 'desktop_main_action' && !isMini) {
         void run(() => mainActionRef.current(event)); return;
       }
+      if (event.type === 'desktop_notification_open') {
+        if (!isMini) void run(() => notificationOpenRef.current(event));
+        return;
+      }
       if (event.type === 'desktop_quit_review') { acceptQuitReview(event.state); return; }
       if (event.type === 'desktop_workspace_unavailable') { setUnavailableWorkspace(event.path); return; }
       if (event.type === 'desktop_task_completed') {
-        if (!isMini) playCompletionSound({ runtimeId: event.runtimeId, sessionId: event.sessionId });
+        if (!isMini) playCompletionSound({ runtimeId: event.runtimeId, sessionId: event.sessionId }, event.playSound === true);
         return;
       }
       if (event.type === 'desktop_runtime_replaced') {
@@ -1837,6 +1844,15 @@ function App() {
         question: event.payload?.question ?? '', quote: event.payload?.quote });
     } else { setContextView(event.action === 'clm' ? 'clm' : 'status'); setRightPanel('context'); }
   };
+  notificationOpenRef.current = async event => {
+    const session = (await bridge!.sessions()).find(session => session.id === event.sessionId);
+    if (!session) throw new Error(t('会话已不可用', 'Conversation is no longer available'));
+    finishSettingsClose();
+    if (await navigateSession(session) && view.current.sessionId === session.id) {
+      await refresh();
+      if (view.current.sessionId === session.id && event.kind === 'approval') setApprovalOpen(true);
+    }
+  };
   return <CommandContextUsage.Provider value={{ usage: navigationTarget ? undefined : data.stats?.contextUsage, language: data.preferences.language }}><CommandCatalog.Provider value={commands}><FileOpeningContext.Provider value={{ openFile, openWeb, onError: setError }}><div ref={appLayout} className={`app ${bridge?.platform === 'darwin' ? 'platform-macos' : ''} ${sidebarVisible ? '' : 'sidebar-hidden'} ${compactSidebar ? 'sidebar-compact' : ''} ${inspectionOpen && !details ? 'summary-open' : ''} ${summaryOverlay ? 'summary-overlay' : ''} ${inspectorExpanded ? 'inspector-expanded' : ''} ${terminalDock === 'bottom' && terminalOpen && !bottomTerminalExpanded ? 'has-bottom-terminal' : ''}`} onContextMenu={e => {
     const element = e.target as HTMLElement;
     const image = element.closest<HTMLImageElement>('img') ?? element.closest('.attachment-preview-image')?.querySelector('img');
@@ -1999,7 +2015,7 @@ function App() {
     {pluginsVisited && bridge && <main hidden={!pluginsOpen || Boolean(desktopMainId)} inert={!pluginsOpen || Boolean(desktopMainId) || settingsOpen || Boolean(removeProject)}>
       {!!requests.length && <div className="approval-notice"><TriangleAlert size={16}/><span>{t('当前会话有待确认的操作', 'The current session is awaiting approval')}</span>
         <button onClick={() => { setPluginsOpen(false); setApprovalOpen(true); }}>{t('查看', 'Review')}</button></div>}
-      <PluginCenter bridge={bridge} language={data.preferences.language} active={pluginsOpen && !desktopMainId} busy={anyBusy || busy || loading}
+      <PluginCenter bridge={bridge} language={data.preferences.language} currentVersion={appUpdate?.currentVersion} active={pluginsOpen && !desktopMainId} busy={anyBusy || busy || loading}
         runtimeId={data.runtimeId} settings={settings ?? undefined} target={capabilityTarget?.page === 'plugins' ? capabilityTarget : undefined}
         onBack={() => setPluginsOpen(false)} onOpenDesktop={openInstalledDesktop}
         onChanged={async () => { setSettings(await bridge.settings()); setCapabilityRevision(value => value + 1); }}
@@ -2523,6 +2539,7 @@ function App() {
         </div>)}
       </section>}
       {settings && tab === 'general' && <>
+        <NotificationSettings preferences={data.preferences} onChange={setPreference}/>
         <h3>{t('左栏', 'Sidebar')}</h3>
         <label>{t('会话排序', 'Session order')}
           <select aria-label={t('会话排序', 'Session order')} value={data.preferences.sessionSort ?? 'manual'} onChange={e => void setPreference({ sessionSort: e.target.value })}>

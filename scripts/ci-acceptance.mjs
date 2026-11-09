@@ -29,6 +29,8 @@ export const acceptanceGroups = {
     'verify-plugin-surfaces-electron.mjs',
     'verify-plugin-input-mcp.mjs',
     'verify-desktop-tray.mjs',
+    'verify-notifications.mjs',
+    'verify-notice-toast.mjs',
     'verify-composer-menu.mjs',
     'verify-command-dispatch.mjs',
     'verify-mini-chat-preview.mjs',

@@ -258,6 +258,40 @@ test('media contracts reject URL fetches, output paths, malformed base64 and mis
     { ...audio.result, mimeType: 'audio/mpeg' }, { ...audio.result, data: 'invalid!' },
   ]) assert.throws(() => parseResult({ ...audio, result }, value));
 });
+test('media contracts accept multi-megabyte payloads without overflowing the validation stack', () => {
+  const value = { requestId: newRequestId(), revision: 'a'.repeat(64) };
+  for (const size of [4 * 1024 * 1024, 4 * 1024 * 1024 + 1, 4 * 1024 * 1024 + 2, 23 * 1024 * 1024]) {
+    const data = Buffer.alloc(size, 0xa5).toString('base64');
+    const video = { ...value, capability: 'model.video' as const, input: {
+      messages: [{ role: 'user' as const, content: 'inspect' }], video: { mimeType: 'video/mp4', data },
+    } };
+    assert.deepEqual(parseInvoke(video), video);
+    const audio = { ...value, capability: 'model.asr' as const, input: { audio: { mimeType: 'audio/wav', data } } };
+    assert.deepEqual(parseInvoke(audio), audio);
+    const speech = { ...value, capability: 'model.tts' as const,
+      input: { text: 'fixture', voice: 'fixture', format: 'wav' as const } };
+    const result = { version: 1, requestId: value.requestId, result: { type: 'audio', mimeType: 'audio/wav', data } };
+    if (size > LIMITS.audio) assert.throws(() => parseResult(result, speech), /dfsc-host:TOO_LARGE/);
+    else assert.deepEqual(parseResult(result, speech), result.result);
+  }
+  assert.throws(() => parseInvoke({ ...value, capability: 'model.asr',
+    input: { audio: { mimeType: 'audio/wav', data: Buffer.alloc(24 * 1024 * 1024).toString('base64') } } }),
+  /dfsc-host:TOO_LARGE/);
+});
+test('media contracts require canonical padded base64, including zero padding bits', () => {
+  const value = { requestId: newRequestId(), revision: 'a'.repeat(64) };
+  const speech = { ...value, capability: 'model.tts' as const,
+    input: { text: 'fixture', voice: 'fixture', format: 'wav' as const } };
+  for (const data of ['', 'Zg', 'Zh==', 'Zm9=', '_w==', '/w=_', 'AAAA====', 'Zm=9', 'Zg==\n', 'YWJj\n===']) {
+    assert.throws(() => parseInvoke({ ...value, capability: 'model.asr',
+      input: { audio: { mimeType: 'audio/wav', data } } }), /dfsc-host:INVALID_REQUEST/, data);
+    assert.throws(() => parseInvoke({ ...value, capability: 'model.video', input: {
+      messages: [{ role: 'user', content: 'inspect' }], video: { mimeType: 'video/mp4', data },
+    } }), /dfsc-host:INVALID_REQUEST/, data);
+    assert.throws(() => parseResult({ version: 1, requestId: value.requestId,
+      result: { type: 'audio', mimeType: 'audio/wav', data } }, speech), /dfsc-host:INVALID_REQUEST/, data);
+  }
+});
 test('the offline speech fixture returns the requested audio MIME without a provider call', async t => {
   const broker = await mockHost(); t.after(() => broker.close());
   const launch = broker.launch({ capabilities: ['model.tts'] });

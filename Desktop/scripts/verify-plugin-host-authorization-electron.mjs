@@ -11,7 +11,7 @@ import { closeDesktopFixtureAndWait } from './close-desktop-fixture.mjs';
 
 const profile = await realpath(await mkdtemp(join(tmpdir(), 'dfsc-host-authorization-')));
 const root = join(profile, 'step-runtime'), directory = join(root, 'plugins', 'host-example');
-const output = resolve('test-results/plugin-host-authorization');
+const output = resolve(process.env.DESKTOP_VERIFY_OUTPUT ?? 'test-results/plugin-host-authorization');
 await mkdir(join(root, 'plugins'), { recursive: true });
 await mkdir(output, { recursive: true });
 await cp(resolve('../examples/plugins/sdk-host-starter/plugins/dfsc-host-example'), directory, { recursive: true });
@@ -171,6 +171,15 @@ try {
   assert.equal(await page.evaluate(() => typeof window.require), 'undefined');
 
   mark('production confirmation denial');
+  const beforeConfirmation = await snapshot();
+  await page.evaluate(() => {
+    window.__hostConfirmationEvents = [];
+    window.desktop.onEvent(event => {
+      if (event.type === 'extension_ui_request' && event.title === '允许插件使用当前模型账户？') {
+        window.__hostConfirmationEvents.push({ id: event.id, runtimeId: event.runtimeId, runtimeRevision: event.runtimeRevision });
+      }
+    });
+  });
   let pending = await tool('summarize_text', 'denied');
   await until(async () => {
     const early = await readFile(join(data, `result-${pending}.json`), 'utf8').catch(() => undefined);
@@ -178,6 +187,18 @@ try {
     return (await snapshot()).requests.some(request => request.title === '允许插件使用当前模型账户？');
   }, 'No pending host confirmation');
   await confirmation().waitFor();
+  const arrival = await page.evaluate(() => window.__hostConfirmationEvents.at(-1));
+  assert.equal(arrival.runtimeId, beforeConfirmation.runtimeId);
+  assert.ok(Number.isSafeInteger(arrival.runtimeRevision) && arrival.runtimeRevision > beforeConfirmation.runtimeRevision,
+    'Host confirmation events must fence delayed pre-confirmation snapshots');
+  const waiting = await snapshot();
+  const pendingId = waiting.requests.find(request => request.title === '允许插件使用当前模型账户？').id;
+  await reloadSession();
+  await confirmation().waitFor();
+  const restored = await snapshot();
+  assert.equal(restored.requests.filter(request => request.id === pendingId).length, 1,
+    'Renderer reload must restore the original pending confirmation, not discard or duplicate it');
+  assert.deepEqual(calls, [], 'Reloading a pending confirmation cannot approve a provider request');
   assert.match(await confirmation().innerText(), /dfsc-host-example.*model.text/s);
   assert.match(await confirmation().innerText(), /直调 API.*cn/s);
   assert.match(await confirmation().innerText(), /可能消耗额度/);
@@ -258,7 +279,7 @@ try {
   assertPrivate([initial, before, after, replaced, await settings(), await page.locator('body').innerText()]);
   assert.deepEqual(errors, []);
   assert.deepEqual(transportErrors, []);
-  console.log('Production Electron authorization passed: real SDK/native consumer, production denial/approval, MCP pending/in-flight cancellation, per-launch reuse and account replacement. Only isolated loopback provider requests were made; no real account or paid model.');
+  console.log('Production Electron authorization passed: real SDK/native consumer, versioned confirmation and reload restoration, production denial/approval, MCP pending/in-flight cancellation, per-launch reuse and account replacement. Only isolated loopback provider requests were made; no real account or paid model.');
 } catch (error) {
   console.error(`Host authorization failure during ${phase}`);
   if (page && !page.isClosed()) await page.screenshot({ path: join(output, 'failure.png') }).catch(() => {});

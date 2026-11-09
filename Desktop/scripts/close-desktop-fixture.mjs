@@ -1,24 +1,38 @@
+import { readFile } from 'node:fs/promises';
+import { join } from 'node:path';
+
 // Windows launchers can exit before every inherited Playwright pipe reaches EOF.
 const processExists = pid => {
   try { process.kill(pid, 0); return true; }
   catch (error) { return error.code !== 'ESRCH'; }
 };
 
-// A dead Electron process can leave its inspector TCP transport waiting for EOF.
-// Capture only this launch's loopback inspector socket, never arbitrary handles.
+export function fixtureBrowserPort(value) {
+  if (typeof value !== 'string' || value.length > 256) return undefined;
+  const match = /^([1-9][0-9]{0,4})\r?\n\/devtools\/browser\/[a-f0-9-]{36}(?:\r?\n)?$/i.exec(value);
+  const port = match ? Number(match[1]) : 0;
+  return port > 0 && port <= 65535 ? port : undefined;
+}
+
+// Node and Chromium use separate inspector connections. Capture only this
+// launch's unique loopback endpoints before shutdown, never arbitrary handles.
 export function releaseExitedFixtureInspector(app, identity, handles = process._getActiveHandles(), alive = processExists) {
   if (!Number.isSafeInteger(identity?.pid) || identity.pid <= 0
     || !Number.isSafeInteger(identity.debugPort) || identity.debugPort <= 0 || identity.debugPort > 65535) return () => {};
-  const sockets = handles.filter(socket => socket.remoteAddress === '127.0.0.1'
-    && socket.remotePort === identity.debugPort && typeof socket.destroy === 'function' && !socket.destroyed);
-  if (sockets.length !== 1) return () => {};
-  const socket = sockets[0];
+  const ports = new Set([identity.debugPort, identity.browserPort]
+    .filter(port => Number.isSafeInteger(port) && port > 0 && port <= 65535));
+  const sockets = [...ports].flatMap(port => {
+    const matches = handles.filter(socket => socket.remoteAddress === '127.0.0.1'
+      && socket.remotePort === port && typeof socket.destroy === 'function' && !socket.destroyed);
+    return matches.length === 1 ? matches : [];
+  });
+  if (!sockets.length) return () => {};
   const child = app.process();
   const timer = setInterval(() => {
-    if (socket.destroyed) { clearInterval(timer); return; }
+    if (sockets.every(socket => socket.destroyed)) { clearInterval(timer); return; }
     if (child.exitCode !== 0 || app.windows().some(page => !page.isClosed()) || alive(identity.pid)) return;
     clearInterval(timer);
-    socket.destroy();
+    for (const socket of sockets) if (!socket.destroyed) socket.destroy();
   }, 25);
   timer.unref();
   return () => clearInterval(timer);
@@ -80,7 +94,12 @@ export async function closeDesktopFixtureAndWait(app, timeout = 30000) {
 // Isolated fixtures must still exercise orderly shutdown and flush their saved state.
 export async function closeDesktopFixture(app) {
   const inspector = process.platform === 'win32' && typeof app.evaluate === 'function'
-    ? await app.evaluate(() => ({ pid: process.pid, debugPort: process.debugPort })).catch(() => undefined) : undefined;
+    ? await app.evaluate(({ app }) => ({ pid: process.pid, debugPort: process.debugPort,
+      userData: app.getPath('userData') })).catch(() => undefined) : undefined;
+  if (typeof inspector?.userData === 'string') {
+    const activePort = await readFile(join(inspector.userData, 'DevToolsActivePort'), 'utf8').catch(() => undefined);
+    inspector.browserPort = fixtureBrowserPort(activePort);
+  }
   const disposeInspector = inspector ? releaseExitedFixtureInspector(app, inspector) : () => {};
   const pages = app.windows();
   for (const page of pages) {

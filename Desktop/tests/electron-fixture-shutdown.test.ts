@@ -4,7 +4,7 @@ import { PassThrough } from 'node:stream';
 import { runInNewContext } from 'node:vm';
 import test from 'node:test';
 
-const { closeDesktopFixture, closeDesktopFixtureAndWait, releaseExitedFixturePipes, releaseExitedFixtureInspector } = await import(new URL('../scripts/close-desktop-fixture.mjs', import.meta.url).href);
+const { closeDesktopFixture, closeDesktopFixtureAndWait, releaseExitedFixturePipes, releaseExitedFixtureInspector, fixtureBrowserPort } = await import(new URL('../scripts/close-desktop-fixture.mjs', import.meta.url).href);
 
 test('launcher exit cannot complete shutdown before the driver close settles', async () => {
   const { child, page, context, dispose } = fixture();
@@ -371,4 +371,44 @@ test('disposing an inspector guard leaves its captured socket intact', async () 
   await new Promise(resolve => setTimeout(resolve, 50));
   assert.equal(socket.destroyed, false);
   socket.destroy();
+});
+
+test('Chromium debugging port accepts only the bounded DevToolsActivePort format', () => {
+  const path = '/devtools/browser/12345678-1234-1234-1234-123456789abc';
+  assert.equal(fixtureBrowserPort(`34568\n${path}`), 34568);
+  assert.equal(fixtureBrowserPort(`34568\r\n${path}\r\n`), 34568);
+  for (const value of [undefined, '', '34568', `0\n${path}`, `65536\n${path}`, `-1\n${path}`,
+    `34568\nhttp://example.com`, `34568\n${path}\nextra`, `34568\n${path}${'x'.repeat(300)}`])
+    assert.equal(fixtureBrowserPort(value), undefined);
+});
+
+test('both unique inspector connections release only after the native process and pages exit', async () => {
+  const child = { exitCode: 0 };
+  let nativeAlive = true;
+  const node = Object.assign(new PassThrough(), { remoteAddress: '127.0.0.1', remotePort: 34567 });
+  const browser = Object.assign(new PassThrough(), { remoteAddress: '127.0.0.1', remotePort: 34568 });
+  const other = Object.assign(new PassThrough(), { remoteAddress: '127.0.0.1', remotePort: 34569 });
+  const dispose = releaseExitedFixtureInspector({ process: () => child, windows: () => [] },
+    { pid: 12345, debugPort: 34567, browserPort: 34568 }, [node, browser, other], () => nativeAlive);
+  try {
+    await new Promise(resolve => setTimeout(resolve, 50));
+    assert.equal(node.destroyed, false);
+    assert.equal(browser.destroyed, false);
+    nativeAlive = false;
+    await new Promise(resolve => setTimeout(resolve, 50));
+    assert.equal(node.destroyed, true);
+    assert.equal(browser.destroyed, true);
+    assert.equal(other.destroyed, false);
+  } finally { dispose(); node.destroy(); browser.destroy(); other.destroy(); }
+});
+
+test('an ambiguous Chromium endpoint does not release either of its possible connections', async () => {
+  const sockets = Array.from({ length: 2 }, () =>
+    Object.assign(new PassThrough(), { remoteAddress: '127.0.0.1', remotePort: 34568 }));
+  const dispose = releaseExitedFixtureInspector({ process: () => ({ exitCode: 0 }), windows: () => [] },
+    { pid: 12345, debugPort: 34567, browserPort: 34568 }, sockets, () => false);
+  try {
+    await new Promise(resolve => setTimeout(resolve, 50));
+    assert.ok(sockets.every(socket => !socket.destroyed));
+  } finally { dispose(); for (const socket of sockets) socket.destroy(); }
 });

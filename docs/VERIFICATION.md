@@ -1,5 +1,50 @@
 # Verification
 
+## 大媒体校验与授权弹窗快照竞态（2026-11-09）
+
+公开宿主客户端的 Base64 正则在 4 MiB 媒体上触发栈溢出。
+改用既有解码后的规范重编码比对，继续严格检查字母表、补位及补位位；
+不改协议、MIME、非空与大小限制。回归覆盖 4–23 MiB、三种补位长度、
+非法 Base64、超限及真实 client/broker 的 ASR、视频转发。
+BVR 同步相同客户端修复，独立记录其来源提交，不发布市场更新。
+
+Desktop 自有确认请求的到达、取消/过期和回答此前不推进 runtime revision，
+迟到快照可能隐藏仍待批准的弹窗，或恢复已失效请求。本轮统一推进修订，
+增加三项顺序回归；完全访问仍须显式批准，不因重载自动授权。
+生产 Electron 验收确认到达事件有版本、重载只恢复原请求一次，
+批准前 provider 调用为零。
+
+Windows 验证与交付：
+
+- 五组定向回归 151/151 通过，类型检查及生产构建通过；
+  源码授权链和 BVR 组合 Electron 验收通过。
+- 已交付未签名、未发布的 Windows 修复候选，基于 Desktop `3341e63`
+  和 BVR `09e04cf` 加当时未提交修复，并非最新 main 或之后提交的精确构建。
+  安装包 SHA-256 为
+  `2f4dc21e79d864933080b4b70a107b54e3a94fb6fb47bad9c53f9c2b9790b0f4`。
+- 实包授权链通过；BVR 实包 8 个场景、6 次 loopback provider 请求通过，
+  包括原生安装/启动、拒绝/批准、取消、换号、独立表单及旧修订拒绝。
+  三份随包/已安装客户端与公开协议字节一致，并通过大媒体校验。
+  用户已反馈候选体验无问题，不据此扩大为所有真实模型链路验收。
+- 证据目录为
+  `D:\Desktop For Step Code\Desktop\release\plugin-host-large-media-20261109-preview`，
+  包含 `acceptance/package-integrity.json`、
+  `acceptance/authorization-r2.log`、`acceptance/bvr-packaged-r3/verification.json`、
+  `acceptance/media-client.json`、`source-receipt.json` 和 `handoff-summary.json`。
+
+首次封装遗漏两个正常 staging 生成的 runtime helper，已按既有构建规则
+补齐并重新打包、复验，未加产品绕过逻辑。一次较早的实包换号验收出现
+fixture 路由/凭据/负载断言失败；仅补充不含秘密的断言行号诊断后，
+完整复跑通过且断言未改。原失败证据保留，根因尚未确认；
+用户此前的超时也不能全部归因于弹窗竞态。
+
+本轮自动验收不使用真实账户或付费请求，未证明原生 ASR、安装器生命周期、
+旧版升级或 macOS 原生行为。候选依赖本机 BVR junction，不是跨机便携交付。
+主桌面快捷方式已备份、指向验收包并读回，保留启动参数；另有隔离 profile
+的 BVR 预览入口。未重启用户应用、复制凭据、修改个人 profile 或删除旧包。
+未合并 PR、发布插件/市场、升级 runtime pin 或改动 StepAudio。
+以下旧轮次记录及旧 head 云端绿项仅作历史证据，新提交 CI 须独立确认。
+
 ## 宿主设置层同步主线保护（2026-11-09）
 
 设置层合入启动层 `6c4b6ed`，延续主线 `6edeb18` 的细分管理门控、

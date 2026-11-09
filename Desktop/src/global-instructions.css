@@ -1,0 +1,13 @@
+.global-instructions { min-width: 0; }
+.instructions-scope { margin: 18px 0 22px; font-size: 12px; line-height: 1.7; }
+.instructions-scope > div { display: grid; grid-template-columns: 38px minmax(0, 1fr); gap: 12px; margin-top: 6px; }
+.instructions-scope dt { color: var(--muted); }
+.instructions-scope dd { margin: 0; overflow-wrap: anywhere; }
+.instructions-editor { margin-bottom: 8px; }
+.instructions-editor textarea { display: block; width: 100%; height: 244px; min-height: 160px; max-height: 420px; padding: 12px; line-height: 1.7; font-size: 13px; overflow-wrap: anywhere; white-space: pre-wrap; }
+.instructions-meta { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 6px 12px; min-height: 22px; font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.instructions-meta > span:first-child { display: inline-flex; align-items: center; gap: 5px; }
+.instructions-meta.invalid, .instructions-error { color: var(--danger); }
+.instructions-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.instructions-actions button { font-size: 12px; }
+.instructions-error { font-size: 12px; line-height: 1.7; margin: 14px 0 0; overflow-wrap: anywhere; }

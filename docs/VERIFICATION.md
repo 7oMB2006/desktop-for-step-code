@@ -66,6 +66,66 @@ upgrade, installer, release or Hermes/Feishu business-flow acceptance is claimed
 The owner's running application, personal profile, credentials, shortcut and
 upstream runtime checkout were not changed.
 
+## Global Instructions (2026-11-09)
+
+Settings > Global instructions edits native global context in the Desktop-owned
+`step-runtime/agent/` directory, normally `AGENTS.md`. Reads and saves follow
+native context-file precedence, preserve existing fallback files, validate UTF-8
+and size, reject linked files/directories, serialize app writes, and compare an
+opaque revision before atomic replacement. Conflicts retain the local editor
+draft. The default is empty; Clear requires Save. These plaintext instructions
+are model-visible preferences, not credential storage or permission enforcement.
+
+Saving does not interrupt or hot-reload resident conversations. Newly started
+runtime processes load the current native global context, including restarted
+and cold-restored histories; resident navigation retains its existing context.
+Changed saves exclude older empty workers from new-session reuse. Product,
+Desktop collaboration and project rules remain present, and user messages and
+permissions are unchanged. No new enforced instruction hierarchy or
+model-obedience guarantee is claimed.
+
+The implementation was isolated from the old shared release worktree, adapted
+to main `6edeb18`, then rebased onto the plugin-workspace merge `9e493ed`.
+The editor state is retained above the keyed settings content,
+preserving the single content container, existing category transitions and
+unsaved text across tabs. The dedicated acceptance is registered in the shared
+Windows/macOS CI session inventory; only local Windows execution is claimed.
+
+On the initial `6edeb18` base, typecheck, production build and 104 focused
+store/runtime tests passed. The full serial unit/protocol run completed 1,797 tests: 1,784 passed, 13
+platform-specific tests skipped and none failed. CI inventory/runner regression
+completed 25 tests: 24 passed and one POSIX-only test skipped. Electron checks
+passed for global instructions, proposed new sessions, settings-dialog layout
+(including the new category), concurrent sessions and account settings.
+The build retains existing bundler warnings.
+
+After rebasing onto `9e493ed`, typecheck/build, 123 focused store/runtime/IPC/plugin
+tests and the same CI runner regression passed again. The five Electron checks
+above were repeated against the rebuilt source. The complete unit/protocol suite
+was not repeated after that rebase; its 1,797-test result belongs to the prior
+base and does not cover the newly merged plugin-workspace tests.
+
+The isolated Electron acceptance uses the existing staged v0.1.7 Step runtime
+and a local HTTP/SSE provider. It inspects actual system requests for global,
+project, product and Desktop rules and unchanged user text. It covers old empty
+workers, unchanged running sessions, cross-project/new independent sessions,
+restart with preserved identity, clearing, strict IPC validation, external-edit
+conflicts, full app relaunch with cold history restoration, keyboard focus and
+light/dark/640px English layout. Four-sided focus indicators are checked against
+clipping ancestors. Screenshots and results are in
+`Desktop/test-results/global-instructions-{light,conflict,dark-narrow-en}.png`
+and `global-instructions-results.json`.
+
+This is source-only local fixture acceptance, not paid-model instruction-following
+acceptance, native macOS execution, installer validation or a public release.
+Upstream source, personal CLI profiles, the user's application/shortcuts and
+existing packages were not changed. No installer was generated or deleted.
+
+Artifact inventory: this isolated worktree's `Desktop/dist` totals 12,511,607
+bytes (about 11.93 MiB). The six instruction acceptance profiles created during
+PR preparation total about 53.87 MiB. Small screenshot/JSON/log evidence and test
+profiles were retained; existing packages were neither duplicated nor deleted.
+
 ## 管理 worker 异常退出后的应用关闭回归（2026-11-08）
 
 PR #219 的 P2 已复现：管理 worker 缺少有效 shutdown 确认时，

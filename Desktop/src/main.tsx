@@ -1860,6 +1860,7 @@ function App() {
         if (project && bridge && !loading && !navigationPending.current) void applySnapshot(() => bridge.beginSession(project.path));
       }}
       onReturn={() => void run(() => handoff())}
+      onMinimize={() => void run(() => bridge!.windowControl('minimize'))}
       onClose={() => { saveWindowPresentation(); void run(() => bridge!.windowControl('close')); }}>{null}</MiniChatFrame>
       : <WindowBar language={data.preferences.language} sidebarVisible={sidebarVisible} toggleSidebar={toggleSidebar} menus={menus} sessionTitle={activeTitle} onMenuOpenChange={setWindowMenuOpen} inert={settingsOpen || Boolean(removeProject)}
         pluginActions={<PluginActionGroup entries={pluginEntries} language={data.preferences.language}

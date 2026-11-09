@@ -1,12 +1,15 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { changedPaths, checkConclusion, docsOnly, isDocumentation } from './ci-policy.mjs';
+import { changedPaths, checkConclusion, docsOnly, isDocumentation, sharedChecksComplete, sharedWindowsStages } from './ci-policy.mjs';
 
 test('only explicitly scoped documentation skips integration', () => {
-  for (const path of ['README.md', 'TODO.md', 'docs/releases/v0.3.0.zh-CN.md', 'docs/acceptance/issue-5/README.md', 'assets/readme/screenshot.svg']) {
+  for (const path of ['README.md', 'TODO.md', 'docs/PLUGIN_AUTHORING.md', 'docs/THEME_PACKS.md', 'docs/MACOS.md',
+    'docs/CRON.md', 'docs/releases/v0.3.0.zh-CN.md', 'docs/acceptance/issue-5/README.md', 'assets/readme/screenshot.svg']) {
     assert.equal(isDocumentation(path), true, path);
   }
-  for (const path of ['Desktop/README.md', 'Desktop/build/icon.png', 'scripts/test.md', 'assets/icon.svg', 'docs/unknown.md', '.github/workflows/pr-ci.yml', 'Desktop/package.json', 'patches/step-code-desktop.patch', 'AGENTS.md']) {
+  for (const path of ['Desktop/README.md', 'Desktop/build/icon.png', 'scripts/test.md', 'assets/icon.svg', 'docs/unknown.md',
+    'docs/plugin-schemas/dfsc.plugin.schema.json', 'examples/plugins/example/README.md',
+    '.github/workflows/pr-ci.yml', 'Desktop/package.json', 'patches/step-code-desktop.patch', 'AGENTS.md']) {
     assert.equal(isDocumentation(path), false, path);
   }
   assert.equal(docsOnly([]), false);
@@ -35,9 +38,9 @@ test('only the two valid dependency outcomes pass the final gate', () => {
       assert.equal(checkConclusion({
         changes: { result: classification, outputs: { 'docs-only': route } },
         documentation: { result: documentation },
-        'windows-interface': { result: ui, outputs: { group: 'interface', complete: 'true' } },
-        'windows-sessions': { result: sessions, outputs: { group: 'sessions', complete: 'true' } },
-        'windows-runtime': { result: runtime, outputs: { group: 'runtime', complete: 'true' } },
+        'windows-interface': { result: ui, outputs: { group: 'interface', complete: 'true', 'shared-complete': 'not-applicable' } },
+        'windows-sessions': { result: sessions, outputs: { group: 'sessions', complete: 'true', 'shared-complete': 'not-applicable' } },
+        'windows-runtime': { result: runtime, outputs: { group: 'runtime', complete: 'true', 'shared-complete': 'true' } },
       }), expected);
     }
   }
@@ -47,9 +50,9 @@ test('missing, renamed, malformed and unexpected jobs cannot pass the gate', () 
   const valid = {
     changes: { result: 'success', outputs: { 'docs-only': 'false' } },
     documentation: { result: 'skipped' },
-    'windows-interface': { result: 'success', outputs: { group: 'interface', complete: 'true' } },
-    'windows-sessions': { result: 'success', outputs: { group: 'sessions', complete: 'true' } },
-    'windows-runtime': { result: 'success', outputs: { group: 'runtime', complete: 'true' } },
+    'windows-interface': { result: 'success', outputs: { group: 'interface', complete: 'true', 'shared-complete': 'not-applicable' } },
+    'windows-sessions': { result: 'success', outputs: { group: 'sessions', complete: 'true', 'shared-complete': 'not-applicable' } },
+    'windows-runtime': { result: 'success', outputs: { group: 'runtime', complete: 'true', 'shared-complete': 'true' } },
   };
   assert.equal(checkConclusion(valid), true);
   for (const key of Object.keys(valid)) {
@@ -68,4 +71,28 @@ test('missing, renamed, malformed and unexpected jobs cannot pass the gate', () 
     }
   }
   assert.equal(checkConclusion({ ...valid, 'windows-sessions': valid['windows-interface'] }), false);
+  for (const key of ['windows-interface', 'windows-sessions', 'windows-runtime']) {
+    for (const value of [undefined, '', 'false', true, key === 'windows-runtime' ? 'not-applicable' : 'true']) {
+      const changed = structuredClone(valid);
+      changed[key].outputs['shared-complete'] = value;
+      assert.equal(checkConclusion(changed), false);
+    }
+  }
+});
+
+test('only runtime can attest the exact set of successful shared checks', () => {
+  const steps = Object.fromEntries(sharedWindowsStages.map(stage => [stage, 'success']));
+  assert.equal(sharedChecksComplete('runtime', steps), true);
+  for (const group of ['interface', 'sessions', '', undefined])
+    assert.ok(!sharedChecksComplete(group, steps));
+  assert.ok(!sharedChecksComplete('runtime', undefined));
+  assert.ok(!sharedChecksComplete('runtime', { ...steps, extra: 'success' }));
+  for (const stage of sharedWindowsStages) {
+    for (const state of ['skipped', 'failure', 'cancelled', undefined]) {
+      assert.ok(!sharedChecksComplete('runtime', { ...steps, [stage]: state }));
+    }
+    const missing = { ...steps };
+    delete missing[stage];
+    assert.ok(!sharedChecksComplete('runtime', missing));
+  }
 });

@@ -3,18 +3,22 @@
 Every pull request starts `PR CI`. The workflow classifies the complete change
 against the pull request's merge base, then selects one of two routes:
 
-- Documentation-only changes run `Documentation checks`, which uses
-  `git diff --check` to check whitespace errors and conflict markers in added
-  lines. It does not validate Markdown rendering, remote links, or release facts.
+- Documentation-only changes run `Documentation checks`: whitespace and added
+  conflict markers, plus the existing runtime-pin and patch-command contracts.
+  These checks need no Desktop dependency install or runtime build. They do not
+  validate Markdown rendering, remote links, or release facts.
 - All other changes run three independent Windows groups: `Windows interface`,
   `Windows sessions`, and `Windows runtime`. Every group builds the pinned
-  upstream, applies the current integration patch, stages runtime, and runs the
-  upstream tests, typecheck, unit/protocol tests and application build.
+  upstream, applies the current integration patch, stages runtime and builds the
+  application. Only `runtime` runs the shared upstream tests, typecheck and full
+  unit/protocol inventory. The other groups start their native acceptance without
+  waiting for duplicate executions of these tests.
   Electron acceptance is split between groups but remains serial within each
   runner. A failure stops its group; the other groups are not cancelled.
 
 The documentation allowlist lives in `scripts/ci-policy.mjs`. It includes the
-root README files, TODO, DESIGN, PRODUCT, explicitly named documentation pages,
+root README files, TODO, DESIGN, PRODUCT, explicitly named documentation pages
+(including plugin authoring, themes, Cron and macOS guidance),
 release Markdown under `docs/releases/`, acceptance Markdown and images under
 `docs/acceptance/`, and README images under `assets/readme/`. It does not include
 arbitrary Markdown or images elsewhere in the repository. Application files,
@@ -32,6 +36,10 @@ produce a successful result. Preparation and acceptance belong to the same
 group job, so a failed build cannot bypass the gate. Each successful group must
 also return its own group ID and completion receipt; swapped inputs, duplicate
 group execution or a skipped acceptance step cannot satisfy the final gate.
+The runtime group must additionally attest that every shared test stage succeeded.
+The other two groups must explicitly attest that those same stages were skipped
+as not applicable. Missing, partial or wrongly assigned shared receipts fail the
+gate even when all three native groups report success.
 If branch protection is configured, require the unchanged `CI result` name
 rather than conditional jobs.
 An old required `Windows integration` check must be replaced by `CI result`
@@ -42,8 +50,51 @@ request. The runner tests also run on each Windows job, including owned-process
 tree cancellation. Run them locally without installing Desktop dependencies:
 
 ```sh
-node --test scripts/ci-policy.test.mjs scripts/ci-windows.test.mjs scripts/windows-ci-summary.test.mjs scripts/ci-canvas-prebuild.test.mjs scripts/ci-electron-prebuild.test.mjs
+node --test --test-concurrency=1 scripts/ci-*.test.mjs scripts/windows-ci-summary.test.mjs
 ```
+
+## Documentation Scope and Evidence
+
+Classification uses the complete PR merge-base diff, including both sides of
+renames and copies. It never chooses the lightweight route from only the latest
+commit or the location of a merge conflict. Schemas, executable examples,
+dependencies, CI configuration and unknown paths still require full integration.
+
+A feature PR with a later documentation-only commit therefore still runs full
+integration. Cross-run green-evidence reuse is deliberately not implemented:
+proving equivalent tested merge trees, bases, workflow versions and complete
+trusted outcomes is a separate change. Do not interpret an old head's success as
+current-head acceptance or silently cancel a required check. Exceptional bypasses
+remain an explicit owner decision after reviewing the unverified scope.
+
+`scripts/ci-docs.mjs` shares its pin and patch-command checks with
+`Desktop/tests/runtime-staging.test.ts`; the lightweight route is not a way to
+bypass those existing contracts. Run `node scripts/ci-docs.mjs` locally, or provide
+`BASE_SHA` and `HEAD_SHA` to also check the cumulative Git diff.
+
+## Bounded Protocol Tests
+
+Both native platforms use `scripts/ci-protocol.mjs` for the full, sorted
+`Desktop/tests/*.test.ts` inventory. Files execute serially through the existing
+`tsx --test --test-concurrency=1` with default process isolation. Test assertions,
+individual test timeouts, platform skips and the job's total deadline are unchanged.
+Each file now has an external five-minute deadline covering assertion failure
+and cleanup; there is no retry or `--test-force-exit`.
+
+`Desktop/test-results/protocol/` retains an independent TAP and console logfile
+per file plus `summary.json` with expected files, active file, results and completion.
+Multiple TAP streams are not concatenated into an invalid report. A failure stops
+the suite and names its file; an empty or partial inventory cannot complete.
+
+Termination targets only the owned Windows process tree or POSIX detached group.
+If cleanup cannot be confirmed within a short secondary deadline, the runner
+closes its own pipe handles, records `cleanup-unconfirmed` and fails rather than
+waiting indefinitely. An exited Windows leader is never targeted by its stale PID.
+Unconfirmed cleanup is not evidence that descendants were removed.
+
+Use `node scripts/ci-protocol.mjs --list` without Desktop dependencies to inspect
+the inventory. After installing dependencies and staging the correct runtime,
+run the same command without `--list` for the full suite.
 
 ## Native Canvas Prebuilds
 
@@ -103,6 +154,8 @@ coverage requires an explicit review decision.
 The reusable `.github/workflows/windows-integration.yml` keeps preparation in
 one place, using the caller's checkout. Each runner independently builds current
 code; no build/runtime cache or cross-job build artifact is used in this version.
+Shared tests run only in `runtime`, with an explicit outcome receipt checked by
+the final gate. Installation and native-module preparation remain per runner.
 The three callers all depend only on classification, not on one another.
 No matrix fail-fast can hide another group's diagnosis.
 
@@ -161,6 +214,14 @@ The shared `CI result` includes classification, documentation and the three
 Windows groups; it does not include macOS acceptance. A green shared result
 therefore does not establish macOS readiness.
 
+Every PR now creates a lightweight classification job and the fixed final macOS
+check, rather than filtering the entire workflow away by path. A documentation
+route must pass its document checks, explicitly skip preparation and all native
+groups, and must not download, validate or promote any candidate artifact.
+The final check reports the selected route, not fictitious native acceptance.
+Pushes to the existing special branches and manual dispatches always run full
+integration; only complete PR diffs can select documentation mode.
+
 Each `macos-15` job runs on its own GitHub-hosted virtual machine, as described
 in [GitHub's hosted runner documentation](https://docs.github.com/en/actions/concepts/runners/github-hosted-runners).
 Different pull requests do not run their jobs on one repository-wide VM.
@@ -190,7 +251,8 @@ Per-script deadlines and owned-process cancellation rules are unchanged.
 
 The final `ARM64 build, tests and packaged acceptance` check preserves the old
 required-check name and runs even after failures. `scripts/ci-macos-policy.mjs`
-requires exactly preparation plus the three successful groups, distinct artifact
+validates classification and documentation outcomes before choosing its route.
+The full route requires exactly preparation plus the three successful groups, distinct artifact
 IDs, matching commit/hash, and both complete reports from every group. Every
 report must contain the exact ordered assigned inventory, successful results
 and no active check. Missing, swapped, duplicate, malformed, partial, failed,
@@ -224,8 +286,22 @@ days, including after failures.
 Run dependency-free scheduling and gate regressions locally:
 
 ```sh
-node --test scripts/ci-macos.test.mjs scripts/ci-macos-policy.test.mjs scripts/ci-windows.test.mjs scripts/ci-policy.test.mjs
+node --test --test-concurrency=1 scripts/ci-*.test.mjs scripts/windows-ci-summary.test.mjs
 ```
+
+## November 10 CI Refactoring Baseline
+
+Runs `42642599418` and `42651701558` both passed before this change. Their Windows
+interface jobs took about 31m40s and 32m31s; full protocol tests occupied roughly
+six to eight minutes in each of three Windows jobs, followed by about twenty
+minutes of interface acceptance. Moving shared tests to runtime removes duplicate
+work from the longest group's critical path without introducing a common-test
+dependency before native groups can start.
+
+This is a scheduling hypothesis, not a measured speedup. Compare the new cloud
+run's job/queue time, per-stage duration, total runner-minutes and failures before
+claiming an improvement. Sharing complete native build artifacts is deferred
+until transfer cost and fixture/native dependency packaging have been measured.
 
 The last serial baseline (run `41477155903`) took 47m27s, including about 20.6
 minutes of source and 20.5 minutes of packaged acceptance. Compare cloud elapsed

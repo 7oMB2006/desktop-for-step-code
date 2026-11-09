@@ -1,6 +1,7 @@
 /// <reference types="vite/client" />
 import { useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
+import { Languages, Moon, Sun } from 'lucide-react';
 import { PluginCenter, type PluginCenterBridge } from '../../src/PluginCenter';
 import type { PluginPresentation } from '../../src/PluginDocumentation';
 import { SidebarTaskActions } from '../../src/ScheduledTasks';
@@ -19,8 +20,9 @@ import '../../src/layout.css';
 import '../../src/theme.css';
 
 applyTheme('light', false);
-const updatePreview = new URLSearchParams(location.search).get('updates') === '1';
-const nativeUpdates = new URLSearchParams(location.search).get('updates') === 'native';
+const metadataPreview = new URLSearchParams(location.search).get('metadata') === '1';
+const updatePreview = !metadataPreview && new URLSearchParams(location.search).get('updates') === '1';
+const nativeUpdates = !metadataPreview && new URLSearchParams(location.search).get('updates') === 'native';
 const presentations: Record<string, PluginPresentation & Pick<PluginPackage, 'categories' | 'keywords'>> = {
   'bilibili-video-research': {
     author: 'BVR contributors', maintainer: 'DFSC 社区', license: 'MIT',
@@ -141,6 +143,77 @@ for (const plugin of catalog.plugins) {
     locales: plugin.id === 'bilibili-video-research' ? {
       en: { description: 'Research public videos using transcripts, audio and frames.', documentation: { readme: 'README.en.md' } },
     } : undefined };
+}
+if (metadataPreview) {
+  const cases: {
+    id: string; name: string; description: string; author?: string; maintainer?: string;
+    requirements?: PluginPackage['requirements']; repository?: string; stars?: PluginPresentation['stars'];
+  }[] = [
+    { id: 'metadata-compatible', name: '资源工具包',
+      description: '模拟数据：声明的版本范围符合当前 0.6.0，作者声明无额外依赖；不是总体兼容认证。',
+      author: '示例资源贡献者', maintainer: '示例包维护者',
+      requirements: { dfsc: '>=0.0.0', external: [] },
+      repository: 'https://github.com/7oMB2006/desktop-for-step-code', stars: { count: 128, checkedAt: '2026-11-09' } },
+    { id: 'metadata-incompatible', name: '新版本工程工具',
+      description: '模拟数据：版本范围不符，包含必选与可选准备项；查看声明不会安装依赖、授权账户或调用服务。',
+      author: 'CommunityMaintainersWithAnIntentionallyLongUnbrokenAuthorNameForNarrowLayoutVerification',
+      maintainer: '独立封装维护者',
+      requirements: { dfsc: '>=99.0.0', external: [
+        { name: 'RequiredRuntimeWithAnIntentionallyLongUnbrokenDependencyNameForNarrowLayoutVerification',
+          description: '必选准备项，由使用者另行取得并核对版本。这里的长说明用于检查详情页在窄屏、不同语言和深浅主题下是否完整换行；声明本身没有检查本机路径、安装依赖、验证账户、建立连接或执行任务。',
+          url: 'https://nodejs.org/', optional: false },
+        { name: '可选媒体转换工具',
+          description: '只在转换本地媒体时需要；不影响阅读资源文档，未查询本机是否安装。',
+          url: 'https://ffmpeg.org/download.html', optional: true },
+      ] } },
+    { id: 'metadata-undeclared', name: '旧版插件',
+      description: '模拟数据：没有作者和 requirements；不能从维护者推测作者，也不能把未声明解释为没有依赖。',
+      maintainer: '旧包维护者' },
+    { id: 'metadata-range-only', name: '仅版本声明',
+      description: '模拟数据：仅声明 DFSC 版本范围，external 缺省；外部准备条件仍为未声明。',
+      author: '本地文档贡献者', requirements: { dfsc: '^0.6.0' } },
+    { id: 'metadata-link-defense', name: '依赖链接验证',
+      description: '模拟数据：故意绕过包解析器注入不安全链接，只用于验证渲染层不会把它们变成可点击入口。',
+      author: '不可信声明夹具作者', requirements: { external: [
+        { name: '脚本链接', url: 'javascript:alert("metadata-link-fixture")' },
+        { name: '本机文件链接', url: 'file:///C:/fixture-only/not-a-real-file.txt' },
+        { name: '不安全 HTTP 链接', url: 'http://example.invalid/download' },
+        { name: '带凭据的 HTTPS 链接', url: 'https://fixture:not-a-secret@example.invalid/download' },
+        { name: '安全 HTTPS 文档', url: 'https://nodejs.org/en/download', optional: true },
+      ] } },
+  ];
+  catalog = {
+    plugins: cases.map(item => ({
+      id: item.id, name: item.name, version: '1.0.0', description: item.description,
+      marketplace: 'metadata-preview', repository: item.repository, mcpServers: [], warnings: [],
+      installationSource: { status: 'recorded', marketplaces: ['metadata-preview'] },
+      package: { ref: `fixture-${item.id}`, provenance: 'recorded', documentation: { readme: 'README.md' },
+        author: item.author, maintainer: item.maintainer, requirements: item.requirements,
+        tutorials: [], links: [], warnings: [], stars: item.repository ? { status: 'unknown' } : undefined },
+    })),
+    available: cases.map(item => ({
+      name: item.id, displayName: item.name, version: item.id === 'metadata-compatible' ? '2.0.0' : '1.0.0',
+      description: item.id === 'metadata-compatible'
+        ? '模拟市场候选 v2.0.0：版本范围不符，需要另行准备新版运行组件；已安装版仍为 v1.0.0。' : item.description,
+      marketplace: 'metadata-preview', repository: item.repository, installed: true, installedId: item.id,
+      package: { ref: item.id === 'metadata-compatible' ? 'fixture-market-metadata-compatible' : `fixture-${item.id}`,
+        provenance: 'recorded', documentation: { readme: 'README.md' },
+        author: item.id === 'metadata-compatible' ? '市场新版作者' : item.author, maintainer: item.maintainer,
+        requirements: item.id === 'metadata-compatible'
+          ? { dfsc: '>=99.0.0', external: [{ name: '新版运行组件' }] } : item.requirements,
+        tutorials: [], links: [], warnings: [], stars: item.repository ? { status: 'unknown' } : undefined },
+    })),
+    marketplaces: [{ name: 'metadata-preview', kind: 'local', origin: null }],
+    mcp: [], skills: [], warnings: [],
+  };
+  for (const item of cases) presentations[item.id] = {
+    author: item.author, maintainer: item.maintainer, stars: item.stars,
+    readme: `## ${item.name}\n\n${item.description}\n\n`
+      + '此页全部为布局和状态验证的模拟数据。版本范围命中不表示本机依赖已经安装、账户已授权或服务已连接。下载统计没有可信来源，不能使用模拟 GitHub Star 数代替。\n',
+  };
+  presentations['market-metadata-compatible'] = { author: '市场新版作者',
+    readme: '## 市场新版使用说明\n\n模拟市场候选为 v2.0.0，作者是市场新版作者，要求 DFSC >=99.0.0 和必选的新版运行组件。\n\n'
+      + '这不是已安装的 v1.0.0 说明；查看候选不会替换已安装资源或安装依赖。\n' };
 }
 if (updatePreview || nativeUpdates) {
   const bvr = catalog.plugins.find(plugin => plugin.id === 'bilibili-video-research')!;
@@ -272,6 +345,7 @@ Object.assign(window, { pluginCenterTest: { configuration: () => structuredClone
 function Fixture() {
   const [active, setActive] = useState(true);
   const [language, setLanguage] = useState<'zh' | 'en'>('zh');
+  const [dark, setDark] = useState(false);
   const [wide, setWide] = useState(() => matchMedia('(min-width: 1001px)').matches);
   const [message, setMessage] = useState('保留会话草稿');
   const updateState = usePluginUpdatePreview({ readCatalog: () => catalog, replaceCatalog: value => { catalog = value; },
@@ -287,11 +361,23 @@ function Fixture() {
     media.addEventListener('change', change); return () => media.removeEventListener('change', change);
   }, []);
   return <div className={`app pc-preview${wide ? ' pc-sidebar-open' : ''}`}><header className="pc-window">Desktop for Step Code
-    <span className="pc-preview-label">{updatePreview || nativeUpdates ? language === 'zh' ? '插件更新预览 · 模拟数据' : 'Plugin updates · simulated data' : '插件文档预览'}</span>
+    <span className="pc-preview-label">{metadataPreview ? language === 'zh' ? '插件信息预览 · 模拟数据' : 'Plugin metadata · simulated data'
+      : updatePreview || nativeUpdates ? language === 'zh' ? '插件更新预览 · 模拟数据' : 'Plugin updates · simulated data' : '插件文档预览'}</span>
+    {metadataPreview && <div className="pc-update-preview-controls">
+      <button className="icon-button" type="button" aria-label={language === 'zh' ? '切换明暗主题' : 'Toggle light and dark'}
+        data-tooltip={language === 'zh' ? '切换明暗主题' : 'Toggle light and dark'} onClick={() => {
+          const nextDark = document.documentElement.dataset.theme !== 'dark';
+          setDark(nextDark); applyTheme(nextDark ? 'dark' : 'light', false);
+        }}>{dark ? <Sun size={15}/> : <Moon size={15}/>}</button>
+      <button className="icon-button" type="button" aria-label={language === 'zh' ? '切换为英文' : 'Switch to Chinese'}
+        data-tooltip={language === 'zh' ? '切换为英文' : 'Switch to Chinese'}
+        onClick={() => setLanguage(language === 'zh' ? 'en' : 'zh')}><Languages size={15}/></button>
+    </div>}
     {updatePreview && <PluginUpdatePreviewControls language={language} onLanguage={setLanguage} preview={updateState}/>}</header>
     <aside className="sidebar"><SidebarTaskActions selected={false} pluginsSelected={active} onNewSession={() => setActive(false)}
       onScheduledTasks={() => setActive(false)} onPlugins={() => setActive(value => !value)}/></aside>
     <main><PluginCenter key={updatePreview ? updateState.revision : 'default'} bridge={bridge} active={active} language={language} busy={false}
+      currentVersion={metadataPreview ? '0.6.0' : undefined}
       updates={updatePreview ? updateState.updates : undefined} runtimeId="fixture-runtime" settings={{ mcp: {} }}
       onChanged={async () => { if (preparationRefresh) { preparationRefreshes++; await preparationRefresh; } }}
       onRestart={updatePreview ? updateState.restart : async () => { restarts++; }} onManageMcp={() => {}} onBack={() => setActive(false)}/>

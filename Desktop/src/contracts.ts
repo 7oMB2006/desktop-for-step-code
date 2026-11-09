@@ -5,7 +5,7 @@ import type { LaunchState } from './launch-state';
 import type { BackgroundAgentClient } from './background-agents';
 import type { WindowConversationBridge, WindowPresentation } from './window-conversation';
 import type { RemoteBridge } from './remote';
-export interface Snapshot { windowPresentation?: WindowPresentation }
+export interface Snapshot { windowPresentation?: WindowPresentation; windowPresentationRevision?: number }
 export interface Message { desktopWorkflow?: WorkflowState; desktopToolPending?: boolean }
 export interface Message { desktopImported?: boolean }
 export interface Message { desktopInput?: { version: 1; text: string } }

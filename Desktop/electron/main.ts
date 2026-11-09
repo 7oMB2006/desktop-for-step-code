@@ -184,6 +184,7 @@ let miniChat: MiniChatWindow | undefined;
 let pluginWindows: PluginWindows | undefined;
 let resumeMini = false;
 const presentations = { main: new Map<string, WindowPresentation>(), mini: new Map<string, WindowPresentation>() };
+const presentationRevisions = { main: 0, mini: 0 };
 const selectedDraft = (surface: Surface) => surface === 'mini' ? miniView.draft : sessionDraft;
 const selectDraft = (surface: Surface, draft: typeof sessionDraft) => {
   if (draft && sessionDraft?.id === draft.id) sessionDraft = draft;
@@ -887,6 +888,7 @@ async function snapshot(worker = runtimes.active, refresh = true, ignoreDraft = 
   const sessions = refresh ? await listSessions() : cachedSessions();
   return {
     windowPresentation: presentations[surface].get(composerKey(draft ? { draftId: draft.id } : worker?.state?.sessionId ? { sessionId: worker.state.sessionId } : undefined)),
+    windowPresentationRevision: presentationRevisions[surface],
     firstRun: { required: firstRun.required },
     quitReview: quitReview.state,
     statusAccount: statusAccount(appliedAuthData),
@@ -998,6 +1000,7 @@ function commitSessionNavigation(worker: SessionRuntime, value: Snapshot, surfac
     void savePreferences().catch(() => emit({ type: 'desktop_error', message: 'Could not save the selected workspace' }));
   }
   return { ...value, windowPresentation: presentations[surface].get(composerKey({ sessionId: worker.state!.sessionId! })),
+    windowPresentationRevision: presentationRevisions[surface],
     runtimes: runtimes.summaries(), unreadSessionIds: [...runtimes.unreadSessionIds] };
 }
 async function decorateSessionMessages(id: string, cwd: string, messages: Message[]) {
@@ -1197,6 +1200,8 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
       transition = true;
       try {
         const value = worker ? await snapshot(worker, false, true) : undefined;
+        // Fence saves sent by the old main view before it receives the transfer event.
+        presentationRevisions.main++;
         savePresentation('main', owner, presentation);
         if (draft) selectDraft('main', draft);
         else commitSessionNavigation(worker!, value!);
@@ -1220,8 +1225,9 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
     }
     case 'windowPresentation': {
       const owner = requireComposerOwner(args[0]);
+      if (!Number.isSafeInteger(args[2]) || args[2] !== presentationRevisions[surface]) return false;
       savePresentation(surface, owner, parseWindowPresentation(args[1]));
-      return;
+      return true;
     }
     case 'composerRead': return composers.read(requireComposerOwner(args[0]));
     case 'composerWrite': return composers.write({ ...args[0], owner: requireComposerOwner(args[0]?.owner) });

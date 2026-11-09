@@ -99,11 +99,38 @@ try {
   await page.getByRole('menuitemradio', { name: /^完全访问/ }).click();
   assert.equal((await snapshot()).runtimeId, undefined);
   assert.equal((await snapshot()).sessions.length, before.sessions.length, 'Draft selection creates no history');
+  // IPC replies and published events may reach the renderer in either order.
+  await page.evaluate(() => {
+    window.__permissionPromotionSeen = 0;
+    window.desktop.onEvent(event => {
+      if (event.type === 'desktop_draft_created') window.__permissionPromotionSeen++;
+    });
+  });
+  await app.evaluate(({ BrowserWindow }) => {
+    const contents = BrowserWindow.getAllWindows()[0].webContents;
+    const send = contents.send.bind(contents);
+    globalThis.permissionPromotionGate = { contents, send, events: [] };
+    contents.send = (channel, ...args) => {
+      if (channel === 'runtime-event' && args[0]?.type === 'desktop_draft_created')
+        globalThis.permissionPromotionGate.events.push(args);
+      else send(channel, ...args);
+    };
+  });
+  phase = 'create draft session before its promotion event';
   await send('VERIFY-WRITE-CANCELLED');
   await risk().waitFor();
+  assert.equal(await app.evaluate(() => {
+    const { contents, send, events } = globalThis.permissionPromotionGate;
+    contents.send = send;
+    for (const args of events) send('runtime-event', ...args);
+    delete globalThis.permissionPromotionGate;
+    return events.length;
+  }), 1, 'The real draft promotion event follows the session creation reply');
+  await page.waitForFunction(() => window.__permissionPromotionSeen === 1);
   assert.equal(modelCalls, 0, 'First task must wait for native acknowledgment');
   assert.equal((await snapshot()).permissionPreset, 'ask');
   await page.screenshot({ path: 'test-results/permission-tiers-risk-dark.png' });
+  phase = 'cancel draft full-access consent and restore input';
   await risk().getByRole('button', { name: '取消，保持当前权限', exact: true }).click();
   await page.waitForFunction(() => document.querySelector('.composer > .composer-input')?.value === 'VERIFY-WRITE-CANCELLED');
   assert.equal(modelCalls, 0, 'Cancellation must not submit the task');
@@ -223,6 +250,12 @@ try {
   if (page) {
     await page.screenshot({ path: 'test-results/permission-tiers-failure.png' }).catch(() => {});
     console.error('Permission fixture state:', JSON.stringify(await page.evaluate(() => window.desktop.snapshot()).catch(() => undefined)));
+    console.error('Permission fixture composer:', JSON.stringify(await page.evaluate(async () => {
+      const snapshot = await window.desktop.snapshot();
+      const element = document.querySelector('.composer > .composer-input');
+      return { value: element?.value, text: element?.textContent, errors: [...document.querySelectorAll('[role="alert"]')].map(node => node.textContent),
+        stored: snapshot.state?.sessionId ? await window.desktop.composerRead({ sessionId: snapshot.state.sessionId }) : undefined };
+    }).catch(() => undefined)));
   }
   throw error;
 } finally {

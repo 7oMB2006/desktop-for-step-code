@@ -1,4 +1,29 @@
 // Windows launchers can exit before every inherited Playwright pipe reaches EOF.
+const processExists = pid => {
+  try { process.kill(pid, 0); return true; }
+  catch (error) { return error.code !== 'ESRCH'; }
+};
+
+// A dead Electron process can leave its inspector TCP transport waiting for EOF.
+// Capture only this launch's loopback inspector socket, never arbitrary handles.
+export function releaseExitedFixtureInspector(app, identity, handles = process._getActiveHandles(), alive = processExists) {
+  if (!Number.isSafeInteger(identity?.pid) || identity.pid <= 0
+    || !Number.isSafeInteger(identity.debugPort) || identity.debugPort <= 0 || identity.debugPort > 65535) return () => {};
+  const sockets = handles.filter(socket => socket.remoteAddress === '127.0.0.1'
+    && socket.remotePort === identity.debugPort && typeof socket.destroy === 'function' && !socket.destroyed);
+  if (sockets.length !== 1) return () => {};
+  const socket = sockets[0];
+  const child = app.process();
+  const timer = setInterval(() => {
+    if (socket.destroyed) { clearInterval(timer); return; }
+    if (child.exitCode !== 0 || app.windows().some(page => !page.isClosed()) || alive(identity.pid)) return;
+    clearInterval(timer);
+    socket.destroy();
+  }, 25);
+  timer.unref();
+  return () => clearInterval(timer);
+}
+
 export function releaseExitedFixturePipes(app) {
   const child = app.process();
   const pages = app.windows();
@@ -54,6 +79,9 @@ export async function closeDesktopFixtureAndWait(app, timeout = 30000) {
 
 // Isolated fixtures must still exercise orderly shutdown and flush their saved state.
 export async function closeDesktopFixture(app) {
+  const inspector = process.platform === 'win32' && typeof app.evaluate === 'function'
+    ? await app.evaluate(() => ({ pid: process.pid, debugPort: process.debugPort })).catch(() => undefined) : undefined;
+  const disposeInspector = inspector ? releaseExitedFixtureInspector(app, inspector) : () => {};
   const pages = app.windows();
   for (const page of pages) {
     await page.evaluate(() => {
@@ -71,5 +99,5 @@ export async function closeDesktopFixture(app) {
   }
   const dispose = releaseExitedFixturePipes(app);
   try { await app.close(); }
-  finally { dispose(); }
+  finally { dispose(); disposeInspector(); }
 }

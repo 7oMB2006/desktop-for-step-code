@@ -44,6 +44,25 @@ PR #217 macOS run `42507834617` 的包内浏览器验收中，已报告标题的
 `Desktop/test-results/ci-browser-lifecycle-20261109.log`。
 未打包、发布、合并 PR、调整钉点、访问真实账户或改动日用应用。
 
+## Windows 验收控制器退出与原生进程分离（2026-11-10）
+
+#216 Windows runtime run `42683351410` 的 then_run 业务断言通过后退出超时。
+诊断确认启动器已正常退出、页面为零，实际 Electron 主 PID 已不在
+进程清单中，但它的调试 TCP 端点仍未结束。仅释放启动器管道不够，
+不能把 launcher 退出或 context.isClosed 当作控制器已完成关闭。
+
+Windows 夹具在关闭前读取实际主 PID 和 inspector 端口，捕获唯一匹配的
+loopback 客户端 socket。只有启动器 exit=0、所有页面关闭且实际主 PID
+经 signal 0 核实不存在时，才释放该次启动的已失效调试连接；进程仍活着、
+失败退出、端点不明或存在多个匹配时不处理。不杀进程、不触碰任意 socket，
+不主动伪造 context close 事件，不改产品、30 秒期限或原退出断言。
+
+受控真实 Electron 对照暂停该 inspector 的接收：旧夹具在正常进程退出后
+仍于 30 秒失败，新夹具约 0.5 秒完成且实际 context close 事件到达。
+31 项相关夹具测试和完整 Windows then_run（含原生命令/后代取消探针）通过。
+对照证明已退出进程的控制连接可以阻塞退出；底层为何保留旧 TCP 端点仍未确认，
+不将受控对照表述为对旧云端内核句柄来源的证明。新 head 云端须独立验收。
+
 ## 原生浏览器夹具的异步等待（2026-11-10）
 
 #220 macOS run `42675772685` 的 interface 源码验收发现原生标签仍处于

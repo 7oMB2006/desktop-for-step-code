@@ -40,7 +40,7 @@ export class CapabilityService {
   get runtimeAvailable() { return !this.runtimeQuarantined; }
   constructor(private options: {
     root: string; runtime: string; node: string; environment(): NodeJS.ProcessEnv;
-    validateImage?(bytes: Buffer): boolean;
+    validateImage?(bytes: Buffer, maxDimension?: number): boolean;
     fetchRepository?: typeof globalThis.fetch;
     beforePluginMutation?(): void;
     createWorker?(): RpcProcess;
@@ -206,6 +206,16 @@ export class CapabilityService {
   document(input: unknown) { return this.enqueue(async () => {
     await this.readCatalog();
     return this.library.document(input);
+  }); }
+  desktop(ref: string) { return this.enqueue(async () => {
+    if (typeof ref !== 'string' || ref.length > 80) throw new Error('capability:invalid-input');
+    const catalog = await this.readCatalog();
+    const plugin = catalog.plugins.find(item => item.package?.ref === ref);
+    if (!plugin?.package?.desktop || plugin.package.provenance !== 'recorded')
+      throw new Error('capability:stale');
+    const { descriptor } = await this.library.reference(ref);
+    if (descriptor.kind !== 'installed' || descriptor.provenance !== 'recorded') throw new Error('capability:stale');
+    return plugin;
   }); }
   configuration(input: { ref: string }, save?: PluginConfigurationInput) { return this.enqueue(async () => {
     if (!input || typeof input.ref !== 'string') throw new Error('capability:invalid-input');

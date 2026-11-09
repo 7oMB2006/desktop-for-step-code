@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
-import { lstatSync } from 'node:fs';
-import { isAbsolute, join, resolve } from 'node:path';
+import { lstatSync, readdirSync } from 'node:fs';
+import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import { defaultCompactionConfiguration, validCompactionModelKey, validCompactionRatio,
   validateCompactionUpdate, type CompactionSettings } from '../src/compaction-settings';
 
@@ -43,8 +43,19 @@ export function createCompactionConfiguration(upstream: UpstreamConfiguration, r
     if (!root || !isAbsolute(root) || resolve(env.STEPCODE_STORAGE_ROOT_DIR ?? '') !== resolve(root)
       || resolve(env.STEP_CODING_AGENT_DIR ?? '') !== resolve(root, 'agent'))
       throw new Error('compaction:profile');
+    // lstat can classify a Windows junction as a plain directory, so the
+    // parent directory entry is checked as well before any config is read.
+    const linkedEntry = (path: string) => {
+      try {
+        return readdirSync(dirname(path), { withFileTypes: true })
+          .some(entry => entry.name === basename(path) && entry.isSymbolicLink());
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false;
+        throw error;
+      }
+    };
     for (const path of [root, join(root, 'config.toml')]) {
-      try { if (lstatSync(path).isSymbolicLink()) throw new Error('compaction:profile'); }
+      try { if (lstatSync(path).isSymbolicLink() || linkedEntry(path)) throw new Error('compaction:profile'); }
       catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
     }
   };

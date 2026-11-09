@@ -1,9 +1,9 @@
-import { useEffect, useRef, useState } from 'react';
-import { Minus, Square, Copy, X, PanelLeft, Ellipsis } from 'lucide-react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { Minus, Square, Copy, X, PanelLeft, Ellipsis, PictureInPicture2 } from 'lucide-react';
 
 export type WindowMenu = { id: string; label: string; items: { label: string; action: () => void; disabled?: boolean }[] };
 
-export function WindowBar({ language, sidebarVisible, toggleSidebar, menus, sessionTitle, onMenuOpenChange, inert = false }: { language: 'zh' | 'en'; sidebarVisible: boolean; toggleSidebar: () => void; menus: WindowMenu[]; sessionTitle?: string; onMenuOpenChange?: (open: boolean) => void; inert?: boolean }) {
+export function WindowBar({ language, sidebarVisible, toggleSidebar, menus, sessionTitle, onMenuOpenChange, miniChat, pluginActions, showSidebarToggle = true, inert = false }: { language: 'zh' | 'en'; sidebarVisible: boolean; toggleSidebar: () => void; menus: WindowMenu[]; sessionTitle?: string; onMenuOpenChange?: (open: boolean) => void; miniChat?: { open: boolean; disabled?: boolean; onOpen: () => void }; pluginActions?: ReactNode; showSidebarToggle?: boolean; inert?: boolean }) {
   const [maximized, setMaximized] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
   const [focused, setFocused] = useState(true);
@@ -37,7 +37,7 @@ export function WindowBar({ language, sidebarVisible, toggleSidebar, menus, sess
   };
   return <header inert={inert} className={`window-bar ${mac ? 'window-bar-macos' : ''} ${mac && fullscreen ? 'window-fullscreen' : ''} ${focused ? '' : 'window-inactive'}`}>
     <div className="window-tools" ref={mac ? undefined : menuRef}>
-      <button type="button" className="window-sidebar-toggle" data-tooltip={zh ? '侧栏' : 'Sidebar'} aria-label={zh ? '侧栏' : 'Sidebar'} aria-expanded={sidebarVisible} onClick={() => { setOpenMenu(null); toggleSidebar(); }}><PanelLeft size={18}/></button>
+      {showSidebarToggle && <button type="button" className="window-sidebar-toggle" data-tooltip={zh ? '侧栏' : 'Sidebar'} aria-label={zh ? '侧栏' : 'Sidebar'} aria-expanded={sidebarVisible} onClick={() => { setOpenMenu(null); toggleSidebar(); }}><PanelLeft size={18}/></button>}
       {!mac && <nav className="window-menu-list" aria-label={zh ? '应用菜单' : 'Application menu'}>
         {menus.map(menu => <div className="window-menu" key={menu.id}>
           <button type="button" data-menu={menu.id} aria-haspopup="menu" aria-expanded={openMenu === menu.id} className={openMenu === menu.id ? 'active' : ''} onClick={() => setOpenMenu(current => current === menu.id ? null : menu.id)} onMouseEnter={() => { if (openMenu && openMenu !== menu.id) setOpenMenu(menu.id); }}>{menu.label}</button>
@@ -54,7 +54,12 @@ export function WindowBar({ language, sidebarVisible, toggleSidebar, menus, sess
       </nav>}
     </div>
     <div className="window-drag-space">{sessionTitle && <span className="window-session-title" data-tooltip={sessionTitle}>{sessionTitle}</span>}</div>
-    {mac && <div className="window-macos-menu" ref={menuRef}>
+    {pluginActions}
+    {mac && miniChat && <div className="window-controls">
+      <button type="button" data-tooltip="MiniChat" aria-label="MiniChat" aria-pressed={miniChat.open} disabled={miniChat.disabled}
+        onClick={() => { setOpenMenu(null); miniChat.onOpen(); }}><PictureInPicture2 size={17}/></button>
+    </div>}
+    {mac && menus.length > 0 && <div className="window-macos-menu" ref={menuRef}>
       <button type="button" className="icon-button" data-menu="application" aria-label={zh ? '应用菜单' : 'Application menu'} data-tooltip={zh ? '应用菜单' : 'Application menu'} aria-haspopup="menu" aria-expanded={openMenu === 'application'} onClick={() => setOpenMenu(current => current ? null : 'application')}><Ellipsis size={19}/></button>
       {openMenu === 'application' && <div className="window-menu-popover" role="menu" aria-label={zh ? '应用菜单' : 'Application menu'} onKeyDown={event => {
         if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
@@ -70,6 +75,8 @@ export function WindowBar({ language, sidebarVisible, toggleSidebar, menus, sess
       </div>}
     </div>}
     {!mac && <div className="window-controls">
+      {miniChat && <button type="button" data-tooltip="MiniChat" aria-label="MiniChat" aria-pressed={miniChat.open} disabled={miniChat.disabled}
+        onClick={() => { setOpenMenu(null); miniChat.onOpen(); }}><PictureInPicture2 size={17}/></button>}
       <button type="button" data-tooltip={zh ? '最小化' : 'Minimize'} aria-label={zh ? '最小化' : 'Minimize'} onClick={() => control('minimize')}><Minus size={15}/></button>
       <button type="button" data-tooltip={maximized ? zh ? '还原窗口' : 'Restore window' : zh ? '最大化' : 'Maximize'} aria-label={maximized ? zh ? '还原窗口' : 'Restore window' : zh ? '最大化' : 'Maximize'} onClick={() => control('toggleMaximize')}>{maximized ? <Copy size={12}/> : <Square size={12}/>}</button>
       <button type="button" className="window-close" data-tooltip={zh ? '关闭窗口' : 'Close window'} aria-label={zh ? '关闭窗口' : 'Close window'} onClick={() => control('close')}><X size={16}/></button>

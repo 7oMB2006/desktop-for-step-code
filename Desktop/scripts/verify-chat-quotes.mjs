@@ -249,9 +249,9 @@ try {
   await annotationInput.press('Enter');
   const snapshot = await page.evaluate(() => window.desktop.snapshot());
   await app.evaluate(({ ipcMain }, snapshot) => {
-    globalThis.quoteFixture = { snapshot, calls: [], fail: true };
+    globalThis.quoteFixture = { snapshot, calls: [], fail: true, handler: ipcMain._invokeHandlers.get('desktop') };
     ipcMain.removeHandler('desktop');
-    ipcMain.handle('desktop', (_event, method, ...args) => {
+    ipcMain.handle('desktop', (event, method, ...args) => {
       const fixture = globalThis.quoteFixture;
       if (method === 'snapshot') return fixture.snapshot;
       if (method === 'command') {
@@ -259,7 +259,7 @@ try {
         if (args[0] === 'prompt' && fixture.fail) throw new Error('Fixture quote send failure');
         return {};
       }
-      throw new Error(`Unexpected fixture method ${method}`);
+      return fixture.handler(event, method, ...args);
     });
   }, snapshot);
   await input.press('Enter');

@@ -48,6 +48,7 @@ import { searchTextMatch, type SearchTextTarget } from './fulltext-search';
 import './auto-resume-message.css';
 import { incompleteResponse } from './incomplete-response';
 import type { PreparedMarkdown } from './markdown-parser';
+import { useConversationDisclosure } from './ConversationDisclosureState';
 
 type Props = {
   preparedMarkdown?: PreparedMarkdown;
@@ -280,13 +281,14 @@ export function Tool({ item, active, onExpandedChange, ...props }: {
   onExpandedChange?: (expanded: boolean) => void;
 } & BodyProps) {
   const defaultExpanded = props.interfaceSettings?.toolsExpanded ?? false;
-  const [expanded, setExpanded] = useState(defaultExpanded);
-  const [visited, setVisited] = useState(defaultExpanded);
+  const identity = item.call?.id ?? item.result?.toolCallId;
+  const stateKey = identity ? `tool:${identity}` : undefined;
+  const [expanded, setExpanded] = useConversationDisclosure(stateKey, defaultExpanded, props.disclosureReset);
+  const [visited, setVisited] = useState(expanded);
   const { details, body } = useAnimatedDisclosure(expanded, props.onLayoutChange);
   useLayoutEffect(() => {
-    setExpanded(defaultExpanded);
-    if (defaultExpanded) setVisited(true);
-  }, [defaultExpanded, props.disclosureReset]);
+    if (expanded) setVisited(true);
+  }, [expanded]);
   const zh = props.language === 'zh';
   const name = item.call?.name ?? item.result?.toolName ?? (zh ? '工具' : 'Tool');
   const subject = toolSubject(item.call);
@@ -310,17 +312,27 @@ export function Tool({ item, active, onExpandedChange, ...props }: {
       <span className="thinking-chevron"><DisclosureChevron/></span>
       {props.interfaceSettings?.compactProcess && !expanded && subject && <span className="process-group-preview">{subject}</span>}
     </summary>
-    <div ref={body} className="process-tool-body" aria-hidden={!expanded} inert={!expanded}>{visited &&
+    <div ref={body} className="process-tool-body" aria-hidden={!expanded} inert={!expanded}>{(visited || expanded) &&
     <div className="process-tool-content">
       <div className="process-tool-meta"><code>{name}</code>{subject && <span className="process-tool-subject">{subject}</span>}</div>
-      {item.call && <details className="tool-input"><summary>{zh ? '输入' : 'Input'}</summary><ToolText text={JSON.stringify(item.call.arguments ?? {}, null, 2)} {...props}/></details>}
-      {item.result ? <details className="tool-output" open><summary>{zh ? '结果' : 'Result'}</summary>
+      {item.call && <ToolDetails className="tool-input" stateKey={stateKey && `${stateKey}:input`} label={zh ? '输入' : 'Input'}>
+        <ToolText text={JSON.stringify(item.call.arguments ?? {}, null, 2)} {...props}/></ToolDetails>}
+      {item.result ? <ToolDetails className="tool-output" stateKey={stateKey && `${stateKey}:output`} label={zh ? '结果' : 'Result'} defaultExpanded>
         {messageText(item.result) ? <ToolText text={messageText(item.result)} {...props}/>
           : !messageBlocks(item.result).some(block => block.type === 'image') && <p className="process-pending">{zh ? '无输出' : 'No output'}</p>}
         {messageBlocks(item.result).filter(block => block.type === 'image').map((block, index) => <Image key={index} block={block} {...props}/>)}
-      </details> : null}
+      </ToolDetails> : null}
       <div className="process-tool-status">{state === 'done' && <Check size={12}/>}<span>{historical ? historicalStatus : status}</span></div>
     </div>}</div>
+  </details>;
+}
+
+function ToolDetails({ className, stateKey, label, defaultExpanded = false, children }: {
+  className: string; stateKey?: string; label: string; defaultExpanded?: boolean; children: ReactNode;
+}) {
+  const [expanded, setExpanded] = useConversationDisclosure(stateKey, defaultExpanded);
+  return <details className={className} open={expanded} onToggle={event => setExpanded(event.currentTarget.open)}>
+    <summary>{label}</summary>{children}
   </details>;
 }
 
@@ -351,11 +363,10 @@ function ToolText({ text, ...props }: { text: string } & Pick<BodyProps, 'langua
   return text.length > 32_768 ? <LargeText text={text} {...props}/> : <pre>{text}</pre>;
 }
 
-function ToolGroup({ items, active, ...props }: { items: ToolItem[]; active: boolean } & BodyProps) {
+function ToolGroup({ items, active, stateKey, ...props }: { items: ToolItem[]; active: boolean; stateKey?: string } & BodyProps) {
   const defaultExpanded = props.interfaceSettings?.toolsExpanded ?? false;
-  const [expanded, setExpanded] = useState(defaultExpanded);
+  const [expanded, setExpanded] = useConversationDisclosure(stateKey, defaultExpanded, props.disclosureReset);
   const id = useId();
-  useEffect(() => { setExpanded(defaultExpanded); }, [defaultExpanded, props.disclosureReset]);
   useLayoutEffect(() => { props.onLayoutChange?.(); }, [expanded]);
   const running = items.some(item => !item.result || item.result.desktopToolPending);
   const label = toolGroupLabel(items, props.language);
@@ -371,16 +382,15 @@ function ToolGroup({ items, active, ...props }: { items: ToolItem[]; active: boo
     </div>
   </section>;
 }
-function ProcessGroup({ group, children, ...props }: { group: ProcessGroupData; children: (onExpandedChange?: (expanded: boolean) => void) => ReactNode } & BodyProps) {
+function ProcessGroup({ group, stateKey, children, ...props }: { group: ProcessGroupData; stateKey?: string; children: (onExpandedChange?: (expanded: boolean) => void) => ReactNode } & BodyProps) {
   const defaultExpanded = props.interfaceSettings?.toolsExpanded ?? false;
-  const [expanded, setExpanded] = useState(defaultExpanded);
+  const [expanded, setExpanded] = useConversationDisclosure(stateKey, defaultExpanded, props.disclosureReset);
   const id = useId();
   const single = group.items.length === 1;
   const trigger = useRef<HTMLButtonElement>(null);
   const body = useRef<HTMLDivElement>(null);
   const [focused, setFocused] = useState(false);
   const open = single || expanded;
-  useEffect(() => { setExpanded(defaultExpanded); }, [defaultExpanded, props.disclosureReset]);
   useLayoutEffect(() => { props.onLayoutChange?.(); }, [expanded]);
   useLayoutEffect(() => {
     if (single && document.activeElement === trigger.current)
@@ -449,11 +459,11 @@ export function ModelChangeNote({ change, language }: { change: ModelChange; lan
     </span>
   </div>;
 }
-function HistoricalAgents({ count, language, children, onLayoutChange }: {
-  count: number; language: 'zh' | 'en'; children: ReactNode; onLayoutChange?: () => void;
+function HistoricalAgents({ count, stateKey, language, children, onLayoutChange }: {
+  count: number; stateKey?: string; language: 'zh' | 'en'; children: ReactNode; onLayoutChange?: () => void;
 }) {
-  const [expanded, setExpanded] = useState(false);
-  const [visited, setVisited] = useState(false);
+  const [expanded, setExpanded] = useConversationDisclosure(stateKey, false);
+  const [visited, setVisited] = useState(expanded);
   const { details, body } = useAnimatedDisclosure(expanded, onLayoutChange);
   return <details ref={details} className="process-tool historical-agents" data-expanded={expanded}>
     <summary aria-expanded={expanded} onClick={event => {
@@ -462,7 +472,7 @@ function HistoricalAgents({ count, language, children, onLayoutChange }: {
       <span className="thinking-chevron"><DisclosureChevron/></span>
       <span className="process-group-preview">{language === 'zh' ? `${count} 组调用` : `${count} calls`}</span>
     </summary>
-    <div ref={body} className="process-tool-body" aria-hidden={!expanded} inert={!expanded}>{visited && children}</div>
+    <div ref={body} className="process-tool-body" aria-hidden={!expanded} inert={!expanded}>{(visited || expanded) && children}</div>
   </details>;
 }
 
@@ -499,6 +509,15 @@ function HistoricalAgents({ count, language, children, onLayoutChange }: {
     const finalProse = finalItem?.type === 'text' ? finalItem.block.text ?? '' : '';
     const zh = props.language === 'zh';
     const stamp = [...items].reverse().find(item => item.message.timestamp)?.message.timestamp;
+    const disclosureKey = (item: ResponseItem) => {
+      const entryId = items.find(entry => entry.index === item.index)?.message.entryId;
+      const identity = item.type === 'tool' ? item.call?.id ?? item.result?.toolCallId : undefined;
+      return identity ? `tool:${identity}` : entryId ? `${entryId}:${item.key.slice(item.key.indexOf(':') + 1)}` : undefined;
+    };
+    const groupDisclosureKey = (kind: string, first: ResponseItem) => {
+      const key = disclosureKey(first);
+      return key ? `${kind}:${key}` : undefined;
+    };
     const actions = !active && content.length > 0 && <MessageActions text={text} language={props.language} onError={props.onError}
       timing={[...items].reverse().find(item => item.message.desktopTiming)?.message.desktopTiming?.run} timestamp={stamp}>
       <button type="button" className="icon-button branch-action" aria-label={zh ? '从这里分支' : 'Branch from here'}
@@ -530,6 +549,7 @@ function HistoricalAgents({ count, language, children, onLayoutChange }: {
                 })()
                 : <Tool key={item.key} item={item} active={active} onExpandedChange={onExpandedChange} {...props}/>
           : item.type === 'thinking' ? <ThinkingDisclosure key={item.key} index={item.index}
+            stateKey={disclosureKey(item)}
             elapsed={<ElapsedLabel timing={items.find(entry => entry.index === item.index)?.message.desktopTiming?.thinking[item.key.split(':')[1]]}
               active={item.key === liveThought} language={props.language}/>}
             autoOpen={Boolean(props.interfaceSettings?.thinkingExpanded && item.key === liveThought)}
@@ -544,11 +564,11 @@ function HistoricalAgents({ count, language, children, onLayoutChange }: {
       {modelChange && <ModelChangeNote change={modelChange} language={props.language}/>}
       <div className="response-content message-body">{presentation.map(item =>
         historicalKeys.has(item.key) ? item.key === historicalAgents[0]?.key
-          ? <HistoricalAgents key={`history:${item.key}`} count={historicalAgents.length} language={props.language} onLayoutChange={props.onLayoutChange}>
+          ? <HistoricalAgents key={`history:${item.key}`} stateKey={groupDisclosureKey('history', historicalAgents[0])} count={historicalAgents.length} language={props.language} onLayoutChange={props.onLayoutChange}>
             {historicalAgents.map(member => renderItem(member))}
           </HistoricalAgents> : null
-        : item.type === 'process-group' ? <ProcessGroup key={item.key} group={item} {...props}>{onExpandedChange => item.items.map(member => renderItem(member, onExpandedChange))}</ProcessGroup>
-          : item.type === 'tool-group' ? <ToolGroup key={item.key} items={item.items} active={active} {...props}/>
+        : item.type === 'process-group' ? <ProcessGroup key={item.key} group={item} stateKey={groupDisclosureKey('process', item.items[0])} {...props}>{onExpandedChange => item.items.map(member => renderItem(member, onExpandedChange))}</ProcessGroup>
+          : item.type === 'tool-group' ? <ToolGroup key={item.key} items={item.items} active={active} stateKey={groupDisclosureKey('tools', item.items[0])} {...props}/>
             : renderItem(item))}</div>
       {incomplete && <div className={`client-event-note incomplete-response${active ? '' : ' is-failed'}`} role="status">
         <CircleAlert size={14} aria-hidden="true"/><span>{incomplete}</span>

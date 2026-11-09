@@ -6,6 +6,7 @@ import { join, resolve } from 'node:path';
 import { ThemePacks, validateScene } from '../electron/theme-packs';
 import { registerPluginThemes, normalizeTheme, resolveTheme, themePreferencePatch } from '../src/theme';
 import { themeBrightnessPatch } from '../src/theme-packs';
+import { removeLinkEntry } from './fixtures/artifact-cleanup';
 
 const source = resolve('../theme-marketplace/plugins/stellar-cruise');
 async function fixture(run: (root: string, service: ThemePacks) => Promise<void>) {
@@ -115,13 +116,21 @@ test('malformed geometry is rejected before rendering', async () => fixture(asyn
 }));
 test('linked plugin directories are not read', async () => fixture(async (root, service) => {
   const outside = await mkdtemp(join(tmpdir(), 'dfsc-theme-external-'));
+  const link = join(root, 'linked');
+  let created = false;
   try {
     await cp(source, outside, { recursive: true });
     await rm(join(root, 'stellar-cruise'), { recursive: true });
-    await symlink(outside, join(root, 'linked'), process.platform === 'win32' ? 'junction' : 'dir');
+    await symlink(outside, link, process.platform === 'win32' ? 'junction' : 'dir');
+    created = true;
     await service.refresh();
     assert.equal(service.packs.length, 0);
-  } finally { await rm(outside, { recursive: true, force: true }); }
+  } finally {
+    // Remove the link entry before its target: a dangling junction makes the
+    // fixture's recursive rm fail on Windows and can mask the real result.
+    if (created) await removeLinkEntry(link);
+    await rm(outside, { recursive: true, force: true });
+  }
 }));
 test('missing and malformed packages leave the built-in themes available', async () => fixture(async (root, service) => {
   await writeFile(join(root, 'stellar-cruise', 'scene.json'), '{broken');

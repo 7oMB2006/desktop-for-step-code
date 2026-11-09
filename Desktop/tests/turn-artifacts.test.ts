@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { localReference, localPreviewUrl, turnArtifacts, turnOutputPaths } from '../src/turn-artifacts';
 import { artifactFile } from '../electron/artifact-files';
+import { removeArtifactFixture } from './fixtures/artifact-cleanup';
 
 test('artifact links parse through Markdown, deduplicate and exclude source and web links', () => {
   const outputs = turnArtifacts('[页面](</D:/项目/index.html>)\n\n[再打开](</D:/项目/index.html>)\n\n[源码](D:/项目/app.ts)\n\n[网站](https://example.com/)\n\n[报告][report]\n\n[report]: ./报告.pdf\n\n```md\n[伪引用](./hidden.pdf)\n```');
@@ -36,21 +37,25 @@ test('file access stays inside the session and refuses executable opening', asyn
 
 test('mapped workspace roots accept original and canonical paths but reject escaping links', async () => {
   const fixture = await mkdtemp(join(tmpdir(), 'artifact-mapped-'));
+  const root = join(fixture, 'workspace');
+  const alias = join(fixture, 'alias');
+  const escape = join(root, 'escape');
+  const links: string[] = [];
   try {
-    const root = join(fixture, 'workspace');
-    const alias = join(fixture, 'alias');
     await mkdir(root);
     await writeFile(join(root, 'report.doc'), 'Example');
     await symlink(root, alias, process.platform === 'win32' ? 'junction' : 'dir');
+    links.push(alias);
     const canonical = await artifactFile(root, './report.doc');
     assert.equal(canonical.canOpen, true);
     assert.deepEqual(await artifactFile(alias, join(alias, 'report.doc')), canonical);
     assert.deepEqual(await artifactFile(alias, canonical.path), canonical);
     await mkdir(join(fixture, 'outside'));
     await writeFile(join(fixture, 'outside/report.doc'), 'Outside');
-    await symlink(join(fixture, 'outside'), join(root, 'escape'), process.platform === 'win32' ? 'junction' : 'dir');
+    await symlink(join(fixture, 'outside'), escape, process.platform === 'win32' ? 'junction' : 'dir');
+    links.unshift(escape);
     await assert.rejects(artifactFile(alias, './escape/report.doc'), /points outside/);
-  } finally { await rm(fixture, { recursive: true, force: true }); }
+  } finally { await removeArtifactFixture(fixture, links); }
 });
 
 test('legacy Office artifacts support opening while executable types remain blocked', async () => {

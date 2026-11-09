@@ -5,9 +5,9 @@ import { BarChart3, MessageCircleQuestion, Plug, Smartphone } from 'lucide-react
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { flushSync } from 'react-dom';
-import { ArrowDown, Plus, Folder, FolderOpen, MessageSquare, CircleHelp, Settings as SettingsIcon, PanelLeft, X, Search, ChevronDown, ChevronRight, Terminal, Copy, Check, RotateCcw, Trash2, Pencil, Cpu, AlertCircle, TriangleAlert, ShieldAlert, Info, Download, ArrowRightLeft, BookOpen, LogOut, SunMoon, ExternalLink, FileCode2, Archive, GitBranch, MoreHorizontal, ListTree, Layers3, FileText, ZoomIn, ZoomOut, Pin, PinOff, ScanLine, FileDiff, Globe, Bot } from 'lucide-react';
+import { Plus, Folder, FolderOpen, MessageSquare, CircleHelp, Settings as SettingsIcon, PanelLeft, X, Search, ChevronDown, ChevronRight, Terminal, Copy, Check, RotateCcw, Trash2, Pencil, Cpu, AlertCircle, TriangleAlert, ShieldAlert, Info, Download, ArrowRightLeft, BookOpen, LogOut, SunMoon, ExternalLink, FileCode2, Archive, GitBranch, MoreHorizontal, ListTree, Layers3, FileText, ZoomIn, ZoomOut, Pin, PinOff, ScanLine, FileDiff, Globe, Bot } from 'lucide-react';
 import { McpIcon } from './McpIcon';
-import type { Snapshot, Settings, Message, Content, UIRequest, McpServer, Session, ComposerAttachment, RuntimeSummary, Model } from './contracts';
+import type { Snapshot, Settings, Message, Content, UIRequest, McpServer, Session, ComposerAttachment, RuntimeSummary, RuntimeEvent, Model } from './contracts';
 import { fullAccessRiskPresentation } from './full-access-risk';
 import { pendingPlanReview, planReview } from './plan-review';
 import { conversationEntries } from './conversation-presentation';
@@ -26,6 +26,12 @@ import './model-picker-list.css';
 import { applyMessageEvent, applyToolResult } from './message-events';
 import { MessageRevision } from './message-revision';
 import { SessionReadingCache, captureReadingPosition, restoreReadingPosition, type ReadingPosition, type SessionReading } from './session-reading';
+import { ScrollToBottomButton } from './ScrollToBottomButton';
+import { MiniChatFrame } from './MiniChatFrame';
+import { MINI_INDEPENDENT_PROJECT, miniChatCatalog } from './mini-chat-sessions';
+import { ConversationDisclosureMemory, type ConversationDisclosureState } from './ConversationDisclosureState';
+import { useWindowComposer } from './use-window-composer';
+import { composerErrorText, composerKey, composerOwner, type ComposerOwner, type ComposerReceipt, type WindowPresentation } from './window-conversation';
 import './session-navigation.css';
 import { WindowBar, type WindowMenu } from './WindowBar';
 import { NoticeToast, type NoticeToastItem } from './NoticeToast';
@@ -87,6 +93,12 @@ import { AccountSettings, ProviderIcon, StepPlatformIcon } from './AccountSettin
 import { ProviderSettings } from './ProviderSettings';
 import { CapabilitySettings } from './CapabilitySettings';
 import { PluginCenter } from './PluginCenter';
+import { PluginActionGroup } from './PluginActionGroup';
+import { PluginWorkspace } from './PluginWorkspace';
+import { PluginWindowApp } from './PluginWindowApp';
+import { getPluginDesktopEntries, type PluginDesktopEntry } from './plugin-desktop';
+import type { CapabilityPlugin } from './capabilities';
+import './plugin-surfaces.css';
 import { capabilityCommand, type CapabilityTarget } from './capability-command';
 import { SessionImportSettings } from './SessionImportSettings';
 import { NewSession } from './NewSession';
@@ -132,6 +144,8 @@ import { QuitConfirmation } from './QuitConfirmation';
 import type { QuitReviewState } from './quit-confirmation';
 
 const bridge = window.desktop;
+const isMini = bridge?.surface === 'mini';
+document.documentElement.dataset.windowSurface = bridge?.surface ?? 'main';
 registerPluginThemes(window.desktopTheme?.themePacks ?? []);
 // Seed the placeholder with the main-process-resolved theme so the first React
 // write matches the bootstrap instead of flipping to a system guess before the
@@ -207,19 +221,24 @@ function App() {
   const notifiedMcp = useRef(new Set<string>());
   const sessionActivity = useRef(new Map<string, RuntimeSummary['status']>());
   const nextNoticeId = useRef(0);
-  const [draft, setDraft] = useState('');
+  const composer = useWindowComposer(bridge, message => setError(composerErrorText(message, data.preferences.language)));
+  const { text: draft, quotes, attachments } = composer.value;
+  const { setDraft, setQuotes, setAttachments } = composer;
+  const [miniState, setMiniState] = useState({ open: false, pinned: false });
+  const savePresentationRef = useRef<() => void>(() => {});
+  const disclosuresByOwner = useRef(new Map<string, ConversationDisclosureState>());
+  const [disclosures, setDisclosures] = useState<ConversationDisclosureState>(() => new Map());
   const [workflowCatalogRequest, setWorkflowCatalogRequest] = useState<{ runtimeId?: string; sessionId?: string; id: number } | null>(null);
   const workflowCatalogSequence = useRef(0);
   const [btwRequest, setBtwRequest] = useState<BtwOpenRequest & { runtimeId: string; sessionId: string }>();
   const btwSequence = useRef(0);
   useEffect(() => { setBtwRequest(undefined); }, [data.runtimeId, data.state?.sessionId]);
   const [referencesOpen, setReferencesOpen] = useState(false);
-  const [quotes, setQuotes] = useState<ChatQuote[]>([]);
   const [focusedQuoteId, setFocusedQuoteId] = useState<string | null>(null);
   const quoteScope = `${data.preferences.workspace ?? ''}:${data.state?.sessionId ?? ''}`;
   const quoteScopeRef = useRef(quoteScope);
-  const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
   const attachmentsRef = useRef<ComposerAttachment[]>([]);
+  attachmentsRef.current = attachments;
   const queueSend = useRef<Promise<{ queued?: boolean; id?: string; version?: number }> | null>(null);
   const [preview, setPreview] = useState<{ name: string; src: string } | null>(null);
   const [imageMenu, setImageMenu] = useState<ImageMenuTarget | null>(null);
@@ -277,6 +296,13 @@ function App() {
   const [remoteOpen, setRemoteOpen] = useState(false);
   const [pluginsOpen, setPluginsOpen] = useState(false);
   const [pluginsVisited, setPluginsVisited] = useState(false);
+  const [pluginEntries, setPluginEntries] = useState<PluginDesktopEntry[]>([]);
+  const [desktopMainId, setDesktopMainId] = useState<string>();
+  const [desktopSideId, setDesktopSideId] = useState<string>();
+  const [desktopVisited, setDesktopVisited] = useState<Set<string>>(() => new Set());
+  const [pluginMenuOpen, setPluginMenuOpen] = useState(false);
+  const pluginOpener = useRef<HTMLElement | null>(null);
+  const openedPluginId = useRef('');
   const [fulltextOpen, setFulltextOpen] = useState(false);
   const [fulltextRequest, setFulltextRequest] = useState<{ id: number; text: string }>();
   const fulltextAnchor = useRef<HTMLButtonElement>(null);
@@ -293,6 +319,7 @@ function App() {
   const [queuePreviewOpen, setQueuePreviewOpen] = useState(false);
   const [liveChangesOpen, setLiveChangesOpen] = useState(false);
   const [rightPanel, setRightPanel] = useState<'auto' | 'turns' | 'summary' | 'context' | 'review' | 'terminal' | 'browser' | 'file' | 'subagent' | 'btw' | null>('auto');
+  const pluginPreviousPanel = useRef<typeof rightPanel>(null);
   const [contextView, setContextView] = useState<'status' | 'context' | 'clm'>('context');
   const [statusRevision, setStatusRevision] = useState(0);
   const [expandedRightPanel, setExpandedRightPanel] = useState<'context' | 'review' | 'terminal' | 'browser' | 'file' | 'subagent' | 'btw' | null>(null);
@@ -308,8 +335,38 @@ function App() {
   const panelPreferences = normalizePanelPreferences(data.preferences);
   const terminalDock = panelPreferences.terminalDock;
   const [handleBlocked, setHandleBlocked] = useState(false);
+  useEffect(() => {
+    if (!bridge || isMini) return;
+    let alive = true;
+    let generation = 0;
+    const refresh = () => {
+      const request = ++generation;
+      void bridge.capabilityCatalog().then(catalog => {
+        if (!alive || request !== generation) return;
+        const entries = getPluginDesktopEntries(catalog);
+        setPluginEntries(entries);
+        setDesktopMainId(id => entries.some(entry => entry.id === id && entry.desktop.surface === 'main-view') ? id : undefined);
+        setDesktopSideId(id => entries.some(entry => entry.id === id && entry.desktop.surface === 'side-panel') ? id : undefined);
+        setDesktopVisited(ids => new Set([...ids].filter(id => entries.some(entry => entry.id === id))));
+      }).catch(() => {
+        if (!alive || request !== generation) return;
+        // Never leave old package documents visible after a failed catalog refresh.
+        setPluginEntries([]);
+        setDesktopMainId(undefined);
+        setDesktopSideId(undefined);
+        setDesktopVisited(new Set());
+      });
+    };
+    const unsubscribe = bridge.onEvent(event => { if (event.type === 'desktop_plugin_catalog_changed') refresh(); });
+    refresh();
+    return () => { alive = false; generation++; unsubscribe(); };
+  }, [capabilityRevision]);
+  useEffect(() => {
+    if (rightPanel !== null) setDesktopSideId(undefined);
+  }, [rightPanel]);
   const openingSequence = useRef(0);
   const openFile = useCallback(async (target?: FileTarget, destination?: string, toggle = true) => {
+    if (isMini) { await handoff('file', { target, destination }); return; }
     if (!bridge) throw new Error('Desktop unavailable');
     const sequence = ++openingSequence.current;
     const before = rightPanel === 'browser' ? await bridge.browserList() : undefined;
@@ -325,11 +382,12 @@ function App() {
       setRightPanel(toggle && same && rightPanel === 'browser' && !details ? null : 'browser');
     }
   }, [rightPanel, details, previewFile]);
-  const openWeb = useCallback(async (address: string) => {
+  const openWeb = useCallback(async (address: string, toggle = true) => {
+    if (isMini) { await handoff('web', { address }); return; }
     if (!bridge) throw new Error('Desktop unavailable');
     const sequence = ++openingSequence.current;
     const before = await bridge.browserList();
-    if (rightPanel === 'browser' && !details && before.tabs.find(tab => tab.id === before.activeId)?.url === address) {
+    if (toggle && rightPanel === 'browser' && !details && before.tabs.find(tab => tab.id === before.activeId)?.url === address) {
       setRightPanel(null); return;
     }
     await bridge.browserOpenLink(address);
@@ -354,26 +412,30 @@ function App() {
   const [taskStatusOpen, setTaskStatusOpen] = useState(false);
   useEffect(() => { setTaskStatusOpen(false); }, [data.runtimeId]);
   const turnUltracode = Boolean(busy && (data.launch?.ultracodeTurn || currentGoal?.status === 'active' && currentGoal.ultracode));
-  const openWorkflow = useCallback((id: string) => {
+  const openWorkflow = useCallback((id: string, toggle = true) => {
+    if (isMini) { void handoff('workflows', id); return; }
     const same = rightPanel === 'subagent' && !details && subagentView === 'overview' && selectedWorkflow === id;
     if (selectedWorkflow !== id) setSelectedWorkflowAgent(null);
     setSelectedBackgroundAgent(undefined);
-    setSelectedWorkflow(id); setSubagentView('overview'); setDetails(''); setRightPanel(same ? null : 'subagent');
+    setSelectedWorkflow(id); setSubagentView('overview'); setDetails(''); setRightPanel(toggle && same ? null : 'subagent');
   }, [rightPanel, details, subagentView, selectedWorkflow]);
   const [repositoryRequest, setRepositoryRequest] = useState<{ runtimeId?: string; sequence: number }>();
+  const [tasksRequest, setTasksRequest] = useState<{ runtimeId?: string; sessionId?: string; draftId?: string; sequence: number }>();
+  const tasksSequence = useRef(0);
   const activeRuntime = data.runtimes?.find(runtime => runtime.runtimeId === data.runtimeId && runtime.sessionId === data.state?.sessionId);
   const backgroundActivity = useMemo(() => activeRuntime?.background ?? { status: 'unavailable' as const }, [activeRuntime?.background]);
   // The panel reads from live messages and the runtime-owned lane snapshot, so a selected record
   // cannot keep spinning after its host is replaced or miss an agent_send follow-up.
   const openSubagentTask = useMemo(() => findSubagentTask(data.messages, selectedSubagent, backgroundActivity), [data.messages, selectedSubagent, backgroundActivity]);
-  const openSubagent = useCallback((task: SubagentDisplayTask) => {
+  const openSubagent = useCallback((task: SubagentDisplayTask, toggle = true) => {
+    if (isMini) { void handoff('subagent', task); return; }
     const alreadyOpen = rightPanel === 'subagent' && !details && subagentView === 'agent' && !selectedWorkflowAgent && !selectedBackgroundAgent
       && selectedSubagent?.toolCallId === task.toolCallId && selectedSubagent?.taskIndex === task.taskIndex
       && selectedSubagent?.agent === task.agent && selectedSubagent.task === task.task;
     setSelectedSubagent({ agent: task.agent, task: task.task, toolCallId: task.toolCallId, taskIndex: task.taskIndex });
     setSubagentView('agent'); setSelectedWorkflowAgent(null); setSelectedBackgroundAgent(undefined);
     setDetails('');
-    setRightPanel(alreadyOpen ? null : 'subagent');
+    setRightPanel(toggle && alreadyOpen ? null : 'subagent');
   }, [rightPanel, details, selectedSubagent, subagentView, selectedWorkflowAgent, selectedBackgroundAgent]);
   const [summarySpace, setSummarySpace] = useState(false);
   const appLayout = useRef<HTMLDivElement>(null);
@@ -462,6 +524,7 @@ function App() {
     follow.current = true;
     setAwayFromBottom(false);
     viewport?.scrollTo({ top: viewport.scrollHeight, behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth' });
+    document.querySelector<HTMLElement>('main .composer-input')?.focus({ preventScroll: true });
   };
   const viewId = useRef<string | undefined>(undefined);
   const switching = useRef(false);
@@ -471,6 +534,7 @@ function App() {
   const changeComposerDraft = (text: string) => {
     const pending = navigationPending.current;
     if (!pending) { setDraft(text); return; }
+    composer.client.update({ sessionId: pending.session.id }, value => ({ ...value, text }));
     const saved = composerBySession.current.get(pending.session.id);
     composerBySession.current.set(pending.session.id, {
       quotes: [], attachments: [], follow: true, top: 0, ...saved, draft: text,
@@ -530,12 +594,13 @@ function App() {
   const sidebarVisible = compactSidebar ? compactSidebarOpen : sidebar;
   const bottomTerminalExpanded = terminalDock === 'bottom' && bottomTerminalOpen && expandedRightPanel === 'terminal'
     && !usageOpen && !remoteOpen && !scheduledOpen && !pluginsOpen && !fulltextOpen && !details;
-  const visibleRightPanel = usageOpen || remoteOpen || scheduledOpen || pluginsOpen || fulltextOpen || bottomTerminalExpanded ? null : rightPanel === 'auto' ? (summarySpace ? 'summary' : null) : rightPanel;
+  const desktopSideOpen = Boolean(desktopSideId) && !isMini && !usageOpen && !remoteOpen && !scheduledOpen && !pluginsOpen && !fulltextOpen && !details;
+  const visibleRightPanel = isMini || desktopSideOpen || usageOpen || remoteOpen || scheduledOpen || pluginsOpen || fulltextOpen || bottomTerminalExpanded ? null : rightPanel === 'auto' ? (summarySpace ? 'summary' : null) : rightPanel;
   const inspectionOpen = visibleRightPanel === 'summary' || visibleRightPanel === 'context';
   const summaryOverlay = inspectionOpen && !summarySpace;
   const inspectorExpanded = bottomTerminalExpanded || expandedRightPanel === visibleRightPanel && !details &&
     (visibleRightPanel === 'context' || visibleRightPanel === 'review' || visibleRightPanel === 'terminal' || visibleRightPanel === 'browser' || visibleRightPanel === 'file' || visibleRightPanel === 'subagent' || visibleRightPanel === 'btw');
-  const terminalOpen = !usageOpen && !remoteOpen && !scheduledOpen && !pluginsOpen && !fulltextOpen && (terminalDock === 'bottom'
+  const terminalOpen = !isMini && !desktopSideOpen && !usageOpen && !remoteOpen && !scheduledOpen && !pluginsOpen && !fulltextOpen && (terminalDock === 'bottom'
     ? bottomTerminalOpen && (!inspectorExpanded || bottomTerminalExpanded)
     : visibleRightPanel === 'terminal' && !details);
   useEffect(() => {
@@ -602,12 +667,40 @@ function App() {
     setRightPanel(null);
     rightRail.current?.querySelector<HTMLButtonElement>('[aria-pressed="true"]')?.focus();
   }, []);
+  const restorePluginOpener = useCallback(() => {
+    requestAnimationFrame(() => {
+      const opener = pluginOpener.current;
+      const visible = opener?.isConnected && !opener.closest('[hidden], [inert]') && opener.getClientRects().length;
+      const fallback = document.querySelector<HTMLButtonElement>(`[data-plugin-action="${CSS.escape(openedPluginId.current)}"]`)
+        ?? document.querySelector<HTMLButtonElement>('.plugin-action-overflow, .plugin-action-group button, .window-sidebar-toggle');
+      (visible ? opener : fallback)?.focus();
+    });
+  }, []);
+  const closePluginSide = useCallback(() => {
+    setDesktopSideId(undefined);
+    setRightPanel(pluginPreviousPanel.current);
+    restorePluginOpener();
+  }, [restorePluginOpener]);
+  const closePluginMain = () => {
+    setPluginsOpen(false);
+    restorePluginOpener();
+  };
   const closeTerminal = useCallback(() => {
     if (terminalDock === 'right') { closeRightPanel(); return; }
     setBottomTerminalOpen(false);
     setExpandedRightPanel(value => value === 'terminal' ? null : value);
     rightRail.current?.querySelector<HTMLButtonElement>('[aria-controls="terminal-panel"]')?.focus();
   }, [terminalDock, closeRightPanel]);
+  useEffect(() => {
+    if (!desktopSideOpen || settingsOpen || preview || requests.length || renaming || pluginMenuOpen || windowMenuOpen) return;
+    const escape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && !event.defaultPrevented) {
+        event.preventDefault(); closePluginSide();
+      }
+    };
+    window.addEventListener('keydown', escape);
+    return () => window.removeEventListener('keydown', escape);
+  }, [desktopSideOpen, settingsOpen, preview, requests.length, renaming, pluginMenuOpen, windowMenuOpen, closePluginSide]);
   useEffect(() => {
     if ((!visibleRightPanel && !terminalOpen) || details || settingsOpen || preview || requests.length || renaming) return;
     const escape = (event: KeyboardEvent) => {
@@ -650,8 +743,8 @@ function App() {
   const commandContext = useMemo(() => ({ usage: contextUsage, language: data.preferences.language }),
     [contextUsage, data.preferences.language]);
   const workspaceTitle = (path: string) => data.preferences.workspaceNames?.[workspaceKey(path)] || basename(path);
-  const run = async <T,>(action: () => Promise<T>): Promise<T | undefined> => { try { setError(''); return await action(); } catch (e) { setError(String(e instanceof Error ? e.message : e)); } };
-  const rememberView = () => {
+  const run = async <T,>(action: () => Promise<T>): Promise<T | undefined> => { try { setError(''); return await action(); } catch (e) { setError(composerErrorText(e, latestData.current.preferences.language)); } };
+  const rememberView = (persist = true) => {
     const previous = view.current;
     if (previous.sessionId) composerBySession.current.set(previous.sessionId, {
       draft: previous.draft, quotes: previous.quotes, attachments: previous.attachments,
@@ -659,17 +752,65 @@ function App() {
     });
     const session = latestData.current.sessions.find(session => session.id === previous.sessionId);
     if (session) readingCache.current.set(session, latestData.current.messages, latestData.current.modelChanges);
+    if (persist) saveWindowPresentation();
+  };
+  const currentPresentation = (): WindowPresentation => ({
+    position: captureReadingPosition(scroll.current, latestData.current.messages, follow.current),
+    disclosures: [...(disclosuresByOwner.current.get(composerKey(composerOwner(latestData.current))) ?? disclosures)].slice(-512),
+  });
+  const saveWindowPresentation = () => {
+    if (navigationPending.current || switching.current) return;
+    const owner = composerOwner(latestData.current);
+    if (owner && bridge?.windowPresentation) void bridge.windowPresentation(owner, currentPresentation()).catch(() => {});
+  };
+  savePresentationRef.current = saveWindowPresentation;
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const save = () => savePresentationRef.current();
+    const schedule = () => { clearTimeout(timer); timer = setTimeout(save, 180); };
+    window.addEventListener('blur', save);
+    window.addEventListener('pagehide', save);
+    document.addEventListener('scroll', schedule, true);
+    document.addEventListener('click', schedule, true);
+    return () => {
+      clearTimeout(timer);
+      window.removeEventListener('blur', save); window.removeEventListener('pagehide', save);
+      document.removeEventListener('scroll', schedule, true); document.removeEventListener('click', schedule, true);
+    };
+  }, []);
+  const handoff = async (action?: string, payload?: unknown) => {
+    await composer.client.flush();
+    const owner = composerOwner(latestData.current);
+    if (owner) await bridge!.windowPresentation(owner, currentPresentation());
+    if (action) await bridge!.miniChatMainAction(action, payload);
+    else await bridge!.miniChatReturn(currentPresentation());
+  };
+  const restoreWindowPresentation = (value: Snapshot, navigationPosition?: ReadingPosition) => {
+    const key = composerKey(composerOwner(value));
+    let memory = disclosuresByOwner.current.get(key);
+    if (value.windowPresentation) memory = new Map(value.windowPresentation.disclosures);
+    if (!memory) memory = new Map();
+    disclosuresByOwner.current.delete(key); disclosuresByOwner.current.set(key, memory);
+    while (disclosuresByOwner.current.size > 64) disclosuresByOwner.current.delete(disclosuresByOwner.current.keys().next().value!);
+    setDisclosures(memory);
+    const position = navigationPosition ?? value.windowPresentation?.position;
+    if (position) {
+      follow.current = position.follow;
+      readingRestore.current = { runtimeId: value.runtimeId, position };
+      setAwayFromBottom(!position.follow);
+    }
   };
   const installSnapshot = (value: Snapshot) => {
     acceptQuitReview(value.quitReview);
     if (!messageRevision.current.acceptSnapshot(value)) return false;
     registerPluginThemes(value.themePacks ?? []);
     const previous = view.current;
-    if (previous.runtimeId !== value.runtimeId || navigationPending.current) {
+    const changedOwner = composerKey(composerOwner(value)) !== composerKey(previous.draftId ? { draftId: previous.draftId }
+      : previous.sessionId ? { sessionId: previous.sessionId } : undefined);
+    if (previous.runtimeId !== value.runtimeId || changedOwner || navigationPending.current) {
       if (!navigationPending.current) rememberView();
       const saved = value.state?.sessionId ? composerBySession.current.get(value.state.sessionId) : undefined;
-      setDraft(saved?.draft ?? ''); setQuotes(saved?.quotes ?? []);
-      setAttachments(saved?.attachments ?? []); attachmentsRef.current = saved?.attachments ?? [];
+      composer.client.select(composerOwner(value));
       setArrivingUser(null); setError(value.state?.sessionId ? errorsBySession.current.get(value.state.sessionId) ?? '' : ''); setNotice(value => value?.icon ? value : null); setDetails('');
       if (value.state?.sessionId) errorsBySession.current.delete(value.state.sessionId);
       stoppingRef.current = false; setStopping(false);
@@ -678,9 +819,11 @@ function App() {
       touchY.current = undefined;
       setAwayFromBottom(!follow.current);
       readingRestore.current = saved && !saved.follow ? { runtimeId: value.runtimeId, position: saved } : undefined;
+      restoreWindowPresentation(value, navigationPending.current?.reading ? saved : undefined);
     }
     viewId.current = value.runtimeId;
     setPreparedMarkdown(previous => previous?.sessionId === value.state?.sessionId ? previous : undefined);
+    composer.client.select(composerOwner(value));
     setUnavailableWorkspace(value.workspaceIssue ?? null);
     readingCache.current.retain(value.sessions);
     setData(value); setBusy(Boolean(value.state?.isStreaming));
@@ -718,7 +861,7 @@ function App() {
     setUsageOpen(false);
     if (!cronRuntimeId) setScheduledOpen(false);
     if (!bridge || switching.current && !navigationPending.current) return false;
-    if (!cronRuntimeId && !navigationPending.current && session.id === view.current.sessionId) return true;
+    if (!cronRuntimeId && !navigationPending.current && session.id === view.current.sessionId && data.status === 'connected') return true;
     if (!navigationPending.current) rememberView();
     markdownPreparation.current?.abort();
     const preparation = new AbortController();
@@ -729,7 +872,7 @@ function App() {
     let parsing: Promise<PreparedMarkdown | undefined> | undefined = reading ? Promise.resolve(undefined) : undefined;
     const prepare = (messages: Message[]) => parsing ??= prepareHistoryMarkdown(messages, preparation.signal);
     navigationPending.current = { sequence, session, reading };
-    setNavigationDraft(composerBySession.current.get(session.id)?.draft ?? '');
+    setNavigationDraft(composer.client.peek({ sessionId: session.id })?.text ?? '');
     previewPosition.current = composerBySession.current.get(session.id) ?? { follow: true, top: 0 };
     readingRestore.current = undefined;
     switching.current = true; setLoading(true);
@@ -794,15 +937,44 @@ function App() {
     return result;
   };
   const command = async (type: string, args?: Record<string, unknown>) => run(() => rawCommand(type, args));
+  const mainActionRef = useRef<(event: RuntimeEvent) => Promise<void>>(async () => {});
   useEffect(() => {
     void run(refresh).finally(() => setLoading(false));
     if (!bridge) return;
-    prepareCompletionSound();
+    if (!isMini) prepareCompletionSound();
+    void bridge.miniChatState?.().then(value => { if (value?.open !== undefined) setMiniState(value); }).catch(() => {});
     const unsubscribe = bridge.onEvent(event => {
+      if (event.type === 'desktop_capture_presentation') { saveWindowPresentation(); return; }
+      if (event.type === 'desktop_mini_chat') { setMiniState(event.state); return; }
+      if (event.type === 'desktop_preferences') {
+        setData(value => ({ ...value, preferences: { ...event.preferences, workspace: value.preferences.workspace } })); return;
+      }
+      if (event.type === 'desktop_view_changed' && event.surface === (isMini ? 'mini' : 'main')) {
+        if (!isMini && event.restorePresentation) {
+          finishSettingsClose();
+          setRemoteOpen(false); setUsageOpen(false); setScheduledOpen(false);
+          setPluginsOpen(false); setFulltextOpen(false); setDetails(''); setExpandedRightPanel(null);
+        }
+        void run(async () => {
+          rememberView(false);
+          const value = await bridge.snapshot();
+          installSnapshot(value);
+          if (event.restorePresentation) restoreWindowPresentation(value);
+        }); return;
+      }
+      if (event.type === 'desktop_draft_created' && event.draftId === view.current.draftId && !switching.current) {
+        void run(refresh); return;
+      }
+      if (event.type === 'desktop_draft_changed' && event.draftId === view.current.draftId && !switching.current) {
+        void run(refresh); return;
+      }
+      if (event.type === 'desktop_main_action' && !isMini) {
+        void run(() => mainActionRef.current(event)); return;
+      }
       if (event.type === 'desktop_quit_review') { acceptQuitReview(event.state); return; }
       if (event.type === 'desktop_workspace_unavailable') { setUnavailableWorkspace(event.path); return; }
       if (event.type === 'desktop_task_completed') {
-        playCompletionSound({ runtimeId: event.runtimeId, sessionId: event.sessionId });
+        if (!isMini) playCompletionSound({ runtimeId: event.runtimeId, sessionId: event.sessionId });
         return;
       }
       if (event.type === 'desktop_runtime_replaced') {
@@ -839,15 +1011,12 @@ function App() {
         }
       }
       if (event.type === 'extension_ui_request' && event.method === 'set_editor_text') {
+        if (isMini) return;
         if (!switching.current && (!event.runtimeId || event.runtimeId === viewId.current)) {
           view.current = { ...view.current, draft: event.text };
           setDraft(event.text);
         } else if (event.sessionId) {
-          const saved = composerBySession.current.get(event.sessionId);
-          composerBySession.current.set(event.sessionId, {
-            draft: event.text, quotes: saved?.quotes ?? [], attachments: saved?.attachments ?? [],
-            follow: saved?.follow ?? true, top: saved?.top ?? 0,
-          });
+          if (!isMini) composer.client.update({ sessionId: event.sessionId }, value => ({ ...value, text: event.text }));
         }
         return;
       }
@@ -1094,6 +1263,7 @@ function App() {
     else setSettingsClosing(true);
   };
   const openUsage = () => {
+    if (isMini) { void run(() => handoff('usage')); return; }
     setRemoteOpen(false);
     setFulltextOpen(false);
     finishSettingsClose();
@@ -1103,6 +1273,7 @@ function App() {
     setCompactSidebarOpen(false);
   };
   const openScheduled = () => {
+    if (isMini) { void run(() => handoff('cron')); return; }
     if (!bridge) return;
     setRemoteOpen(false);
     setFulltextOpen(false); setUsageOpen(false); setPluginsOpen(false); setDetails(''); setExpandedRightPanel(null);
@@ -1113,12 +1284,44 @@ function App() {
     setDetails(''); setExpandedRightPanel(null); setCompactSidebarOpen(false); setRemoteOpen(true);
   };
   const openPlugins = (target?: CapabilityTarget) => {
+    if (isMini) { void run(() => handoff('plugins', target)); return; }
     if (!bridge) return;
     finishSettingsClose(); setFulltextOpen(false); setScheduledOpen(false); setUsageOpen(false); setRemoteOpen(false);
     setDetails(''); setExpandedRightPanel(null); setCompactSidebarOpen(false);
+    setDesktopMainId(undefined); setDesktopSideId(undefined);
     setCapabilityTarget(target); setPluginsVisited(true); setPluginsOpen(true);
     void bridge.settings().then(setSettings).catch(() => setError(t('无法读取插件设置', 'Could not read plugin settings')));
   };
+  const openPluginDesktop = (entry: PluginDesktopEntry) => {
+    if (!bridge) return;
+    pluginOpener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    openedPluginId.current = entry.id;
+    if (entry.desktop.surface === 'window') {
+      void run(() => bridge.pluginWindowOpen({ ref: entry.plugin.package!.ref }));
+      return;
+    }
+    if (entry.desktop.surface === 'main-view' && pluginsOpen && desktopMainId === entry.id) {
+      closePluginMain();
+      return;
+    }
+    setDesktopVisited(ids => new Set([...ids, entry.id]));
+    setPluginsVisited(true);
+    finishSettingsClose(); setFulltextOpen(false); setScheduledOpen(false); setUsageOpen(false); setRemoteOpen(false);
+    setDetails(''); setExpandedRightPanel(null); setCompactSidebarOpen(false);
+    if (entry.desktop.surface === 'side-panel') {
+      if (desktopSideId === entry.id && desktopSideOpen) { closePluginSide(); return; }
+      if (!desktopSideId) pluginPreviousPanel.current = rightPanel;
+      setRightPanel(null); setPluginsOpen(false); setDesktopSideId(entry.id);
+    } else {
+      setDesktopSideId(undefined); setDesktopMainId(entry.id); setPluginsOpen(true);
+    }
+  };
+  const openInstalledDesktop = (plugin: CapabilityPlugin) => {
+    const desktop = plugin.package?.desktop;
+    if (desktop && plugin.package?.provenance === 'recorded') openPluginDesktop({ id: plugin.id, plugin, desktop });
+  };
+  const configurePluginDesktop = (entry: PluginDesktopEntry) =>
+    openPlugins({ page: 'plugins', pluginId: entry.id, detail: 'config' });
   const closeFulltext = () => {
     setFulltextOpen(false);
     // Restored tools can schedule focus of their own during this frame.
@@ -1144,6 +1347,7 @@ function App() {
     return () => { window.clearTimeout(timer); motion.removeEventListener('change', reduce); document.removeEventListener('keydown', containKeyboard, true); };
   }, [settingsClosing, finishSettingsClose]);
   const openSettings = async () => {
+    if (isMini) { await run(() => handoff('settings', tab)); return; }
     mcpEditRequestRevision.current++;
     const request = ++settingsRequestRevision.current;
     const selection = loginProfileRevision.current;
@@ -1156,14 +1360,12 @@ function App() {
   const addAttachments = (added: ComposerAttachment[], id = view.current.sessionId ?? view.current.draftId) => {
     const background = id && id !== (view.current.sessionId ?? view.current.draftId);
     if (background && !latestData.current.sessions.some(session => session.id === id)) return;
-    const saved = background ? composerBySession.current.get(id) : undefined;
-    const previous = background ? saved?.attachments ?? [] : attachmentsRef.current;
+    const owner: ComposerOwner | undefined = id ? latestData.current.sessions.some(session => session.id === id)
+      ? { sessionId: id } : { draftId: id } : undefined;
+    const previous = background && owner ? composer.client.peek(owner)?.attachments ?? [] : attachmentsRef.current;
     const next = [...previous, ...added];
     if (next.length > 10 || next.filter(item => item.kind === 'image').length > 5) throw new Error(t('最多添加 10 个附件，其中图片最多 5 张', 'Maximum 10 attachments, including 5 images'));
-    if (background) composerBySession.current.set(id, {
-      draft: saved?.draft ?? '', quotes: saved?.quotes ?? [], attachments: next,
-      follow: saved?.follow ?? true, top: saved?.top ?? 0,
-    });
+    if (background && owner) composer.client.update(owner, value => ({ ...value, attachments: [...value.attachments, ...added] }));
     else { attachmentsRef.current = next; setAttachments(next); }
   };
   const importFiles = async (files: File[]) => run(async () => {
@@ -1199,7 +1401,8 @@ function App() {
   const send = async () => {
     const capability = capabilityCommand(draft, attachments.length, quotes.length);
     if (!navigationPending.current && !loading && capability) {
-      setDraft('');
+      setDraft(value => value === draft ? '' : value);
+      if (isMini) { await run(() => handoff(capability.page === 'plugins' ? 'plugins' : 'settings', capability.page === 'plugins' ? capability : capability.page)); return; }
       if (capability.page === 'plugins') openPlugins(capability);
       else { setCapabilityTarget(capability); setTab(capability.page); void openSettings(); }
       return;
@@ -1212,13 +1415,19 @@ function App() {
           setError(t('请在已连接的会话中发起旁问，整理上下文时暂不可用。', 'Open a connected conversation first. Side questions are unavailable during context maintenance.'));
           return;
         }
-        if (local.args.length > 8000) {
+        if (local.args.length > MAX_BTW_PROMPT_LENGTH) {
           setError(t('旁问内容不能超过 8000 字符。', 'Side questions are limited to 8,000 characters.'));
           return;
         }
-        setDraft('');
+        setDraft(value => value === draft ? '' : value);
+        if (isMini) { await run(() => handoff('btw', { question: local.args })); return; }
         setDetails(''); setRightPanel('btw');
         setBtwRequest({ runtimeId: data.runtimeId, sessionId: data.state.sessionId, id: ++btwSequence.current, question: local.args });
+        return;
+      }
+      if (isMini && local.name !== 'compact') {
+        setDraft(value => value === draft ? '' : value);
+        await run(() => handoff(local.name === 'usage' && local.args === 'account' ? 'settings' : local.name));
         return;
       }
       if (local.name === 'compact') {
@@ -1237,11 +1446,16 @@ function App() {
         } finally { setLoading(false); }
         return;
       }
-      setDraft('');
+      setDraft(value => value === draft ? '' : value);
       if (local.name === 'usage') {
         if (local.args === 'account') { setTab('account'); await openSettings(); }
         else openUsage();
       } else if (local.name === 'cron') openScheduled();
+      else if (local.name === 'todos') {
+        setDetails(''); setExpandedRightPanel(null); setWorkflowCatalogRequest(null); setRightPanel('summary');
+        setTasksRequest({ runtimeId: data.runtimeId, sessionId: data.state?.sessionId, draftId: data.draftId,
+          sequence: ++tasksSequence.current });
+      }
       else if (local.name === 'workflows') setWorkflowCatalogRequest({
         runtimeId: data.runtimeId, sessionId: data.state?.sessionId, id: ++workflowCatalogSequence.current,
       });
@@ -1259,7 +1473,18 @@ function App() {
       setError(t('消息与引用合计过长，请减少引用或分次发送', 'Message and quotes are too long; remove quotes or send in smaller parts'));
       return;
     }
-    const restoreInput = (error?: unknown) => {
+    let receipt: ComposerReceipt | undefined;
+    let submittedReceipt = false;
+    firstSend.current = true;
+    try { receipt = await composer.client.take({ text: message, quotes: sentQuotes, attachments: attached }); }
+    catch (error) { setError(composerErrorText(error, data.preferences.language)); return; }
+    finally { firstSend.current = false; }
+    const restoreInput = async (error?: unknown) => {
+      if (receipt) {
+        if (!submittedReceipt) await composer.client.restore(receipt);
+        if (error !== undefined && sessionId) errorsBySession.current.set(sessionId, String(error instanceof Error ? error.message : error));
+        return quoteScopeRef.current === deliveryScope;
+      }
       if (quoteScopeRef.current !== deliveryScope) {
         if (sessionId) {
           const saved = composerBySession.current.get(sessionId);
@@ -1278,7 +1503,7 @@ function App() {
       setAttachments(value => { const restored = [...attached, ...value]; attachmentsRef.current = restored; return restored; });
       return true;
     };
-    setDraft(''); setQuotes([]); setAttachments([]); attachmentsRef.current = []; scrollIntent.current = undefined; follow.current = true; setAwayFromBottom(false);
+    attachmentsRef.current = []; scrollIntent.current = undefined; follow.current = true; setAwayFromBottom(false);
     await run(async () => {
       try {
         if (data.draftId) {
@@ -1293,18 +1518,21 @@ function App() {
             switching.current = false;
             if (data.permissionPreset === 'full-access') {
               const permission = await bridge!.command('set_permission_preset', { preset: 'full-access' }, id);
-              if (permission?.cancelled) { restoreInput(); return; }
+              if (permission?.cancelled) { await restoreInput(); return; }
               await refresh();
             }
           } finally {
             firstSend.current = false; switching.current = false; setLoading(false);
           }
         }
-        const submission = bridge!.command('prompt', { message: prompt, images: attached.filter(item => item.kind === 'image').map(item => item.content), files: attached.filter(item => item.kind === 'file').map(item => item.id) }, id);
+        submittedReceipt = Boolean(receipt);
+        const submission = bridge!.command('prompt', { message: prompt, composerReceipt: receipt?.token, images: attached.filter(item => item.kind === 'image').map(item => item.content), files: attached.filter(item => item.kind === 'file').map(item => item.id) }, id);
         if (composerBusy) queueSend.current = submission;
-        try { await submission; } finally { if (queueSend.current === submission) queueSend.current = null; }
+        try {
+          await submission;
+        } finally { if (queueSend.current === submission) queueSend.current = null; }
       } catch (e) {
-        if (restoreInput(e)) throw e;
+        if (await restoreInput(e)) throw e;
       }
     });
   };
@@ -1378,6 +1606,11 @@ function App() {
   });
   const archived = new Set(data.preferences.archivedSessionIds ?? []);
   const archivedSessions = data.sessions.filter(session => archived.has(session.id));
+  const miniCatalog = useMemo(() => isMini ? miniChatCatalog(data.sessions, data.preferences, bridge?.platform) : undefined,
+    [data.sessions, data.preferences]);
+  const miniProjectId = miniCatalog?.sessions.find(session => session.id === data.state?.sessionId)?.projectId
+    ?? (data.independent ? MINI_INDEPENDENT_PROJECT : workspaceKey(current?.workspacePath ?? data.preferences.workspace ?? ''));
+  const miniProject = miniCatalog?.projects.find(project => project.id === miniProjectId);
   const beginRename = (type: 'session' | 'workspace', id: string) => {
     const session = data.sessions.find(s => s.id === id);
     setRenameTarget({ type, id });
@@ -1574,6 +1807,30 @@ function App() {
     openFile: (...args: Parameters<typeof openFile>) => fileActions.current.openFile(...args),
     openWeb: (url: string) => fileActions.current.openWeb(url), onError: setError,
   }), []);
+  mainActionRef.current = async event => {
+    const value = await bridge!.snapshot();
+    installSnapshot(value); restoreWindowPresentation(value);
+    if (event.action === 'settings') { setTab(typeof event.payload === 'string' ? event.payload : 'account'); await openSettings(); }
+    else if (event.action === 'usage') openUsage();
+    else if (event.action === 'cron') openScheduled();
+    else if (event.action === 'plugins') openPlugins(event.payload);
+    else if (event.action === 'file') await openFile(event.payload?.target, event.payload?.destination, false);
+    else if (event.action === 'web') await openWeb(event.payload?.address, false);
+    else if (event.action === 'subagent') openSubagent(event.payload, false);
+    else if (event.action === 'workflows') {
+      if (typeof event.payload === 'string') { setWorkflowCatalogRequest(null); openWorkflow(event.payload, false); }
+      else setWorkflowCatalogRequest({ runtimeId: value.runtimeId, sessionId: value.state?.sessionId, id: ++workflowCatalogSequence.current });
+    }
+    else if (event.action === 'todos') {
+      setRightPanel('summary'); setTasksRequest({ runtimeId: value.runtimeId, sessionId: value.state?.sessionId,
+        draftId: value.draftId, sequence: ++tasksSequence.current });
+    } else if (event.action === 'btw') {
+      if (!value.runtimeId || !value.state?.sessionId) return;
+      setRightPanel('btw');
+      setBtwRequest({ runtimeId: value.runtimeId, sessionId: value.state.sessionId, id: ++btwSequence.current,
+        question: event.payload?.question ?? '', quote: event.payload?.quote });
+    } else { setContextView(event.action === 'clm' ? 'clm' : 'status'); setRightPanel('context'); }
+  };
   return <CommandContextUsage.Provider value={commandContext}><CommandCatalog.Provider value={commands}><FileOpeningContext.Provider value={fileOpening}><div ref={appLayout} data-settings-open={settingsOpen || undefined} className={`app ${bridge?.platform === 'darwin' ? 'platform-macos' : ''} ${sidebarVisible ? '' : 'sidebar-hidden'} ${compactSidebar ? 'sidebar-compact' : ''} ${inspectionOpen && !details ? 'summary-open' : ''} ${summaryOverlay ? 'summary-overlay' : ''} ${inspectorExpanded ? 'inspector-expanded' : ''} ${terminalDock === 'bottom' && terminalOpen && !bottomTerminalExpanded ? 'has-bottom-terminal' : ''}`} onContextMenu={e => {
     const element = e.target as HTMLElement;
     const image = element.closest<HTMLImageElement>('img') ?? element.closest('.attachment-preview-image')?.querySelector('img');
@@ -1592,12 +1849,32 @@ function App() {
       activity={navigationTarget ? 'navigating' : requests.length ? 'waiting' : busy ? 'running' : 'idle'}
       reading={Boolean(data.messages.length || navigationTarget || hasPendingReceipt)}/>
     <AppTooltip/>
-    {quitReview.request && <QuitConfirmation key={quitReview.request.id}
+    {!isMini && quitReview.request && <QuitConfirmation key={quitReview.request.id}
       reasons={quitReview.request.reasons} language={data.preferences.language}
       stopping={quitReview.request.phase === 'stopping'}
       onCancel={() => bridge!.quitRespond(quitReview.request!.id, false)}
       onConfirm={() => bridge!.quitRespond(quitReview.request!.id, true)}/>}
-    <WindowBar language={data.preferences.language} sidebarVisible={sidebarVisible} toggleSidebar={toggleSidebar} menus={menus} sessionTitle={activeTitle} onMenuOpenChange={setWindowMenuOpen} inert={settingsOpen || Boolean(removeProject)}/>
+    {isMini ? <MiniChatFrame language={data.preferences.language}
+      session={{ id: data.state?.sessionId ?? data.draftId ?? '', title: activeTitle, projectId: miniProject?.id ?? MINI_INDEPENDENT_PROJECT,
+        project: miniProject?.name }}
+      projects={miniCatalog!.projects} sessions={miniCatalog!.sessions}
+      pinned={miniState.pinned} onPinned={pinned => void run(async () => setMiniState(await bridge!.miniChatPin(pinned)))}
+      onSession={id => { const session = latestData.current.sessions.find(item => item.id === id); if (session) void navigateSession(session); }}
+      onNewSession={id => {
+        const project = miniCatalog?.projects.find(item => item.id === id);
+        if (project && bridge && !loading && !navigationPending.current) void applySnapshot(() => bridge.beginSession(project.path));
+      }}
+      onReturn={() => void run(() => handoff())}
+      onClose={() => { saveWindowPresentation(); void run(() => bridge!.windowControl('close')); }}>{null}</MiniChatFrame>
+      : <WindowBar language={data.preferences.language} sidebarVisible={sidebarVisible} toggleSidebar={toggleSidebar} menus={menus} sessionTitle={activeTitle} onMenuOpenChange={setWindowMenuOpen} inert={settingsOpen || Boolean(removeProject)}
+        pluginActions={<PluginActionGroup entries={pluginEntries} language={data.preferences.language}
+          activeId={pluginsOpen ? desktopMainId : desktopSideOpen ? desktopSideId : undefined}
+          onOpen={openPluginDesktop} onMenuOpenChange={setPluginMenuOpen}/>}
+        miniChat={{ open: miniState.open, disabled: loading || Boolean(navigationTarget), onOpen: () => void run(async () => {
+          if (navigationPending.current || switching.current) return;
+          await composer.client.flush(); saveWindowPresentation();
+          setMiniState(await bridge!.miniChatOpen());
+        }) }}/>}
     {sessionMove && <SessionMoveDialog session={sessionMove.session} preferences={data.preferences} platform={bridge?.platform}
       initialDestination={sessionMove.destination} onCancel={() => setSessionMove(null)}
       onConfirm={async destination => {
@@ -1662,14 +1939,14 @@ function App() {
       </>}
     </div>}
     {error && (settingsOpen || removeProject || mcpEdit || requests.length > 0) && <div className="modal-error" role="alert"><AlertCircle size={16}/><span>{reviewErrorText(error, zh)}</span><IconButton title="Dismiss" onClick={() => setError('')}><X size={16}/></IconButton></div>}
-    {compactSidebar && <button type="button" className="sidebar-backdrop" aria-label={t('关闭侧栏', 'Close sidebar')} aria-hidden={!compactSidebarOpen} inert={!compactSidebarOpen} onClick={() => setCompactSidebarOpen(false)}/>}
-    <aside className="sidebar" inert={settingsOpen || Boolean(removeProject) || !sidebarVisible}>
+    {!isMini && compactSidebar && <button type="button" className="sidebar-backdrop" aria-label={t('关闭侧栏', 'Close sidebar')} aria-hidden={!compactSidebarOpen} inert={!compactSidebarOpen} onClick={() => setCompactSidebarOpen(false)}/>}
+    {!isMini && <aside className="sidebar" inert={settingsOpen || Boolean(removeProject) || !sidebarVisible}>
       <button className="sidebar-identity usage-entry" aria-label={t('用量统计', 'Usage overview')} data-tooltip={t('用量统计', 'Usage overview')}
           aria-pressed={usageOpen} onClick={() => { if (usageOpen) setUsageOpen(false); else openUsage(); }}><img src="./StepCode.svg" width="26" height="26" alt=""/><span className="sidebar-wordmark"><img className="wordmark-light" src="./wordmark-light.png" alt="Desktop for Step Code"/><img className="wordmark-dark" src="./wordmark-dark.png" alt="Desktop for Step Code"/></span>
         {bridge && data.themePacks?.some(pack => pack.id === data.preferences.theme && pack.renderer === 'stellar-v1') &&
           <StellarBrand motion={data.preferences.themeMotion !== false} paused={!sidebarVisible || settingsOpen || scheduledOpen || usageOpen}/>}
       </button>
-      <SidebarTaskActions selected={scheduledOpen} pluginsSelected={pluginsOpen} language={data.preferences.language} disabled={!bridge || loading} onNewSession={() => { if (bridge && !loading) void newSession(); }}
+      <SidebarTaskActions selected={scheduledOpen} pluginsSelected={pluginsOpen && !desktopMainId} language={data.preferences.language} disabled={!bridge || loading} onNewSession={() => { if (bridge && !loading) void newSession(); }}
         onSearchChange={setSessionQuery}
         fulltextOpen={fulltextOpen}
         onFulltextSearch={(text, anchor) => {
@@ -1678,7 +1955,7 @@ function App() {
           setRemoteOpen(false); setPluginsOpen(false); setUsageOpen(false); setScheduledOpen(false); setFulltextOpen(true); setCompactSidebarOpen(false);
         }}
         onScheduledTasks={() => { if (scheduledOpen) setScheduledOpen(false); else openScheduled(); }}
-        onPlugins={() => { if (pluginsOpen) setPluginsOpen(false); else openPlugins(); }}/>
+        onPlugins={() => { if (pluginsOpen && !desktopMainId) setPluginsOpen(false); else openPlugins(); }}/>
       <SidebarTree sessions={data.sessions} preferences={sidebarPreferences} platform={bridge?.platform ?? 'win32'}
         activities={sidebarActivities} disclosure={workspaceDisclosure} query={sessionQuery} highlightQuery={stellarSearchQuery}
         selected={scheduledOpen || pluginsOpen || remoteOpen || usageOpen || fulltextOpen ? undefined : navigationTarget?.session.id ?? data.state?.sessionId}
@@ -1695,7 +1972,7 @@ function App() {
           aria-pressed={remoteOpen} onClick={() => remoteOpen ? setRemoteOpen(false) : openRemote()}><Smartphone size={17}/></button>
       </div><div className="connection remote-footer-status"><span><i className={connected ? 'online' : ''}/>{connected ? t('Step Code 已连接', 'Step Code connected') : loading ? t('连接中', 'Connecting') : t('未连接', 'Disconnected')}</span>
         <small>{appUpdate?.currentVersion ? `v${appUpdate.currentVersion}` : ''}</small></div></div>
-    </aside>
+    </aside>}
     {sessionDrag && <div className="session-drag-preview" aria-hidden="true" style={{ left: sessionDrag.x + 12, top: sessionDrag.y + 10 }}>{sessionDrag.title}</div>}
     {scheduledOpen && bridge && <main inert={settingsOpen || Boolean(removeProject)}>
       {!!requests.length && <div className="approval-notice"><TriangleAlert size={16}/><span>{t('当前会话有待确认的操作', 'The current session is awaiting approval')}</span>
@@ -1703,12 +1980,13 @@ function App() {
       <CronManager bridge={bridge} onOpenHost={async (session, runtimeId) => {
         if (!await navigateSession(session, runtimeId)) throw new Error('Cron host changed; refresh before opening');
       }}/></main>}
-    {pluginsVisited && bridge && <main hidden={!pluginsOpen} inert={!pluginsOpen || settingsOpen || Boolean(removeProject)}>
+    {pluginsVisited && bridge && <main hidden={!pluginsOpen || Boolean(desktopMainId)} inert={!pluginsOpen || Boolean(desktopMainId) || settingsOpen || Boolean(removeProject)}>
       {!!requests.length && <div className="approval-notice"><TriangleAlert size={16}/><span>{t('当前会话有待确认的操作', 'The current session is awaiting approval')}</span>
         <button onClick={() => { setPluginsOpen(false); setApprovalOpen(true); }}>{t('查看', 'Review')}</button></div>}
-      <PluginCenter bridge={bridge} language={data.preferences.language} active={pluginsOpen} busy={anyBusy || busy || loading}
+      <PluginCenter bridge={bridge} language={data.preferences.language} active={pluginsOpen && !desktopMainId} busy={anyBusy || busy || loading}
         runtimeId={data.runtimeId} settings={settings ?? undefined} target={capabilityTarget?.page === 'plugins' ? capabilityTarget : undefined}
-        onBack={() => setPluginsOpen(false)} onChanged={async () => { setSettings(await bridge.settings()); setCapabilityRevision(value => value + 1); }}
+        onBack={() => setPluginsOpen(false)} onOpenDesktop={openInstalledDesktop}
+        onChanged={async () => { setSettings(await bridge.settings()); setCapabilityRevision(value => value + 1); }}
         onManageMcp={name => {
           setCapabilityTarget(undefined); setTab('mcp');
           const opening = openSettings();
@@ -1730,6 +2008,14 @@ function App() {
           setSelectedSubagent(null); setSelectedWorkflow(null); setSelectedWorkflowAgent(null); setSubagentView('agent'); installSnapshot(next);
         }}/>
     </main>}
+    {bridge && pluginEntries.filter(entry => entry.desktop.surface === 'main-view' && desktopVisited.has(entry.id)).map(entry =>
+      <main key={`${entry.id}:${entry.plugin.package!.ref}`} hidden={!pluginsOpen || desktopMainId !== entry.id}
+        inert={!pluginsOpen || desktopMainId !== entry.id || settingsOpen || Boolean(removeProject)}>
+        {!!requests.length && <div className="approval-notice"><TriangleAlert size={16}/><span>{t('当前会话有待确认的操作', 'The current session is awaiting approval')}</span>
+          <button onClick={() => { setPluginsOpen(false); setApprovalOpen(true); }}>{t('查看', 'Review')}</button></div>}
+        <PluginWorkspace entry={entry} bridge={bridge} language={data.preferences.language} active={pluginsOpen && desktopMainId === entry.id}
+          onBack={closePluginMain} onConfigure={() => configurePluginDesktop(entry)}/>
+      </main>)}
     {fulltextRequest && bridge && <main hidden={!fulltextOpen} inert={!fulltextOpen || settingsOpen || Boolean(removeProject)}>
       {!!requests.length && <div className="approval-notice"><TriangleAlert size={16}/><span>{t('当前会话有待确认的操作', 'The current session is awaiting approval')}</span>
         <button onClick={() => { setFulltextOpen(false); setApprovalOpen(true); }}>{t('查看', 'Review')}</button></div>}
@@ -1749,10 +2035,16 @@ function App() {
         <button onClick={() => { setRemoteOpen(false); setApprovalOpen(true); }}>{t('查看', 'Review')}</button></div>}
       <RemoteAccessPanel bridge={bridge} language={data.preferences.language} onBack={() => setRemoteOpen(false)}/>
     </main>}
+    <ConversationDisclosureMemory.Provider value={navigationTarget ? undefined : disclosures}>
     <main hidden={scheduledOpen || pluginsOpen || fulltextOpen || remoteOpen} inert={scheduledOpen || pluginsOpen || fulltextOpen || remoteOpen || settingsOpen || Boolean(removeProject)}
       onPointerDownCapture={() => { readingRestore.current = undefined; }}
       onWheelCapture={() => { readingRestore.current = undefined; }}
       onKeyDownCapture={() => { readingRestore.current = undefined; }}>
+      {composer.conflict && <div className="composer-conflict" role="alert">
+        <span>{t('另一窗口也修改了这份输入，请选择要保留的版本。', 'This draft changed in another window. Choose which version to keep.')}</span>
+        <button onClick={() => void run(() => composer.client.resolveConflict(true))}>{t('保留本窗草稿', 'Keep this draft')}</button>
+        <button onClick={() => void run(() => composer.client.resolveConflict(false))}>{t('采用另一窗口', 'Use other window')}</button>
+      </div>}
       {(error || unavailableWorkspace) && !settingsOpen && !removeProject && !mcpEdit && !requests.length && <div className="app-error-banner" role="alert">
         <AlertCircle size={16}/><span>{unavailableWorkspace
           ? t(`项目目录不可用，可能已改名或移动：${unavailableWorkspace}`, `Project directory unavailable; it may have been renamed or moved: ${unavailableWorkspace}`) : reviewErrorText(error, zh)}</span>
@@ -1865,6 +2157,8 @@ function App() {
         </div>
         {!navigationTarget && <ConversationMarkers scrollRef={scroll} turns={turns} language={data.preferences.language}
           onNavigate={() => handleScrollIntent('backward')}/>}
+        {isMini && <ConversationScrollThumb scrollRef={scroll} language={data.preferences.language}
+          sessionId={data.state?.sessionId} messageCount={data.messages.length} onScrollIntent={handleScrollIntent}/>}
       </div>
       <div className={`composer-wrap${navigationTarget ? ' session-navigation-pending' : ''}`} aria-busy={Boolean(navigationTarget)}>
         <div className="composer-underlay" inert={Boolean(permissionApproval && approvalOpen)}>
@@ -1876,9 +2170,10 @@ function App() {
           remove={id => setQuotes(value => value.filter(quote => quote.id !== id))}
           reveal={quote => {
             readingRestore.current = undefined;
+            const index = quote.entryId ? data.messages.findIndex(message => message.entryId === quote.entryId) : quote.messageIndex;
             handleScrollIntent('backward');
             afterConversationLayout(transcript.current, () => {
-              transcript.current?.querySelector<HTMLElement>(`[data-message-index="${quote.messageIndex}"]`)
+              transcript.current?.querySelector<HTMLElement>(`[data-message-index="${index}"]`)
                 ?.scrollIntoView({ block: 'center', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth' });
             });
           }}/>
@@ -1887,7 +2182,7 @@ function App() {
           connected={connected} disabled={loading || stopping || settingsOpen || Boolean(preview) || requests.length > 0} onAction={queueAction}/>
         <LiveTurnChanges key={`changes-${data.runtimeId}`} messages={data.messages} busy={busy} language={data.preferences.language}
           docked={queuedMessages.length > 0} onOpenChange={setLiveChangesOpen}/>
-        {awayFromBottom && <IconButton title={t('回到底部', 'Scroll to bottom')} className="jump-to-bottom" onClick={returnToBottom}><ArrowDown size={17}/></IconButton>}
+        {awayFromBottom && <ScrollToBottomButton language={data.preferences.language} onClick={returnToBottom}/>}
         </ComposerContextBar>}
         <ComposerMenu key={navigationTarget?.session.id ?? data.state?.sessionId ?? data.draftId ?? ''} draft={navigationTarget ? navigationDraft : draft} setDraft={changeComposerDraft} commands={commands} language={data.preferences.language}
           scope={data.state?.sessionId ?? data.draftId ?? ''} disabled={!connected || loading || Boolean(navigationTarget)}
@@ -1907,10 +2202,10 @@ function App() {
             if (quotes.length >= MAX_QUOTES || text.length > MAX_QUOTE_LENGTH || text.length + draft.length + quotes.reduce((sum, quote) => sum + quote.markdown.length, 0) > MAX_PROMPT_LENGTH - 1000) {
               setError(t('引用过多或内容过长，请选取较短的片段', 'Too many quotes or too much content; select a shorter excerpt')); return false;
             }
-            setQuotes(value => [...value, { id: crypto.randomUUID(), messageIndex: index, role: message.role === 'user' ? 'user' : 'assistant', text, markdown: text, startOffset: 0, endOffset: text.length }]); return true;
+            setQuotes(value => [...value, { id: crypto.randomUUID(), entryId: message.entryId, messageIndex: index, role: message.role === 'user' ? 'user' : 'assistant', text, markdown: text, startOffset: 0, endOffset: text.length }]); return true;
           }}
           onAction={action => {
-            if (action === 'mcp') { setTab('mcp'); void openSettings(); }
+            if (action === 'mcp') { if (isMini) void run(() => handoff('settings', 'mcp')); else { setTab('mcp'); void openSettings(); } }
             else requestAnimationFrame(() => document.querySelector<HTMLButtonElement>(action === 'model' ? '.model-effort-trigger' : '.permission-trigger')?.click());
           }}>
         <div className={`composer ${draggingFiles ? 'composer-file-drop' : ''}`}
@@ -1950,13 +2245,16 @@ function App() {
               onAction={(action, value) => rawCommand('goal_action', { action, value })}/>
             <div className="spacer"/>
             <ContextRing usage={data.stats?.contextUsage} language={data.preferences.language}/>
-            <ModelEffortPicker model={data.modelSelection?.model ?? data.state?.model} models={data.models} favoriteModels={data.preferences.favoriteModels} onFavorite={changeModelFavorite} level={data.modelSelection?.thinkingLevel ?? data.state?.thinkingLevel} levels={levels} pending={Boolean(data.modelSelection)} language={data.preferences.language} disabled={!connected || loading} onModel={m => command('set_model', { provider: m.provider, modelId: m.id })} onEffort={level => command('set_thinking_level', { level })} onConfigure={() => { setTab('providers'); void openSettings(); }}/>
+            <ModelEffortPicker model={data.modelSelection?.model ?? data.state?.model} models={data.models} favoriteModels={data.preferences.favoriteModels} onFavorite={changeModelFavorite} level={data.modelSelection?.thinkingLevel ?? data.state?.thinkingLevel} levels={levels} pending={Boolean(data.modelSelection)} language={data.preferences.language} disabled={!connected || loading} onModel={m => command('set_model', { provider: m.provider, modelId: m.id })} onEffort={level => command('set_thinking_level', { level })} onConfigure={() => {
+              if (isMini) void run(() => handoff('settings', 'providers'));
+              else { setTab('providers'); void openSettings(); }
+            }}/>
             <IconButton title={action.mode === 'stop' ? stopping ? t('正在停止此轮', 'Stopping response') : t('停止此轮', 'Stop response') : composerBusy ? t('加入队列', 'Queue message') : t('发送', 'Send')}
               className="composer-action-button" data-action={action.mode}
-              disabled={!connected || loading || (action.mode === 'stop' ? stopping : !action.hasContent)}
+              disabled={!connected || loading || composer.conflict && action.mode !== 'stop' || (action.mode === 'stop' ? stopping : !action.hasContent)}
               onClick={() => void (action.mode === 'stop' ? stop() : send())}><ComposerActionIcon stop={action.mode === 'stop'}/></IconButton>
           </div>
-        </div></ComposerMenu>{interfaceSettings.performanceVisible && <PerformanceBar run={runMetrics} stats={data.stats} connected={connected} language={data.preferences.language} now={clock}/>}
+        </div></ComposerMenu>{!isMini && interfaceSettings.performanceVisible && <PerformanceBar run={runMetrics} stats={data.stats} connected={connected} language={data.preferences.language} now={clock}/>}
         </div>
         <PermissionApproval key={data.runtimeId ?? 'empty'} requestId={requests[0]?.id} presentation={permissionApproval} open={Boolean(permissionApproval && approvalOpen && !navigationTarget)}
           language={data.preferences.language} onLater={() => setApprovalOpen(false)} onRespond={respond}/>
@@ -1966,11 +2264,11 @@ function App() {
           open={Boolean(reviewQuestion && approvalOpen && !navigationTarget)} zh={data.preferences.language === 'zh'}
           drafts={questionDrafts.current} onLater={() => setApprovalOpen(false)} onRespond={respondQuestion}/>
       </div>
-      <ConversationScrollThumb scrollRef={scroll} language={data.preferences.language}
-        sessionId={data.state?.sessionId} messageCount={data.messages.length} onScrollIntent={handleScrollIntent}/>
+      {!isMini && <ConversationScrollThumb scrollRef={scroll} language={data.preferences.language}
+        sessionId={data.state?.sessionId} messageCount={data.messages.length} onScrollIntent={handleScrollIntent}/>}
       <div ref={terminalBottomHost} className="terminal-bottom-slot"/>
       </div>
-    </main>
+    </main></ConversationDisclosureMemory.Provider>
     <QuoteAnnotations root={transcript} scope={quoteScope} language={data.preferences.language}
       remove={id => setQuotes(value => value.filter(item => item.id !== id))}
       focusedId={focusedQuoteId}
@@ -1986,6 +2284,7 @@ function App() {
             'This quote exceeds the 8,000-character side-question limit. Select a shorter excerpt.'));
           return false;
         }
+        if (isMini) { void run(() => handoff('btw', { quote })); return true; }
         setDetails(''); setRightPanel('btw');
         setBtwRequest({ runtimeId: data.runtimeId, sessionId: data.state.sessionId,
           id: ++btwSequence.current, question: '', quote });
@@ -2009,7 +2308,7 @@ function App() {
         setQuotes(value => [...value, quote]); return true;
       }}/>
     {details && !usageOpen && !remoteOpen && !pluginsOpen && <aside className="details-panel"><header><FileCode2 size={16}/>{t('详情', 'Details')}<IconButton title={t('关闭', 'Close')} onClick={() => setDetails('')}><X size={17}/></IconButton></header><pre>{details}</pre></aside>}
-    <ConversationNavigationPanel open={visibleRightPanel === 'turns' && !details} replaced={inspectionOpen || visibleRightPanel === 'review' || visibleRightPanel === 'terminal' || visibleRightPanel === 'browser' || visibleRightPanel === 'file' || visibleRightPanel === 'subagent' || visibleRightPanel === 'btw' || Boolean(details)}
+    {!isMini && <><ConversationNavigationPanel open={visibleRightPanel === 'turns' && !details} replaced={inspectionOpen || visibleRightPanel === 'review' || visibleRightPanel === 'terminal' || visibleRightPanel === 'browser' || visibleRightPanel === 'file' || visibleRightPanel === 'subagent' || visibleRightPanel === 'btw' || Boolean(details)}
       overlay={!summarySpace} turns={turns} scrollRef={scroll} language={data.preferences.language} onClose={closeRightPanel}
       onSelect={index => { handleScrollIntent('backward'); scrollToTurn(scroll.current, index); if (window.innerWidth <= 900) closeRightPanel(); }}/>
     <ReviewPanel open={visibleRightPanel === 'review' && !details} replaced={inspectionOpen || visibleRightPanel === 'turns' || visibleRightPanel === 'terminal' || visibleRightPanel === 'browser' || visibleRightPanel === 'file' || visibleRightPanel === 'subagent' || visibleRightPanel === 'btw' || Boolean(details)}
@@ -2037,9 +2336,9 @@ function App() {
       onClose={closeTerminal} onError={setError}/>
     <BrowserPanel open={visibleRightPanel === 'browser' && !details}
       width={browserWidth} onWidthChange={setBrowserWidth}
-      replaced={inspectionOpen || visibleRightPanel === 'turns' || visibleRightPanel === 'review' || visibleRightPanel === 'terminal' || visibleRightPanel === 'file' || visibleRightPanel === 'subagent' || visibleRightPanel === 'btw' || Boolean(details)}
+      replaced={desktopSideOpen || inspectionOpen || visibleRightPanel === 'turns' || visibleRightPanel === 'review' || visibleRightPanel === 'terminal' || visibleRightPanel === 'file' || visibleRightPanel === 'subagent' || visibleRightPanel === 'btw' || Boolean(details)}
       expanded={inspectorExpanded && visibleRightPanel === 'browser'} onToggleExpanded={() => setExpandedRightPanel(inspectorExpanded ? null : 'browser')}
-      blocked={Boolean(quitReview.request) || handleBlocked || projectPickerOpen || queuePreviewOpen || liveChangesOpen || windowMenuOpen || settingsOpen || Boolean(removeProject) || Boolean(sessionMove) || Boolean(preview) || renaming || Boolean(contextMenu) || Boolean(imageMenu) || (approvalOpen && requests.length > 0) || (compactSidebar && compactSidebarOpen)}
+      blocked={Boolean(quitReview.request) || handleBlocked || projectPickerOpen || queuePreviewOpen || liveChangesOpen || windowMenuOpen || pluginMenuOpen || settingsOpen || Boolean(removeProject) || Boolean(sessionMove) || Boolean(preview) || renaming || Boolean(contextMenu) || Boolean(imageMenu) || (approvalOpen && requests.length > 0) || (compactSidebar && compactSidebarOpen)}
       overlay={!summarySpace} language={data.preferences.language} onClose={closeRightPanel}/>
     <FilePreviewPanel file={previewFile} open={visibleRightPanel === 'file' && !details}
       replaced={Boolean(details) || (visibleRightPanel !== null && visibleRightPanel !== 'file')}
@@ -2101,6 +2400,9 @@ function App() {
       {visibleRightPanel === 'summary' && !details && <div className="summary-region">
         <aside className="summary-board" aria-label={t('摘要', 'Summary')} id="summary-board">
           <SummaryBoard key={`${data.runtimeId ?? 'empty'}:${data.state?.sessionId ?? ''}`} runtimeId={data.runtimeId} sessionId={data.state?.sessionId}
+            tasksRequest={tasksRequest?.runtimeId === data.runtimeId && tasksRequest?.sessionId === data.state?.sessionId
+              && tasksRequest?.draftId === data.draftId ? tasksRequest?.sequence : undefined}
+            onTasksRequestHandled={sequence => setTasksRequest(value => value?.sequence === sequence ? undefined : value)}
             stellar={data.themePacks?.find(pack => pack.id === data.preferences.theme)?.renderer === 'stellar-v1'}
             messages={data.messages} backgroundActivity={backgroundActivity} busy={busy} onOpenSubagent={openSubagent} onOpenWorkflow={openWorkflow} onClose={closeRightPanel}
             mcpBusy={anyBusy || busy || loading || !connected} capabilityRevision={capabilityRevision}
@@ -2125,6 +2427,13 @@ function App() {
           onRefresh={async () => { if (bridge) await applySnapshot(() => bridge.snapshot()); }} onError={setError}/>
       </div>}
     </div>
+    {bridge && pluginEntries.filter(entry => entry.desktop.surface === 'side-panel' && desktopVisited.has(entry.id)).map(entry =>
+      <aside key={`${entry.id}:${entry.plugin.package!.ref}`} className={`plugin-side-surface${summarySpace ? ' is-docked' : ' is-overlay'}`}
+        aria-label={entry.desktop.title} hidden={!desktopSideOpen || desktopSideId !== entry.id}
+        inert={!desktopSideOpen || desktopSideId !== entry.id || settingsOpen || Boolean(removeProject)}>
+        <PluginWorkspace entry={entry} bridge={bridge} language={data.preferences.language} active={desktopSideOpen && desktopSideId === entry.id}
+          onClose={closePluginSide} onConfigure={() => configurePluginDesktop(entry)}/>
+      </aside>)}
     <nav hidden={scheduledOpen || usageOpen || remoteOpen || pluginsOpen || fulltextOpen} ref={rightRail} className="right-tool-rail" style={usageOpen || remoteOpen || pluginsOpen || fulltextOpen ? { display: 'none' } : undefined} aria-label={t('右侧工具', 'Right tools')} inert={usageOpen || remoteOpen || pluginsOpen || fulltextOpen || Boolean(navigationTarget) || Boolean(removeProject)}
       onClickCapture={() => { if (bottomTerminalExpanded) setExpandedRightPanel(null); }}>
       <IconButton title={t('摘要', 'Summary')} data-tooltip-side="left" aria-controls="summary-board" aria-pressed={!details && visibleRightPanel === 'summary'} onClick={() => { setDetails(''); setRightPanel(!details && visibleRightPanel === 'summary' ? null : 'summary'); }}><Layers3 size={18}/></IconButton>
@@ -2156,7 +2465,7 @@ function App() {
           setDetails(''); setRightPanel('subagent');
         }}><Bot size={18}/></IconButton>
       <IconButton title={t('会话导航', 'Conversation navigation')} data-tooltip-side="left" aria-controls="conversation-navigation-panel" aria-pressed={!details && visibleRightPanel === 'turns'} onClick={() => { setDetails(''); setRightPanel(!details && visibleRightPanel === 'turns' ? null : 'turns'); }}><ListTree size={18}/></IconButton>
-    </nav>
+    </nav></>}
     {preview && <div className="attachment-preview-backdrop" onMouseDown={e => { if (e.target === e.currentTarget) closePreview(); }}>
       <div className="attachment-preview" ref={previewPanel} role="dialog" aria-modal="true" aria-label={t(`预览 ${preview.name}`, `Preview ${preview.name}`)}>
         <div className="attachment-preview-toolbar"><span>{preview.name}</span><IconButton title={t('缩小', 'Zoom out')} tooltip={false} disabled={previewZoom <= .5} onClick={() => changePreviewZoom(previewZoom - .25)}><ZoomOut size={17}/></IconButton><span>{Math.round(previewZoom * 100)}%</span><IconButton title={t('放大', 'Zoom in')} tooltip={false} disabled={previewZoom >= 5} onClick={() => changePreviewZoom(previewZoom + .25)}><ZoomIn size={17}/></IconButton><IconButton title={t('关闭预览', 'Close preview')} tooltip={false} onClick={closePreview}><X size={19}/></IconButton></div>
@@ -2255,4 +2564,4 @@ class RenderBoundary extends React.Component<{ children: React.ReactNode }, { fa
     return this.props.children;
   }
 }
-createRoot(document.getElementById('root')!).render(<RenderBoundary><Bootstrap/></RenderBoundary>);
+createRoot(document.getElementById('root')!).render(<RenderBoundary>{bridge?.surface === 'plugin' ? <PluginWindowApp/> : <Bootstrap/>}</RenderBoundary>);

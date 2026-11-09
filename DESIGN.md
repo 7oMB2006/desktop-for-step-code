@@ -15,6 +15,40 @@ the focus extent against clipping ancestors, not just the input's border box.
 
 ## Existing Components
 
+MiniChat is a native view of a normal conversation, not BTW or a second agent.
+Reuse the actual conversation/composer/queue/approval components and shared
+tokens; omit unrelated rails and the performance footer. The titlebar entry
+sits immediately before Minimize. A draggable compact header provides the
+shared session menu, pin, Return and Close. Close hides without affecting work;
+reopen resumes the mini selection, and Return explicitly transfers it to main.
+Draft text, quotes/annotations and attachments are session-owned. Presentation
+state is per window/session; streaming must not pull an older reader to the
+tail. Use the shared return-to-bottom action, message anchors and stable
+disclosure identities. Keep real approvals and failure/stop states intact.
+Settings and larger tools return to main rather than fitting parallel control
+surfaces into the mini window. Reserve the complete four-pixel composer focus
+gutter in narrow and low-height layouts.
+MiniChat's scroll handle and turn ruler follow the full-width transcript's right
+edge, not the main window's centered reading column. Their height stays within
+the transcript, with a separate text gutter. The session switcher is content-sized
+and bounded; unused header space remains a native window-drag region.
+Its anchored native popover groups conversations by project with independent
+search/disclosure state, shared session/pinned-project ordering and a separate
+independent-session group. Open the current project first; other projects start
+collapsed with counts. Search temporarily expands matching groups, and same-name
+projects show full paths. Per-project Plus targets that exact workspace without
+changing main selection, sidebar disclosures or preferences. Retargeting an
+unsubmitted draft follows the existing shared draft contract and keeps its input
+and options. Reuse animated disclosures, the downward chevron, composite-field
+focus gutters, keyboard/IME handling and reduced-motion behavior.
+
+Shared text tooltips use a non-focusing manual native popover so they remain
+above native menus and session pickers, without intercepting input or dismissing
+their owner. Preserve the existing appearance and viewport gutter; measure
+intrinsic width independently of the previous tooltip position. Keyboard focus
+waits for its automatic scroll before placement. Closing the owning surface or
+removing its trigger also removes the tooltip.
+
 Context maintenance belongs in Settings > General, not its own category or the
 Context inspector. The main percentage is global; the shared animated advanced
 disclosure contains a global token ceiling and provider-qualified per-model ratio
@@ -54,6 +88,29 @@ unsupported plugins retain raw MCP controls in technical Settings. Arbitrary
 plugin frontends are not executed. Package Markdown and images are read on demand
 through opaque references, never renderer filesystem access. Tutorials and
 authorship remain author declarations; GitHub Stars are host-queried snapshots.
+
+Installed plugins may contribute one data-only desktop workspace with a
+`main-view`, `side-panel` or `window` surface. All three render the same bounded,
+host-owned Markdown pages; they are not arbitrary frontend execution points.
+Their titlebar entry belongs to an independent plugin action group beside
+MiniChat, never inside application menus or native window controls. The group
+has its own component, DOM region, styles, focus and event handling, and reserves
+no empty space when no valid installed contribution exists. Use fixed-size
+icon buttons with accessible names and tooltips; narrow layouts must preserve
+window controls and a usable drag region. Package raster icons have verified
+light/dark variants with a host symbol fallback, not remote image requests.
+Opening, tabbing and closing a workspace preserve conversation drafts and do not
+submit prompts, grant permissions or claim a connected backend. Any configuration
+action navigates to the existing plugin configuration flow. Missing or stale
+packages clear the actionable workspace rather than displaying another package.
+Main-view and side-panel shortcuts toggle their visible workspace; a window
+shortcut opens or focuses its one native window. Opening a workspace transfers
+keyboard focus into its selected tab, or restores its last visible focused
+control when reopened. Returning restores the original entry, including the
+overflow trigger. Main views use Back; side panels and native windows use an
+explicit Close action with the correct accessible name.
+This optional author contract requires a new host build, not a package-name
+exception or an implied capability in all published 0.6.0 clients.
 
 Plugin authoring, fixed layout, control/copy conventions and the BVR mapping
 are documented in `docs/PLUGIN_AUTHORING.md`. `examples/plugins` separates a

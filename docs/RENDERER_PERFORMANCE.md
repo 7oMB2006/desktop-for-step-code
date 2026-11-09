@@ -1,5 +1,31 @@
 # Long-Session Interaction Performance
 
+## PR Integration (2026-11-09)
+
+The accepted implementation is preserved in commit `58fd3b7`. A test-only
+follow-up makes the selection fixture's focus outline deterministic without
+relaxing its exact text, color or screenshot comparisons; all 24 cases pass in
+three consecutive Chromium runs. The original baseline also passes typecheck,
+production build and the complete serial protocol suite: 1,583 passed,
+13 platform skips and no failures.
+
+Integration with main `9e493ed` preserves MiniChat composer ownership,
+presentation memory, plugin workspaces and capability protections. A native
+navigation regression exposed the preview-to-live disclosure memory handoff:
+explicit preview open/close choices now survive restoration, while untouched
+previews adopt saved state. The shared disclosure fixture covers all three
+cases, remount persistence and explicit settings resets.
+
+The integrated source passes typecheck, production build and the complete
+serial protocol suite: 1,930 passes, 13 platform skips and zero failures.
+CI policy/inventory tests have 40 passes and one platform skip.
+
+This integration is a new source combination, not a rebuild or replacement of
+the accepted package below. Cloud CI, merge and release remain separate gates.
+Source verification logs are under
+`D:\Desktop Runtime Builds\performance-pr-20261109`; the historical package
+receipts and performance measurements are not rewritten.
+
 ## Accepted Performance Baseline (2026-11-09)
 
 The owner reports that the new `selection-style-20261109-preview` package is

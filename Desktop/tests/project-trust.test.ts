@@ -1,8 +1,9 @@
 import test, { type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, realpath, symlink, unlink } from 'node:fs/promises';
+import { mkdtemp, mkdir, realpath, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { removeLinkEntry } from './fixtures/artifact-cleanup';
 import { SessionRuntimes, type WorkerTransport } from '../electron/session-runtimes';
 import { isProjectTrustInput, trustProject } from '../electron/project-trust';
 
@@ -121,7 +122,9 @@ test('a retargeted project junction cannot use approval for its old target', asy
   const pending = f.run();
   const rejected = assert.rejects(pending, /Project folder changed/);
   await f.request();
-  await unlink(link);
+  // A junction entry must be removed as a link (rmdir on Windows); unlink
+  // reports EPERM for directory reparse points and aborts the retarget mid-test.
+  await removeLinkEntry(link);
   await symlink(other, link, process.platform === 'win32' ? 'junction' : 'dir');
   await f.answer(true);
   await rejected;

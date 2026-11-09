@@ -451,8 +451,14 @@ try {
   const mainPid = await app.evaluate(() => process.pid);
   const crashedPids = fixtureRuntimeChildren(mainPid);
   for (const pid of crashedPids) {
-    if (process.platform === 'win32') execFileSync('taskkill.exe', ['/PID', String(pid), '/T', '/F'], { windowsHide: true });
-    else process.kill(pid);
+    try {
+      if (process.platform === 'win32') execFileSync('taskkill.exe', ['/PID', String(pid), '/T', '/F'], { windowsHide: true, stdio: 'pipe' });
+      else process.kill(pid);
+    } catch (error) {
+      // Idle workers can exit between enumeration and termination; live failures still fail.
+      try { process.kill(pid, 0); } catch (probe) { if (probe.code === 'ESRCH') continue; }
+      throw error;
+    }
   }
   assert.ok(crashedPids.length > 0, 'Only fixture-owned RPC children are terminated');
   await page.waitForFunction(runtimeId => window.navigationExits.includes(runtimeId), crashed.runtimeId);

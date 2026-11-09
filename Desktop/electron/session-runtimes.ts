@@ -543,6 +543,9 @@ export class SessionRuntimes {
       throw error;
     }
   }
+  hasNonSnapshotOperations(worker: SessionRuntime): boolean {
+    return worker.operations > (this.reads.get(worker)?.size ?? 0);
+  }
   read(worker: SessionRuntime): Promise<void> {
     if (worker.status !== 'connected') return Promise.resolve();
     const reads = this.reads.get(worker) ?? new Set<Promise<void>>();

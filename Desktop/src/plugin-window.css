@@ -1,0 +1,13 @@
+.app.plugin-window-shell { --sidebar-track: 0px; }
+.plugin-window-shell::before { display: none; }
+.plugin-window-content { display: flex; flex: 1; flex-direction: column; min-height: 0; min-width: 0; }
+.plugin-window-loading { display: flex; flex: 1; flex-direction: column; gap: 16px; padding: 40px 36px; }
+.plugin-window-loading > span { display: block; height: 14px; max-width: 600px; border-radius: 4px; background: var(--surface); }
+.plugin-window-loading > span:first-child { width: 180px; height: 24px; margin-bottom: 20px; }
+.plugin-window-loading > span:last-child { width: 70%; }
+.plugin-window-unavailable { display: flex; flex: 1; flex-direction: column; align-items: flex-start; justify-content: center; min-width: 0; padding: 32px; }
+.plugin-window-unavailable > svg { color: var(--muted); margin-bottom: 16px; }
+.plugin-window-unavailable h1 { font-size: 20px; margin-bottom: 12px; }
+.plugin-window-unavailable p { max-width: 60ch; font-size: 13px; line-height: 1.8; color: var(--muted); overflow-wrap: anywhere; }
+.plugin-window-unavailable button { margin-top: 8px; font-size: 12px; }
+.plugin-window-action-error { display: flex; align-items: flex-start; gap: 8px; padding: 12px 24px; color: var(--danger); font-size: 12px; line-height: 1.7; border-bottom: 1px solid var(--border); }

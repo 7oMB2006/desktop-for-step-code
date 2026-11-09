@@ -52,6 +52,7 @@ const catalog: CapabilityCatalog = {
   available: [], marketplaces: [], mcp: [], skills: [], warnings: [],
 };
 const entries = getPluginDesktopEntries(catalog);
+if (params.has('overflow')) entries.reverse();
 const paragraphs = Array.from({ length: 24 }, (_, index) => `### 核对项目 ${index + 1}\n\n只在本次明确选择的工程目录中执行。连接状态、授权范围和任务结果分别核对；没有记录的检查应保持未验证。`).join('\n\n');
 const documents: Record<string, string> = {
   'docs/start.md': '# 从第一项委托开始\n\nHermes 负责接收需求和检查结果，DFSC 负责在本机工程中执行。你可以在桌面查看同一项工作，遇到问题时暂停或接管。\n\n## 安装资源不等于已连接\n\n这个资源包提供帮助和工程协作规范。实际派工还需要支持 Agent Bridge 的 DFSC 宿主、Hermes companion，以及单独的身份配对和目录授权。\n\n[查看连接准备](setup.md)\n\n## 第一次先做一个小任务\n\n选择一个专用测试目录，写下交付目标和检查方式。先确认任务在 DFSC 中出现，再检查完成结果。\n\n[查看第一项任务](first-task.md)\n\n' + paragraphs,
@@ -70,7 +71,8 @@ const connectionFixture = {
   result: snapshot('unselected'), calls: [] as string[], canceled: false, failed: false, hold: false,
   releases: [] as (() => void)[], snapshot,
 };
-Object.assign(window, { pluginWorkspaceFixture: { reads, connection: connectionFixture } });
+const controls = { replacePackage: () => {}, removePlugin: () => {}, block: () => {} };
+Object.assign(window, { pluginWorkspaceFixture: { reads, connection: connectionFixture, controls } });
 async function observe(method: string): Promise<PluginConnection> {
   connectionFixture.calls.push(method);
   const result = structuredClone(connectionFixture.result);
@@ -99,6 +101,13 @@ const bridge = {
   },
 };
 function Fixture() {
+  const [shortcuts, setShortcuts] = useState(entries);
+  const [blocked, setBlocked] = useState(false);
+  controls.replacePackage = () => setShortcuts(items => items.map(entry => entry.id !== 'plugin-0' ? entry : {
+    ...entry, plugin: { ...entry.plugin, package: { ...entry.plugin.package!, ref: 'replacement-package' } },
+  }));
+  controls.removePlugin = () => setShortcuts(items => items.filter(entry => entry.id !== 'plugin-0'));
+  controls.block = () => setBlocked(true);
   const [active, setActive] = useState<string | undefined>(params.get('open') === '1' ? entries[0].id : undefined);
   const [visited, setVisited] = useState(() => new Set(active ? [active] : []));
   const [mini, setMini] = useState(false);
@@ -106,8 +115,12 @@ function Fixture() {
     <WindowBar language={zh ? 'zh' : 'en'} menus={[]} sessionTitle="工程任务与项目资料"
       sidebarVisible={false} toggleSidebar={() => {}}
       miniChat={{ open: mini, onOpen: () => setMini(value => !value) }}
-      pluginActions={<PluginActionGroup entries={entries} language={zh ? 'zh' : 'en'} activeId={active}
-        onOpen={entry => { setVisited(value => new Set([...value, entry.id])); setActive(value => value === entry.id ? undefined : entry.id); }}/>}/>
+      pluginActions={<PluginActionGroup entries={shortcuts} language={zh ? 'zh' : 'en'} activeId={active}
+        bridge={bridge} disabled={blocked}
+        onOpen={(entry, toggle = true) => {
+          setVisited(value => new Set([...value, entry.id]));
+          setActive(value => toggle && value === entry.id ? undefined : entry.id);
+        }}/>}/>
     <main className="plugin-fixture-main" hidden={Boolean(active) && !side}>
       <div className="plugin-fixture-conversation"><h1>项目工作区</h1><p>本周待办</p>
         <ul><li>核对工程目录</li><li>整理测试清单</li><li>检查交付结果</li></ul>

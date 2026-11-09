@@ -112,6 +112,17 @@ explicit Close action with the correct accessible name.
 This optional author contract requires a new host build, not a package-name
 exception or an implied capability in all published 0.6.0 clients.
 
+For an `agent-bridge-v1` connection contribution, the titlebar shortcut instead
+toggles a compact native status popover anchored below the same entry (or its
+overflow trigger). It leaves the conversation and selected workspace untouched.
+Show the verified identity, first-batch task summaries and observation time,
+not an inferred live/idle Agent state. Reopen and explicit refresh read again;
+no background polling or mutation belongs to this quick view. An explicit full
+workspace action opens the main connection/setup view without toggling it closed.
+Escape and explicit close restore the anchor; outside dismissal preserves the
+clicked control's focus. Keep the panel bounded in short/narrow windows, preserve
+complete focus gutters, and reject dismissed or stale-package results.
+
 Plugin authoring, fixed layout, control/copy conventions and the BVR mapping
 are documented in `docs/PLUGIN_AUTHORING.md`. `examples/plugins` separates a
 native-installable resource starter from a host-owned React field template;

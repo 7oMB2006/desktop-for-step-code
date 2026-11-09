@@ -186,6 +186,16 @@ const openAction = async plugin => {
     await main.getByRole('menuitemradio', { name: plugin.title, exact: true }).click();
   } else await button.click();
 };
+const statusFor = plugin => main.getByRole('dialog', { name: `${plugin.title} · Agent status`, exact: true });
+const openFullAction = async plugin => {
+  await openAction(plugin);
+  const status = statusFor(plugin);
+  await status.waitFor();
+  await status.getByRole('button', { name: 'Open full workspace', exact: true }).click();
+};
+const waitWorkspaceVersion = (plugin, version) => main.waitForFunction(({ id, version }) =>
+  document.querySelector(`[data-plugin-workspace="${CSS.escape(id)}"] .plugin-workspace-identity`)?.textContent.includes(`v${version}`),
+{ id: plugin.id, version });
 const nativePage = async title => {
   for (const page of app.windows()) {
     const view = await app.browserWindow(page);
@@ -396,7 +406,15 @@ try {
   checks.push('keyboard overflow selection transfers focus into the workspace and returning restores the overflow trigger without changing the draft');
 
   if (hermes) {
-    await openAction(hermes);
+    if (hermes.metadata.desktop.connection) {
+      const beforeStatus = await main.locator('main:visible').evaluate(element => element.innerText);
+      await openAction(hermes);
+      await statusFor(hermes).getByRole('heading', { name: 'No profile selected', exact: true }).waitFor();
+      assert.equal(await main.locator('main:visible').evaluate(element => element.innerText), beforeStatus,
+        'Hermes status entry does not navigate the main surface');
+      await main.screenshot({ path: join(output, 'hermes-status-unselected.png') });
+      await statusFor(hermes).getByRole('button', { name: 'Open full workspace', exact: true }).click();
+    } else await openAction(hermes);
     const guide = workspaceFor(hermes);
     await guide.getByRole('heading', { name: hermes.title, exact: true, level: 1 }).waitFor();
     assert.equal(await guide.getByRole('tab').count(), hermes.metadata.desktop.connection ? 5 : 4);
@@ -550,7 +568,8 @@ try {
   await mutate({ action: 'plugin-check-updates' });
   const originalBridgePlugin = await installed(bridgePlugin.id);
   await mutate({ action: 'plugin-update', id: bridgePlugin.id, ref: originalBridgePlugin.package.ref, candidate: originalBridgePlugin.update.ref });
-  if (!await workspaceFor(bridgePlugin).isVisible()) await openAction(bridgePlugin);
+  await waitWorkspaceVersion(bridgePlugin, '0.2.0');
+  if (!await workspaceFor(bridgePlugin).isVisible()) await openFullAction(bridgePlugin);
   const bridgeSpace = workspaceFor(bridgePlugin), panel = bridgeSpace.locator('.plugin-connection');
   await panel.getByRole('heading', { name: 'No profile selected', exact: true }).waitFor();
   assert.equal(bridgeRequests.length, 0, 'no selected profile means no credential reads or transport calls');
@@ -598,6 +617,24 @@ try {
   await panel.getByRole('button', { name: 'Choose profile', exact: true }).click();
   await panel.getByRole('heading', { name: 'Read-only connection verified', exact: true }).waitFor();
   checks.push('production read-only connection uses only explicit native profile choice; cancel, identity/root filtering, redaction and forgetting preserve pairing files');
+  await bridgeSpace.getByRole('button', { name: 'Back to workspace', exact: true }).click();
+  await composer.waitFor();
+  const draftBeforeStatus = await composer.innerText();
+  const readingBeforeStatus = await conversation.evaluate(element => element.scrollTop);
+  await openAction(bridgePlugin);
+  const quickStatus = statusFor(bridgePlugin);
+  await quickStatus.getByRole('heading', { name: 'Read-only connection verified', exact: true }).waitFor();
+  assert.ok((await quickStatus.innerText()).includes('visible-task'));
+  assert.equal(await composer.innerText(), draftBeforeStatus);
+  assert.ok(Math.abs(await conversation.evaluate(element => element.scrollTop) - readingBeforeStatus) < 4);
+  assert.equal(await bridgeSpace.isVisible(), false);
+  await main.screenshot({ path: join(output, 'connection-status-overflow.png') });
+  await main.keyboard.press('Escape');
+  await quickStatus.waitFor({ state: 'hidden' });
+  await main.waitForFunction(() => document.activeElement?.getAttribute('aria-label') === 'More plugins');
+  await openFullAction(bridgePlugin);
+  await panel.getByRole('heading', { name: 'Read-only connection verified', exact: true }).waitFor();
+  checks.push('production titlebar status reads the real isolated Bridge without changing main navigation, draft or transcript position; Escape restores its overflow anchor and full page opens explicitly');
 
   await writePlugin(bridgePlugin, '0.3.0', true);
   commit('Update the read-only connection package');
@@ -612,9 +649,10 @@ try {
   const observed = inFlight.then(() => 'unexpected-success', error => String(error));
   await entered;
   await mutate({ action: 'plugin-update', id: bridgePlugin.id, ref: bridgeUpdate.package.ref, candidate: bridgeUpdate.update.ref });
+  await waitWorkspaceVersion(bridgePlugin, '0.3.0');
   bridgeGate = undefined; releaseBridge();
   assert.match(await observed, /capability:stale/);
-  if (!await bridgeSpace.isVisible()) await openAction(bridgePlugin);
+  if (!await bridgeSpace.isVisible()) await openFullAction(bridgePlugin);
   await panel.getByRole('heading', { name: 'No profile selected', exact: true }).waitFor();
   assert.ok(!(await panel.innerText()).includes('visible-task'), 'updated package does not inherit old scope or in-flight data');
   const removeBridgeRef = (await installed(bridgePlugin.id)).package.ref;
@@ -622,7 +660,8 @@ try {
   await assert.rejects(main.evaluate(ref => window.desktop.pluginConnectionState({ ref }), removeBridgeRef), /capability:stale/);
   checks.push('package update invalidates in-flight connection IPC and saved scope; uninstall rejects old connection references');
   if (hermes) {
-    await openAction(hermes);
+    if (hermes.metadata.desktop.connection) await openFullAction(hermes);
+    else await openAction(hermes);
     if (hermes.metadata.desktop.connection) {
       const guide = workspaceFor(hermes);
       await guide.getByRole('tab', { name: 'Connection', exact: true }).click();
@@ -639,6 +678,25 @@ try {
       await settleLayout(workspaceFor(hermes));
       await assertHermesIcon(action(hermes).locator('.plugin-action-icon img:visible'), 'toolbar-direct', 17);
       await main.screenshot({ path: join(output, `hermes-toolbar-direct-${theme}.png`) });
+    }
+    if (hermes.metadata.desktop.connection) {
+      await workspaceFor(hermes).getByRole('button', { name: 'Back to workspace', exact: true }).click();
+      await composer.waitFor();
+      for (const theme of ['light', 'dark']) {
+        await main.evaluate(theme => window.desktop.preferences({ theme }), theme);
+        await main.waitForFunction(theme => document.documentElement.dataset.theme === theme, theme);
+        await openAction(hermes);
+        const quick = statusFor(hermes);
+        await quick.getByRole('heading', { name: 'Read-only connection verified', exact: true }).waitFor();
+        assert.ok((await quick.innerText()).includes('visible-task'));
+        assert.equal(await workspaceFor(hermes).isVisible(), false);
+        await assertHermesIcon(action(hermes).locator('.plugin-action-icon img:visible'), 'toolbar-direct', 17);
+        await settleLayout(quick);
+        await main.screenshot({ path: join(output, `hermes-status-${theme}.png`) });
+        await main.keyboard.press('Escape');
+        await quick.waitFor({ state: 'hidden' });
+      }
+      checks.push('actual Hermes approved titlebar icon opens the compact connected Agent status in both themes while leaving the conversation visible');
     }
     for (const surface of ['market-detail', 'toolbar-direct', 'toolbar-overflow', 'workspace'])
       for (const theme of ['light', 'dark'])

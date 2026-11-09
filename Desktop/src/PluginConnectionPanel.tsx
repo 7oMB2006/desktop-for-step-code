@@ -15,6 +15,9 @@ const copy = {
     profile: 'Profile 目录', identity: '连接身份', roots: '可见目录', noRoots: '当前身份没有可见的授权目录。',
     tasks: '任务摘要', batch: '首批记录 · 最多 20 项', noTasks: '首批记录中没有符合当前身份与目录范围的任务。',
     checked: '检查于', untitled: '未命名任务',
+    agentStatus: 'Agent 状态', quickBatch: '首批记录 · 最多 5 项',
+    quickReady: '当前身份已核验。仅显示本次查询结果，不代表 companion 已加载或可派工。',
+    quickSetup: '请打开完整工作台，在连接页选择已安装 companion 的本机 profile。',
     status: {
       unselected: ['尚未选择 profile', '选择已安装 companion 的本机 profile 目录。插件市场安装不会自动连接 Hermes。'],
       'profile-missing': ['Profile 不可用', '所选目录不存在，或不是包含 config.yaml 的本机 profile。请重新选择。'],
@@ -35,6 +38,9 @@ const copy = {
     profile: 'Profile directory', identity: 'Agent identity', roots: 'Visible directories', noRoots: 'No authorized directories are visible to this identity.',
     tasks: 'Task summaries', batch: 'First batch · Up to 20', noTasks: 'No tasks in the first batch match this identity and directory scope.',
     checked: 'Checked at', untitled: 'Untitled task',
+    agentStatus: 'Agent status', quickBatch: 'First batch · Up to 5',
+    quickReady: 'Identity verified for this check only. Companion loading and dispatch readiness are not established.',
+    quickSetup: 'Open the full workspace and choose a local profile with the companion installed on the Connection tab.',
     status: {
       unselected: ['No profile selected', 'Choose a local profile with the companion installed. Marketplace installation does not connect Hermes.'],
       'profile-missing': ['Profile unavailable', 'The selected directory is missing or is not a local profile containing config.yaml. Choose another directory.'],
@@ -50,8 +56,9 @@ const copy = {
   },
 } as const;
 
-export function PluginConnectionPanel({ bridge, packageRef, language, active, onGuide }: {
+export function PluginConnectionPanel({ bridge, packageRef, language, active, onGuide, compact = false }: {
   bridge: PluginConnectionBridge; packageRef: string; language: 'zh' | 'en'; active: boolean; onGuide(): void;
+  compact?: boolean;
 }) {
   const c = copy[language];
   const [state, setState] = useState<PluginConnection>();
@@ -82,9 +89,9 @@ export function PluginConnectionPanel({ bridge, packageRef, language, active, on
   }, [active, available, run]);
   const status = state && c.status[state.status];
   const ready = state?.status === 'ready';
-  return <div className="plugin-connection" aria-busy={pending} data-connection-status={failed ? 'error' : state?.status ?? 'loading'}>
+  return <div className={`plugin-connection${compact ? ' is-compact' : ''}`} aria-busy={pending} data-connection-status={failed ? 'error' : state?.status ?? 'loading'}>
     <header className="plugin-connection-heading">
-      <h2>{c.title}</h2><span className="plugin-connection-mode">{c.readOnly}</span>
+      <h2>{compact ? c.agentStatus : c.title}</h2><span className="plugin-connection-mode">{c.readOnly}</span>
       {available && <button type="button" className="icon-button" disabled={pending}
         aria-label={c.refresh} data-tooltip={c.refresh} onClick={() => void run('read')}><RefreshCw size={16}/></button>}
     </header>
@@ -92,34 +99,35 @@ export function PluginConnectionPanel({ bridge, packageRef, language, active, on
       {ready ? <CircleCheck size={20}/> : <Cable size={20}/>}
       <div>
         <h3>{!available ? c.unsupported : pending ? c.checking : failed ? c.failed : status?.[0]}</h3>
-        {!pending && !failed && available && <p>{status?.[1]}</p>}
+        {!pending && !failed && available && <p>{compact && ready ? c.quickReady
+          : compact && state?.status === 'unselected' ? c.quickSetup : status?.[1]}</p>}
       </div>
     </div>
-    <div className="plugin-connection-actions">
+    {!compact && <div className="plugin-connection-actions">
       {available && <button type="button" disabled={pending} onClick={() => void run('choose')}>
         <FolderOpen size={15}/>{state?.profile ? c.change : c.select}
       </button>}
       {!ready && <button type="button" onClick={onGuide}><BookOpen size={15}/>{c.guide}</button>}
       {state?.profile && <button type="button" className="icon-button" disabled={pending}
         aria-label={c.forget} data-tooltip={c.forget} onClick={() => void run('forget')}><X size={16}/></button>}
-    </div>
-    {!pending && state?.profile && <dl className="plugin-connection-details">
-      <div><dt>{c.profile}</dt><dd>{state.profile}</dd></div>
+    </div>}
+    {!pending && state?.profile && (!compact || ready) && <dl className="plugin-connection-details">
+      {!compact && <div><dt>{c.profile}</dt><dd>{state.profile}</dd></div>}
       {state.agentId && <div><dt>{c.identity}</dt><dd>{state.displayName && <span>{state.displayName} · </span>}<code>{state.agentId}</code></dd></div>}
     </dl>}
     {!pending && ready && <>
-      <section className="plugin-connection-section" aria-label={c.roots}>
+      {!compact && <section className="plugin-connection-section" aria-label={c.roots}>
         <h3>{c.roots}<span>{state.roots.length}</span></h3>
         {state.roots.length ? <ul className="plugin-connection-roots">{state.roots.map(root =>
           <li key={root}><FolderOpen size={15}/><span>{root}</span></li>)}</ul>
           : <p className="plugin-connection-empty">{c.noRoots}</p>}
-      </section>
+      </section>}
       <section className="plugin-connection-section" aria-label={c.tasks}>
-        <h3>{c.tasks}<span>{c.batch}</span></h3>
-        {state.tasks.length ? <ul className="plugin-connection-tasks">{state.tasks.map((task, index) => <li key={`${task.id}-${index}`}>
+        <h3>{c.tasks}<span>{compact ? c.quickBatch : c.batch}</span></h3>
+        {state.tasks.length ? <ul className="plugin-connection-tasks">{state.tasks.slice(0, compact ? 5 : 20).map((task, index) => <li key={`${task.id}-${index}`}>
           <div><strong>{task.title || c.untitled}</strong><span className="plugin-connection-phase">
             {c.phase[task.phase as keyof typeof c.phase] ?? c.phase.unknown}</span></div>
-          <p><code>{task.id}</code><span>{task.cwd}</span></p>
+          <p><code>{task.id}</code>{!compact && <span>{task.cwd}</span>}</p>
         </li>)}</ul> : <p className="plugin-connection-empty">{c.noTasks}</p>}
       </section>
       {state.checkedAt && <p className="plugin-connection-checked">{c.checked} <time dateTime={new Date(state.checkedAt).toISOString()}>

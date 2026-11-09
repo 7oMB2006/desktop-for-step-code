@@ -32,6 +32,16 @@
 .plugin-connection-tasks p { display: flex; flex-wrap: wrap; gap: 6px 16px; color: var(--muted); margin: 6px 0 0; font-size: 11px; line-height: 1.8; overflow-wrap: anywhere; }
 .plugin-connection-tasks p > span { min-width: 0; }
 .plugin-connection-checked { margin: 0; color: var(--muted); font-size: 11px; }
+.plugin-connection.is-compact { padding: 4px 4px 8px; }
+.plugin-connection.is-compact .plugin-connection-heading { margin-bottom: 10px; }
+.plugin-connection.is-compact .plugin-connection-heading h2 { font-size: 12px; }
+.plugin-connection.is-compact .plugin-connection-status { gap: 10px; min-height: 0; }
+.plugin-connection.is-compact .plugin-connection-status h3 { font-size: 13px; }
+.plugin-connection.is-compact .plugin-connection-status p { font-size: 12px; line-height: 1.7; }
+.plugin-connection.is-compact .plugin-connection-details { padding: 12px 0 0; }
+.plugin-connection.is-compact .plugin-connection-details > div { grid-template-columns: minmax(0, 1fr); gap: 2px; font-size: 12px; }
+.plugin-connection.is-compact .plugin-connection-section { margin-top: 16px; padding: 14px 0; }
+.plugin-connection.is-compact .plugin-connection-tasks > li { padding: 9px 0; }
 @media (max-width: 700px) {
   .plugin-connection-details > div { grid-template-columns: minmax(0, 1fr); gap: 2px; padding-block: 8px; }
   .plugin-connection-tasks > li > div { gap: 8px; }

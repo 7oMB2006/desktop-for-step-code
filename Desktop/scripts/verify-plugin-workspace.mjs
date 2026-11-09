@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { mkdir } from 'node:fs/promises';
 import { chromium } from 'playwright';
 import { createServer } from 'vite';
+import { settleLayout } from './settle-layout.mjs';
 
 const output = process.env.PLUGIN_WORKSPACE_OUTPUT || 'test-results/plugin-workspace';
 await mkdir(output, { recursive: true });
@@ -267,8 +268,140 @@ try {
     assert.equal(overlapping, false, 'task title does not overlap phase');
     await page.screenshot({ path: `${output}/connection-${language}-${theme}-${width}.png`, fullPage: true });
   }
+  const quick = page.getByRole('dialog', { name: 'Hermes 工程桥 · Agent 状态', exact: true });
+  await page.setViewportSize({ width: 1440, height: 940 });
+  await page.goto(`${url}?mode=single&connection=1`);
+  await button.waitFor();
+  await page.locator('#draft').fill('查看状态时保留的需求');
+  await button.click();
+  await quick.getByRole('heading', { name: '尚未选择 profile', exact: true }).waitFor();
+  assert.equal(await main.isVisible(), false, 'titlebar status does not navigate to the workspace');
+  assert.equal(await page.locator('#draft').isVisible(), true, 'current conversation remains visible');
+  assert.equal(await button.getAttribute('aria-expanded'), 'true');
+  assert.equal(await quick.getByRole('button', { name: '选择 profile', exact: true }).count(), 0,
+    'profile mutations stay in the full connection page');
+  await button.click();
+  await quick.waitFor({ state: 'hidden' });
+  await button.click();
+  await quick.waitFor();
+  await page.keyboard.press('Escape');
+  await quick.waitFor({ state: 'hidden' });
+  assert.equal(await button.evaluate(element => element === document.activeElement), true);
+  await button.click();
+  await quick.waitFor();
+  await page.locator('#draft').click();
+  await quick.waitFor({ state: 'hidden' });
+  assert.equal(await page.locator('#draft').evaluate(element => element === document.activeElement), true,
+    'outside dismissal does not steal composer focus');
+  await button.click();
+  await quick.getByRole('button', { name: '打开完整工作台', exact: true }).click();
+  await main.getByRole('heading', { name: '尚未选择 profile', exact: true }).waitFor();
+  await quick.waitFor({ state: 'hidden' });
+  await button.click();
+  await quick.getByRole('button', { name: '打开完整工作台', exact: true }).click();
+  assert.equal(await main.isVisible(), true, 'opening the full page twice never toggles it closed');
+  await main.getByRole('button', { name: '返回工作区', exact: true }).click();
+  assert.equal(await page.locator('#draft').inputValue(), '查看状态时保留的需求');
+  await page.evaluate(() => {
+    const fixture = window.pluginWorkspaceFixture.connection;
+    fixture.result = fixture.snapshot('ready');
+    fixture.result.tasks = Array.from({ length: 20 }, (_, index) => ({
+      ...fixture.result.tasks[0], id: `quick-task-${index}`,
+    }));
+  });
+  await button.click();
+  await quick.getByRole('heading', { name: '只读连接已核验', exact: true }).waitFor();
+  assert.equal(await quick.locator('.plugin-connection-tasks > li').count(), 5);
+  assert.equal(await quick.locator('.plugin-connection-roots').count(), 0);
+  assert.ok(!(await quick.innerText()).includes('C:/Isolated profiles'));
+  assert.ok((await quick.innerText()).includes('检查于'));
+  await page.evaluate(() => {
+    const fixture = window.pluginWorkspaceFixture.connection;
+    fixture.hold = true;
+  });
+  await quick.getByRole('button', { name: '重新检查', exact: true }).click();
+  await page.waitForFunction(() => window.pluginWorkspaceFixture.connection.releases.length === 1);
+  await page.keyboard.press('Escape');
+  await page.evaluate(() => {
+    const fixture = window.pluginWorkspaceFixture.connection;
+    fixture.hold = false; fixture.result = fixture.snapshot('connection-unavailable');
+  });
+  await button.click();
+  await quick.getByRole('heading', { name: '无法连接 Agent Bridge', exact: true }).waitFor();
+  await page.evaluate(() => window.pluginWorkspaceFixture.connection.releases.shift()());
+  assert.equal(await quick.locator('.plugin-connection-tasks > li').count(), 0, 'dismissed stale reads cannot restore a verified summary');
+  await page.keyboard.press('Escape');
+  for (const [language, theme, width, height, overflow] of [
+    ['zh', 'light', 1440, 940, false], ['zh', 'dark', 390, 620, false],
+    ['en', 'light', 390, 420, false], ['en', 'dark', 1440, 940, true],
+  ]) {
+    const zh = language === 'zh';
+    await page.setViewportSize({ width, height });
+    await page.emulateMedia({ reducedMotion: width < 700 ? 'reduce' : 'no-preference' });
+    await page.goto(`${url}?connection=1&language=${language}&theme=${theme}${overflow ? '&overflow=1' : '&mode=single'}`);
+    await group.or(page.getByRole('group', { name: 'Plugin shortcuts', exact: true })).waitFor();
+    await page.evaluate(() => {
+      const fixture = window.pluginWorkspaceFixture.connection;
+      fixture.result = fixture.snapshot('ready');
+      fixture.result.tasks = Array.from({ length: 20 }, (_, index) => ({
+        ...fixture.result.tasks[0], id: `quick-task-${index}`,
+      }));
+    });
+    let anchor = button;
+    if (overflow) {
+      anchor = page.getByRole('button', { name: 'More plugins', exact: true });
+      await anchor.click();
+      await page.getByRole('menuitemradio', { name: 'Hermes 工程桥', exact: true }).click();
+    } else await anchor.click();
+    const popup = page.getByRole('dialog', { name: `Hermes 工程桥 · ${zh ? 'Agent 状态' : 'Agent status'}`, exact: true });
+    await popup.getByRole('heading', { name: zh ? '只读连接已核验' : 'Read-only connection verified', exact: true }).waitFor();
+    await settleLayout(popup);
+    const box = await popup.boundingBox(), anchorBox = await anchor.boundingBox();
+    assert.ok(box.x >= 0 && box.x + box.width <= width, 'status panel stays within the horizontal viewport');
+    assert.ok(box.y >= anchorBox.y + anchorBox.height && box.y + box.height <= height,
+      'status panel is below its titlebar anchor and fits the viewport');
+    assert.ok(box.height <= 520 && box.width <= 400, 'status stays compact');
+    const refresh = popup.getByRole('button', { name: zh ? '重新检查' : 'Check again', exact: true });
+    await refresh.focus();
+    await page.keyboard.press('Tab');
+    await page.keyboard.press('Shift+Tab');
+    const extent = await refresh.evaluate(element => {
+      const box = element.getBoundingClientRect(), clip = element.closest('.plugin-status-body').getBoundingClientRect();
+      const style = getComputedStyle(element);
+      return { visible: element.matches(':focus-visible'),
+        gutter: parseFloat(style.outlineWidth) + Math.max(0, parseFloat(style.outlineOffset)),
+        edges: [box.top - clip.top, clip.bottom - box.bottom, box.left - clip.left, clip.right - box.right] };
+    });
+    assert.ok(extent.visible && extent.edges.every(edge => edge >= extent.gutter), `status focus stays fully visible: ${JSON.stringify(extent)}`);
+    await settleLayout(popup);
+    await page.screenshot({ path: `${output}/status-${language}-${theme}-${width}.png`, fullPage: true });
+    await page.keyboard.press('Escape');
+    assert.equal(await anchor.evaluate(element => element === document.activeElement), true, 'status returns to direct or overflow anchor');
+    assert.equal(await main.isVisible(), false, 'status never opens the main plugin page implicitly');
+  }
+  await page.setViewportSize({ width: 1440, height: 940 });
+  await page.goto(`${url}?connection=1&overflow=1`);
+  await page.getByRole('button', { name: '更多插件', exact: true }).click();
+  await page.getByRole('menuitemradio', { name: 'Hermes 工程桥', exact: true }).click();
+  await quick.waitFor();
+  await page.setViewportSize({ width: 390, height: 620 });
+  await quick.waitFor();
+  await page.waitForFunction(() => {
+    const box = document.querySelector('.plugin-status-popover')?.getBoundingClientRect();
+    return box && box.left >= 0 && box.right <= innerWidth;
+  });
+  const resized = await quick.boundingBox();
+  assert.ok(resized.x >= 0 && resized.x + resized.width <= 390, 'open status follows its anchor after native resize');
+  for (const action of ['replacePackage', 'removePlugin', 'block']) {
+    await page.goto(`${url}?mode=single&connection=1`);
+    await button.click();
+    await quick.getByRole('heading', { name: '尚未选择 profile', exact: true }).waitFor();
+    await page.evaluate(action => window.pluginWorkspaceFixture.controls[action](), action);
+    await quick.waitFor({ state: 'hidden' });
+    assert.equal(await page.locator('.plugin-status-popover').count(), 0, `${action}: stale or blocked status is removed`);
+  }
   assert.deepEqual(errors, []);
-  console.log(JSON.stringify({ ok: true, screenshots: output, checks: ['delayed fixture readiness', 'titlebar isolation', 'MiniChat order', 'safe icon fallback', 'document retry', 'tab/history/scroll preservation', 'overflow keyboard/outside/Escape', 'main draft retention', 'responsive layouts and full focus outlines', 'native plugin window isolation', 'theme/preferences refresh', 'native package-ref remount', 'stale-response protection', 'unavailable retry', 'read-only connection diagnostics, controls, cancellation and stale results', 'connection language, theme, narrow, focus and task layout'] }, null, 2));
+  console.log(JSON.stringify({ ok: true, screenshots: output, checks: ['delayed fixture readiness', 'titlebar isolation', 'MiniChat order', 'safe icon fallback', 'document retry', 'tab/history/scroll preservation', 'overflow keyboard/outside/Escape', 'main draft retention', 'responsive layouts and full focus outlines', 'native plugin window isolation', 'theme/preferences refresh', 'native package-ref remount', 'stale-response protection', 'unavailable retry', 'read-only connection diagnostics, controls, cancellation and stale results', 'connection language, theme, narrow, focus and task layout', 'titlebar quick status toggle, Escape, outside focus and explicit full-page navigation', 'bounded quick summary and dismissed stale reads', 'status language, theme, narrow, short, overflow anchoring and full focus outlines', 'open status resize, package replacement, removal and modal blocking'] }, null, 2));
 } finally {
   releaseIcon?.();
   await browser?.close();

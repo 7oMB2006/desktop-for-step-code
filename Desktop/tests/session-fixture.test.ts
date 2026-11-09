@@ -4,7 +4,78 @@ import { runInNewContext } from 'node:vm';
 import test from 'node:test';
 import ts from 'typescript';
 
-const { waitForNewSessionButton, waitForSessionFixtureSnapshot } = await import(new URL('../scripts/session-fixture.mjs', import.meta.url).href);
+const { waitForNewSessionButton, waitForSessionFixtureSnapshot, restartIdleSessionFixture } =
+  await import(new URL('../scripts/session-fixture.mjs', import.meta.url).href);
+
+test('idle restart readiness waits only for refused preflights and preserves the original worker', async () => {
+  const order: string[] = [];
+  let attempts = 0;
+  const page = { evaluate: async (callback: () => unknown) => runInNewContext(`(${callback.toString()})()`, {
+    window: { desktop: {
+      restart: async () => {
+        order.push('restart');
+        if (++attempts < 3) throw new Error("Error invoking remote method 'desktop': Error: Session operation in progress");
+        return { runtimeId: 'new', state: { isStreaming: false } };
+      },
+      snapshot: async () => { order.push('identity'); return { runtimeId: 'old' }; },
+    } },
+  }) };
+  assert.deepEqual(await restartIdleSessionFixture(page, 'old'), { runtimeId: 'new', state: { isStreaming: false } });
+  assert.deepEqual(order, ['restart', 'identity', 'restart', 'identity', 'restart']);
+});
+
+test('idle restart readiness never retries a different failure or a changed runtime', async () => {
+  for (const changed of [false, true]) {
+    let calls = 0;
+    const failure = new Error(changed
+      ? "Error invoking remote method 'desktop': Error: Session operation in progress"
+      : 'RPC process failed to exit');
+    const page = { evaluate: async () => {
+      if (++calls === 1) throw failure;
+      assert.equal(changed, true, 'unrelated failures must not even poll');
+      return { runtimeId: 'unexpected' };
+    } };
+    await assert.rejects(restartIdleSessionFixture(page, 'old'),
+      changed ? /A refused restart must retain the original runtime/ : error => error === failure);
+    assert.equal(calls, changed ? 2 : 1);
+  }
+});
+
+test('idle restart readiness retains the busy failure at its deadline', async () => {
+  const failure = new Error("Error invoking remote method 'desktop': Error: Session operation in progress");
+  let calls = 0;
+  const page = { evaluate: async () => {
+    if (++calls === 1) throw failure;
+    return { runtimeId: 'old' };
+  } };
+  await assert.rejects(restartIdleSessionFixture(page, 'old', 0), error => error === failure);
+  assert.equal(calls, 2);
+});
+
+test('file preview acceptance waits for real browser state and retains native restart exit assertions', async () => {
+  const text = await readFile(new URL('../scripts/verify-file-preview.mjs', import.meta.url), 'utf8');
+  const source = ts.createSourceFile('verify-file-preview.mjs', text, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
+  let restart = 0;
+  const visit = (node: ts.Node) => {
+    if (ts.isCallExpression(node)) {
+      if (ts.isPropertyAccessExpression(node.expression) && node.expression.name.text === 'waitForFunction') {
+        const predicate = node.arguments[0];
+        assert.ok(predicate && (ts.isArrowFunction(predicate) || ts.isFunctionExpression(predicate)));
+        assert.equal(predicate.modifiers?.some(modifier => modifier.kind === ts.SyntaxKind.AsyncKeyword) ?? false, false);
+      }
+      if (ts.isIdentifier(node.expression) && node.expression.text === 'restartIdleSessionFixture') {
+        restart++;
+        assert.equal(node.arguments[1].getText(source), 'beforeRestart.runtimeId');
+        assert.ok(ts.isAwaitExpression(node.parent));
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+  assert.equal(restart, 1);
+  assert.ok(text.includes("'Session restart waits until the old RPC process is gone'"));
+  assert.ok(text.includes("error.code === 'ESRCH'"));
+});
 
 test('first-run acceptance never polls an async predicate through browser Promise truthiness', async () => {
   const source = ts.createSourceFile('verify-first-run.mjs',

@@ -5,7 +5,7 @@ import { mkdir, writeFile, readFile, mkdtemp } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
-import { prepareSessionFixture } from './session-fixture.mjs';
+import { prepareSessionFixture, restartIdleSessionFixture } from './session-fixture.mjs';
 
 const profile = await mkdtemp(join(tmpdir(), 'step-file-preview-'));
 const chosen = join(profile, 'picked.txt');
@@ -370,10 +370,7 @@ function draw(){if(!window.paused)tick++;x.fillStyle='#85d4be';x.fillRect(0,0,40
   await writeFile(join(cwd, 'index.html'), updatedHtml);
   assert.equal(await app.evaluate(() => globalThis.previewContents.executeJavaScript('document.getElementById("refresh-result")?.textContent ?? null')), null);
   await page.locator('#browser-panel').getByRole('button', { name: '刷新', exact: true }).click();
-  await page.waitForFunction(async () => {
-    const snapshot = await window.desktop.browserList();
-    return snapshot.tabs.some(tab => tab.localFile && !tab.loading);
-  });
+  await waitBrowser(page, snapshot => snapshot.tabs.some(tab => tab.localFile && !tab.loading));
   await app.evaluate(async () => {
     const contents = globalThis.previewContents;
     const deadline = Date.now() + 15000;
@@ -420,7 +417,7 @@ function draw(){if(!window.paused)tick++;x.fillStyle='#85d4be';x.fillRect(0,0,40
       .filter(handle => handle.pid && handle.spawnargs?.some(arg => /[\\/]step\.js$/.test(arg)) && handle.spawnargs.includes('rpc'))
       .map(handle => handle.pid));
     assert.ok(pids.length > 0, 'An actual fixture RPC child is running before restart');
-    const restarted = await reopened.evaluate(() => window.desktop.restart());
+    const restarted = await restartIdleSessionFixture(reopened, beforeRestart.runtimeId);
     assert.notEqual(restarted.runtimeId, beforeRestart.runtimeId);
     assert.equal(restarted.state.isStreaming, false);
     assert.equal(await app.evaluate((_electron, pids) => pids.every(pid => {

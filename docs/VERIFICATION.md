@@ -79,6 +79,23 @@ pass, confirming both earlier fixture repairs. Windows failure screenshot
 collection now includes nested fixture directories so native MiniChat failures
 retain their screenshots. Replacement cloud checks remain required.
 
+Cloud Windows CI then passes all three groups. macOS sessions passes both its
+source and packaged inventories, including the delayed MiniChat handoff.
+macOS interface reaches file-preview acceptance but its native restart meets a
+transient session-operation refusal immediately after renderer reload. The
+fixture now waits only for that specific refused preflight, verifies that the
+original runtime still exists after each refusal, and fails immediately on any
+other error or changed identity. Its deadline and the old-RPC-process-exit
+assertion are preserved. Four focused regressions cover refusal, identity,
+deadline and the retained native assertion. The browser-refresh wait also uses
+the existing awaited browser-state poller rather than an async browser predicate.
+All 33 focused tests and typecheck pass; normal native file preview passes.
+Temporarily enabling the native restart branch on Windows also passes, including
+actual old-child exit; the platform condition is restored before commit.
+This does not substitute for replacement macOS source/package checks.
+The preceding macOS runtime job never receives a hosted runner and is cancelled
+with explicit ARM64 capacity annotations; it executes no test.
+
 This source combination has its own verification logs under
 `D:\Desktop Runtime Builds\performance-pr-20261109`. It does not replace the
 fourteen-check package or owner-experience evidence below. No new installer,

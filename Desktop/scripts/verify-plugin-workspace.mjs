@@ -90,6 +90,25 @@ try {
     const closeBox = await nativeClose.boundingBox();
     assert.ok(closeBox.x >= 0 && closeBox.x + closeBox.width <= width + 1, 'native controls stay inside the viewport');
     await page.screenshot({ path: `${output}/${name}.png`, fullPage: true });
+    await main.getByRole('tab', { name: '开始使用', exact: true }).focus();
+    await page.keyboard.press('ArrowRight');
+    const focused = main.getByRole('tab', { name: '连接准备', exact: true });
+    const extent = await focused.evaluate(element => {
+      const box = element.getBoundingClientRect();
+      const clip = element.parentElement.getBoundingClientRect();
+      const style = getComputedStyle(element);
+      return {
+        visible: element.matches(':focus-visible'),
+        gutter: parseFloat(style.outlineWidth) + Math.max(0, parseFloat(style.outlineOffset)),
+        top: box.top - clip.top, bottom: clip.bottom - box.bottom,
+        left: box.left - clip.left, right: clip.right - box.right,
+      };
+    });
+    assert.ok(extent.visible, `${name}: keyboard tab focus is visible`);
+    for (const edge of ['top', 'bottom', 'left', 'right'])
+      assert.ok(extent[edge] >= extent.gutter - 0.5, `${name}: complete ${edge} focus outline stays inside the tab scroller`);
+    await main.getByRole('heading', { name: '连接准备', exact: true }).waitFor();
+    await page.screenshot({ path: `${output}/${name}-focused.png`, fullPage: true });
   }
   await page.goto(`${url}?mode=single&open=1`);
   assert.equal(await page.getByRole('button', { name: '更多插件', exact: true }).count(), 0);
@@ -98,6 +117,8 @@ try {
   await page.getByRole('heading', { name: 'Hermes 工程桥', exact: true }).waitFor();
   assert.equal(await page.getByRole('button', { name: '侧栏', exact: true }).count(), 0, 'plugin window does not expose a dead sidebar action');
   assert.equal(await page.getByRole('button', { name: 'MiniChat', exact: true }).count(), 0);
+  assert.equal(await page.getByRole('button', { name: '返回工作区', exact: true }).count(), 0,
+    'a separate window must not claim its close action returns to the workspace');
   await page.getByRole('button', { name: '插件设置', exact: true }).click();
   assert.equal(await page.evaluate(() => window.pluginWindowFixture.configured), 1);
   await page.getByRole('button', { name: '查看连接准备', exact: true }).click();
@@ -146,14 +167,14 @@ try {
   await page.getByRole('button', { name: '重新读取', exact: true }).click();
   await page.getByRole('heading', { name: 'Hermes 工程桥', exact: true }).waitFor();
   assert.equal(await page.evaluate(() => window.pluginWindowFixture.illegal), 0, 'plugin window never reads conversations or submits commands');
-  await page.getByRole('button', { name: '返回工作区', exact: true }).click();
+  await page.getByRole('button', { name: '关闭插件窗口', exact: true }).click();
   assert.ok(await page.evaluate(() => window.pluginWindowFixture.controls.includes('close')));
   await page.screenshot({ path: `${output}/native-window-dark.png`, fullPage: true });
   await page.setViewportSize({ width: 1060, height: 780 });
   assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
   await page.screenshot({ path: `${output}/native-window-desktop-dark.png`, fullPage: true });
   assert.deepEqual(errors, []);
-  console.log(JSON.stringify({ ok: true, screenshots: output, checks: ['titlebar isolation', 'MiniChat order', 'safe icon fallback', 'document retry', 'tab/history/scroll preservation', 'overflow keyboard/outside/Escape', 'main draft retention', 'responsive layouts', 'native plugin window isolation', 'theme/preferences refresh', 'native package-ref remount', 'stale-response protection', 'unavailable retry'] }, null, 2));
+  console.log(JSON.stringify({ ok: true, screenshots: output, checks: ['titlebar isolation', 'MiniChat order', 'safe icon fallback', 'document retry', 'tab/history/scroll preservation', 'overflow keyboard/outside/Escape', 'main draft retention', 'responsive layouts and full focus outlines', 'native plugin window isolation', 'theme/preferences refresh', 'native package-ref remount', 'stale-response protection', 'unavailable retry'] }, null, 2));
 } finally {
   await browser?.close();
   await server?.close();

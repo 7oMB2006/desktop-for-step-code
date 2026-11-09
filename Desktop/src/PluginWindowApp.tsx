@@ -95,7 +95,8 @@ export function PluginWindowApp({ bridge = window.desktop }: { bridge?: PluginWi
         <CircleAlert size={15}/><span>{zh ? '操作未完成，请重试。' : 'The action could not be completed. Please retry.'}</span>
       </div>}
       <PluginWorkspace key={`${entry.id}:${entry.plugin.package!.ref}`} entry={entry} bridge={bridge} language={preferences.language}
-        onConfigure={configure} onBack={() => { void bridge.windowControl('close').catch(() => { if (mounted.current) setActionError(true); }); }}/>
+        onConfigure={configure} closeLabel={zh ? '关闭插件窗口' : 'Close plugin window'}
+        onClose={() => { void bridge.windowControl('close').catch(() => { if (mounted.current) setActionError(true); }); }}/>
     </div>}
     <AppTooltip/>
   </div>;

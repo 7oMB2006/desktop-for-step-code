@@ -1249,6 +1249,10 @@ function App() {
       void run(() => bridge.pluginWindowOpen({ ref: entry.plugin.package!.ref }));
       return;
     }
+    if (entry.desktop.surface === 'main-view' && pluginsOpen && desktopMainId === entry.id) {
+      closePluginMain();
+      return;
+    }
     setDesktopVisited(ids => new Set([...ids, entry.id]));
     setPluginsVisited(true);
     finishSettingsClose(); setFulltextOpen(false); setScheduledOpen(false); setUsageOpen(false); setRemoteOpen(false);
@@ -2425,7 +2429,7 @@ function App() {
         aria-label={entry.desktop.title} hidden={!desktopSideOpen || desktopSideId !== entry.id}
         inert={!desktopSideOpen || desktopSideId !== entry.id || settingsOpen || Boolean(removeProject)}>
         <PluginWorkspace entry={entry} bridge={bridge} language={data.preferences.language} active={desktopSideOpen && desktopSideId === entry.id}
-          onBack={closePluginSide} onConfigure={() => configurePluginDesktop(entry)}/>
+          onClose={closePluginSide} onConfigure={() => configurePluginDesktop(entry)}/>
       </aside>)}
     <nav hidden={scheduledOpen || usageOpen || remoteOpen || pluginsOpen || fulltextOpen} ref={rightRail} className="right-tool-rail" style={usageOpen || remoteOpen || pluginsOpen || fulltextOpen ? { display: 'none' } : undefined} aria-label={t('右侧工具', 'Right tools')} inert={usageOpen || remoteOpen || pluginsOpen || fulltextOpen || Boolean(navigationTarget) || Boolean(removeProject)}
       onClickCapture={() => { if (bottomTerminalExpanded) setExpandedRightPanel(null); }}>

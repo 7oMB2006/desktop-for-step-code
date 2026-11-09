@@ -19,6 +19,7 @@ const fixturePlugins = [
   { id: 'a-surface-main', name: 'A Surface Main Guide', title: 'Main Surface', surface: 'main-view' },
   { id: 'surface-side', name: 'Surface Side Guide', title: 'Side Surface', surface: 'side-panel' },
   { id: 'surface-window', name: 'Surface Window Guide', title: 'Window Surface', surface: 'window' },
+  { id: 'z-surface-overflow', name: 'Overflow Surface Guide', title: 'Overflow Surface', surface: 'main-view' },
 ];
 await mkdir(join(root, 'sessions'), { recursive: true });
 await mkdir(workspace);
@@ -287,6 +288,14 @@ try {
   await openAction(fixturePlugins[0]);
   assert.equal(await mainSpace.getByRole('tab', { name: 'Connection', exact: true }).getAttribute('aria-selected'), 'true');
   assert.ok(await mainSpace.getByRole('tabpanel').evaluate(element => element.scrollTop) > 400);
+  await mainSpace.getByRole('tab', { name: 'Connection', exact: true }).focus();
+  await openAction(fixturePlugins[0]);
+  await composer.waitFor();
+  await main.waitForFunction(() => document.activeElement?.getAttribute('data-plugin-action') === 'a-surface-main');
+  await openAction(fixturePlugins[0]);
+  await main.waitForFunction(() => document.activeElement?.getAttribute('role') === 'tab'
+    && document.activeElement.textContent === 'Connection');
+  assert.ok(await mainSpace.getByRole('tabpanel').evaluate(element => element.scrollTop) > 400);
   await mainSpace.getByRole('button', { name: 'Plugin settings', exact: true }).click();
   await configRoute(fixturePlugins[0]);
   checks.push('installed detail opens the actual main workspace; real draft, transcript position and plugin tab/scroll survive; settings target the exact installed config tab');
@@ -301,7 +310,45 @@ try {
   await main.keyboard.press('Escape');
   await side.waitFor({ state: 'hidden' });
   await main.waitForFunction(() => document.activeElement?.getAttribute('data-plugin-action') === 'surface-side');
-  checks.push('production side panel coexists with the selected conversation, yields to official right tools and restores its titlebar opener on Escape');
+  await openAction(fixturePlugins[1]);
+  await side.getByRole('button', { name: 'Close panel', exact: true }).click();
+  await side.waitFor({ state: 'hidden' });
+  await main.waitForFunction(() => document.activeElement?.getAttribute('data-plugin-action') === 'surface-side');
+  checks.push('production side panel coexists with the selected conversation, yields to official right tools and restores its titlebar opener on Escape or explicit close');
+
+  const overflowPlugin = fixturePlugins[3];
+  await main.getByRole('button', { name: 'More plugins', exact: true }).click();
+  await main.getByRole('menuitemradio', { name: overflowPlugin.title, exact: true }).focus();
+  await main.keyboard.press('Enter');
+  const overflowSpace = workspaceFor(overflowPlugin);
+  await overflowSpace.getByRole('heading', { name: 'Overflow Surface start', exact: true }).waitFor();
+  await main.waitForFunction(() => document.activeElement?.closest('[data-plugin-workspace="z-surface-overflow"]')
+    && document.activeElement.getAttribute('role') === 'tab');
+  await overflowSpace.getByRole('button', { name: 'Back to workspace', exact: true }).click();
+  await composer.waitFor();
+  await main.waitForFunction(() => document.activeElement?.classList.contains('plugin-action-overflow'));
+  assert.equal(await composer.innerText(), 'KEEP THE REAL DESKTOP DRAFT');
+  for (const theme of ['light', 'dark']) {
+    await main.evaluate(theme => window.desktop.preferences({ theme }), theme);
+    await main.waitForFunction(theme => document.documentElement.dataset.theme === theme, theme);
+    await openAction(fixturePlugins[0]);
+    await settleLayout(mainSpace);
+    await main.screenshot({ path: join(output, `main-${theme}.png`) });
+    await openAction(fixturePlugins[0]);
+    await openAction(fixturePlugins[1]);
+    await app.evaluate(({ BrowserWindow }, mainId) => BrowserWindow.fromId(mainId).setSize(900, 780), mainId);
+    await settleLayout(side);
+    assert.ok(await main.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+    for (const name of ['Plugin settings', 'Close panel']) {
+      const box = await side.getByRole('button', { name, exact: true }).boundingBox();
+      assert.ok(box && box.x >= 0 && box.x + box.width <= 900, `${name}: narrow controls remain inside the window`);
+    }
+    await main.screenshot({ path: join(output, `side-narrow-${theme}.png`) });
+    await side.getByRole('button', { name: 'Close panel', exact: true }).click();
+    await app.evaluate(({ BrowserWindow }, mainId) => BrowserWindow.fromId(mainId).setSize(1440, 940), mainId);
+  }
+  await main.evaluate(() => window.desktop.preferences({ theme: 'light' }));
+  checks.push('keyboard overflow selection transfers focus into the workspace and returning restores the overflow trigger without changing the draft');
 
   if (hermes) {
     await openAction(hermes);
@@ -338,6 +385,8 @@ try {
 
   const nativeOpened = app.waitForEvent('window');
   await openAction(fixturePlugins[2]);
+  assert.equal(await action(fixturePlugins[2]).getAttribute('aria-pressed'), null,
+    'a native window launcher is not announced as a main-view toggle');
   native = await nativeOpened;
   native.setDefaultTimeout(30000);
   native.on('pageerror', error => errors.push(error.message));
@@ -379,6 +428,17 @@ try {
   assert.equal(await native.getByRole('button', { name: 'Previous document', exact: true }).count(), 1);
   await native.screenshot({ path: join(output, 'native-window-dark.png') });
   checks.push('full production main opens and reuses the sandboxed native renderer; narrow IPC denies conversations, prompts, preferences, mutations, browser and foreign/private documents; settings route and preference refresh remain isolated');
+  const explicitlyClosed = native.waitForEvent('close');
+  await native.getByRole('button', { name: 'Close plugin window', exact: true }).click();
+  await explicitlyClosed;
+  assert.ok(await app.evaluate(({ BrowserWindow }, id) => !BrowserWindow.fromId(id).isDestroyed(), mainId));
+  const reopened = app.waitForEvent('window');
+  await openAction(fixturePlugins[2]);
+  native = await reopened;
+  native.setDefaultTimeout(30000);
+  native.on('pageerror', error => errors.push(error.message));
+  await native.getByRole('heading', { name: 'Window Surface start', exact: true }).waitFor();
+  checks.push('the visible close-window action closes only the plugin renderer and its entry can open a fresh isolated window');
 
   await writePlugin(fixturePlugins[2], '0.2.0');
   commit('Update the isolated window guide');

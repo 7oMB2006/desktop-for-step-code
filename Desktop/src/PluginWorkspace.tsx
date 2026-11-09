@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, useState } from 'react';
-import { ArrowLeft, Settings } from 'lucide-react';
+import { ArrowLeft, Settings, X } from 'lucide-react';
 import type { DesktopBridge } from './contracts';
 import { PluginDocumentReader } from './PluginDocumentation';
 import { PluginDesktopIcon } from './PluginActionGroup';
@@ -7,25 +7,42 @@ import { pluginDesktopDefaultPage, type PluginDesktopEntry } from './plugin-desk
 import './plugin-center.css';
 import './plugin-workspace.css';
 
-export function PluginWorkspace({ entry, bridge, language, onBack, onConfigure, active = true }: {
+export function PluginWorkspace({ entry, bridge, language, onBack, onClose, closeLabel, onConfigure, active = true }: {
   entry: PluginDesktopEntry; bridge: Pick<DesktopBridge, 'pluginDocument'>; language: 'zh' | 'en';
-  onBack?: () => void; onConfigure?: () => void; active?: boolean;
+  onBack?: () => void; onClose?: () => void; closeLabel?: string; onConfigure?: () => void; active?: boolean;
 }) {
   const initialPage = pluginDesktopDefaultPage(entry.desktop).id;
   const [selected, setSelected] = useState(initialPage);
   const [visited, setVisited] = useState(() => new Set([initialPage]));
   const tabs = useRef<HTMLElement>(null);
+  const workspace = useRef<HTMLElement>(null);
+  const lastFocused = useRef<HTMLElement | null>(null);
   const id = useId();
   const page = entry.desktop.pages.find(item => item.id === selected) ?? pluginDesktopDefaultPage(entry.desktop);
   const zh = language === 'zh';
   useEffect(() => {
     setVisited(value => value.has(page.id) ? value : new Set([...value, page.id]));
   }, [page.id]);
+  useEffect(() => {
+    if (!active) return;
+    const frame = requestAnimationFrame(() => {
+      const element = workspace.current;
+      if (!element || element.closest('[hidden], [inert]')) return;
+      const previous = lastFocused.current;
+      const target = previous?.isConnected && element.contains(previous) && previous.getClientRects().length
+        && !previous.matches(':disabled') && !previous.closest('[hidden], [inert]')
+        ? previous : tabs.current?.querySelector<HTMLButtonElement>('[aria-selected="true"]');
+      target?.focus({ preventScroll: true });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [active]);
   const selectPage = (pageId: string) => {
     setVisited(value => value.has(pageId) ? value : new Set([...value, pageId]));
     setSelected(pageId);
   };
-  return <section className="plugin-workspace" hidden={!active} inert={!active}
+  const dismissLabel = closeLabel ?? (zh ? '关闭面板' : 'Close panel');
+  return <section ref={workspace} className="plugin-workspace" hidden={!active} inert={!active}
+    onFocusCapture={event => { lastFocused.current = event.target; }}
     aria-labelledby={`${id}-title`} data-plugin-workspace={entry.id}>
     <header className="plugin-workspace-header">
       {onBack && <button type="button" className="icon-button" aria-label={zh ? '返回工作区' : 'Back to workspace'}
@@ -41,6 +58,8 @@ export function PluginWorkspace({ entry, bridge, language, onBack, onConfigure, 
       </div>
       {onConfigure && <button type="button" className="icon-button" aria-label={zh ? '插件设置' : 'Plugin settings'}
         data-tooltip={zh ? '插件设置' : 'Plugin settings'} onClick={onConfigure}><Settings size={17}/></button>}
+      {onClose && <button type="button" className="icon-button" aria-label={dismissLabel}
+        data-tooltip={dismissLabel} onClick={onClose}><X size={18}/></button>}
     </header>
     <nav ref={tabs} className="plugin-workspace-tabs" role="tablist" aria-label={entry.desktop.title}
       onKeyDown={event => {

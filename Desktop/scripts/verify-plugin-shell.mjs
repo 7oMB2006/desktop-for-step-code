@@ -95,11 +95,20 @@ try {
   assert.ok(scrollBefore > 0);
   await mainAction.click();
   await main.getByRole('heading', { name: 'docs/start.md', exact: true }).waitFor();
+  await page.waitForFunction(() => document.activeElement?.closest('[data-plugin-workspace="main-plugin"]')
+    && document.activeElement.getAttribute('role') === 'tab' && document.activeElement.textContent === 'Start');
   assert.equal(await page.locator('main:visible').count(), 1, 'one visible main surface');
   assert.equal(await page.getByRole('region', { name: 'Plugin center', exact: true }).count(), 0);
   await main.getByRole('tab', { name: 'Setup', exact: true }).click();
   await main.getByRole('heading', { name: 'docs/setup.md', exact: true }).waitFor();
   await main.getByRole('tabpanel').evaluate(element => { element.scrollTop = 500; });
+  await mainAction.click();
+  await composer.waitFor();
+  await page.waitForFunction(() => document.activeElement?.getAttribute('data-plugin-action') === 'main-plugin');
+  await mainAction.click();
+  await page.waitForFunction(() => document.activeElement?.getAttribute('role') === 'tab'
+    && document.activeElement.textContent === 'Setup');
+  assert.ok(await main.getByRole('tabpanel').evaluate(element => element.scrollTop) > 400);
   await main.getByRole('button', { name: 'Back to workspace', exact: true }).click();
   await composer.waitFor();
   await page.waitForFunction(() => document.activeElement?.getAttribute('data-plugin-action') === 'main-plugin');
@@ -111,6 +120,11 @@ try {
   assert.ok(await main.getByRole('tabpanel').evaluate(element => element.scrollTop) > 400);
   await sideAction.click();
   await side.getByRole('heading', { name: 'docs/start.md', exact: true }).waitFor();
+  assert.equal(await side.getByRole('button', { name: 'Back to workspace', exact: true }).count(), 0);
+  await side.getByRole('button', { name: 'Close panel', exact: true }).click();
+  await side.waitFor({ state: 'hidden' });
+  await page.waitForFunction(() => document.activeElement?.getAttribute('data-plugin-action') === 'side-plugin');
+  await sideAction.click();
   assert.equal(await composer.innerText(), 'KEEP THE MAIN DRAFT');
   assert.equal(await main.isVisible(), false);
   await page.keyboard.press('Escape');
@@ -163,7 +177,7 @@ try {
   assert.deepEqual(errors, []);
   console.log(JSON.stringify({ ok: true, screenshots: output, checks: [
     'single visible main', 'real composer draft retention', 'reading-position retention',
-    'workspace tab/scroll retention', 'main/side return focus', 'official right-tool replacement', 'installed-detail entry',
+    'workspace tab/scroll/focus retention', 'main toggle and main/side return focus', 'explicit side close', 'official right-tool replacement', 'installed-detail entry',
     'package ref remount', 'catalog race protection', 'failed refresh stale-content removal',
   ] }, null, 2));
 } finally {

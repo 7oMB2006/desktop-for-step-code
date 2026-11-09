@@ -88,7 +88,8 @@ function Fixture() {
     </main>
     <div className={side ? 'plugin-fixture-side' : 'plugin-fixture-workspaces'} hidden={!active}>
       {entries.filter(entry => visited.has(entry.id)).map(entry => <PluginWorkspace key={entry.id} entry={entry} bridge={bridge}
-        language={zh ? 'zh' : 'en'} active={active === entry.id} onBack={() => setActive(undefined)}
+        language={zh ? 'zh' : 'en'} active={active === entry.id}
+        onBack={side ? undefined : () => setActive(undefined)} onClose={side ? () => setActive(undefined) : undefined}
         onConfigure={() => {}}/>)}
     </div>
     <AppTooltip/>

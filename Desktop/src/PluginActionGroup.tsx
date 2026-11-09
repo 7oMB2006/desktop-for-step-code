@@ -46,7 +46,8 @@ export function PluginActionGroup({ entries, language, activeId, onOpen, maxVisi
   return <div className="plugin-action-group" role="group" aria-label={zh ? '插件快捷入口' : 'Plugin shortcuts'}>
     {visible.map(entry => <button key={entry.id} type="button" className="plugin-action-button"
       data-plugin-action={entry.id} data-tooltip={entry.desktop.title} aria-label={entry.desktop.title}
-      aria-pressed={activeId === entry.id} onClick={() => { closeMenu(); onOpen(entry); }}>
+      aria-pressed={entry.desktop.surface === 'window' ? undefined : activeId === entry.id}
+      onClick={() => { closeMenu(); onOpen(entry); }}>
       <PluginDesktopIcon entry={entry}/>
     </button>)}
     {overflow.length > 0 && <button ref={trigger} type="button" className="plugin-action-button plugin-action-overflow"

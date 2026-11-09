@@ -103,6 +103,12 @@ Opening, tabbing and closing a workspace preserve conversation drafts and do not
 submit prompts, grant permissions or claim a connected backend. Any configuration
 action navigates to the existing plugin configuration flow. Missing or stale
 packages clear the actionable workspace rather than displaying another package.
+Main-view and side-panel shortcuts toggle their visible workspace; a window
+shortcut opens or focuses its one native window. Opening a workspace transfers
+keyboard focus into its selected tab, or restores its last visible focused
+control when reopened. Returning restores the original entry, including the
+overflow trigger. Main views use Back; side panels and native windows use an
+explicit Close action with the correct accessible name.
 This optional author contract requires a new host build, not a package-name
 exception or an implied capability in all published 0.6.0 clients.
 

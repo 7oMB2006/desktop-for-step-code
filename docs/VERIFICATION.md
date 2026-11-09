@@ -1,5 +1,52 @@
 # Verification
 
+## Generic Plugin Workspace Interaction Closeout (2026-11-09)
+
+This closes the generic data-only workspace interaction layer, not a Hermes
+business frontend or an arbitrary third-party frontend SDK. Main-view shortcuts
+now toggle their visible workspace. Opening transfers keyboard focus into the
+selected tab, or restores a still-visible enabled control when reopening.
+Side panels and native windows expose correctly named Close actions instead of
+claiming to return to the workspace. Native window launchers are not announced
+as pressed main-view toggles. Conversation drafts and reading state are retained.
+
+Local evidence on the updated source:
+
+- Typecheck, production build and whitespace checks passed.
+- The complete protocol rerun passed 1,794 of 1,807 tests, with 13 platform
+  skips and no failures. The first attempt had one Windows `UNKNOWN: read`
+  failure in `plugin-configuration.test.ts`; its isolated eight-test rerun and
+  the subsequent complete run passed without source changes to that module.
+  The initial failure remains recorded; its underlying cause is not established.
+- Component-browser and actual-shell injected-bridge verifiers passed.
+  Light/dark, desktop/narrow and reduced-motion layouts were inspected, and
+  keyboard tab focus outlines were measured on all four sides inside the
+  clipping tab scroller. Reopening preserves the selected page, scroll and
+  page-local focus; returning restores direct or overflow entry focus.
+- The isolated native window verifier passed seven groups. The full production
+  Electron verifier passed eight groups with a real local Git marketplace and
+  four generic fixture plugins, not a Hermes package. It covers install,
+  main/side/window routing, toggle/close/focus behavior, keyboard overflow entry,
+  exact installed configuration routing, update/uninstall reference invalidation,
+  denied unrelated IPC, native close/reopen independence and draft retention.
+  It recorded zero inference requests, no renderer errors, exit code zero and
+  zero remaining windows. Production light/dark main and narrow side screenshots
+  were inspected.
+
+Evidence is under
+`D:\DFSC-Preview-QA\plugin-generic-closeout-20261109`, with final production
+results in `electron-final\verification.json`, complete test results in
+`protocol-recheck.log` and the first failure in `protocol.log`. The separate
+native manager result is
+`D:\DFSC-Preview-QA\plugin-windows-H0lTuE\verification.json`.
+
+The prior PR head's Windows checks passed, but its macOS sessions acceptance
+timed out in `verify-mini-chat-electron.mjs:675`. Those historical results do not
+establish cloud acceptance of this new source. No native macOS, installed-client
+upgrade, installer, release or Hermes/Feishu business-flow acceptance is claimed.
+The owner's running application, personal profile, credentials, shortcut and
+upstream runtime checkout were not changed.
+
 ## 管理 worker 异常退出后的应用关闭回归（2026-11-08）
 
 PR #219 的 P2 已复现：管理 worker 缺少有效 shutdown 确认时，

@@ -1988,7 +1988,7 @@ function App() {
     {pluginsVisited && bridge && <main hidden={!pluginsOpen || Boolean(desktopMainId)} inert={!pluginsOpen || Boolean(desktopMainId) || settingsOpen || Boolean(removeProject)}>
       {!!requests.length && <div className="approval-notice"><TriangleAlert size={16}/><span>{t('当前会话有待确认的操作', 'The current session is awaiting approval')}</span>
         <button onClick={() => { setPluginsOpen(false); setApprovalOpen(true); }}>{t('查看', 'Review')}</button></div>}
-      <PluginCenter bridge={bridge} language={data.preferences.language} active={pluginsOpen && !desktopMainId} busy={anyBusy || busy || loading}
+      <PluginCenter bridge={bridge} language={data.preferences.language} currentVersion={appUpdate?.currentVersion} active={pluginsOpen && !desktopMainId} busy={anyBusy || busy || loading}
         runtimeId={data.runtimeId} settings={settings ?? undefined} target={capabilityTarget?.page === 'plugins' ? capabilityTarget : undefined}
         onBack={() => setPluginsOpen(false)} onOpenDesktop={openInstalledDesktop}
         onChanged={async () => { setSettings(await bridge.settings()); setCapabilityRevision(value => value + 1); }}

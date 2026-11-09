@@ -62,6 +62,23 @@ The latest full local protocol run records 1,931 passes and 13 platform skips
 before the new restart-readiness regression is added. No product source changes,
 model requests, skipped assertions or relaxed timeouts are introduced.
 
+The next Windows sessions run exposes a MiniChat reading-handoff race. A
+500 ms delayed main-window snapshot reproduces the failure locally: the mini
+window transfers its historical anchor at scrollTop 180, but a main-window
+scroll persistence event overwrites it with the old tail at scrollTop 6938.
+The renderer now suspends presentation persistence during handoff reads and
+until the restored position has been applied to layout. Four production-closure
+regressions cover delayed reads, overlapping reads, failure recovery and ordinary
+refreshes; all 62 focused layout/navigation/readiness/shutdown tests pass.
+Typecheck and build pass; the complete serial protocol suite records 1,936 passes,
+13 platform skips and zero failures. The delayed complete native MiniChat check
+passes twice with its original 4 px anchor tolerance; native navigation and
+conversation scrolling also pass. CI policy/runner tests record 30 passes and
+one platform skip. The preceding cloud Windows interface and runtime groups
+pass, confirming both earlier fixture repairs. Windows failure screenshot
+collection now includes nested fixture directories so native MiniChat failures
+retain their screenshots. Replacement cloud checks remain required.
+
 This source combination has its own verification logs under
 `D:\Desktop Runtime Builds\performance-pr-20261109`. It does not replace the
 fourteen-check package or owner-experience evidence below. No new installer,

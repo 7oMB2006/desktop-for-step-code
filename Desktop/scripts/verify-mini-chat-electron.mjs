@@ -518,14 +518,46 @@ try {
   });
   await main.getByRole('button', { name: '远程访问', exact: true }).click();
   await main.getByRole('region', { name: '远程访问', exact: true }).waitFor();
-  await mini.getByRole('button', { name: '回到主窗口', exact: true }).click();
-  await main.getByRole('region', { name: '远程访问', exact: true }).waitFor({ state: 'detached' });
-  await main.locator('main .conversation').waitFor({ state: 'visible' });
-  await main.waitForFunction(anchor => {
-    const viewport = document.querySelector('.conversation');
-    const article = viewport.querySelector(`article[data-message-index="${anchor.index}"]`);
-    return article && Math.abs(article.getBoundingClientRect().top - viewport.getBoundingClientRect().top - anchor.offset) < 4;
-  }, anchor);
+  // A slow snapshot must not let the main window's old reading overwrite the handoff.
+  await app.evaluate(({ ipcMain, BrowserWindow }, mainWindowId) => {
+    const handler = ipcMain._invokeHandlers.get('desktop');
+    const mainContents = BrowserWindow.fromId(mainWindowId).webContents;
+    globalThis.miniReadingGate = { handler, events: [], snapshots: 0 };
+    ipcMain.removeHandler('desktop');
+    ipcMain.handle('desktop', async (event, method, ...args) => {
+      const gate = globalThis.miniReadingGate;
+      if (method === 'miniChatReturn') gate.events.push({ method, position: args[0].position });
+      if (event.sender === mainContents && method === 'windowPresentation')
+        gate.events.push({ method, position: args[1].position });
+      if (event.sender === mainContents && method === 'snapshot') {
+        gate.snapshots++;
+        await new Promise(resolve => setTimeout(resolve, 500));
+      }
+      const value = await handler(event, method, ...args);
+      if (event.sender === mainContents && method === 'snapshot')
+        gate.events.push({ method, position: value.windowPresentation?.position });
+      return value;
+    });
+  }, mainWindowId);
+  try {
+    await mini.getByRole('button', { name: '回到主窗口', exact: true }).click();
+    await main.getByRole('region', { name: '远程访问', exact: true }).waitFor({ state: 'detached' });
+    await main.locator('main .conversation').waitFor({ state: 'visible' });
+    await main.waitForFunction(anchor => {
+      const viewport = document.querySelector('.conversation');
+      const article = viewport.querySelector(`article[data-message-index="${anchor.index}"]`);
+      return article && Math.abs(article.getBoundingClientRect().top - viewport.getBoundingClientRect().top - anchor.offset) < 4;
+    }, anchor);
+  } finally {
+    const evidence = await app.evaluate(({ ipcMain }) => {
+      const { handler, events, snapshots } = globalThis.miniReadingGate;
+      ipcMain.removeHandler('desktop'); ipcMain.handle('desktop', handler);
+      delete globalThis.miniReadingGate;
+      return { events, snapshots };
+    });
+    console.log('MiniChat reading handoff:', JSON.stringify({ anchor, ...evidence }));
+    assert.ok(evidence.snapshots > 0, 'The handoff snapshot actually exercises delayed restoration');
+  }
   const beforeRestart = (await main.evaluate(() => window.desktop.snapshot())).runtimeId;
   const restarted = await main.evaluate(() => window.desktop.restart());
   assert.notEqual(restarted.runtimeId, beforeRestart);

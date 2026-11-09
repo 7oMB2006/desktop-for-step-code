@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import { after, before, test } from 'node:test';
 import { chromium } from 'playwright';
+import ts from 'typescript';
 import { sampleMotion } from './sample-motion.mjs';
 import { captureWaapi } from './capture-waapi.mjs';
 import { settleLayout } from './settle-layout.mjs';
@@ -41,6 +43,79 @@ const animate = (page, frames = [{ translate: '-100px' }, { translate: '0px' }],
   }, { frames, timing });
 const cleanCss = page => page.evaluate(() => globalThis.desktopMotionSamples.size);
 const cleanWaapi = page => page.evaluate(() => globalThis.desktopWaapiSamples.size);
+
+test('session search acceptance waits for sidebar entrance and still rejects persistent focus clipping', { timeout: 15000 }, async () => {
+  // Execute the verifier's own geometry block so a misplaced wait cannot pass.
+  const source = ts.createSourceFile('verify-session-search.mjs',
+    await readFile(new URL('./verify-session-search.mjs', import.meta.url), 'utf8'),
+    ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
+  let statements;
+  const visit = node => {
+    if (ts.isForOfStatement(node) && ts.isBlock(node.statement)) {
+      const body = [...node.statement.statements];
+      const focus = body.findIndex(statement => ts.isVariableStatement(statement)
+        && statement.declarationList.declarations.some(declaration => declaration.name.getText(source) === 'focus'));
+      if (focus >= 0) {
+        const keyboard = body.findIndex(statement => ts.isExpressionStatement(statement)
+          && statement.getText(source) === "await search.press('ArrowRight');");
+        assert.ok(keyboard >= 0 && keyboard < focus);
+        statements = body.slice(keyboard + 1, focus + 2).map(statement => statement.getText(source)).join('\n');
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+  assert.ok(statements, 'Exercise the native verifier focus measurement and assertion');
+  const inspect = new Function('search', 'settleLayout', 'assert', `return (async () => { ${statements} })();`);
+  const css = (await Promise.all(['layout.css', 'scheduled-tasks.css', 'session-search.css']
+    .map(name => readFile(new URL(`../src/${name}`, import.meta.url), 'utf8')))).join('\n');
+  for (const width of [1200, 600]) {
+    const page = await browser.newPage({ viewport: { width, height: 850 } });
+    try {
+      await page.setContent(`<style>
+        * { box-sizing: border-box; }
+        :root { --primary: #267347; }
+        body { margin: 0; }
+        .app { display: flex; height: 100dvh; overflow: hidden; }
+        .sidebar { flex-direction: column; }
+        ${css}
+      </style><div class="app sidebar-hidden ${width < 760 ? 'sidebar-compact' : ''}">
+        <aside class="sidebar"><div class="sidebar-task-actions">
+          <div class="sidebar-utility-row" data-search-open="true">
+            <div class="sidebar-search-field"><input aria-label="Search sessions"></div>
+          </div>
+        </div></aside>
+      </div>`);
+      const search = page.getByRole('textbox', { name: 'Search sessions' });
+      const before = await page.locator('.app').evaluate(element => {
+        const sidebar = element.querySelector('.sidebar');
+        getComputedStyle(sidebar).transform;
+        element.classList.remove('sidebar-hidden');
+        getComputedStyle(sidebar).transform;
+        const effects = sidebar.getAnimations().filter(animation => animation.transitionProperty === 'transform');
+        if (effects.length !== 1) throw new Error('The real sidebar entrance must animate');
+        effects[0].pause();
+        effects[0].currentTime = 0;
+        sidebar.querySelector('input').focus({ preventScroll: true });
+        return element.querySelector('.sidebar-utility-row').getBoundingClientRect().left;
+      });
+      assert.ok(before < 0, 'The focus ring is initially outside the clipping viewport');
+      let settled = false;
+      await inspect(search, async locator => {
+        await page.locator('.sidebar').evaluate(element => {
+          for (const animation of element.getAnimations()) animation.play();
+        });
+        await settleLayout(locator);
+        settled = true;
+      }, assert);
+      assert.equal(settled, true, 'Geometry must be measured after the native sidebar animation finishes');
+      await page.locator('.sidebar-utility-row').evaluate(element => { element.style.marginLeft = '-20px'; });
+      await assert.rejects(inspect(search, settleLayout, assert), error =>
+        error instanceof assert.AssertionError && error.actual?.contained === false
+        && error.actual?.outline === '2px', 'A genuinely clipped focus ring must still fail after settling');
+    } finally { await page.close(); }
+  }
+});
 
 test('layout settling waits for ancestor pseudo-element track motion before measuring a nested form', { timeout: 5000 }, async () => {
   const page = await browser.newPage();

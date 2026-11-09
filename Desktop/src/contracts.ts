@@ -117,6 +117,9 @@ export interface DesktopBridge extends SessionImportBridge, BtwBridge, Backgroun
   finishFirstRun(outcome: 'completed' | 'skipped'): Promise<Snapshot>;
   capabilityCatalog(): Promise<import('./capabilities').CapabilityCatalog>;
   pluginDocument(input: { ref: string; path: string }): Promise<import('./capabilities').PluginDocument>;
+  pluginConnectionState(input: { ref: string }): Promise<import('./capabilities').PluginConnection>;
+  pluginConnectionChooseProfile(input: { ref: string }): Promise<import('./capabilities').PluginConnection | null>;
+  pluginConnectionForgetProfile(input: { ref: string }): Promise<import('./capabilities').PluginConnection>;
   pluginRepositoryInfo(input: { ref: string; refresh: boolean }): Promise<import('./capabilities').PluginStarSnapshot>;
   pluginConfiguration(input: { ref: string }): Promise<import('./capabilities').PluginConfiguration>;
   pluginSaveConfiguration(input: import('./capabilities').PluginConfigurationInput): Promise<import('./capabilities').PluginConfiguration>;

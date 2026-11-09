@@ -42,7 +42,7 @@ const onlyKeys = (value, keys) => {
     throw new PluginFileError('invalid-presentation');
 };
 function parseDesktop(value) {
-  onlyKeys(value, ['title', 'surface', 'symbol', 'icon', 'defaultPage', 'pages']);
+  onlyKeys(value, ['title', 'surface', 'symbol', 'icon', 'defaultPage', 'pages', 'connection']);
   if (!['main-view', 'side-panel', 'window'].includes(value.surface)
     || value.symbol !== undefined && !['plug', 'bot', 'book', 'wrench', 'sparkles'].includes(value.symbol))
     throw new PluginFileError('invalid-presentation');
@@ -55,6 +55,12 @@ function parseDesktop(value) {
   const defaultPage = value.defaultPage === undefined ? undefined : desktopId(value.defaultPage);
   if (defaultPage !== undefined && !pages.some(page => page.id === defaultPage))
     throw new PluginFileError('invalid-presentation');
+  if (value.connection !== undefined) {
+    onlyKeys(value.connection, ['protocol']);
+    if (value.connection.protocol !== 'agent-bridge-v1' || value.surface !== 'main-view'
+      || pages.some(page => page.id === 'connection'))
+      throw new PluginFileError('invalid-presentation');
+  }
   let icon;
   if (value.icon !== undefined) {
     onlyKeys(value.icon, ['light', 'dark']);
@@ -67,6 +73,7 @@ function parseDesktop(value) {
       ...(value.icon.dark !== undefined ? { dark: imagePath(value.icon.dark) } : {}) };
   }
   return { title: bounded(value.title), surface: value.surface, pages,
+    ...(value.connection ? { connection: { protocol: 'agent-bridge-v1' } } : {}),
     ...(value.symbol !== undefined ? { symbol: value.symbol } : {}),
     ...(icon ? { icon } : {}), ...(defaultPage !== undefined ? { defaultPage } : {}) };
 }

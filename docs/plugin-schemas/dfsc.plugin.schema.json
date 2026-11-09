@@ -58,6 +58,11 @@
       "properties": {
         "title": { "$ref": "#/definitions/label" },
         "surface": { "enum": ["main-view", "side-panel", "window"] },
+        "connection": {
+          "type": "object", "required": ["protocol"], "additionalProperties": false,
+          "description": "Optional main-view-only read-only Agent Bridge panel. Reserves page ID connection. Requires an explicit native profile choice; provides no executable extension or task mutation.",
+          "properties": { "protocol": { "const": "agent-bridge-v1" } }
+        },
         "symbol": { "enum": ["plug", "bot", "book", "wrench", "sparkles"] },
         "icon": {
           "type": "object", "required": ["light"], "additionalProperties": false,
@@ -82,7 +87,16 @@
             }
           }
         }
-      }
+      },
+      "allOf": [{
+        "if": { "required": ["connection"] },
+        "then": {
+          "properties": {
+            "surface": { "const": "main-view" },
+            "pages": { "items": { "properties": { "id": { "not": { "const": "connection" } } } } }
+          }
+        }
+      }]
     },
     "desktopPageId": {
       "type": "string", "minLength": 1, "maxLength": 64,

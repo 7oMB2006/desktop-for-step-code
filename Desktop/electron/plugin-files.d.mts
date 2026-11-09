@@ -1,4 +1,6 @@
 export function object(value: unknown): value is Record<string, unknown>;
+export function digest(value: string | Buffer): string;
+export function writePrivateJson(root: string, filename: string, value: unknown): Promise<void>;
 export function optionalFile(root: string, path: string, limit?: number): Promise<Buffer | undefined>;
 export function packageFingerprint(root: string): Promise<string>;
 export function dataOnlyThemeFingerprint(root: string, id: string): Promise<string | undefined>;

@@ -4,7 +4,7 @@ import { PluginLibrary } from './plugin-library.mjs';
 import { PluginRepositoryInfo } from './plugin-repository.mjs';
 import { PluginConfigurationStore } from './plugin-configuration.mjs';
 import { inspectPluginUpdate, recoverPluginUpdate } from './plugin-update.mjs';
-import { dataOnlyThemeFingerprint, optionalFile, scanInstalled } from './plugin-files.mjs';
+import { dataOnlyThemeFingerprint, digest, optionalFile, scanInstalled } from './plugin-files.mjs';
 import { capabilityPolicy, type CapabilityGuard } from './capability-policy';
 import semver from 'semver';
 import type { PluginConfigurationInput } from '../src/capabilities';
@@ -184,7 +184,7 @@ export class CapabilityService {
     await this.readCatalog();
     return this.library.document(input);
   }); }
-  desktop(ref: string) { return this.enqueue(async () => {
+  private async readDesktop(ref: string) {
     if (typeof ref !== 'string' || ref.length > 80) throw new Error('capability:invalid-input');
     const catalog = await this.readCatalog();
     const plugin = catalog.plugins.find(item => item.package?.ref === ref);
@@ -193,6 +193,14 @@ export class CapabilityService {
     const { descriptor } = await this.library.reference(ref);
     if (descriptor.kind !== 'installed' || descriptor.provenance !== 'recorded') throw new Error('capability:stale');
     return plugin;
+  }
+  desktop(ref: string) { return this.enqueue(() => this.readDesktop(ref)); }
+  connection(ref: string) { return this.enqueue(async () => {
+    const plugin = await this.readDesktop(ref);
+    if (plugin.package?.desktop?.connection?.protocol !== 'agent-bridge-v1'
+      || plugin.package.desktop.surface !== 'main-view') throw new Error('capability:invalid-input');
+    const { descriptor } = await this.library.reference(ref);
+    return digest(JSON.stringify([descriptor.root, descriptor.id, descriptor.instance, descriptor.fingerprint]));
   }); }
   configuration(input: { ref: string }, save?: PluginConfigurationInput) { return this.enqueue(async () => {
     if (!input || typeof input.ref !== 'string') throw new Error('capability:invalid-input');

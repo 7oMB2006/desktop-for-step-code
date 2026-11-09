@@ -10,6 +10,7 @@
 | 可安装资源 | 插件自己的仓库 | `step.plugin.json`、技能、提示命令、MCP 声明和许可证 |
 | 标准说明 | 插件自己的仓库 | 可选 `dfsc.plugin.json`、包内 Markdown、PNG/JPEG/WebP、教程与署名 |
 | 插件工作区 | 插件自己的仓库声明，宿主绘制 | 可选 `desktop`、包内 Markdown 页面与受限图标，需包含此功能的新宿主构建 |
+| 只读连接 | 宿主固定协议适配，插件声明 | 可选 `desktop.connection` / `agent-bridge-v1`，需用户主动选择本机 profile |
 | 基础配置 | 插件自己的仓库 | 可选 `dfsc.settings.json` 与 `json-file-v1` 原生 stdio 消费者 |
 | 特殊宿主适配 | DFSC 宿主 | BVR 账户桥、StepPage 准备等，不是可自报的通用能力 |
 
@@ -86,6 +87,30 @@ BVR 的账户桥也不是可按插件名称自动继承的通用能力。
 | 页面 `document` | 实际存在的同包 Markdown 相对路径，每份最多 256 KiB |
 | `defaultPage` | 可选，必须对应已声明的页面 ID；省略时使用第一页 |
 | `icon` | 可选，`{"light":"assets/light.png","dark":"assets/dark.png"}`，`light` 必填 |
+| `connection` | 可选，`{"protocol":"agent-bridge-v1"}`，仅限 `main-view`，保留页面 ID `connection` |
+
+### 只读 Agent Bridge 连接页
+
+声明 `connection` 后，宿主在 Markdown 页签之前添加默认选中的「连接」页。
+`defaultPage` 仍指定安装指南文档，不可设置为保留的 `connection`。
+这是固定协议适配，不是可自定义 RPC、URL、脚本或文件路径的前端 SDK。
+旧宿主可能忽略整个可选 `desktop`，保留包内 README 作为降级入口。
+
+宿主通过原生目录选择器取得用户明确选择的本机 Agent profile，
+仅检查 `config.yaml` 文件标记，不打开其内容；读取该 profile 的
+`dfsc-bridge/config.json` 及其显式 `bridgeRoot` 中对应身份的 `model.json`。
+不会读取 `human.json`、`.env`、个人默认 profile 或其他身份凭据。
+描述文件只允许回环 TCP，非 Windows 也可使用本机 Unix socket。
+令牌留在主进程，渲染器仅收到脱敏后的身份、授权目录与任务摘要。
+
+只调用 `system.capabilities` 和首批 `task.list`，核验身份后按真实目录交集
+过滤任务，最多展示 20 项，不读取日志、对话或工具输出。
+「忘记此选择」只删除宿主保存的目录绑定，不是解除配对或撤销授权。
+绑定随安装实例或包内容改变而失效，重启同一安装可保留选择。
+
+「只读连接已核验」不证明 companion 已被 Hermes 加载，不证明可派工。
+当前桌面主线不内置配套 Agent Bridge 服务，配对、授权与任务控制仍由
+该配套宿主处理。MiniChat 和独立插件窗口不能调用这些连接接口。
 
 三种 surface 都由宿主绘制相同的受限 Markdown 页面，不是三种脚本入口：
 

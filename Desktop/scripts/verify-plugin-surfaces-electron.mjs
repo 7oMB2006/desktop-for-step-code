@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { createServer } from 'node:http';
+import { createServer as createBridgeServer } from 'node:net';
 import { cp, mkdir, mkdtemp, readFile, realpath, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -24,7 +25,7 @@ const fixturePlugins = [
 await mkdir(join(root, 'sessions'), { recursive: true });
 await mkdir(workspace);
 await mkdir(join(market, '.step-plugin'), { recursive: true });
-const writePlugin = async (plugin, version = '0.1.0') => {
+const writePlugin = async (plugin, version = '0.1.0', connection = false) => {
   const target = join(market, 'plugins', plugin.id);
   await mkdir(join(target, 'docs'), { recursive: true });
   await writeFile(join(target, 'step.plugin.json'), JSON.stringify({
@@ -34,8 +35,9 @@ const writePlugin = async (plugin, version = '0.1.0') => {
     schemaVersion: 1, documentation: { readme: 'README.md' },
     desktop: {
       title: plugin.title, surface: plugin.surface, symbol: 'bot', defaultPage: 'start',
+      ...(connection ? { connection: { protocol: 'agent-bridge-v1' } } : {}),
       pages: [{ id: 'start', title: 'Get started', document: 'docs/start.md' },
-        { id: 'setup', title: 'Connection', document: 'docs/setup.md' }],
+        { id: 'setup', title: connection ? 'Setup notes' : 'Connection', document: 'docs/setup.md' }],
     },
   }));
   await writeFile(join(target, 'README.md'), `# ${plugin.name}\n\nAn installed resource-only fixture.\n`);
@@ -55,14 +57,19 @@ if (process.env.DESKTOP_PLUGIN_HERMES_SOURCE) {
   assert.ok(manifest.id && metadata.desktop?.surface === 'main-view');
   assert.equal(metadata.desktop.pages.length, 4, 'Hermes ships the four declared onboarding pages');
   assert.ok(metadata.desktop.icon?.light, 'Hermes declares a custom desktop icon');
-  const icon = await readFile(join(source, metadata.desktop.icon.light));
-  assert.equal(icon.subarray(0, 8).toString('hex'), '89504e470d0a1a0a', 'The source avatar is a PNG');
-  const sha256 = createHash('sha256').update(icon).digest('hex');
+  const image = async path => {
+    const bytes = await readFile(join(source, path));
+    assert.equal(bytes.subarray(0, 8).toString('hex'), '89504e470d0a1a0a', 'The declared source asset is a PNG');
+    return { dataUrl: `data:image/png;base64,${bytes.toString('base64')}`,
+      sha256: createHash('sha256').update(bytes).digest('hex'), bytes: bytes.length,
+      width: bytes.readUInt32BE(16), height: bytes.readUInt32BE(20) };
+  };
+  const icon = await image(manifest.icon);
+  const toolbar = { light: await image(metadata.desktop.icon.light),
+    dark: await image(metadata.desktop.icon.dark ?? metadata.desktop.icon.light) };
   if (process.env.DESKTOP_PLUGIN_HERMES_ICON_SHA256)
-    assert.equal(sha256, process.env.DESKTOP_PLUGIN_HERMES_ICON_SHA256.toLowerCase(), 'The expected new avatar is staged');
-  hermes = { id: manifest.id, name: manifest.name, title: metadata.desktop.title, metadata,
-    icon: { dataUrl: `data:image/png;base64,${icon.toString('base64')}`, sha256, bytes: icon.length,
-      width: icon.readUInt32BE(16), height: icon.readUInt32BE(20) } };
+    assert.equal(icon.sha256, process.env.DESKTOP_PLUGIN_HERMES_ICON_SHA256.toLowerCase(), 'The approved package avatar is staged');
+  hermes = { id: manifest.id, name: manifest.name, title: metadata.desktop.title, metadata, icon, toolbar };
   await cp(source, join(market, 'plugins', hermes.id), { recursive: true, errorOnExist: true, force: false });
 }
 const plugins = [...fixturePlugins, ...(hermes ? [hermes] : [])];
@@ -118,6 +125,43 @@ await writeFile(join(root, 'models.json'), JSON.stringify({ providers: { fixture
   api: 'openai-completions', baseUrl: `http://127.0.0.1:${transport.address().port}/v1`, apiKey: 'isolated-surface-fixture',
   models: [{ id: 'fixture', name: 'Offline surface fixture', contextWindow: 65536, maxTokens: 1024 }],
 } } }));
+const agentProfile = join(profile, 'isolated-agent'), bridgeRoot = join(profile, 'isolated-bridge');
+await mkdir(join(agentProfile, 'dfsc-bridge'), { recursive: true });
+await mkdir(join(bridgeRoot, 'agents', 'fixture-agent'), { recursive: true });
+await writeFile(join(agentProfile, 'config.yaml'), 'api_key: marker-secret-never-read\n');
+await writeFile(join(agentProfile, 'dfsc-bridge/config.json'), JSON.stringify({
+  schemaVersion: 1, agentId: 'fixture-agent', displayName: 'Isolated agent', bridgeRoot, workspaceRoots: [workspace],
+}));
+const bridgeToken = 'isolated-private-bridge-token';
+const bridgeRequests = [], bridgeSockets = new Set();
+let bridgeIdentity = 'fixture-agent', bridgeRoots = [workspace], bridgeGate, bridgeEntered;
+const bridgeServer = createBridgeServer(socket => {
+  bridgeSockets.add(socket);
+  socket.on('close', () => bridgeSockets.delete(socket));
+  socket.on('error', () => {});
+  let bytes = '';
+  socket.on('data', async chunk => {
+    bytes += chunk.toString();
+    if (!bytes.includes('\n')) return;
+    const request = JSON.parse(bytes.slice(0, bytes.indexOf('\n')));
+    assert.equal(request.token, bridgeToken);
+    assert.ok(['system.capabilities', 'task.list'].includes(request.method), 'only fixed read methods reach the server');
+    bridgeRequests.push(request.method);
+    if (bridgeGate) { bridgeEntered?.(); await bridgeGate; }
+    socket.end(JSON.stringify({ ok: true, result: request.method === 'system.capabilities'
+      ? { agentId: bridgeIdentity, roots: bridgeRoots }
+      : [
+        { id: 'visible-task', title: `Inspect test results ${bridgeToken}`, phase: 'review', cwd: workspace,
+          origin: { agentProfile: 'fixture-agent' }, transcript: 'private-transcript-never-read' },
+        { id: 'foreign-task', title: 'Never show foreign task', phase: 'running', cwd: workspace, origin: { agentProfile: 'other' } },
+      ] }) + '\n');
+  });
+});
+await new Promise(resolve => bridgeServer.listen(0, '127.0.0.1', resolve));
+const descriptorFile = join(bridgeRoot, 'agents/fixture-agent/model.json');
+await writeFile(descriptorFile, JSON.stringify({ version: 1, role: 'model', agentId: 'fixture-agent',
+  transport: 'tcp', host: '127.0.0.1', port: bridgeServer.address().port, token: bridgeToken }));
+const originalDescriptor = await readFile(descriptorFile, 'utf8');
 const env = { ...process.env, DESKTOP_TEST_USER_DATA: profile, DESKTOP_TEST_NO_FOCUS: '1' };
 for (const key of ['ELECTRON_RUN_AS_NODE', 'DESKTOP_TEST_STARTUP_WINDOW', 'DESKTOP_DEV_URL', 'STEP_API_KEY'])
   delete env[key];
@@ -162,12 +206,13 @@ const assertHermesIcon = async (image, surface, size) => {
     return { src: image.currentSrc, naturalWidth: image.naturalWidth, naturalHeight: image.naturalHeight,
       width: box.width, height: box.height, theme: document.documentElement.dataset.theme };
   });
-  assert.equal(icon.src, hermes.icon.dataUrl, `${surface}: rendered bytes match the exact source avatar`);
-  assert.equal(icon.naturalWidth, hermes.icon.width, `${surface}: decoded source width`);
-  assert.equal(icon.naturalHeight, hermes.icon.height, `${surface}: decoded source height`);
+  const asset = surface.startsWith('market-') ? hermes.icon : hermes.toolbar[icon.theme === 'dark' ? 'dark' : 'light'];
+  assert.ok(icon.src === asset.dataUrl, `${surface}: rendered bytes match the exact source asset`);
+  assert.equal(icon.naturalWidth, asset.width, `${surface}: decoded source width`);
+  assert.equal(icon.naturalHeight, asset.height, `${surface}: decoded source height`);
   assert.ok(Math.abs(icon.width - size) < 0.5 && Math.abs(icon.height - size) < 0.5,
     `${surface}: avatar remains ${size}px square`);
-  iconChecks.push({ surface, theme: icon.theme, sha256: hermes.icon.sha256,
+  iconChecks.push({ surface, theme: icon.theme, sha256: asset.sha256,
     naturalWidth: icon.naturalWidth, naturalHeight: icon.naturalHeight, width: icon.width, height: icon.height });
 };
 const captureHermesAction = async theme => {
@@ -354,8 +399,13 @@ try {
     await openAction(hermes);
     const guide = workspaceFor(hermes);
     await guide.getByRole('heading', { name: hermes.title, exact: true, level: 1 }).waitFor();
-    assert.equal(await guide.getByRole('tab').count(), 4);
+    assert.equal(await guide.getByRole('tab').count(), hermes.metadata.desktop.connection ? 5 : 4);
     await assertHermesIcon(guide.locator('.plugin-action-icon img:visible'), 'workspace', 24);
+    if (hermes.metadata.desktop.connection) {
+      await guide.getByRole('heading', { name: 'No profile selected', exact: true }).waitFor();
+      await main.screenshot({ path: join(output, 'hermes-connection-unselected.png') });
+      await guide.getByRole('tab', { name: hermes.metadata.desktop.pages[0].title, exact: true }).click();
+    }
     await guide.locator('.pc-document-markdown h1, .pc-document-markdown h2').first().waitFor();
     await settleLayout(guide);
     await main.screenshot({ path: join(output, 'hermes-main-light.png') });
@@ -385,9 +435,17 @@ try {
 
   const nativeOpened = app.waitForEvent('window');
   await openAction(fixturePlugins[2]);
-  assert.equal(await action(fixturePlugins[2]).getAttribute('aria-pressed'), null,
-    'a native window launcher is not announced as a main-view toggle');
-  native = await nativeOpened;
+  if (await action(fixturePlugins[2]).isVisible()) {
+    assert.equal(await action(fixturePlugins[2]).getAttribute('aria-pressed'), null,
+      'a native window launcher is not announced as a main-view toggle');
+  } else {
+    await main.getByRole('button', { name: 'More plugins', exact: true }).click();
+    const launcher = main.getByRole('menuitemradio', { name: fixturePlugins[2].title, exact: true });
+    assert.equal(await launcher.getAttribute('aria-checked'), 'false', 'a native launcher is not the selected main workspace');
+    await main.keyboard.press('Escape');
+  }
+  await nativeOpened;
+  native = await nativePage(fixturePlugins[2].title);
   native.setDefaultTimeout(30000);
   native.on('pageerror', error => errors.push(error.message));
   await app.evaluate(({ BrowserWindow }) => {
@@ -413,6 +471,9 @@ try {
     () => window.desktop.preferences({ language: 'zh' }),
     () => window.desktop.capabilityMutate({ action: 'plugin-remove', id: 'a-surface-main' }),
     () => window.desktop.browserList(),
+    () => window.desktop.pluginConnectionState({ ref: 'any-package' }),
+    () => window.desktop.pluginConnectionChooseProfile({ ref: 'any-package' }),
+    () => window.desktop.pluginConnectionForgetProfile({ ref: 'any-package' }),
   ]) await assert.rejects(native.evaluate(invoke), /capability:invalid-input/);
   await assert.rejects(native.evaluate(ref => window.desktop.pluginDocument({ ref, path: 'docs/start.md' }), other.package.ref),
     /capability:invalid-input/);
@@ -481,8 +542,97 @@ try {
   await closed;
   assert.ok(await app.evaluate(({ BrowserWindow }, id) => !BrowserWindow.fromId(id).isDestroyed(), mainId));
   checks.push('real uninstall removes the shortcut, rejects old package/state reads, clears native content and still permits closing only the plugin window');
+
+  const bridgePlugin = fixturePlugins[3];
+  await writePlugin(bridgePlugin, '0.2.0', true);
+  commit('Declare a read-only Agent Bridge connection');
+  await mutate({ action: 'marketplace-update', name: marketName });
+  await mutate({ action: 'plugin-check-updates' });
+  const originalBridgePlugin = await installed(bridgePlugin.id);
+  await mutate({ action: 'plugin-update', id: bridgePlugin.id, ref: originalBridgePlugin.package.ref, candidate: originalBridgePlugin.update.ref });
+  if (!await workspaceFor(bridgePlugin).isVisible()) await openAction(bridgePlugin);
+  const bridgeSpace = workspaceFor(bridgePlugin), panel = bridgeSpace.locator('.plugin-connection');
+  await panel.getByRole('heading', { name: 'No profile selected', exact: true }).waitFor();
+  assert.equal(bridgeRequests.length, 0, 'no selected profile means no credential reads or transport calls');
+  const plainPlugin = await installed(fixturePlugins[0].id);
+  await assert.rejects(main.evaluate(ref => window.desktop.pluginConnectionState({ ref }), plainPlugin.package.ref), /capability:invalid-input/);
+  await app.evaluate(({ dialog }) => {
+    globalThis.originalPluginProfileDialog = dialog.showOpenDialog;
+    dialog.showOpenDialog = async () => ({ canceled: true, filePaths: [] });
+  });
+  await panel.getByRole('button', { name: 'Choose profile', exact: true }).click();
+  await panel.getByRole('heading', { name: 'No profile selected', exact: true }).waitFor();
+  assert.equal(bridgeRequests.length, 0);
+  await app.evaluate(({ dialog }, selected) => {
+    dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [selected] });
+  }, agentProfile);
+  await panel.getByRole('button', { name: 'Choose profile', exact: true }).click();
+  await panel.getByRole('heading', { name: 'Read-only connection verified', exact: true }).waitFor();
+  assert.ok((await panel.innerText()).includes('visible-task'));
+  for (const secret of [bridgeToken, 'marker-secret-never-read', 'private-transcript-never-read', 'foreign-task'])
+    assert.ok(!(await panel.innerText()).includes(secret));
+  assert.deepEqual(bridgeRequests, ['system.capabilities', 'task.list']);
+  const binding = await readFile(join(root, 'desktop-plugins/bridge-profiles.json'), 'utf8');
+  assert.ok(!binding.includes(bridgeToken));
+  assert.ok(Object.values(JSON.parse(binding)).includes(agentProfile));
+  for (const theme of ['light', 'dark']) {
+    await main.evaluate(theme => window.desktop.preferences({ theme }), theme);
+    await main.waitForFunction(theme => document.documentElement.dataset.theme === theme, theme);
+    await panel.getByRole('button', { name: 'Check again', exact: true }).focus();
+    await settleLayout(panel);
+    await main.screenshot({ path: join(output, `connection-${theme}.png`) });
+  }
+  bridgeIdentity = 'other';
+  await panel.getByRole('button', { name: 'Check again', exact: true }).click();
+  await panel.getByRole('heading', { name: 'Agent identity mismatch', exact: true }).waitFor();
+  assert.ok(!(await panel.innerText()).includes('visible-task'));
+  bridgeIdentity = 'fixture-agent'; bridgeRoots = [];
+  await panel.getByRole('button', { name: 'Check again', exact: true }).click();
+  await panel.getByRole('heading', { name: 'Read-only connection verified', exact: true }).waitFor();
+  assert.ok((await panel.innerText()).includes('No authorized directories'));
+  assert.ok(!(await panel.innerText()).includes('visible-task'));
+  await panel.getByRole('button', { name: 'Forget selection', exact: true }).click();
+  await panel.getByRole('heading', { name: 'No profile selected', exact: true }).waitFor();
+  assert.equal(await readFile(descriptorFile, 'utf8'), originalDescriptor, 'forgetting never changes pairing credentials');
+  bridgeRoots = [workspace];
+  await panel.getByRole('button', { name: 'Choose profile', exact: true }).click();
+  await panel.getByRole('heading', { name: 'Read-only connection verified', exact: true }).waitFor();
+  checks.push('production read-only connection uses only explicit native profile choice; cancel, identity/root filtering, redaction and forgetting preserve pairing files');
+
+  await writePlugin(bridgePlugin, '0.3.0', true);
+  commit('Update the read-only connection package');
+  await mutate({ action: 'marketplace-update', name: marketName });
+  await mutate({ action: 'plugin-check-updates' });
+  const bridgeUpdate = await installed(bridgePlugin.id);
+  let releaseBridge;
+  bridgeGate = new Promise(resolve => { releaseBridge = resolve; });
+  const entered = new Promise(resolve => { bridgeEntered = resolve; });
+  const inFlight = main.evaluate(ref => window.desktop.pluginConnectionState({ ref }), bridgeUpdate.package.ref);
+  // Keep this rejection observed while the real installed-package update invalidates its reference.
+  const observed = inFlight.then(() => 'unexpected-success', error => String(error));
+  await entered;
+  await mutate({ action: 'plugin-update', id: bridgePlugin.id, ref: bridgeUpdate.package.ref, candidate: bridgeUpdate.update.ref });
+  bridgeGate = undefined; releaseBridge();
+  assert.match(await observed, /capability:stale/);
+  if (!await bridgeSpace.isVisible()) await openAction(bridgePlugin);
+  await panel.getByRole('heading', { name: 'No profile selected', exact: true }).waitFor();
+  assert.ok(!(await panel.innerText()).includes('visible-task'), 'updated package does not inherit old scope or in-flight data');
+  const removeBridgeRef = (await installed(bridgePlugin.id)).package.ref;
+  await mutate({ action: 'plugin-remove', id: bridgePlugin.id });
+  await assert.rejects(main.evaluate(ref => window.desktop.pluginConnectionState({ ref }), removeBridgeRef), /capability:stale/);
+  checks.push('package update invalidates in-flight connection IPC and saved scope; uninstall rejects old connection references');
   if (hermes) {
     await openAction(hermes);
+    if (hermes.metadata.desktop.connection) {
+      const guide = workspaceFor(hermes);
+      await guide.getByRole('tab', { name: 'Connection', exact: true }).click();
+      await guide.getByRole('heading', { name: 'No profile selected', exact: true }).waitFor();
+      await guide.getByRole('button', { name: 'Choose profile', exact: true }).click();
+      await guide.getByRole('heading', { name: 'Read-only connection verified', exact: true }).waitFor();
+      assert.ok((await guide.innerText()).includes('visible-task'));
+      assert.ok(!(await guide.innerText()).includes(bridgeToken));
+      checks.push('the actual Hermes source package verifies the isolated read-only connection and renders scoped task summaries with its approved theme icons');
+    }
     for (const theme of ['light', 'dark']) {
       await main.evaluate(theme => window.desktop.preferences({ theme }), theme);
       await main.waitForFunction(theme => document.documentElement.dataset.theme === theme, theme);
@@ -494,8 +644,9 @@ try {
       for (const theme of ['light', 'dark'])
         assert.ok(iconChecks.some(icon => icon.surface === surface && icon.theme === theme),
           `${surface}: the exact new avatar is checked in ${theme} theme`);
-    checks.push('the exact source avatar bytes and decoded dimensions match marketplace catalog/detail, toolbar overflow/direct and workspace at their real sizes in both themes');
+    checks.push('the approved portrait bytes match marketplace catalog/detail; exact separate theme toolbar assets match overflow/direct and workspace at their real sizes');
   }
+  await app.evaluate(({ dialog }) => { dialog.showOpenDialog = globalThis.originalPluginProfileDialog; });
   assert.equal(inferenceRequests, 0, 'No fixture or remote inference is invoked');
   assert.deepEqual(errors, []);
   verified = true;
@@ -518,11 +669,14 @@ try {
   } finally {
     transport.closeAllConnections();
     await new Promise(resolve => transport.close(resolve));
+    for (const socket of bridgeSockets) socket.destroy();
+    await new Promise(resolve => bridgeServer.close(resolve));
     await writeFile(join(output, 'verification.json'), JSON.stringify({
-      profile, checks, errors, inferenceRequests, shutdown,
+      profile, checks, errors, inferenceRequests, bridgeRequests, shutdown,
       scope: 'Full production Desktop main/preload/renderer, capability service, real staged runtime, isolated profile and local Git marketplace. No model inference.',
       hermes: hermes ? { id: hermes.id, title: hermes.title, pages: hermes.metadata.desktop.pages.length,
         icon: { sha256: hermes.icon.sha256, bytes: hermes.icon.bytes, width: hermes.icon.width, height: hermes.icon.height },
+        toolbar: Object.fromEntries(Object.entries(hermes.toolbar).map(([theme, { dataUrl, ...asset }]) => [theme, asset])),
         iconChecks } : null,
       passed: verified && errors.length === 0 && inferenceRequests === 0 && shutdown?.confirmed === true,
     }, null, 2));

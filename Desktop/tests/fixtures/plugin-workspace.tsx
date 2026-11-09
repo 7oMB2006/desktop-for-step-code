@@ -6,7 +6,7 @@ import { PluginActionGroup } from '../../src/PluginActionGroup';
 import { PluginWorkspace } from '../../src/PluginWorkspace';
 import { getPluginDesktopEntries } from '../../src/plugin-desktop';
 import { applyTheme } from '../../src/theme';
-import type { CapabilityCatalog, CapabilityPlugin, PluginDesktop, PluginDocument } from '../../src/capabilities';
+import type { CapabilityCatalog, CapabilityPlugin, PluginConnection, PluginDesktop, PluginDocument } from '../../src/capabilities';
 import '../../src/style.css';
 import '../../src/layout.css';
 import '../../src/theme.css';
@@ -41,7 +41,8 @@ function makePlugin(index: number): CapabilityPlugin {
     id: `plugin-${index}`, name: names[index], version: '0.2.0', mcpServers: [], warnings: [],
     package: {
       ref: `package-${index}`, provenance: 'recorded', documentation: {}, tutorials: [], links: [], warnings: [],
-      desktop: { ...desktop, title: names[index], symbol: symbols[index], icon: index === 1
+      desktop: { ...desktop, ...(index === 0 && params.has('connection') ? { connection: { protocol: 'agent-bridge-v1' as const } } : {}),
+        title: names[index], symbol: symbols[index], icon: index === 1
         ? { light: 'data:image/png;base64,AA==' } : index === 2 ? { light: customIcon, dark: customIcon } : undefined },
     },
   };
@@ -59,8 +60,35 @@ const documents: Record<string, string> = {
   'docs/troubleshooting.md': '# 排查问题\n\n## 找不到工程面板\n\n先核对宿主是否支持 Agent Bridge。普通 DFSC 安装资源包不会自动获得工程桥服务。\n\n## 安装后没有收到任务\n\n分别核对 companion、目标身份、配对和授权目录。恢复连接后先查询原任务，不要重复创建任务猜测结果。\n\n## 想暂停使用\n\n停止任务、关闭接入、撤销身份授权与卸载资料是不同操作。卸载资源不会自动停止已有工程。',
 };
 const reads: { ref: string; path: string }[] = [];
-Object.assign(window, { pluginWorkspaceFixture: { reads } });
+const snapshot = (status: PluginConnection['status']): PluginConnection => ({
+  status, ...(status === 'unselected' ? {} : { profile: 'C:/Isolated profiles/agent-profile', agentId: 'test-agent', displayName: '测试身份' }),
+  roots: status === 'ready' ? ['C:/Projects/Authorized project'] : [],
+  tasks: status === 'ready' ? [{ id: 'task-42', title: '检查项目的测试结果与交付清单', phase: 'review', cwd: 'C:/Projects/Authorized project' }] : [],
+  ...(status === 'ready' ? { checkedAt: 1794180000000 } : {}),
+});
+const connectionFixture = {
+  result: snapshot('unselected'), calls: [] as string[], canceled: false, failed: false, hold: false,
+  releases: [] as (() => void)[], snapshot,
+};
+Object.assign(window, { pluginWorkspaceFixture: { reads, connection: connectionFixture } });
+async function observe(method: string): Promise<PluginConnection> {
+  connectionFixture.calls.push(method);
+  const result = structuredClone(connectionFixture.result);
+  if (connectionFixture.hold) await new Promise<void>(resolve => connectionFixture.releases.push(resolve));
+  if (connectionFixture.failed) throw new Error('PRIVATE_CONNECTION_ERROR');
+  return result;
+}
 const bridge = {
+  pluginConnectionState: () => observe('read'),
+  async pluginConnectionChooseProfile() {
+    if (connectionFixture.canceled) { connectionFixture.calls.push('cancel'); return null; }
+    connectionFixture.result = snapshot('ready');
+    return observe('choose');
+  },
+  async pluginConnectionForgetProfile() {
+    connectionFixture.result = snapshot('unselected');
+    return observe('forget');
+  },
   async pluginDocument(input: { ref: string; path: string }): Promise<PluginDocument> {
     reads.push(input);
     await new Promise(resolve => setTimeout(resolve, 20));

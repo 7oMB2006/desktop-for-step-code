@@ -119,11 +119,61 @@ test('actual main passive capability reads never trigger pending provider applic
   const f = ipcFixture();
   for (const method of [
     'capabilityCatalog', 'pluginDocument', 'pluginRepositoryInfo', 'pluginConfiguration', 'pluginChoosePath', 'pluginWindowOpen',
+    'pluginConnectionState', 'pluginConnectionChooseProfile', 'pluginConnectionForgetProfile',
     'themeScene', 'themePoster', 'bvrConfiguration', 'bvrCheckEnvironment', 'bvrChoosePath', 'capabilityMutate',
   ]) assert.equal(await f.read(method), method);
   assert.equal(f.state.applications, 0);
   await f.read('beginSession');
   assert.equal(f.state.applications, 1);
+});
+test('actual connection IPC accepts only the native profile choice and rechecks package identity after asynchronous work', async () => {
+  const clause = find(node => ts.isCaseClause(node) && ts.isStringLiteral(node.expression)
+    && node.expression.text === 'pluginConnectionForgetProfile') as ts.CaseClause;
+  const state = { key: 'original', canceled: false, changed: false, busy: false, fail: false,
+    writes: [] as unknown[], picks: 0, probes: 0 };
+  const create = new Function('state', javascript(`
+    let settingsMutation = false;
+    const quitting = false, quitPending = false, preferences = { language: 'en' }, window = {};
+    const capabilityService = { async connection(ref) {
+      if (ref !== 'installed-ref') throw new Error('capability:stale');
+      return state.key;
+    } };
+    const dialog = { async showOpenDialog() {
+      state.picks++;
+      if (state.changed) state.key = 'updated';
+      settingsMutation = state.busy;
+      return { canceled: state.canceled, filePaths: ['/native/selected-profile'] };
+    } };
+    const pluginConnections = {
+      async choose(...args) { state.writes.push(args); },
+      async snapshot() {
+        state.probes++;
+        if (state.fail) throw new Error('PRIVATE transport error');
+        return { status: 'unselected', roots: [], tasks: [] };
+      },
+    };
+    return async (method, ...args) => { ${clause.statements.map(node => node.getText(file)).join('\n')} };
+  `));
+  let invoke = create(state);
+  assert.equal((await invoke('pluginConnectionState', { ref: 'installed-ref' })).status, 'unselected');
+  assert.equal(state.picks, 0);
+  state.canceled = true;
+  assert.equal(await invoke('pluginConnectionChooseProfile', { ref: 'installed-ref', path: '/renderer/private' }), null);
+  assert.deepEqual(state.writes, []);
+  state.canceled = false;
+  await invoke('pluginConnectionChooseProfile', { ref: 'installed-ref', path: '/renderer/private' });
+  assert.deepEqual(state.writes, [['original', '/native/selected-profile']]);
+  await invoke('pluginConnectionForgetProfile', { ref: 'installed-ref' });
+  assert.deepEqual(state.writes.at(-1), ['original', null]);
+  state.changed = true;
+  await assert.rejects(invoke('pluginConnectionChooseProfile', { ref: 'installed-ref' }), /capability:stale/);
+  assert.equal(state.writes.length, 2, 'package changed during picker: no binding written');
+  state.changed = false; state.busy = true;
+  await assert.rejects(invoke('pluginConnectionChooseProfile', { ref: 'installed-ref' }), /capability:busy/);
+  assert.equal(state.writes.length, 2);
+  state.busy = false; state.fail = true;
+  invoke = create(state);
+  await assert.rejects(invoke('pluginConnectionState', { ref: 'installed-ref' }), /capability:operation-failed/);
 });
 
 test('merged IPC preserves MiniChat theme reads and refuses management or untrusted frames before dispatch', async () => {
@@ -136,7 +186,8 @@ test('merged IPC preserves MiniChat theme reads and refuses management or untrus
   for (const method of ['themeScene', 'themePoster'])
     assert.equal(await f.miniRead(method), method);
   assert.equal(f.state.applications, 0);
-  for (const method of ['capabilityMutate', 'saveMcp', 'pluginSaveConfiguration'])
+  for (const method of ['capabilityMutate', 'saveMcp', 'pluginSaveConfiguration',
+    'pluginConnectionState', 'pluginConnectionChooseProfile', 'pluginConnectionForgetProfile'])
     await assert.rejects(f.miniRead(method), /Return to the main window/);
   await assert.rejects(f.untrustedRead('themeScene'), /Untrusted sender/);
   assert.deepEqual(calls, ['mini:themeScene', 'mini:themePoster']);
@@ -225,7 +276,8 @@ test('actual plugin-window IPC is scoped, revalidates stale refs and never dispa
   assert.deepEqual(snapshot.preferences, { language: 'en', theme: 'light', accentColor: 'green', appearance: { density: 'compact' } });
   assert.doesNotMatch(JSON.stringify(snapshot), /private-path|never-project/);
   assert.deepEqual(await read('pluginDocument', { ref: 'own-package', path: 'start.md' }), { text: 'start.md' });
-  for (const method of ['snapshot', 'command', 'preferences', 'pluginWindowOpen', 'capabilityMutate'])
+  for (const method of ['snapshot', 'command', 'preferences', 'pluginWindowOpen', 'capabilityMutate',
+    'pluginConnectionState', 'pluginConnectionChooseProfile', 'pluginConnectionForgetProfile'])
     await assert.rejects(read(method), /capability:invalid-input/);
   await assert.rejects(read('pluginDocument', { ref: 'foreign', path: 'start.md' }), /capability:invalid-input/);
   await assert.rejects(invoke({ sender, senderFrame: {} }, 'pluginWindowState'), /Untrusted sender/);

@@ -24,6 +24,7 @@ import { SessionNavigation } from './session-navigation';
 import { ComposerStore, parseComposerOwner } from './composer-store';
 import { MiniChatWindow } from './mini-chat-window';
 import { PluginWindows } from './plugin-windows';
+import { PluginConnections } from './plugin-connection';
 import { pluginWindowMethodAllowed } from './plugin-window-policy';
 import { parseWindowPresentation } from './window-presentation';
 import { composerKey, type ComposerOwner, type WindowPresentation } from '../src/window-conversation';
@@ -235,6 +236,7 @@ async function importAttachment(path: string) {
 }
 const runtimeRoot = app.isPackaged ? join(process.resourcesPath, 'runtime') : resolve('runtime');
 const dataRoot = join(app.getPath('userData'), 'step-runtime');
+const pluginConnections = new PluginConnections(dataRoot);
 const independentRoot = join(app.getPath('userData'), 'workspaces', 'independent');
 const pathKey = (path: string) => normalizedWorkspaceKey(resolve(path), process.platform);
 async function samePath(a: string, b: string) {
@@ -2405,6 +2407,33 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
       try { return await capabilityService.document(args[0]); }
       catch (error) { throw new Error(error instanceof Error && /^capability:[a-z-]+$/u.test(error.message) ? error.message : 'capability:operation-failed'); }
     }
+    case 'pluginConnectionState':
+    case 'pluginConnectionChooseProfile':
+    case 'pluginConnectionForgetProfile': {
+      if (settingsMutation || quitting || quitPending) throw new Error('capability:busy');
+      const ref = args[0]?.ref;
+      try {
+        const key = await capabilityService.connection(ref);
+        if (method === 'pluginConnectionChooseProfile') {
+          const selected = await dialog.showOpenDialog(window, {
+            title: preferences.language === 'zh' ? '选择 Agent profile 目录' : 'Choose an agent profile directory',
+            properties: ['openDirectory'],
+          });
+          if (selected.canceled || !selected.filePaths[0]) return null;
+          if (settingsMutation || quitting || quitPending) throw new Error('capability:busy');
+          if (await capabilityService.connection(ref) !== key) throw new Error('capability:stale');
+          await pluginConnections.choose(key, selected.filePaths[0]);
+        } else if (method === 'pluginConnectionForgetProfile') {
+          await pluginConnections.choose(key, null);
+        }
+        const state = await pluginConnections.snapshot(key);
+        if (await capabilityService.connection(ref) !== key) throw new Error('capability:stale');
+        return state;
+      } catch (error) {
+        throw new Error(error instanceof Error && /^capability:[a-z-]+$/u.test(error.message)
+          ? error.message : 'capability:operation-failed');
+      }
+    }
     case 'pluginRepositoryInfo': {
       if (settingsMutation) throw new Error('capability:busy');
       try { return await capabilityService.repositoryInfo(args[0]); }
@@ -2866,6 +2895,7 @@ else app.whenReady().then(async () => {
       if (providerApplication) await providerApplication;
       const capabilityMutation = ['capabilityMutate', 'capabilityImportSkill', 'bvrSaveConfiguration', 'pluginSaveConfiguration', 'saveCompactionSettings'].includes(method);
       const capabilityRead = ['capabilityCatalog', 'pluginDocument', 'pluginRepositoryInfo', 'pluginConfiguration', 'pluginWindowOpen',
+        'pluginConnectionState', 'pluginConnectionChooseProfile', 'pluginConnectionForgetProfile',
         'pluginChoosePath', 'themeScene', 'themePoster', 'bvrConfiguration', 'bvrCheckEnvironment', 'bvrChoosePath'].includes(method);
       // CapabilityService selects its trusted scope after freezing the package.
       // Discovery network work and data-only themes must not block Remote I/O.

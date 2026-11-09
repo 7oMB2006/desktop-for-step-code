@@ -187,8 +187,88 @@ try {
   await page.setViewportSize({ width: 1060, height: 780 });
   assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
   await page.screenshot({ path: `${output}/native-window-desktop-dark.png`, fullPage: true });
+  await page.goto(`${url}?open=1&mode=single&connection=1`);
+  const connection = main.locator('.plugin-connection');
+  await connection.locator('[role="status"]').getByRole('heading', { name: '尚未选择 profile', exact: true }).waitFor();
+  assert.equal(await main.getByRole('tab', { name: '连接', exact: true }).getAttribute('aria-selected'), 'true');
+  await connection.getByRole('button', { name: '安装指南', exact: true }).click();
+  await main.getByRole('heading', { name: '从第一项委托开始', exact: true }).waitFor();
+  await page.waitForFunction(() => document.activeElement?.getAttribute('role') === 'tab'
+    && document.activeElement.textContent === '开始使用');
+  await main.getByRole('tab', { name: '连接', exact: true }).click();
+  await connection.getByRole('button', { name: '选择 profile', exact: true }).click();
+  await connection.getByRole('heading', { name: '只读连接已核验', exact: true }).waitFor();
+  assert.ok((await connection.innerText()).includes('task-42'));
+  await page.evaluate(() => { window.pluginWorkspaceFixture.connection.canceled = true; });
+  await connection.getByRole('button', { name: '更换 profile', exact: true }).click();
+  await connection.getByRole('heading', { name: '只读连接已核验', exact: true }).waitFor();
+  assert.ok((await connection.innerText()).includes('task-42'), 'cancel preserves selected profile');
+  for (const [status, heading] of [
+    ['profile-missing', 'Profile 不可用'], ['companion-missing', '缺少 companion 配置'],
+    ['configuration-invalid', '连接配置无效'], ['pairing-required', '缺少配对凭据'],
+    ['connection-unavailable', '无法连接 Agent Bridge'], ['identity-mismatch', '连接身份不匹配'],
+  ]) {
+    await page.evaluate(status => {
+      const fixture = window.pluginWorkspaceFixture.connection;
+      fixture.result = fixture.snapshot(status);
+    }, status);
+    await connection.getByRole('button', { name: '重新检查', exact: true }).click();
+    await connection.getByRole('heading', { name: heading, exact: true }).waitFor();
+    assert.ok(!(await connection.innerText()).includes('task-42'), `${status}: old task results cleared`);
+  }
+  await page.evaluate(() => { window.pluginWorkspaceFixture.connection.failed = true; });
+  await connection.getByRole('button', { name: '重新检查', exact: true }).click();
+  await connection.getByRole('alert').waitFor();
+  assert.ok(!(await connection.innerText()).includes('PRIVATE_'));
+  await connection.getByRole('button', { name: '选择 profile', exact: true }).click();
+  await connection.getByRole('alert').waitFor();
+  await connection.getByRole('heading', { name: '连接检查未完成，请重试。', exact: true }).waitFor();
+  await page.evaluate(() => {
+    const fixture = window.pluginWorkspaceFixture.connection;
+    fixture.failed = false; fixture.hold = true; fixture.result = fixture.snapshot('ready');
+  });
+  await connection.getByRole('button', { name: '重新检查', exact: true }).click();
+  await page.waitForFunction(() => window.pluginWorkspaceFixture.connection.releases.length === 1);
+  await main.getByRole('tab', { name: '开始使用', exact: true }).click();
+  await page.evaluate(() => {
+    const fixture = window.pluginWorkspaceFixture.connection;
+    fixture.hold = false; fixture.result = fixture.snapshot('unselected');
+  });
+  await main.getByRole('tab', { name: '连接', exact: true }).click();
+  await connection.getByRole('heading', { name: '尚未选择 profile', exact: true }).waitFor();
+  await page.evaluate(() => window.pluginWorkspaceFixture.connection.releases.shift()());
+  assert.ok(!(await connection.innerText()).includes('task-42'), 'hidden stale read cannot replace a newer result');
+  await page.evaluate(() => { window.pluginWorkspaceFixture.connection.canceled = false; });
+  await connection.getByRole('button', { name: '选择 profile', exact: true }).click();
+  await connection.getByRole('heading', { name: '只读连接已核验', exact: true }).waitFor();
+  await connection.getByRole('button', { name: '忘记此选择', exact: true }).click();
+  await connection.getByRole('heading', { name: '尚未选择 profile', exact: true }).waitFor();
+  for (const [language, theme, width] of [['zh', 'light', 1440], ['zh', 'dark', 390], ['en', 'light', 390], ['en', 'dark', 1440]]) {
+    await page.setViewportSize({ width, height: 880 });
+    await page.goto(`${url}?open=1&mode=single&connection=1&language=${language}&theme=${theme}`);
+    await connection.getByRole('button', { name: language === 'zh' ? '选择 profile' : 'Choose profile', exact: true }).click();
+    await connection.getByRole('heading', { name: language === 'zh' ? '只读连接已核验' : 'Read-only connection verified', exact: true }).waitFor();
+    const refresh = connection.getByRole('button', { name: language === 'zh' ? '重新检查' : 'Check again', exact: true });
+    await refresh.focus();
+    await page.keyboard.press('Tab');
+    await page.keyboard.press('Shift+Tab');
+    const bounds = await refresh.evaluate(element => {
+      const box = element.getBoundingClientRect(), clip = element.closest('[role="tabpanel"]').getBoundingClientRect();
+      const style = getComputedStyle(element);
+      return { visible: element.matches(':focus-visible'), gutter: parseFloat(style.outlineWidth) + Math.max(0, parseFloat(style.outlineOffset)),
+        edges: [box.top - clip.top, clip.bottom - box.bottom, box.left - clip.left, clip.right - box.right] };
+    });
+    assert.ok(bounds.visible && bounds.edges.every(edge => edge >= bounds.gutter), `connection focus stays fully visible: ${JSON.stringify(bounds)}`);
+    assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'connection page has no viewport overflow');
+    const overlapping = await connection.locator('.plugin-connection-tasks strong').evaluate(element => {
+      const box = element.getBoundingClientRect(), phase = element.nextElementSibling.getBoundingClientRect();
+      return box.right > phase.left;
+    });
+    assert.equal(overlapping, false, 'task title does not overlap phase');
+    await page.screenshot({ path: `${output}/connection-${language}-${theme}-${width}.png`, fullPage: true });
+  }
   assert.deepEqual(errors, []);
-  console.log(JSON.stringify({ ok: true, screenshots: output, checks: ['delayed fixture readiness', 'titlebar isolation', 'MiniChat order', 'safe icon fallback', 'document retry', 'tab/history/scroll preservation', 'overflow keyboard/outside/Escape', 'main draft retention', 'responsive layouts and full focus outlines', 'native plugin window isolation', 'theme/preferences refresh', 'native package-ref remount', 'stale-response protection', 'unavailable retry'] }, null, 2));
+  console.log(JSON.stringify({ ok: true, screenshots: output, checks: ['delayed fixture readiness', 'titlebar isolation', 'MiniChat order', 'safe icon fallback', 'document retry', 'tab/history/scroll preservation', 'overflow keyboard/outside/Escape', 'main draft retention', 'responsive layouts and full focus outlines', 'native plugin window isolation', 'theme/preferences refresh', 'native package-ref remount', 'stale-response protection', 'unavailable retry', 'read-only connection diagnostics, controls, cancellation and stale results', 'connection language, theme, narrow, focus and task layout'] }, null, 2));
 } finally {
   releaseIcon?.();
   await browser?.close();

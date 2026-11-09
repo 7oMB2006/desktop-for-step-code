@@ -1,7 +1,7 @@
 import { _electron as electron } from 'playwright';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
-import { mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, realpath, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { waitForSessionFixtureSnapshot } from './session-fixture.mjs';
@@ -40,7 +40,7 @@ const server = createServer(async (request, response) => {
   } else response.end(chunk({}, 'stop') + 'data: [DONE]\n\n');
 });
 await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
-const profile = await mkdtemp(join(tmpdir(), 'desktop-global-instructions-'));
+const profile = await realpath(await mkdtemp(join(tmpdir(), 'desktop-global-instructions-')));
 const root = join(profile, 'step-runtime');
 const projectA = join(profile, 'project-a');
 const projectB = join(profile, 'project-b');

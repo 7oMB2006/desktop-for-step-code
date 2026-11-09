@@ -20,7 +20,8 @@ export async function trustProject(pool: SessionRuntimes, worker: SessionRuntime
   const assertCurrent = () => {
     if (pool.require(worker.id) !== worker || worker.rpc !== transport || worker.cwd !== cwd)
       throw new Error('Session changed while awaiting project trust');
-    if (worker.operations || worker.stopping) throw new Error('Session operation in progress');
+    // UI refreshes are read-only and may finish while the approval is open.
+    if (pool.hasNonSnapshotOperations(worker) || worker.stopping) throw new Error('Session operation in progress');
   };
   assertCurrent();
   if (worker.mutating) throw new Error('Session operation in progress');

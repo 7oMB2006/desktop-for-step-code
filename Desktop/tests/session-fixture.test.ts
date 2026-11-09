@@ -7,6 +7,38 @@ import ts from 'typescript';
 const { waitForNewSessionButton, waitForSessionFixtureSnapshot, restartIdleSessionFixture } =
   await import(new URL('../scripts/session-fixture.mjs', import.meta.url).href);
 
+test('workflow planned relaunch and cleanup use orderly shutdown without removing the forced-crash case', async () => {
+  const source = ts.createSourceFile('verify-workflow-runtime.mjs',
+    await readFile(new URL('../scripts/verify-workflow-runtime.mjs', import.meta.url), 'utf8'),
+    ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
+  let shutdowns = 0, forcedCrashes = 0;
+  const visit = (node: ts.Node) => {
+    if (ts.isCallExpression(node)) {
+      if (ts.isPropertyAccessExpression(node.expression))
+        assert.notEqual(node.expression.getText(source), 'app.exit', 'normal closure must not bypass native cleanup');
+      if (ts.isIdentifier(node.expression) && node.expression.text === 'closeDesktopFixtureAndWait') {
+        assert.ok(ts.isAwaitExpression(node.parent));
+        assert.equal(node.arguments[0].getText(source), 'app');
+        shutdowns++;
+      }
+      if (ts.isIdentifier(node.expression) && node.expression.text === 'terminateFixtureTree') {
+        assert.equal(node.arguments[0].getText(source), 'app.process().pid');
+        forcedCrashes++;
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+  assert.equal(shutdowns, 2, 'planned relaunch and final cleanup must both await closure');
+  assert.equal(forcedCrashes, 1, 'crash recovery must still kill the isolated fixture tree');
+  const body = source.statements.find(ts.isTryStatement)!;
+  const statements = body.tryBlock.statements;
+  const shutdown = statements.findIndex(statement => statement.getText(source) === 'await closeDesktopFixtureAndWait(app);');
+  assert.ok(shutdown >= 0);
+  assert.equal(statements[shutdown + 1].getText(source), 'app = await launch();',
+    'the next process can start only after orderly closure has completed');
+});
+
 test('idle restart readiness waits only for refused preflights and preserves the original worker', async () => {
   const order: string[] = [];
   let attempts = 0;

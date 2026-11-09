@@ -106,6 +106,20 @@ The integrated complete serial protocol run records 1,949 passes, 13 platform
 skips and zero failures (1,962 tests).
 Replacement cloud Windows/macOS acceptance remains required.
 
+The integrated Windows sessions group passes. Its runtime group reaches
+workflow persistence, but the first planned application relaunch reports a
+disconnected startup and times out. The original verifier passes locally, so
+that startup failure's exact cause is not established. The verifier had used
+`app.exit(0)` for a normal relaunch, bypassing orderly native cleanup. Planned
+relaunch and final cleanup now use the existing bounded fixture close helper;
+the separate forced-tree-crash recovery case and every workflow assertion remain.
+A source regression pins both orderly close sites and the real forced crash.
+Lifecycle failures now retain a screenshot and only allowlisted, sanitized
+CrashLog fields, not child stderr or configuration contents. All 30 focused
+readiness/shutdown regressions and typecheck pass; the complete native workflow
+verifier passes three consecutive runs with the new orderly close. Replacement
+cloud acceptance is still required.
+
 This source combination has its own verification logs under
 `D:\Desktop Runtime Builds\performance-pr-20261109`. It does not replace the
 fourteen-check package or owner-experience evidence below. No new installer,

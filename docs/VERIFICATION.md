@@ -10,6 +10,12 @@
 本机隔离 Electron 在 684px 高度完成四组明暗／宽窄焦点矩阵并生成截图。
 这不代表完整 Cron、默认进程关闭或替换提交的云端 CI 已通过。
 
+后续完整 Cron 本机重跑通过 14 项。`f17f93b` 的云端窄窗口检查又证明
+684px 下文本框可能自然完整容纳，因此不能假定人工滚动必然制造裁切。
+保留原有 684px 明暗／宽窄检查，并增加 540px 两组专门验证真实部分裁切
+后的原生聚焦及鼠标点击；命中检查和完整四侧边框断言继续保留。
+扩展后的六组窗口矩阵与完整 Cron management 隔离验收再次通过 14 项。
+
 ## Theme Composition Foundation (2026-11-09)
 
 The version 2 source contract separates host-owned UI adapters from default

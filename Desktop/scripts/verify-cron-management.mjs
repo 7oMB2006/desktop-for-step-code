@@ -102,14 +102,17 @@ try {
   await page.getByRole('radio', { name: '临时任务', exact: true }).check();
   await page.getByText('仅保留在当前宿主内存中。', { exact: false }).waitFor();
   await durable.check();
-  for (const [theme, width, height] of [['dark', 1360, 950], ['light', 560, 950], ['dark', 1360, 684], ['light', 560, 684]]) {
+  for (const [theme, width, height] of [
+    ['dark', 1360, 950], ['light', 560, 950], ['dark', 1360, 684], ['light', 560, 684],
+    ['dark', 1360, 540], ['light', 560, 540],
+  ]) {
     await resize(width, height);
     await page.evaluate(theme => window.desktop.preferences({ theme }), theme);
     await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].webContents.send('runtime-event', { type: 'desktop_sessions_changed' }));
     await page.waitForFunction(theme => document.documentElement.dataset.theme === theme, theme);
     await assertFocusVisible(page, page.getByLabel('执行时间（本机时区）', { exact: true }), `cron ${theme} ${width} time`);
     await assertFocusVisible(page, page.getByLabel('任务指令', { exact: true }), `cron ${theme} ${width} multiline`);
-    if (height === 684) {
+    if (height === 540) {
       // A click/focus may expose only the textarea caret while its lower edge
       // remains clipped. Test the resulting focus without refocusing it.
       const prompt = page.getByLabel('任务指令', { exact: true });

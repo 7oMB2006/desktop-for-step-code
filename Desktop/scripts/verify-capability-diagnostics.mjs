@@ -387,13 +387,14 @@ try {
     const checkUpdates = page.getByRole('button', { name: '检查插件更新', exact: true });
     await waitForUiReady(checkUpdates, 'bulk update check enabled');
     await checkUpdates.click();
-    await poll(async () => JSON.parse(await readFile(
-      join(root, 'marketplaces', healthyMarket.name, '.step-plugin/marketplace.json'), 'utf8')),
-    value => value.description === healthyManifest.description, 'healthy source refreshed after another source failed');
     const warning = page.locator('.plugin-center .cap-notes li').filter({ hasText: '诊断编号' });
     await warning.waitFor();
     await readDiagnostic('marketplace-source-unavailable', 'mutation', await warning.innerText(), expectedGitExitCode);
     await waitForUiReady(checkUpdates, 'partial update check completed');
+    // Git checkout can temporarily remove the manifest; read only after the UI operation settles.
+    assert.equal(JSON.parse(await readFile(
+      join(root, 'marketplaces', healthyMarket.name, '.step-plugin/marketplace.json'), 'utf8')).description,
+    healthyManifest.description, 'The healthy source must refresh despite another source failing');
     assert.equal(await readFile(join(root, 'plugins/stellar-cruise/step.plugin.json'), 'utf8'), installedManifest);
     await assertRemoteRetained(peer.runtimeId);
     await page.screenshot({ path: join(output, 'partial-market-refresh-diagnostic.png') });
@@ -430,10 +431,11 @@ try {
     'market maintenance enabled after the plugin catalog loads');
   assert.equal(await page.getByRole('button', { name: `更新市场 ${market.name}`, exact: true }).isDisabled(), false);
   await page.getByRole('button', { name: `更新市场 ${market.name}`, exact: true }).click();
-  await poll(async () => JSON.parse(await readFile(join(root, 'marketplaces', market.name, '.step-plugin/marketplace.json'), 'utf8')),
-    value => value.description === busyManifest.description, 'market refreshed while peer streams');
   await waitForUiReady(page.getByRole('button', { name: `更新市场 ${market.name}`, exact: true }),
     'market refresh UI settled while peer streams');
+  assert.equal(JSON.parse(await readFile(
+    join(root, 'marketplaces', market.name, '.step-plugin/marketplace.json'), 'utf8')).description,
+  busyManifest.description, 'The market must refresh while its Remote peer keeps streaming');
   await assertBusyRemoteRetained(peer.runtimeId);
   await page.getByRole('tab', { name: /^已安装/u }).click();
   await page.getByRole('button', { name: '查看 星辰巡航 使用说明', exact: true }).click();

@@ -216,6 +216,25 @@ PR #217 macOS run `42507834617` 的包内浏览器验收中，已报告标题的
 `Desktop/test-results/ci-browser-lifecycle-20261109.log`。
 未打包、发布、合并 PR、调整钉点、访问真实账户或改动日用应用。
 
+## MiniChat 交接回归的提交边界（2026-11-10）
+
+#216 macOS sessions run `42667852733` 在包内 MiniChat 回归检测到一次旧视图
+保存。原夹具从收到 `miniChatReturn` 调用就开始记录违规写入，包含宿主尚未
+提交交接的位置保存；这类写入会被随后的小窗位置覆盖，不能等同于提交后回写。
+
+夹具现在通过真实 `desktop_view_changed` 交接事件划定提交边界，仍暂停主窗
+恢复快照并检查提交后的零写入及原有 4px 阅读锚点。额外受控暂停提交，主动
+注入一条旧的 `follow: true, top: 0` 保存，确认它确实被之后的交接覆盖。
+未修改产品逻辑、等待期限、锚点精度或删除断言。
+
+Windows 完整原生 MiniChat 验收连续三次通过，日志为
+`Desktop/test-results/goal215-mini-transfer-boundary-20261110.log`、
+`goal215-mini-transfer-boundary-2-20261110.log` 和
+`goal215-mini-transfer-boundary-3-20261110.log`。原 macOS 失败未含提交边界
+诊断，不据此断言其唯一根因；新提交仍须重新通过 macOS 源码与包内门禁。
+另已独立确认 GitHub Actions/Checks API 事件 `tp8cghg7tlc4`，不将调度前
+内部错误当作产品测试失败，也不绕过未完成检查合并。
+
 ## 宿主依赖链同步通知与市场信息（2026-11-10）
 
 PR #215 同步 main `c87f96b`。MiniChat 阅读位置交接统一使用一个

@@ -30,6 +30,29 @@ PR #217 macOS run `42507834617` 的包内浏览器验收中，已报告标题的
 `Desktop/test-results/ci-browser-lifecycle-20261109.log`。
 未打包、发布、合并 PR、调整钉点、访问真实账户或改动日用应用。
 
+## 宿主依赖链同步主线底座（2026-11-09）
+
+PR #215 同步 main `12d054e`，纳入已合并的插件工作区、全局指令和
+MiniChat 最小化/交接同步。权限验收冲突同时保留主线的 RPC 就绪等待、
+Node 侧快照轮询与隔离回归，以及本分支的失败阶段诊断和有界退出助手；
+验证文档保留双方完整历史。未放宽权限策略、断言、精度或超时。
+
+本地类型检查和生产构建通过；会话、全局指令、MiniChat、插件工作区与
+主进程边界回归 176 项全部通过，原生 MCP 凭据隔离、staging 与 fixture
+退出回归 26 项全部通过。CI 策略、执行器、准备及回执测试共 50 项，
+49 通过、1 项既有 POSIX 平台跳过。未重跑全部协议测试。
+
+经未修改的有界 CI runner 串行执行，真实 Windows 源码权限档位验收
+通过（24.019 秒），完整 MiniChat 原生验收通过（85.592 秒），包括
+最小化/恢复、原生交接、4px 阅读锚点、审批、流式输出和退出。
+日志为 `Desktop/test-results/host-stack-main215-native-20261109.log`。
+使用隔离档案与本地 provider fixture，保持默认 sandbox；不代表真实
+付费模型、原生 macOS、旧安装升级或新提交的云端 CI 已验收。
+
+固定 runtime pin、依赖和公开宿主 SDK 均未变；未打包、发布、合并 PR、
+访问日用档案或改变快捷方式。旧 head 的绿项仅为历史结果，新提交须重新
+跑云端检查；#215 继续保持草稿，不单独发布破坏性凭据隔离升级。
+
 ## MiniChat 交接保存竞态与权限验收诊断（2026-11-09）
 
 PR #215 的 Windows sessions run `42500598172` 在 MiniChat 返回主窗后
@@ -132,6 +155,230 @@ MCP 环境引用仍需后续审查；本轮不是完整宿主环境隔离或本�
 依赖隐式 Step 登录的服务有兼容风险，不能将本草稿单独作为破坏性升级发布；
 组合发布前必须完成通用授权入口、迁移和可操作的升级提示。
 
+## MiniChat 交接验收时序（2026-11-09）
+
+PR #228 的 Windows sessions 在裸 `/workflows` 的目录与详情互斥断言失败。
+连续打开同一条工作流或子代理记录时，主窗口已有的相同内容不能证明新一轮
+交接完成。验收现在先等待原生 MiniChat 窗口实际隐藏，再检查目标内容；
+关闭详情后等待面板卸载，才进行下一次交接。仍保留目录不能误开详情、
+重复交接不切错记录和零模型请求等原有断言，不修改产品逻辑或放宽超时。
+
+本地 Windows 类型检查、生产构建、43 项相关测试和完整 MiniChat Electron
+验收通过，包含原生最小化恢复、流式输出、审批与关闭退出。日志为
+`Desktop/test-results/pr228-ci-native-fixed.log`。这不替代修复提交的云端、
+macOS 或打包验收；未打包、改快捷方式或操作用户配置。
+
+## MiniChat Minimize (2026-11-09)
+
+The shared MiniChat header now invokes the existing sender-scoped native
+Minimize action. Typecheck, build, 38 focused unit tests and browser MiniChat
+acceptance pass, including retained editor identity, draft, reading position,
+disclosures and streaming. Light/dark and narrow screenshots were inspected.
+Native Windows assertions confirm that only MiniChat minimizes, its entry
+restores the same window/runtime, and streaming continues.
+
+The full native verifier did not pass: its later runtime-restart step reports
+`Runtime process-tree termination failed (1)`, followed by a shutdown timeout.
+Host CIM process queries also fail. Only this fixture's verified processes were
+stopped. No package, shortcut, cloud or macOS acceptance is claimed.
+
+## 全局指令 PR 验收脚本修复（2026-11-09）
+
+PR #224 的 Windows/macOS sessions 验收严格比较路径时，把临时目录的
+别名当作预期值：Windows 短路径与长路径、macOS `/var` 与 `/private/var`
+表示同一个目录。验收现在先对新建的隔离 profile 调用 `realpath`，
+仍严格比较界面、IPC 和复制结果的完整路径，不修改产品路径选择。
+本机用目录 junction 复现了旧脚本的失败，修复后在同一别名环境通过。
+
+Windows runtime 验收在权限菜单点击返回、原生权限 RPC 尚未完成时提交了
+任务，被现有 `Session operation in progress` 保护拒绝。发送助手现在同时
+等待权限按钮恢复和原有 Send 就绪条件。受控回归保持真实风险确认未回答，
+明确验证 Send 虽已启用、权限事务仍未完成时助手必须阻塞；旧条件在此失败。
+快照等待复用 Node 侧的已解析值轮询，关闭复用现有有界 fixture 关闭助手。
+没有修改产品权限策略、worker 并发保护、原有断言或通过超时。
+
+提交 `4f1f01b` 的 Windows sessions/runtime 全组通过；interface 在已有插件
+验收的卸载关闭步骤失败：原生窗口已关闭，但该页面的 `evaluate` 回包随之
+中断。脚本现在并行等待真实 close 事件和关闭 RPC，仅接受页面销毁对应的
+Playwright 错误，其他错误仍抛出，并保留主窗口存活断言。
+
+本地 Windows 验证结果：
+
+- 源码全局指令验收在 junction 临时目录下通过；权限验收连续三次通过。
+- 同一目录别名环境下，两项脚本也通过现有免安装包
+  `global-instructions-20261109-preview-r2`（产品提交 `4d28ad5`）。
+  均经现有串行 CI runner 执行，仅限定这两项，不声称全组已执行。
+- 类型检查通过；CI 清单、执行器、策略和汇总测试 41 项中 40 项通过、
+  1 项既有 POSIX 平台跳过；fixture 关闭回归 16 项全部通过。
+- 插件完整源码验收连续两次通过八组检查，均确认零推理请求、零渲染器错误、
+  启动器退出码 0 和零剩余窗口。额外的现有 Windows 包执行通过八组业务断言，
+  但最后退出整个 fixture 超时 30 秒，结果仍记为失败，不算包验收通过。
+  后续未发现该 r2 包的残留进程；未据此修改产品或放宽退出判定。
+
+日志为 `Desktop/test-results/pr224-ci-targeted-source.log` 和
+`Desktop/test-results/pr224-ci-targeted-package.log`，插件追加执行日志为
+`Desktop/test-results/pr224-ci-plugin-close.log`，详细结果在对应
+`pr224-plugin-close-{source-1,source-2,package}/verification.json`。
+以上是隔离 profile、
+本地 HTTP/SSE fixture 验证，不替代新提交的云端 CI、原生 macOS 或付费模型
+验收。未重新打包，也未改用户应用、快捷方式、个人配置或共享 runtime。
+
+## Global Instructions File Transparency (2026-11-09)
+
+The settings editor now displays the actual native context file selected by
+the main process, including an existing override or fallback, and provides a
+copy-path action through the existing clipboard bridge. A missing profile shows
+the future `AGENTS.md` path without creating the file. Read, unchanged-save,
+changed-save and clear responses retain that same trusted path; no arbitrary
+filesystem API is added.
+
+Status copy distinguishes a missing file, a loaded local file and a completed
+file save. It does not claim that a resident conversation has loaded the saved
+instructions. The lifecycle note explicitly requires a new conversation or a
+manual runtime restart; saving still does not interrupt or hot-update existing
+workers.
+
+Local typecheck/build passed. The focused store, runtime, session ownership,
+MiniChat catalog and plugin-window policy run passed 123 of 125 tests, with two
+existing POSIX-only skips and no failures. The production Electron verifier
+passed through an isolated local HTTP/SSE provider, inspecting actual system
+requests before and after saving, new sessions, manual restart and cold restore.
+It additionally checks actual/default/override paths, exact clipboard payloads,
+copy failure without draft loss, override-only saves, light/dark/640px English
+layout and four-sided editor/copy-button focus visibility. Clipboard writes are
+stubbed only in the fixture's main process, leaving the user's clipboard intact.
+The light and narrow dark screenshots were inspected.
+
+Evidence is in `Desktop/test-results/global-instructions-results.json` and the
+matching light, dark-narrow, conflict and override-path screenshots. This is
+local Windows source acceptance, not paid-model obedience, native macOS,
+current cloud CI, package acceptance or a public release.
+
+## 插件工作区验收就绪时序修复（2026-11-09）
+
+PR #221 的 macOS 界面验收在 `verify-plugin-workspace.mjs:27` 失败：
+按钮数预期为 4，实际为 0。测试页面在顶层等待图标 fetch 和 FileReader，
+完成后才挂载 React；`page.goto()` 返回不代表这一步已完成。
+本地拦住图标响应可稳定重现：导航已完成时按钮数为 0，
+放行并等待插件按钮区挂载后为 4。
+
+验收脚本新增这一受控慢加载回归，首次打开和单插件页面均等待按钮区可见，
+损坏图标的回退断言也等待实际 SVG 出现。按钮数量、布局、隔离和错误检查
+保持不变，未增加固定休眠、放宽断言或修改产品代码。
+
+本地工作区验收 14 组、实际渲染器界面验收 11 组及类型检查通过；
+CI 清单、执行器和策略测试共 31 项，30 项通过、1 项既有平台跳过；
+`git diff --check` 通过。证据截图位于
+`D:\DFSC-Preview-QA\plugin-ci-readiness-20261109`。
+本机使用现有 Chromium headless shell 1243，未下载浏览器；
+这不替代修复提交的云端 macOS 和打包验收。
+
+## Generic Plugin Workspace Interaction Closeout (2026-11-09)
+
+This closes the generic data-only workspace interaction layer, not a Hermes
+business frontend or an arbitrary third-party frontend SDK. Main-view shortcuts
+now toggle their visible workspace. Opening transfers keyboard focus into the
+selected tab, or restores a still-visible enabled control when reopening.
+Side panels and native windows expose correctly named Close actions instead of
+claiming to return to the workspace. Native window launchers are not announced
+as pressed main-view toggles. Conversation drafts and reading state are retained.
+
+Local evidence on the updated source:
+
+- Typecheck, production build and whitespace checks passed.
+- The complete protocol rerun passed 1,794 of 1,807 tests, with 13 platform
+  skips and no failures. The first attempt had one Windows `UNKNOWN: read`
+  failure in `plugin-configuration.test.ts`; its isolated eight-test rerun and
+  the subsequent complete run passed without source changes to that module.
+  The initial failure remains recorded; its underlying cause is not established.
+- Component-browser and actual-shell injected-bridge verifiers passed.
+  Light/dark, desktop/narrow and reduced-motion layouts were inspected, and
+  keyboard tab focus outlines were measured on all four sides inside the
+  clipping tab scroller. Reopening preserves the selected page, scroll and
+  page-local focus; returning restores direct or overflow entry focus.
+- The isolated native window verifier passed seven groups. The full production
+  Electron verifier passed eight groups with a real local Git marketplace and
+  four generic fixture plugins, not a Hermes package. It covers install,
+  main/side/window routing, toggle/close/focus behavior, keyboard overflow entry,
+  exact installed configuration routing, update/uninstall reference invalidation,
+  denied unrelated IPC, native close/reopen independence and draft retention.
+  It recorded zero inference requests, no renderer errors, exit code zero and
+  zero remaining windows. Production light/dark main and narrow side screenshots
+  were inspected.
+
+Evidence is under
+`D:\DFSC-Preview-QA\plugin-generic-closeout-20261109`, with final production
+results in `electron-final\verification.json`, complete test results in
+`protocol-recheck.log` and the first failure in `protocol.log`. The separate
+native manager result is
+`D:\DFSC-Preview-QA\plugin-windows-H0lTuE\verification.json`.
+
+The prior PR head's Windows checks passed, but its macOS sessions acceptance
+timed out in `verify-mini-chat-electron.mjs:675`. Those historical results do not
+establish cloud acceptance of this new source. No native macOS, installed-client
+upgrade, installer, release or Hermes/Feishu business-flow acceptance is claimed.
+The owner's running application, personal profile, credentials, shortcut and
+upstream runtime checkout were not changed.
+
+## Global Instructions (2026-11-09)
+
+Settings > Global instructions edits native global context in the Desktop-owned
+`step-runtime/agent/` directory, normally `AGENTS.md`. Reads and saves follow
+native context-file precedence, preserve existing fallback files, validate UTF-8
+and size, reject linked files/directories, serialize app writes, and compare an
+opaque revision before atomic replacement. Conflicts retain the local editor
+draft. The default is empty; Clear requires Save. These plaintext instructions
+are model-visible preferences, not credential storage or permission enforcement.
+
+Saving does not interrupt or hot-reload resident conversations. Newly started
+runtime processes load the current native global context, including restarted
+and cold-restored histories; resident navigation retains its existing context.
+Changed saves exclude older empty workers from new-session reuse. Product,
+Desktop collaboration and project rules remain present, and user messages and
+permissions are unchanged. No new enforced instruction hierarchy or
+model-obedience guarantee is claimed.
+
+The implementation was isolated from the old shared release worktree, adapted
+to main `6edeb18`, then rebased onto the plugin-workspace merge `9e493ed`.
+The editor state is retained above the keyed settings content,
+preserving the single content container, existing category transitions and
+unsaved text across tabs. The dedicated acceptance is registered in the shared
+Windows/macOS CI session inventory; only local Windows execution is claimed.
+
+On the initial `6edeb18` base, typecheck, production build and 104 focused
+store/runtime tests passed. The full serial unit/protocol run completed 1,797 tests: 1,784 passed, 13
+platform-specific tests skipped and none failed. CI inventory/runner regression
+completed 25 tests: 24 passed and one POSIX-only test skipped. Electron checks
+passed for global instructions, proposed new sessions, settings-dialog layout
+(including the new category), concurrent sessions and account settings.
+The build retains existing bundler warnings.
+
+After rebasing onto `9e493ed`, typecheck/build, 123 focused store/runtime/IPC/plugin
+tests and the same CI runner regression passed again. The five Electron checks
+above were repeated against the rebuilt source. The complete unit/protocol suite
+was not repeated after that rebase; its 1,797-test result belongs to the prior
+base and does not cover the newly merged plugin-workspace tests.
+
+The isolated Electron acceptance uses the existing staged v0.1.7 Step runtime
+and a local HTTP/SSE provider. It inspects actual system requests for global,
+project, product and Desktop rules and unchanged user text. It covers old empty
+workers, unchanged running sessions, cross-project/new independent sessions,
+restart with preserved identity, clearing, strict IPC validation, external-edit
+conflicts, full app relaunch with cold history restoration, keyboard focus and
+light/dark/640px English layout. Four-sided focus indicators are checked against
+clipping ancestors. Screenshots and results are in
+`Desktop/test-results/global-instructions-{light,conflict,dark-narrow-en}.png`
+and `global-instructions-results.json`.
+
+This is source-only local fixture acceptance, not paid-model instruction-following
+acceptance, native macOS execution, installer validation or a public release.
+Upstream source, personal CLI profiles, the user's application/shortcuts and
+existing packages were not changed. No installer was generated or deleted.
+
+Artifact inventory: this isolated worktree's `Desktop/dist` totals 12,511,607
+bytes (about 11.93 MiB). The six instruction acceptance profiles created during
+PR preparation total about 53.87 MiB. Small screenshot/JSON/log evidence and test
+profiles were retained; existing packages were neither duplicated nor deleted.
 ## 管理 worker 异常退出后的应用关闭回归（2026-11-08）
 
 PR #219 的 P2 已复现：管理 worker 缺少有效 shutdown 确认时，
@@ -10356,6 +10603,14 @@ See [the implementation contract](COMPLETION_REVIEW.md).
 自包含示例测试通过。此处只记录协议层的本地回归，不沿用旧提交的
 云端通过状态，也不表示后续 broker、启动器、设置页已完成组合验收。
 
+### 协议层同步新主线底座（2026-11-10）
+
+合入凭据隔离分支 `c177dc9`，继承 main `12d054e` 的插件工作区、
+全局指令与 MiniChat 更新。仅验证文档发生冲突，双方历史完整保留；
+协议、公开 SDK、固定 runtime pin 和依赖均未修改。类型检查、32 项
+协议/独立配置/工作区元数据回归及 5 项官方 SDK 自包含示例测试通过。
+新 head 的云端检查另行确认，不将后续层或旧提交的通过结果计入本层。
+
 ## 插件宿主代理服务与实际 SDK 子进程 (2026-11-08)
 
 本轮在协议候选上增加独立的主进程 `PluginHostBroker` 和 Step adapter，
@@ -10389,3 +10644,95 @@ BVR 仅提取并共用原有官方账户路由选择器，仍使用旧桥。
 主线的纯主题包指纹函数。合并后 41 项协议、代理与独立配置测试、
 7 项官方 SDK 测试及 Desktop 类型检查通过。没有接入生产启动器，
 没有真实模型请求或安装包交付；新提交仍需独立云端验收。
+
+### 代理层同步新主线底座（2026-11-10）
+
+合入协议分支 `b970008`，继承 main `12d054e`；仅合并验证记录冲突，
+保留原有草稿提升、权限等待和 MiniChat 修复。类型检查及 145 项协议、
+代理、配置、会话和全局指令测试通过，官方 SDK 示例共 7 项通过。
+未改变账户路由、租约边界、公开 SDK、固定 runtime pin 或依赖，
+未接入生产启动器、调用真实模型或生成安装包；新云端检查另行确认。
+
+## Plugin Desktop Workspaces (2026-11-09, Local Source Verification)
+
+This source change adds an optional `dfsc.plugin.json.desktop` contract for one
+host-rendered workspace per recorded installed plugin. `main-view`,
+`side-panel` and `window` select a host surface, not arbitrary plugin frontend
+execution. Pages remain bounded, same-package Markdown behind opaque package
+references. Optional light/dark raster icons are signature-checked, bounded to
+128 KiB and 512px, and require native validation before projected data URLs.
+No package-name exception, new account permission, model request, dependency
+installation or released-client capability is implied.
+
+Completed local source evidence:
+
+- Metadata, library and plugin-window policy tests passed 24/24, with no failures
+  or skips. These cover bounds, raw page-ID validation, provenance, packaged
+  document existence and limits, linked-path rejection, stale references,
+  native image validation/fallback, schema consistency and the resource-starter's
+  actual package files. Invalid icon declarations reject the workspace;
+  valid declarations with missing or undecodable files retain the pages.
+- The integrated focused host run passed 29 tests, including execution of the
+  actual plugin-window IPC handler extracted from production `main.ts` with
+  mocked services. It checks owner/frame scoping, stale-reference revalidation,
+  configuration-only navigation, denied conversation operations and independent
+  window controls. This is not a full Electron application launch.
+- `scripts/verify-plugin-workspace.mjs` passed 13 browser check groups against
+  component fixtures; `scripts/verify-plugin-shell.mjs` passed 10 groups against
+  the actual `main.tsx` shell with an injected bridge. They cover independent
+  titlebar grouping, MiniChat order, icon fallback, retry, keyboard/focus and
+  overflow behavior, page/history/scroll retention, actual ProseMirror draft
+  preservation, side-panel replacement/Escape, theme/preferences refresh,
+  package-reference remounting and stale-response/unavailable cleanup.
+  Light/dark desktop and 390px narrow screenshots were manually inspected.
+  Evidence is under `Desktop/test-results/plugin-workspace/` and
+  `Desktop/test-results/plugin-shell/`. Injected bridges do not establish real
+  preload or production IPC acceptance.
+- `scripts/verify-plugin-windows.mjs` passed seven isolated native Electron
+  groups using production `PluginWindows`, production preload and production
+  method policy, but fixture state/documents rather than the full application.
+  It checks sandboxing, own-ref access, denied operations, exact projected
+  broadcast payloads, a dedicated configuration action, blocked navigation and
+  popups, credential-free HTTPS through a mocked opener, stale replacement,
+  maximize/state events, minimize/close independence, the eight-window bound,
+  released slots and failed-load cleanup. Latest evidence:
+  `D:\DFSC-Preview-QA\plugin-windows-et3Wq4\verification.json`.
+- The complete Desktop suite completed 1,807 tests: 1,794 passed, 13 platform skips,
+  no failures. Desktop typecheck and production build passed. The initial
+  attempt without a staged runtime failed with missing-file errors and is not
+  counted as passing evidence. CI policy/inventory verification passed 24
+  tests locally; this does not claim a cloud CI run. `git diff --check` passed.
+- `scripts/verify-plugin-surfaces-electron.mjs` passed eight groups through the
+  full production Desktop main, preload, renderer, capability service and
+  staged runtime, with an isolated profile and real local Git marketplace.
+  Actual install immediately exposes shortcuts; all three surfaces open;
+  main draft/transcript position and plugin tab/scroll survive; configuration
+  targets the exact installed plugin; the side panel yields to official tools
+  and restores focus; and the optional actual Hermes package displays all four
+  onboarding tabs and its decoded icon in light/dark/narrow screenshots.
+  The supplied 256px Hermes avatar's exact image bytes and decoded dimensions
+  are verified in marketplace catalog/detail, direct/overflow shortcuts and
+  workspace headers; the corresponding screenshots were manually inspected.
+  Production native IPC rejects conversation/model/mutation and foreign/private
+  document access. Actual marketplace refresh, update and uninstall invalidate
+  old references, clear stale native content and preserve the selected runtime;
+  stale plugin windows can still close independently. The run recorded zero
+  inference requests, no renderer errors, exit code zero and zero remaining
+  windows. Evidence:
+  `D:\DFSC-Preview-QA\plugin-surfaces-electron-20261109-020304\verification.json`.
+
+The application fixture uses an isolated runtime at
+`D:\Desktop For Step Code\Desktop\release\plugin-workspaces-runtime`, reached by
+this worktree's `Desktop/runtime` junction. Its reused bundle came from the
+existing `capability-management-phase1-20261108-preview-r2` package. Before
+reuse, its Windows/x64 commit and exact set of 47 patched-source hashes matched
+the current integration manifest, and the Node v24.16.0 binary matched its
+recorded SHA-256. The copied node/step/remote files were hash-checked, 20 current
+host helper files were copied and three helper bundles rebuilt. No shared
+runtime or upstream checkout was changed, and no upstream rebuild is claimed.
+
+The resource-starter's prior installation screenshot predates this feature.
+It is not evidence for the new titlebar group, side panel or native plugin
+window. No installer, public release, cloud CI, native macOS, real-account or
+Hermes/Feishu business-flow acceptance is claimed by this local source record.
+No live-model inference or active-model-task continuity was exercised.

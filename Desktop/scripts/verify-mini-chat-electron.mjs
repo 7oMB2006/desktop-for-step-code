@@ -518,9 +518,46 @@ try {
   });
   await main.getByRole('button', { name: '远程访问', exact: true }).click();
   await main.getByRole('region', { name: '远程访问', exact: true }).waitFor();
-  await mini.getByRole('button', { name: '回到主窗口', exact: true }).click();
-  await main.getByRole('region', { name: '远程访问', exact: true }).waitFor({ state: 'detached' });
-  await main.locator('main .conversation').waitFor({ state: 'visible' });
+  // Hold the return snapshot while the old main view emits presentation-saving events.
+  await app.evaluate(({ ipcMain, BrowserWindow }, mainWindowId) => {
+    const handler = ipcMain._invokeHandlers.get('desktop');
+    const mainContentsId = BrowserWindow.fromId(mainWindowId).webContents.id;
+    let release, arrived;
+    const gate = new Promise(resolve => { release = resolve; });
+    const ready = new Promise(resolve => { arrived = resolve; });
+    globalThis.miniReturnGate = { handler, release, ready, returning: false, writes: [] };
+    ipcMain.removeHandler('desktop');
+    ipcMain.handle('desktop', async (event, method, ...args) => {
+      const probe = globalThis.miniReturnGate;
+      if (method === 'miniChatReturn') {
+        probe.returning = true;
+      }
+      if (probe.returning && event.sender.id === mainContentsId) {
+        if (method === 'windowPresentation') probe.writes.push(args[1].position);
+        if (method === 'snapshot') { arrived(); await gate; }
+      }
+      return handler(event, method, ...args);
+    });
+  }, mainWindowId);
+  try {
+    await mini.getByRole('button', { name: '回到主窗口', exact: true }).click();
+    await main.getByRole('region', { name: '远程访问', exact: true }).waitFor({ state: 'detached' });
+    await main.locator('main .conversation').waitFor({ state: 'visible' });
+    await app.evaluate(() => globalThis.miniReturnGate.ready);
+    await main.evaluate(async () => {
+      document.querySelector('.conversation').dispatchEvent(new Event('scroll', { bubbles: true }));
+      window.dispatchEvent(new Event('blur'));
+      await window.desktop.miniChatState();
+    });
+    assert.deepEqual(await app.evaluate(() => globalThis.miniReturnGate.writes), [],
+      'The old main view cannot overwrite the transferred reading position while its snapshot is pending');
+  } finally {
+    await app.evaluate(({ ipcMain }) => {
+      const { handler, release } = globalThis.miniReturnGate;
+      ipcMain.removeHandler('desktop'); ipcMain.handle('desktop', handler);
+      release(); delete globalThis.miniReturnGate;
+    });
+  }
   await main.waitForFunction(anchor => {
     const viewport = document.querySelector('.conversation');
     const article = viewport.querySelector(`article[data-message-index="${anchor.index}"]`);

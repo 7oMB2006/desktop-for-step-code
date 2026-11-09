@@ -268,6 +268,7 @@ function App() {
   const readingCache = useRef(new SessionReadingCache());
   const previewPosition = useRef<ReadingPosition | undefined>(undefined);
   const readingRestore = useRef<{ runtimeId?: string; position: ReadingPosition; expectedTop?: number } | undefined>(undefined);
+  const pendingPresentationRestores = useRef(0);
   const [awayFromBottom, setAwayFromBottom] = useState(false);
   const collapsedWorkspaces = new Set(data.preferences.collapsedWorkspaces ?? []);
   const workspaceDisclosureSave = useRef<Promise<void>>(Promise.resolve());
@@ -726,7 +727,7 @@ function App() {
     disclosures: [...(disclosuresByOwner.current.get(composerKey(composerOwner(latestData.current))) ?? disclosures)].slice(-512),
   });
   const saveWindowPresentation = () => {
-    if (navigationPending.current || switching.current) return;
+    if (navigationPending.current || switching.current || pendingPresentationRestores.current) return;
     const owner = composerOwner(latestData.current);
     if (owner && bridge?.windowPresentation) void bridge.windowPresentation(owner, currentPresentation()).catch(() => {});
   };
@@ -904,16 +905,22 @@ function App() {
         setData(value => ({ ...value, preferences: { ...event.preferences, workspace: value.preferences.workspace } })); return;
       }
       if (event.type === 'desktop_view_changed' && event.surface === (isMini ? 'mini' : 'main')) {
+        // Revealing the old view can emit scroll/blur before the transferred snapshot arrives.
+        if (event.restorePresentation) pendingPresentationRestores.current++;
         if (!isMini && event.restorePresentation) {
           finishSettingsClose();
           setRemoteOpen(false); setUsageOpen(false); setScheduledOpen(false);
           setPluginsOpen(false); setFulltextOpen(false); setDetails(''); setExpandedRightPanel(null);
         }
         void run(async () => {
-          rememberView(false);
-          const value = await bridge.snapshot();
-          installSnapshot(value);
-          if (event.restorePresentation) restoreWindowPresentation(value);
+          try {
+            rememberView(false);
+            const value = await bridge.snapshot();
+            installSnapshot(value);
+            if (event.restorePresentation) restoreWindowPresentation(value);
+          } finally {
+            if (event.restorePresentation) pendingPresentationRestores.current--;
+          }
         }); return;
       }
       if (event.type === 'desktop_draft_created' && event.draftId === view.current.draftId && !switching.current) {

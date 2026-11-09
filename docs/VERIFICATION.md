@@ -97,6 +97,22 @@ PR #217 macOS run `42507834617` 的包内浏览器验收中，已报告标题的
 `Desktop/test-results/ci-browser-lifecycle-20261109.log`。
 未打包、发布、合并 PR、调整钉点、访问真实账户或改动日用应用。
 
+## 将草稿提升修复补入依赖底座（2026-11-10）
+
+#216 macOS run `42696240175` 在权限确认取消后等待正文恢复超时，
+位置为 `verify-permission-tiers.mjs:108`；模型尚未调用、会话没有消息。
+核对层间差异发现，此前 #217 的创建回包 / 提升事件顺序修复未补入
+#215/#216。现将相同的 renderer promote、两种顺序单元回归及受控
+原生事件延迟回归补入 #215，再沿依赖链同步；不改权限策略或等待期限。
+
+旧云端没有 composer 缓存诊断，因此不把日志本身当作唯一根因证明；
+受控回归及此前新旧对照见后续层的草稿竞态验收记录。
+#215 本地类型检查、生产构建及草稿/阅读/退出 47 项回归通过；
+完整原生权限档位验收通过，含受控顺序、取消恢复、危险操作拒绝、
+单次/记忆授权、中英和窄窗口。日志为该工作区的
+`Desktop/test-results/goal215-permission-backport-20261110.log`。
+新 head 仍须各自完成 Windows/macOS 源码及包内 CI。
+
 ## MiniChat 交接后的迟到保存保护（2026-11-10）
 
 #216 macOS run `42687909764` 的源码场景通过，但包内 MiniChat 在
@@ -119,6 +135,19 @@ PR #217 macOS run `42507834617` 的包内浏览器验收中，已报告标题的
 Windows/macOS 源码和包内云端验收，不宣称已合并或完成最终 main 包交付。
 
 ## Windows 验收控制器退出与原生进程分离（2026-11-10）
+
+#217 Windows run `42696239500` 再次在 then_run 业务断言通过后关闭超时。
+该次 Node inspector 为 61125，残留连接却是原生 Electron 的 Chromium
+调试端口 61127；旧守卫只认 Node 端口，漏掉了 Playwright 的第二条连接。
+夹具现在从本次隔离 profile 的 `DevToolsActivePort` 严格解析 Chromium
+端口，分别捕获两个唯一 loopback 端点。释放条件仍为 launcher 正常退出、
+所有页面关闭、真实主 PID 已不存在；含糊端点不处理，其他连接不触碰。
+
+新增格式边界、双连接释放及歧义端点回归，23 项退出测试通过；类型检查、
+生产构建及完整 Windows then_run / 原生命令 / 后代取消探针通过。
+日志为 `Desktop/test-results/goal217-cdp-*-20261110.log`。
+本次暂停 Chromium 接收的尝试未能稳定复现旧助手超时，不作新旧原生对照
+成功的声明；本地通过不代替新 head 云端验收，内核端点保留来源仍未确认。
 
 #216 Windows runtime run `42683351410` 的 then_run 业务断言通过后退出超时。
 诊断确认启动器已正常退出、页面为零，实际 Electron 主 PID 已不在

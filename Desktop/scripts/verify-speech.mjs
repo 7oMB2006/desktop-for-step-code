@@ -93,7 +93,17 @@ Object.defineProperty(globalThis, 'fetch', { configurable: true, get: () => rout
   set: value => { if (value !== route) transport = value; } });
 `);
 await writeFile(entry, `
-const { net } = require('electron');
+const { net, ipcMain } = require('electron');
+const handle = ipcMain.handle;
+ipcMain.handle = function(channel, handler) {
+  if (channel !== 'desktop') return handle.call(this, channel, handler);
+  return handle.call(this, channel, async (event, method, ...args) => {
+    const result = await handler(event, method, ...args);
+    const gate = globalThis.speechSettingsGate;
+    if (method === 'speechSettings' && gate) { gate.entered = true; await gate.promise; }
+    return result;
+  });
+};
 const cp = require('node:child_process'), spawn = cp.spawn;
 cp.spawn = function(file, args, options) {
   if (args?.some(arg => /(?:admin\\.mjs|step\\.js)$/.test(arg))) args = ['--require', ${JSON.stringify(preload)}, ...args];
@@ -166,9 +176,20 @@ const until = async (condition, label, timeout = 20000) => {
   }
 };
 const configure = async () => {
+  // Hold the real IPC result until the loading state is observed, then require
+  // loaded controls rather than treating the unconditional heading as readiness.
+  await app.evaluate(() => {
+    let release;
+    const promise = new Promise(resolve => { release = resolve; });
+    globalThis.speechSettingsGate = { promise, release, entered: false };
+  });
   await page.locator('.sidebar-settings').click();
   await page.getByRole('button', { name: '通用', exact: true }).click();
   await page.getByRole('heading', { name: '语音听写', exact: true }).waitFor();
+  await page.locator('.speech-settings').getByText('加载中…', { exact: true }).waitFor();
+  await until(() => app.evaluate(() => Boolean(globalThis.speechSettingsGate?.entered)), 'Settings read did not reach the real IPC handler');
+  await app.evaluate(() => { globalThis.speechSettingsGate.release(); delete globalThis.speechSettingsGate; });
+  await page.locator('.speech-settings').getByLabel('识别服务', { exact: true }).waitFor();
 };
 const closeSettings = async () => {
   await page.locator('.settings-dialog').getByRole('button', { name: 'Close', exact: true }).click();
@@ -462,6 +483,7 @@ try {
     'text before Finish without whole-recording reupload', 'manual edits survive incremental append',
     'cancel recording and upload', 'bounded slow-provider backpressure', 'navigation isolation', 'redacted failures',
     'independent model and encrypted key', 'dark/light narrow focused layouts',
+    'settings loading until the real IPC read resolves',
     'login/logout preservation and overseas API route', 'persisted consent',
     'centered shared context row without composer resize', 'equal diff/dictation halves with quotes and queue',
     '240ms cubic entrance/exit and reduced motion', 'status focus outline and trigger focus return',

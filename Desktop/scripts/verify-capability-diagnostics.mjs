@@ -9,6 +9,7 @@ import { createRequire } from 'node:module';
 import { pathToFileURL } from 'node:url';
 import { closeDesktopFixtureAndWait } from './close-desktop-fixture.mjs';
 import { finalizeCapabilityDiagnostics } from './capability-diagnostics-finalize.mjs';
+import { pollCapabilityDiagnostic as poll, readJsonDuringRefresh } from './capability-diagnostics-fixture.mjs';
 
 const desktop = resolve('.');
 const require = createRequire(join(desktop, 'package.json'));
@@ -75,19 +76,6 @@ for (const name of ['DESKTOP_DEV_URL', 'ELECTRON_RUN_AS_NODE', 'STEP_API_KEY', '
 let app, page, holder, operationError, result, remoteIdentity;
 const errors = [], checks = [], diagnostics = [];
 const ownedPids = new Set();
-const poll = async (read, predicate, description) => {
-  const deadline = Date.now() + 60000;
-  while (Date.now() < deadline) {
-    try {
-      const result = await read();
-      if (predicate(result)) return result;
-    } catch (error) {
-      if (!error.message.endsWith('Error: Shared settings operation in progress')) throw error;
-    }
-    await new Promise(resolve => setTimeout(resolve, 100));
-  }
-  throw new Error(`Timed out: ${description}`);
-};
 const catalog = () => page.evaluate(() => window.desktop.capabilityCatalog());
 const mutate = input => page.evaluate(input => window.desktop.capabilityMutate(input), input);
 const confirm = () => page.getByRole('dialog').getByRole('button', { name: '确认', exact: true }).click();
@@ -387,9 +375,9 @@ try {
     const checkUpdates = page.getByRole('button', { name: '检查插件更新', exact: true });
     await waitForUiReady(checkUpdates, 'bulk update check enabled');
     await checkUpdates.click();
-    await poll(async () => JSON.parse(await readFile(
-      join(root, 'marketplaces', healthyMarket.name, '.step-plugin/marketplace.json'), 'utf8')),
-    value => value.description === healthyManifest.description, 'healthy source refreshed after another source failed');
+    await poll(() => readJsonDuringRefresh(
+      join(root, 'marketplaces', healthyMarket.name, '.step-plugin/marketplace.json')),
+    value => value?.description === healthyManifest.description, 'healthy source refreshed after another source failed');
     const warning = page.locator('.plugin-center .cap-notes li').filter({ hasText: '诊断编号' });
     await warning.waitFor();
     await readDiagnostic('marketplace-source-unavailable', 'mutation', await warning.innerText(), expectedGitExitCode);
@@ -430,8 +418,8 @@ try {
     'market maintenance enabled after the plugin catalog loads');
   assert.equal(await page.getByRole('button', { name: `更新市场 ${market.name}`, exact: true }).isDisabled(), false);
   await page.getByRole('button', { name: `更新市场 ${market.name}`, exact: true }).click();
-  await poll(async () => JSON.parse(await readFile(join(root, 'marketplaces', market.name, '.step-plugin/marketplace.json'), 'utf8')),
-    value => value.description === busyManifest.description, 'market refreshed while peer streams');
+  await poll(() => readJsonDuringRefresh(join(root, 'marketplaces', market.name, '.step-plugin/marketplace.json')),
+    value => value?.description === busyManifest.description, 'market refreshed while peer streams');
   await waitForUiReady(page.getByRole('button', { name: `更新市场 ${market.name}`, exact: true }),
     'market refresh UI settled while peer streams');
   await assertBusyRemoteRetained(peer.runtimeId);

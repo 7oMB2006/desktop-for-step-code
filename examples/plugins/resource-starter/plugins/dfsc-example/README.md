@@ -5,6 +5,17 @@ It provides one skill and the `/dfsc-example` prompt command.
 It declares no MCP server, executable frontend, installer, account bridge,
 network endpoint or secret. The host's service switch is therefore unavailable.
 
+## Start Here
+
+With a new host build that includes plugin workspaces, installation adds
+Checklist workspace to the independent plugin group near MiniChat.
+Open it to read the [first-use steps](docs/start.md), complete a
+[small checklist task](docs/first-task.md), or resolve
+[missing resources](docs/troubleshooting.md).
+The workspace is host-rendered Markdown, not an executable plugin frontend.
+An older build may load the skill and command without showing this new entry.
+The application's version number alone does not establish feature support.
+
 Install through the supplied local marketplace, then explicitly restart an
 existing session to load the resources. Invoke `/dfsc-example <your text>`
 to request a short checklist grounded in the supplied text.
@@ -16,6 +27,7 @@ The skill is guidance, not a deterministic output guarantee.
 
 This screenshot is from the real isolated Windows Electron acceptance, showing
 the native skill discovery and the correctly unavailable MCP service switch.
+It predates the new desktop workspace and is not evidence of its acceptance.
 
 ![Installed resource capabilities](docs/assets/capabilities.png)
 

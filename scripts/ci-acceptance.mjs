@@ -60,6 +60,7 @@ export const acceptanceGroups = {
   sessions: [
     'verify-new-session.mjs',
     'verify-launch-modes.mjs',
+    'verify-global-instructions.mjs',
     'verify-completion-review.mjs',
     'verify-plan-review.mjs',
     'verify-question-review.mjs',

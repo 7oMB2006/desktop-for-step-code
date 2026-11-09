@@ -104,6 +104,7 @@ import { FirstRun } from './FirstRun';
 import { AppUpdates, useAppUpdates } from './AppUpdates';
 import { AppearanceSettings } from './AppearanceSettings';
 import { CompactionSettings } from './CompactionSettings';
+import { GlobalInstructionsSettings, useGlobalInstructionsEditor } from './GlobalInstructionsSettings';
 import { InterfaceSettings } from './InterfaceSettings';
 import { normalizeInterfaceSettings } from './interface-presets';
 import { applyAppearance } from './appearance';
@@ -306,6 +307,7 @@ function App() {
   const [searchLocation, setSearchLocation] = useState<SearchLocation>();
   const [searchLocateRequest, setSearchLocateRequest] = useState(0);
   const [tab, setTab] = useState('account');
+  const globalInstructionsEditor = useGlobalInstructionsEditor(bridge, settingsOpen && tab === 'instructions');
   const [capabilityTarget, setCapabilityTarget] = useState<CapabilityTarget>();
   const [capabilityRevision, setCapabilityRevision] = useState(0);
   const [details, setDetails] = useState('');
@@ -1860,6 +1862,7 @@ function App() {
         if (project && bridge && !loading && !navigationPending.current) void applySnapshot(() => bridge.beginSession(project.path));
       }}
       onReturn={() => void run(() => handoff())}
+      onMinimize={() => void run(() => bridge!.windowControl('minimize'))}
       onClose={() => { saveWindowPresentation(); void run(() => bridge!.windowControl('close')); }}>{null}</MiniChatFrame>
       : <WindowBar language={data.preferences.language} sidebarVisible={sidebarVisible} toggleSidebar={toggleSidebar} menus={menus} sessionTitle={activeTitle} onMenuOpenChange={setWindowMenuOpen} inert={settingsOpen || Boolean(removeProject)}
         pluginActions={<PluginActionGroup entries={pluginEntries} language={data.preferences.language}
@@ -1988,7 +1991,7 @@ function App() {
     {pluginsVisited && bridge && <main hidden={!pluginsOpen || Boolean(desktopMainId)} inert={!pluginsOpen || Boolean(desktopMainId) || settingsOpen || Boolean(removeProject)}>
       {!!requests.length && <div className="approval-notice"><TriangleAlert size={16}/><span>{t('当前会话有待确认的操作', 'The current session is awaiting approval')}</span>
         <button onClick={() => { setPluginsOpen(false); setApprovalOpen(true); }}>{t('查看', 'Review')}</button></div>}
-      <PluginCenter bridge={bridge} language={data.preferences.language} active={pluginsOpen && !desktopMainId} busy={anyBusy || busy || loading}
+      <PluginCenter bridge={bridge} language={data.preferences.language} currentVersion={appUpdate?.currentVersion} active={pluginsOpen && !desktopMainId} busy={anyBusy || busy || loading}
         runtimeId={data.runtimeId} settings={settings ?? undefined} target={capabilityTarget?.page === 'plugins' ? capabilityTarget : undefined}
         onBack={() => setPluginsOpen(false)} onOpenDesktop={openInstalledDesktop}
         onChanged={async () => { setSettings(await bridge.settings()); setCapabilityRevision(value => value + 1); }}
@@ -2499,8 +2502,9 @@ function App() {
         </div>
       </div>
     </div>}
-    {settingsOpen && <div className={`modal-backdrop settings-backdrop${settingsClosing ? ' is-closing' : ''}`} onAnimationEnd={event => { if (event.target === event.currentTarget && event.animationName === 'settings-backdrop-exit') finishSettingsClose(); }}><section className="settings-dialog" inert={settingsClosing} role="dialog" aria-modal="true" aria-label={t('设置', 'Settings')}><header><h2>{t('设置', 'Settings')}</h2><IconButton title="Close" onClick={closeSettings}><X size={19}/></IconButton></header><div className="settings-layout"><nav aria-label={t('设置分类', 'Settings categories')}>{[['account', StepPlatformIcon, t('账户', 'Account')], ['providers', ProviderIcon, t('供应商', 'Providers')], ['plugins', Plug, t('插件', 'Plugins')], ['mcp', McpIcon, 'MCP'], ['skills', BookOpen, 'Skills'], ['general', SunMoon, t('通用', 'General')], ['interface', SlidersHorizontal, t('界面复杂度', 'Interface complexity')], ['appearance', Pencil, t('外观', 'Appearance')], ['updates', Download, t('版本更新', 'Updates')], ['import', ArrowRightLeft, t('会话迁移', 'Session migration')], ['archived', Archive, t('已归档', 'Archived')]].map(([id, Icon, title]: any) => <button key={id} aria-label={title} aria-current={tab === id ? 'page' : undefined} className={`${tab === id ? 'selected' : ''}${id === 'import' ? ' settings-group-start' : ''}`} onClick={() => { if (id === 'plugins') { openPlugins(); return; } mcpEditRequestRevision.current++; setCapabilityTarget(undefined); setTab(id); }}><Icon size={17}/>{title}</button>)}</nav><div key={tab} className="settings-content">
-      {tab === 'interface' ? <InterfaceSettings value={interfaceSettings} language={data.preferences.language} onChange={interfaceSettings => setPreference({ interfaceSettings })}/> : tab === 'appearance' ? <><ThemeSettings preferences={data.preferences} systemDark={systemDark} language={data.preferences.language} packs={data.themePacks} loadScene={bridge?.themeScene} loadPoster={bridge?.themePoster} onChange={patch => void setPreference(patch)}/><AppearanceSettings value={data.preferences.appearance} language={data.preferences.language} onChange={appearance => void setPreference({ appearance })}/></> : tab === 'archived' ? <ArchivedSessions sessions={archivedSessions} preferences={data.preferences}
+    {settingsOpen && <div className={`modal-backdrop settings-backdrop${settingsClosing ? ' is-closing' : ''}`} onAnimationEnd={event => { if (event.target === event.currentTarget && event.animationName === 'settings-backdrop-exit') finishSettingsClose(); }}><section className="settings-dialog" inert={settingsClosing} role="dialog" aria-modal="true" aria-label={t('设置', 'Settings')}><header><h2>{t('设置', 'Settings')}</h2><IconButton title="Close" onClick={closeSettings}><X size={19}/></IconButton></header><div className="settings-layout"><nav aria-label={t('设置分类', 'Settings categories')}>{[['account', StepPlatformIcon, t('账户', 'Account')], ['providers', ProviderIcon, t('供应商', 'Providers')], ['plugins', Plug, t('插件', 'Plugins')], ['mcp', McpIcon, 'MCP'], ['skills', BookOpen, 'Skills'], ['instructions', FileText, t('全局指令', 'Global instructions')], ['general', SunMoon, t('通用', 'General')], ['interface', SlidersHorizontal, t('界面复杂度', 'Interface complexity')], ['appearance', Pencil, t('外观', 'Appearance')], ['updates', Download, t('版本更新', 'Updates')], ['import', ArrowRightLeft, t('会话迁移', 'Session migration')], ['archived', Archive, t('已归档', 'Archived')]].map(([id, Icon, title]: any) => <button key={id} aria-label={title} aria-current={tab === id ? 'page' : undefined} className={`${tab === id ? 'selected' : ''}${id === 'import' ? ' settings-group-start' : ''}`} onClick={() => { if (id === 'plugins') { openPlugins(); return; } mcpEditRequestRevision.current++; setCapabilityTarget(undefined); setTab(id); }}><Icon size={17}/>{title}</button>)}</nav>
+      <div key={tab} className="settings-content">
+      {tab === 'instructions' ? <GlobalInstructionsSettings editor={globalInstructionsEditor} language={data.preferences.language}/> : tab === 'interface' ? <InterfaceSettings value={interfaceSettings} language={data.preferences.language} onChange={interfaceSettings => setPreference({ interfaceSettings })}/> : tab === 'appearance' ? <><ThemeSettings preferences={data.preferences} systemDark={systemDark} language={data.preferences.language} packs={data.themePacks} loadScene={bridge?.themeScene} loadPoster={bridge?.themePoster} onChange={patch => void setPreference(patch)}/><AppearanceSettings value={data.preferences.appearance} language={data.preferences.language} onChange={appearance => void setPreference({ appearance })}/></> : tab === 'archived' ? <ArchivedSessions sessions={archivedSessions} preferences={data.preferences}
         runtimes={data.runtimes ?? []} activeId={data.state?.sessionId}
         onOpen={id => { closeSettings(); const session = data.sessions.find(session => session.id === id); if (session) void navigateSession(session); }}
         onRestore={id => run(() => updateArchive(id, true)).then(() => {})} onDelete={deleteArchived}/> : <>

@@ -79,6 +79,236 @@ MiniChat 和独立插件窗口继续拒绝这些接口。
 不声称公开安装包兼容、云端宿主 CI、原生 macOS、真实账号、飞书或过夜工程验收。
 未改变主人的运行应用、真实 profile、凭据、快捷方式或上游运行时。
 本轮只重建开发 `dist` 并生成隔离验收证据，未制作安装包；未删除旧包或历史证据。
+## MiniChat 交接验收时序（2026-11-09）
+
+PR #228 的 Windows sessions 在裸 `/workflows` 的目录与详情互斥断言失败。
+连续打开同一条工作流或子代理记录时，主窗口已有的相同内容不能证明新一轮
+交接完成。验收现在先等待原生 MiniChat 窗口实际隐藏，再检查目标内容；
+关闭详情后等待面板卸载，才进行下一次交接。仍保留目录不能误开详情、
+重复交接不切错记录和零模型请求等原有断言，不修改产品逻辑或放宽超时。
+
+本地 Windows 类型检查、生产构建、43 项相关测试和完整 MiniChat Electron
+验收通过，包含原生最小化恢复、流式输出、审批与关闭退出。日志为
+`Desktop/test-results/pr228-ci-native-fixed.log`。这不替代修复提交的云端、
+macOS 或打包验收；未打包、改快捷方式或操作用户配置。
+
+## MiniChat Minimize (2026-11-09)
+
+The shared MiniChat header now invokes the existing sender-scoped native
+Minimize action. Typecheck, build, 38 focused unit tests and browser MiniChat
+acceptance pass, including retained editor identity, draft, reading position,
+disclosures and streaming. Light/dark and narrow screenshots were inspected.
+Native Windows assertions confirm that only MiniChat minimizes, its entry
+restores the same window/runtime, and streaming continues.
+
+The full native verifier did not pass: its later runtime-restart step reports
+`Runtime process-tree termination failed (1)`, followed by a shutdown timeout.
+Host CIM process queries also fail. Only this fixture's verified processes were
+stopped. No package, shortcut, cloud or macOS acceptance is claimed.
+
+## 全局指令 PR 验收脚本修复（2026-11-09）
+
+PR #224 的 Windows/macOS sessions 验收严格比较路径时，把临时目录的
+别名当作预期值：Windows 短路径与长路径、macOS `/var` 与 `/private/var`
+表示同一个目录。验收现在先对新建的隔离 profile 调用 `realpath`，
+仍严格比较界面、IPC 和复制结果的完整路径，不修改产品路径选择。
+本机用目录 junction 复现了旧脚本的失败，修复后在同一别名环境通过。
+
+Windows runtime 验收在权限菜单点击返回、原生权限 RPC 尚未完成时提交了
+任务，被现有 `Session operation in progress` 保护拒绝。发送助手现在同时
+等待权限按钮恢复和原有 Send 就绪条件。受控回归保持真实风险确认未回答，
+明确验证 Send 虽已启用、权限事务仍未完成时助手必须阻塞；旧条件在此失败。
+快照等待复用 Node 侧的已解析值轮询，关闭复用现有有界 fixture 关闭助手。
+没有修改产品权限策略、worker 并发保护、原有断言或通过超时。
+
+提交 `4f1f01b` 的 Windows sessions/runtime 全组通过；interface 在已有插件
+验收的卸载关闭步骤失败：原生窗口已关闭，但该页面的 `evaluate` 回包随之
+中断。脚本现在并行等待真实 close 事件和关闭 RPC，仅接受页面销毁对应的
+Playwright 错误，其他错误仍抛出，并保留主窗口存活断言。
+
+本地 Windows 验证结果：
+
+- 源码全局指令验收在 junction 临时目录下通过；权限验收连续三次通过。
+- 同一目录别名环境下，两项脚本也通过现有免安装包
+  `global-instructions-20261109-preview-r2`（产品提交 `4d28ad5`）。
+  均经现有串行 CI runner 执行，仅限定这两项，不声称全组已执行。
+- 类型检查通过；CI 清单、执行器、策略和汇总测试 41 项中 40 项通过、
+  1 项既有 POSIX 平台跳过；fixture 关闭回归 16 项全部通过。
+- 插件完整源码验收连续两次通过八组检查，均确认零推理请求、零渲染器错误、
+  启动器退出码 0 和零剩余窗口。额外的现有 Windows 包执行通过八组业务断言，
+  但最后退出整个 fixture 超时 30 秒，结果仍记为失败，不算包验收通过。
+  后续未发现该 r2 包的残留进程；未据此修改产品或放宽退出判定。
+
+日志为 `Desktop/test-results/pr224-ci-targeted-source.log` 和
+`Desktop/test-results/pr224-ci-targeted-package.log`，插件追加执行日志为
+`Desktop/test-results/pr224-ci-plugin-close.log`，详细结果在对应
+`pr224-plugin-close-{source-1,source-2,package}/verification.json`。
+以上是隔离 profile、
+本地 HTTP/SSE fixture 验证，不替代新提交的云端 CI、原生 macOS 或付费模型
+验收。未重新打包，也未改用户应用、快捷方式、个人配置或共享 runtime。
+
+## Global Instructions File Transparency (2026-11-09)
+
+The settings editor now displays the actual native context file selected by
+the main process, including an existing override or fallback, and provides a
+copy-path action through the existing clipboard bridge. A missing profile shows
+the future `AGENTS.md` path without creating the file. Read, unchanged-save,
+changed-save and clear responses retain that same trusted path; no arbitrary
+filesystem API is added.
+
+Status copy distinguishes a missing file, a loaded local file and a completed
+file save. It does not claim that a resident conversation has loaded the saved
+instructions. The lifecycle note explicitly requires a new conversation or a
+manual runtime restart; saving still does not interrupt or hot-update existing
+workers.
+
+Local typecheck/build passed. The focused store, runtime, session ownership,
+MiniChat catalog and plugin-window policy run passed 123 of 125 tests, with two
+existing POSIX-only skips and no failures. The production Electron verifier
+passed through an isolated local HTTP/SSE provider, inspecting actual system
+requests before and after saving, new sessions, manual restart and cold restore.
+It additionally checks actual/default/override paths, exact clipboard payloads,
+copy failure without draft loss, override-only saves, light/dark/640px English
+layout and four-sided editor/copy-button focus visibility. Clipboard writes are
+stubbed only in the fixture's main process, leaving the user's clipboard intact.
+The light and narrow dark screenshots were inspected.
+
+Evidence is in `Desktop/test-results/global-instructions-results.json` and the
+matching light, dark-narrow, conflict and override-path screenshots. This is
+local Windows source acceptance, not paid-model obedience, native macOS,
+current cloud CI, package acceptance or a public release.
+
+## 通用插件市场信息（2026-11-09）
+
+通用市场卡片与详情页新增作者、DFSC 语义化版本要求、必需/可选外部准备项，
+并将作者与适配维护者分开。缺省依赖声明不等于无需依赖；没有可信下载统计时
+显示「暂无统计」，不使用作者自报数字或 GitHub Star 替代。
+发现页候选的版本、作者、要求和文档保持同一来源，已安装版本另行标注；
+配置和工作区入口仍绑定实际安装副本。此轮不是 Hermes 业务适配，
+没有新增依赖检测、安装脚本、执行权限或统计遥测。
+
+本地已确认：
+
+- 类型检查、生产构建和 `git diff --check` 通过。
+- 元数据、包投影、工作区声明、文档与展示的 7 个定向测试文件共 54 项全部通过，
+  使用 Node 24.16.0 串行运行，没有跳过。
+- 元数据浏览器验收 17 组通过，包括中英文、明暗主题、1440/900/390px、
+  长作者/依赖换行、真实键盘焦点四边可见、安全链接和候选/安装副本分离。
+  完整插件中心浏览器验收通过；新增检查由既有 CI 验收入口调用。
+- 实际主渲染器注入桥接的 11 组验收通过；CI 清单、运行器和策略测试共 31 项，
+  30 项通过、1 项既有平台跳过。
+- 生产 Electron 主进程、preload、渲染器与真实本地 Git 市场的 9 组验收通过，
+  其中 8 项元数据断言覆盖四个通用资源插件的市场/安装投影、真实客户端
+  `0.6.0` 版本、必需/可选/空数组/未声明、作者缺省与未知下载统计。
+  原有主视图、侧栏、独立窗口、配置引用、更新和卸载断言保留并通过。
+  渲染错误与模型请求均为 0，退出码 0，确认剩余窗口 0；截图已目视检查。
+
+同日按反馈完成徽标组件复验：作者署名仅保留人形图标与名称，
+DFSC 版本和外部依赖摘要改为可复用的非交互徽标，版本徽标由卡片与详情共用。
+声明来源与未检测本机环境的边界保留在提示、无障碍标签和详情中。
+类型检查、生产构建、7 个定向文件的 58/58 项测试通过；
+中英文、明暗主题和 1440/900/390px 的 17 组元数据检查、
+完整插件中心浏览器验收及上述生产 Electron 9 组验收均重新通过。
+本次没有重跑全量协议测试，原有全量失败仍保留如下。
+复验证据位于同一证据目录的 `chip-polish\`：
+`plugin-focused.log`、`browser\market-info\verification.json` 和
+`electron\verification.json`。该目录共 20.63 MiB，未生成安装包或删除产物。
+
+### 紧凑信息与依赖展开
+
+同日参考市场信息层级调整：符合声明的版本仅显示 DFSC 与版本范围，
+不再常驻绿色「版本符合」，不符合或无效声明仍明确警示。
+外部依赖摘要改为独立按钮，就地打开锚定弹层；弹层与详情共用必需/可选
+清单、安全链接和「作者声明，未检测本机环境」边界，不新增检测或安装行为。
+卡片不再显示缺失下载量的占位，详情仍明确显示「暂无统计」。
+
+- 类型检查、生产构建及 Node 24.16.0 下 7 个定向文件的 58/58 项测试通过。
+- 完整插件中心浏览器验收与 19 组元数据检查通过，覆盖中英文、
+  明暗主题、1440/900/390px、弹层上下翻转与边界、卡片布局不跳动、
+  必需/可选清单、安全链接、四边焦点、Escape 焦点返回、再次点击、
+  外部点击、焦点离开、关闭按钮、实际滚动及保留挂载时的停用清理。
+- 生产 Electron 9 组、8 项元数据断言再次通过，版本为 `0.6.0`；
+  渲染错误与模型请求均为 0，退出码 0、剩余窗口 0，确认干净退出。
+  更新和卸载仍经过真实本地 Git 市场；卸载清理包含已展开的依赖弹层。
+- 验收脚本等待原生弹层与触发器状态同步；直接后端卸载的用例使用既有
+  「检查插件更新」路径刷新目录后核对移除，没有增加产品自动同步或放宽断言。
+
+复验证据在 `D:\DFSC-Preview-QA\plugin-market-info-20261109\compact-revision`：
+`plugin-focused.log`、`browser\market-info\verification.json`、
+`electron-final\verification.json` 及截图。首次原生验收的失败证据保留在
+`electron\`，最终通过结果以 `electron-final\` 为准。截图已目视检查。
+该目录共 36.97 MiB；当前 dist 为 11.96 MiB，runtime 与 terminal-runtime
+大小未变。本次没有重跑全量协议测试，也未生成安装包或删除产物。
+
+随后完成统一标签视觉复验：版本与依赖使用相同高度、内边距、圆角和轻底色，
+移除版本内部的分隔线、独立底色与等宽代码样式。警告仅保留一个前置图标，
+整枚轻红提示并保留可见结论；依赖入口保留展开箭头和完整键盘焦点。
+类型检查、生产构建、7 个定向文件的 58/58 项测试、完整插件中心浏览器验收
+与 19 组元数据检查通过。中英文、明暗主题、1440/900/390px 矩阵新增
+内部无分段边框/底色/内边距及两种标签尺寸一致的断言，截图已目视检查。
+此轮未重跑原生 Electron 或全量协议验收，不将之前的原生结果计作本轮复验。
+证据位于同一根目录的 `unified-chips\`，包括 `plugin-focused.log`、
+`browser\market-info\verification.json` 与截图，共 7.20 MiB。
+runtime、terminal-runtime 和 dist 大小未变；预览服务器保留，未生成安装包或删除产物。
+
+**全量协议回归没有全绿。** 最初因新工作区未准备 runtime 而失败；
+准备独立普通文件 runtime 后，使用本机 Node 24.15.0 的全量尝试挂在
+`terminal-sessions`，仅核对并停止该次运行的进程。使用项目要求的 Node 24.16.0，
+该文件单独运行 6/6 通过；随后有界全量重跑共 1821 项，
+1807 通过、1 失败、13 项显式平台跳过。唯一失败为未修改的
+`terminal-sessions.test.ts:84`：重试终止时报告
+`Terminal did not exit after termination`。未放宽测试或修改终端逻辑，
+独立运行通过不能替代全量结果，失败原因未在此轮确立。
+
+证据位于 `D:\DFSC-Preview-QA\plugin-market-info-20261109`：
+`browser-final\market-info\verification.json`、`electron\verification.json`、
+`protocol.log`、`protocol-runtime.log`、`protocol-runtime-node2416.log`、
+`plugin-focused.log` 和 `terminal-sessions-node2416.log`。
+验收结束后未发现本轮测试进程遗留，
+本地预览服务器有意保留。当前可重建产物为独立 runtime 124.07 MiB、
+terminal-runtime 62.96 MiB、dist 11.95 MiB；未生成安装包或擅自删除产物。
+未提交、推送、发布、替换快捷方式，也未修改日常客户端、个人档案、
+共享依赖或上游 checkout。本地结果不代表云端 Windows/macOS 或发布验收。
+
+### 独立 PR 提交前复验
+
+在主分支 `430843520acb182acb2cd01df185a6941169e0ec` 上完成整合，
+保留上游的全局指令验收与插件窗口关闭时序修复。完整安装要求现在仅位于
+「使用说明」标签页；配置齿轮直接进入配置，不被长声明挤下。
+浏览器回归实际点击配置齿轮，再切回使用说明核对完整清单的位置。
+
+先前全量运行的终端失败没有被单文件通过掩盖。检查发现两条故障注入测试的
+真实重试固定使用 3 秒，绕过了生产已有的 Windows 10 秒终止预算。
+这两处改用生产默认值，保留 50 毫秒故障注入、真实退出确认、ownership
+保留和关闭去重断言；未修改生产终端逻辑。Node 24.16.0 下单文件 6/6 通过，
+其中实际退出确认用例整体耗时约 5.8 秒。
+
+本次已完成：
+
+- 类型检查、生产构建和差异空白检查通过。
+- 完整插件中心浏览器验收通过；元数据检查增加至 20 组，覆盖配置直达、
+  候选/安装副本分离、统一标签、原生依赖弹层及关闭清理。
+  中英文、明暗主题与 1440/900/390px 矩阵通过，窄屏详情与浅色弹层截图已目视检查。
+- 完整生产 Electron 验收通过 9 组及 8 项元数据断言，使用真实本地 Git 市场、
+  隔离 profile 和客户端版本 `0.6.0`，未加载 Hermes 包。
+  渲染错误和推理请求均为 0，启动器退出码 0，剩余窗口 0，确认干净退出。
+- CI 分类、清单、运行器、预构建及汇总测试共 50 项：49 项通过、
+  1 项既有平台跳过，无失败。
+- Node 24.16.0 下完整串行协议测试共 1834 项：1821 项通过、13 项显式平台跳过、
+  0 失败，退出码 0，约 628 秒。两条终端真实重试及既有慢清理回归均通过。
+  此结果取代前述失败运行作为当前提交的全量结果，原失败证据仍保留。
+
+证据位于 `D:\DFSC-Preview-QA\plugin-market-info-20261109\pr-closeout`：
+`typecheck.log`、`build.log`、`terminal-focused.log`、`protocol-full.log`、
+`ci-policy.log`、`browser\market-info\verification.json`、
+`electron\verification.json` 与对应截图，共 21.32 MiB。
+测试父子进程及本轮原生/终端 fixture 均已退出，未发现遗留。
+
+可重建产物盘点：当前工作区 `Desktop/runtime` 124.07 MiB、
+`Desktop/terminal-runtime` 62.96 MiB、`Desktop/dist` 11.97 MiB，均为普通目录，
+不是 junction。预览服务器有意保留，未生成安装包、删除产物、替换快捷方式、
+重启日常客户端或修改个人配置。以上是本机 Windows 源码与隔离 fixture 验证，
+不替代新 PR 的云端 CI、原生 macOS、真实账户或发布验收。
 
 ## 插件工作区验收就绪时序修复（2026-11-09）
 
@@ -145,6 +375,66 @@ establish cloud acceptance of this new source. No native macOS, installed-client
 upgrade, installer, release or Hermes/Feishu business-flow acceptance is claimed.
 The owner's running application, personal profile, credentials, shortcut and
 upstream runtime checkout were not changed.
+
+## Global Instructions (2026-11-09)
+
+Settings > Global instructions edits native global context in the Desktop-owned
+`step-runtime/agent/` directory, normally `AGENTS.md`. Reads and saves follow
+native context-file precedence, preserve existing fallback files, validate UTF-8
+and size, reject linked files/directories, serialize app writes, and compare an
+opaque revision before atomic replacement. Conflicts retain the local editor
+draft. The default is empty; Clear requires Save. These plaintext instructions
+are model-visible preferences, not credential storage or permission enforcement.
+
+Saving does not interrupt or hot-reload resident conversations. Newly started
+runtime processes load the current native global context, including restarted
+and cold-restored histories; resident navigation retains its existing context.
+Changed saves exclude older empty workers from new-session reuse. Product,
+Desktop collaboration and project rules remain present, and user messages and
+permissions are unchanged. No new enforced instruction hierarchy or
+model-obedience guarantee is claimed.
+
+The implementation was isolated from the old shared release worktree, adapted
+to main `6edeb18`, then rebased onto the plugin-workspace merge `9e493ed`.
+The editor state is retained above the keyed settings content,
+preserving the single content container, existing category transitions and
+unsaved text across tabs. The dedicated acceptance is registered in the shared
+Windows/macOS CI session inventory; only local Windows execution is claimed.
+
+On the initial `6edeb18` base, typecheck, production build and 104 focused
+store/runtime tests passed. The full serial unit/protocol run completed 1,797 tests: 1,784 passed, 13
+platform-specific tests skipped and none failed. CI inventory/runner regression
+completed 25 tests: 24 passed and one POSIX-only test skipped. Electron checks
+passed for global instructions, proposed new sessions, settings-dialog layout
+(including the new category), concurrent sessions and account settings.
+The build retains existing bundler warnings.
+
+After rebasing onto `9e493ed`, typecheck/build, 123 focused store/runtime/IPC/plugin
+tests and the same CI runner regression passed again. The five Electron checks
+above were repeated against the rebuilt source. The complete unit/protocol suite
+was not repeated after that rebase; its 1,797-test result belongs to the prior
+base and does not cover the newly merged plugin-workspace tests.
+
+The isolated Electron acceptance uses the existing staged v0.1.7 Step runtime
+and a local HTTP/SSE provider. It inspects actual system requests for global,
+project, product and Desktop rules and unchanged user text. It covers old empty
+workers, unchanged running sessions, cross-project/new independent sessions,
+restart with preserved identity, clearing, strict IPC validation, external-edit
+conflicts, full app relaunch with cold history restoration, keyboard focus and
+light/dark/640px English layout. Four-sided focus indicators are checked against
+clipping ancestors. Screenshots and results are in
+`Desktop/test-results/global-instructions-{light,conflict,dark-narrow-en}.png`
+and `global-instructions-results.json`.
+
+This is source-only local fixture acceptance, not paid-model instruction-following
+acceptance, native macOS execution, installer validation or a public release.
+Upstream source, personal CLI profiles, the user's application/shortcuts and
+existing packages were not changed. No installer was generated or deleted.
+
+Artifact inventory: this isolated worktree's `Desktop/dist` totals 12,511,607
+bytes (about 11.93 MiB). The six instruction acceptance profiles created during
+PR preparation total about 53.87 MiB. Small screenshot/JSON/log evidence and test
+profiles were retained; existing packages were neither duplicated nor deleted.
 
 ## 管理 worker 异常退出后的应用关闭回归（2026-11-08）
 

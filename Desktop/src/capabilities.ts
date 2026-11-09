@@ -10,7 +10,10 @@ export interface PluginDesktop {
   symbol?: PluginDesktopSymbol;
   icon?: { light: string; dark?: string };
   defaultPage?: string;
-  connection?: { protocol: 'agent-bridge-v1' };
+  connection?: {
+    protocol: 'agent-bridge-v1';
+    guides?: { setup?: string; firstTask?: string; troubleshooting?: string };
+  };
   pages: { id: string; title: string; document: string }[];
 }
 export interface PluginConnection {
@@ -20,6 +23,10 @@ export interface PluginConnection {
   roots: string[];
   tasks: { id: string; title: string; phase: string; cwd: string }[];
   checkedAt?: number;
+}
+export interface PluginRequirements {
+  dfsc?: string;
+  external?: { name: string; description?: string; url?: string; optional?: boolean }[];
 }
 export interface PluginPackage {
   ref: string; provenance: 'recorded' | 'unknown' | 'conflict';
@@ -33,6 +40,7 @@ export interface PluginPackage {
   dataOnlyTheme?: boolean;
   locales?: Partial<Record<'zh' | 'en', PluginLocale>>;
   desktop?: PluginDesktop;
+  requirements?: PluginRequirements;
 }
 export interface PluginConfigurationField {
   id: string; label: string; help?: string; type: 'text' | 'number' | 'enum' | 'boolean' | 'secret' | 'path';

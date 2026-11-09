@@ -4,6 +4,8 @@ import { mkdtemp, mkdir, realpath, readFile, writeFile, stat } from 'node:fs/pro
 import { tmpdir } from 'node:os';
 import { join, resolve, relative, isAbsolute } from 'node:path';
 import assert from 'node:assert/strict';
+import { waitForSessionFixtureSnapshot } from './session-fixture.mjs';
+import { closeDesktopFixtureAndWait } from './close-desktop-fixture.mjs';
 
 let modelCalls = 0;
 const results = [];
@@ -60,7 +62,7 @@ const open = async () => {
 };
 const close = async () => {
   await app.evaluate(({ dialog }) => { dialog.showMessageBox = async () => ({ response: 1, checkboxChecked: false }); });
-  await app.close();
+  await closeDesktopFixtureAndWait(app);
 };
 try {
   let page = await open();
@@ -70,18 +72,20 @@ try {
     await page.getByRole('menuitemradio', { name: new RegExp(`^${name}`) }).click();
   };
   const input = () => page.getByRole('textbox', { name: '消息', exact: true });
+  const readyToSend = (timeout = 30000) => page.waitForFunction(() => {
+    const button = document.querySelector('.composer-action-button');
+    const permission = document.querySelector('.permission-trigger');
+    return permission && !permission.disabled && button && !button.disabled && button.dataset.action === 'send';
+  }, undefined, { timeout });
   const send = async text => {
     await input().fill(text);
-    // A menu click can return before the permission RPC releases composer loading.
-    await page.waitForFunction(() => {
-      const button = document.querySelector('.composer-action-button');
-      return button && !button.disabled && button.dataset.action === 'send';
-    });
+    // Menu clicks return before the permission RPC finishes; Send alone can stay enabled.
+    await readyToSend();
     await input().press('Enter');
   };
   const settled = async label => {
     await page.getByText(`${label} COMPLETE`, { exact: true }).waitFor({ timeout: 60000 });
-    await page.waitForFunction(async () => !(await window.desktop.snapshot()).state?.isStreaming);
+    await waitForSessionFixtureSnapshot(page, snapshot => !snapshot.state?.isStreaming, `${label} to stop streaming`);
   };
   const risk = () => page.getByRole('dialog', { name: '启用完全访问？', exact: true });
   assert.equal((await snapshot()).permissionPreset, 'ask', 'Legacy Autopilot is never silently granted');
@@ -109,6 +113,16 @@ try {
   for (const cancel of ['option', 'escape']) {
     await choose('完全访问');
     await risk().waitFor();
+    if (cancel === 'option') {
+      await page.waitForFunction(() => {
+        const permission = document.querySelector('.permission-trigger');
+        const send = document.querySelector('.composer-action-button');
+        return permission?.disabled && send && !send.disabled && send.dataset.action === 'send';
+      });
+      await assert.rejects(readyToSend(250), { name: 'TimeoutError' },
+        'An unresolved permission RPC blocks fixture submission even when Send is enabled');
+      assert.equal(modelCalls, 0, 'Waiting for the permission RPC cannot call the model');
+    }
     if (cancel === 'option') await risk().getByRole('button', { name: '取消，保持当前权限', exact: true }).click();
     else await page.keyboard.press('Escape');
     await risk().waitFor({ state: 'hidden' });
@@ -149,7 +163,7 @@ try {
   await choose('完全访问');
   await risk().waitFor();
   await risk().getByRole('button', { name: '仅本会话启用', exact: true }).click();
-  await page.waitForFunction(async () => (await window.desktop.snapshot()).permissionPreset === 'full-access');
+  await waitForSessionFixtureSnapshot(page, snapshot => snapshot.permissionPreset === 'full-access', 'session-only Full Access');
   await send('VERIFY-RISK-FULL');
   await settled('VERIFY-RISK-FULL');
   assert.equal(await page.getByRole('dialog').count(), 0, 'Acknowledged Full Access runs dangerous commands without per-call confirmation');
@@ -162,7 +176,7 @@ try {
   assert.equal(cloned.requests.length, 0, 'Hidden branch preparation does not demand a new Full Access grant');
   await page.evaluate(id => window.desktop.switchSession(id), sessionId);
   await page.reload();
-  await page.waitForFunction(async () => (await window.desktop.snapshot()).permissionPreset === 'full-access');
+  await waitForSessionFixtureSnapshot(page, snapshot => snapshot.permissionPreset === 'full-access', 'Full Access after reload');
   await close();
 
   page = await open();
@@ -184,12 +198,12 @@ try {
   await page.waitForTimeout(250);
   await page.screenshot({ path: 'test-results/permission-tiers-risk-light-en.png' });
   await english.getByRole('button', { name: 'Enable and remember', exact: true }).click();
-  await page.waitForFunction(async () => (await window.desktop.snapshot()).permissionPreset === 'full-access');
+  await waitForSessionFixtureSnapshot(page, snapshot => snapshot.permissionPreset === 'full-access', 'remembered Full Access');
   await close();
   page = await open();
   await page.evaluate(id => window.desktop.switchSession(id), sessionId);
   await page.reload();
-  await page.waitForFunction(async () => (await window.desktop.snapshot()).permissionPreset === 'full-access');
+  await waitForSessionFixtureSnapshot(page, snapshot => snapshot.permissionPreset === 'full-access', 'Full Access after relaunch');
   assert.equal(await page.getByRole('dialog').count(), 0, 'Remembered acknowledgment does not re-prompt');
   assert.deepEqual(errors, []);
   console.log('Permission tiers passed: native RPC/SSE, legacy reset, three-entry menu, draft consent before sending, cancel restores input, routine writes, hazardous deny/full access, session-only/remembered grants, reload, Chinese/English and narrow layouts.');

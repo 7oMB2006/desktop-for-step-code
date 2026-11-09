@@ -1,5 +1,5 @@
 import { useCallback, useId, useRef, useState, type PointerEventHandler, type ReactNode } from 'react';
-import { ExternalLink, FolderOpen, GitBranch, MessagesSquare, Pin, PinOff, X } from 'lucide-react';
+import { ExternalLink, FolderOpen, GitBranch, MessagesSquare, Minus, Pin, PinOff, X } from 'lucide-react';
 import { DisclosureChevron } from './DisclosureChevron';
 import { MiniChatSessionPicker } from './MiniChatSessionPicker';
 import { MINI_INDEPENDENT_PROJECT, type MiniChatProject, type MiniChatSession } from './mini-chat-sessions';
@@ -7,11 +7,11 @@ import './mini-chat.css';
 
 export type { MiniChatSession } from './mini-chat-sessions';
 
-export function MiniChatFrame({ language, session, projects, sessions, pinned, onPinned, onSession, onReturn, onClose, onNewSession,
+export function MiniChatFrame({ language, session, projects, sessions, pinned, onPinned, onSession, onReturn, onMinimize, onClose, onNewSession,
   onDragStart, children }: {
   language: 'zh' | 'en'; session: MiniChatSession; projects: MiniChatProject[]; sessions: MiniChatSession[]; pinned: boolean;
   onPinned: (pinned: boolean) => void; onSession: (id: string) => void;
-  onReturn: () => void; onClose: () => void; onDragStart?: PointerEventHandler<HTMLElement>;
+  onReturn: () => void; onMinimize: () => void; onClose: () => void; onDragStart?: PointerEventHandler<HTMLElement>;
   onNewSession?: (project: string) => void;
   children: ReactNode;
 }) {
@@ -43,6 +43,8 @@ export function MiniChatFrame({ language, session, projects, sessions, pinned, o
           onClick={() => onPinned(!pinned)}>{pinned ? <Pin size={15}/> : <PinOff size={15}/>}</button>
         <button type="button" className="icon-button" aria-label={zh ? '回到主窗口' : 'Return to main window'}
           data-tooltip={zh ? '回到主窗口' : 'Return to main window'} onClick={onReturn}><ExternalLink size={16}/></button>
+        <button type="button" className="icon-button" aria-label={zh ? '最小化' : 'Minimize'}
+          data-tooltip={zh ? '最小化' : 'Minimize'} onClick={onMinimize}><Minus size={15}/></button>
         <button type="button" className="icon-button mini-chat-close" aria-label={zh ? '关闭小窗' : 'Close MiniChat'}
           data-tooltip={zh ? '关闭小窗' : 'Close MiniChat'} onClick={onClose}><X size={16}/></button>
       </div>

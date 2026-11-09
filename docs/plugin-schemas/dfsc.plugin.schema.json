@@ -20,6 +20,7 @@
     },
     "documentation": { "$ref": "#/definitions/documentation" },
     "desktop": { "$ref": "#/definitions/desktop" },
+    "requirements": { "$ref": "#/definitions/requirements" },
     "locales": {
       "type": "object", "additionalProperties": false,
       "properties": {
@@ -52,6 +53,33 @@
     }
   },
   "definitions": {
+    "requirements": {
+      "type": "object", "additionalProperties": false,
+      "description": "Author-declared compatibility and external dependencies, not detected installation state. This grants no permission and never installs software or runs probes.",
+      "properties": {
+        "dfsc": {
+          "type": "string", "minLength": 1, "maxLength": 128,
+          "pattern": "^(?=.*\\S)[^\\u0000-\\u001f]+$",
+          "description": "A valid semver range, checked by the host."
+        },
+        "external": {
+          "type": "array", "maxItems": 12,
+          "description": "Omitted means not declared; an explicit empty array declares no additional external dependencies.",
+          "items": {
+            "type": "object", "required": ["name"], "additionalProperties": false,
+            "properties": {
+              "name": { "$ref": "#/definitions/label" },
+              "description": {
+                "type": "string", "minLength": 1, "maxLength": 512,
+                "pattern": "^[^\\u0000-\\u001f]+$"
+              },
+              "url": { "$ref": "#/definitions/https" },
+              "optional": { "type": "boolean" }
+            }
+          }
+        }
+      }
+    },
     "desktop": {
       "type": "object", "required": ["title", "surface", "pages"], "additionalProperties": false,
       "description": "A data-only workspace for an installed, recorded plugin. This grants no runtime or filesystem permission.",
@@ -138,6 +166,7 @@
     {
       "schemaVersion": 1,
       "documentation": { "readme": "README.md" },
+      "requirements": { "dfsc": ">=0.6.0 <1.0.0", "external": [] },
       "desktop": {
         "title": "Engineering Bridge",
         "surface": "main-view",

@@ -7,6 +7,7 @@ import { cp, mkdir, mkdtemp, readFile, realpath, writeFile } from 'node:fs/promi
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { _electron as electron } from 'playwright';
+import semver from 'semver';
 import { closeDesktopFixtureAndWait } from './close-desktop-fixture.mjs';
 import { settleLayout } from './settle-layout.mjs';
 
@@ -16,11 +17,21 @@ const profile = await realpath(await mkdtemp(join(output, 'profile-')));
 const root = join(profile, 'step-runtime');
 const workspace = join(profile, 'project');
 const market = join(profile, 'surface-market');
+const fixtureMaintainer = 'Surface Fixture Packaging Maintainers';
 const fixturePlugins = [
-  { id: 'a-surface-main', name: 'A Surface Main Guide', title: 'Main Surface', surface: 'main-view' },
-  { id: 'surface-side', name: 'Surface Side Guide', title: 'Side Surface', surface: 'side-panel' },
-  { id: 'surface-window', name: 'Surface Window Guide', title: 'Window Surface', surface: 'window' },
-  { id: 'z-surface-overflow', name: 'Overflow Surface Guide', title: 'Overflow Surface', surface: 'main-view' },
+  { id: 'a-surface-main', name: 'A Surface Main Guide', title: 'Main Surface', surface: 'main-view',
+    author: 'Main Surface Resource Authors', requirements: { dfsc: '>=0.6.0 <1', external: [
+      { name: 'Fixture required runtime', description: 'Prepare this runtime separately; its local presence has not been checked.',
+        url: 'https://example.invalid/required-runtime', optional: false },
+      { name: 'Fixture optional viewer', description: 'Only needed for the optional viewer workflow.',
+        url: 'https://example.invalid/optional-viewer', optional: true },
+    ] } },
+  { id: 'surface-side', name: 'Surface Side Guide', title: 'Side Surface', surface: 'side-panel',
+    author: 'Side Surface Resource Authors', requirements: { dfsc: '>=0.6.0 <1', external: [] } },
+  { id: 'surface-window', name: 'Surface Window Guide', title: 'Window Surface', surface: 'window',
+    author: 'Window Surface Resource Authors' },
+  { id: 'z-surface-overflow', name: 'Overflow Surface Guide', title: 'Overflow Surface', surface: 'main-view',
+    requirements: { dfsc: '>=99.0.0' } },
 ];
 await mkdir(join(root, 'sessions'), { recursive: true });
 await mkdir(workspace);
@@ -33,6 +44,9 @@ const writePlugin = async (plugin, version = '0.1.0', connection = false) => {
   }));
   await writeFile(join(target, 'dfsc.plugin.json'), JSON.stringify({
     schemaVersion: 1, documentation: { readme: 'README.md' },
+    ...(plugin.author ? { authors: [{ name: plugin.author }] } : {}),
+    maintainers: [{ name: fixtureMaintainer }],
+    ...(plugin.requirements !== undefined ? { requirements: plugin.requirements } : {}),
     desktop: {
       title: plugin.title, surface: plugin.surface, symbol: 'bot', defaultPage: 'start',
       ...(connection ? { connection: { protocol: 'agent-bridge-v1' } } : {}),
@@ -165,8 +179,9 @@ const originalDescriptor = await readFile(descriptorFile, 'utf8');
 const env = { ...process.env, DESKTOP_TEST_USER_DATA: profile, DESKTOP_TEST_NO_FOCUS: '1' };
 for (const key of ['ELECTRON_RUN_AS_NODE', 'DESKTOP_TEST_STARTUP_WINDOW', 'DESKTOP_DEV_URL', 'STEP_API_KEY'])
   delete env[key];
-const checks = [], errors = [], iconChecks = [];
+const checks = [], errors = [], iconChecks = [], metadataChecks = [];
 let app, main, native;
+let appVersion;
 let shutdown;
 let verified = false;
 const catalog = () => main.evaluate(() => window.desktop.capabilityCatalog());
@@ -206,6 +221,101 @@ const nativePage = async title => {
 const configRoute = async plugin => {
   await center().getByRole('heading', { name: plugin.name, exact: true, level: 2 }).waitFor();
   assert.equal(await center().getByRole('tab', { name: 'Configuration', exact: true }).getAttribute('aria-selected'), 'true');
+};
+const assertMetadataProjection = (plugin, pkg, source) => {
+  assert.ok(pkg, `${plugin.id}: ${source} package metadata exists`);
+  assert.equal(pkg.author, plugin.author, `${plugin.id}: ${source} author comes from the package declaration`);
+  assert.equal(pkg.maintainer, fixtureMaintainer, `${plugin.id}: ${source} keeps authors separate from maintainers`);
+  assert.deepEqual(pkg.requirements, plugin.requirements, `${plugin.id}: ${source} requirements preserve missing and empty values`);
+  assert.equal(Object.hasOwn(pkg, 'downloads'), false, `${plugin.id}: ${source} does not invent download counts`);
+};
+const assertExternalRequirements = async (plugin, scope) => {
+  const external = plugin.requirements?.external;
+  const items = scope.locator('.pc-external-requirements li');
+  assert.equal(await items.count(), external?.length ?? 0);
+  for (const item of external ?? []) {
+    const row = items.filter({ hasText: item.name });
+    await row.getByText(item.name, { exact: true }).waitFor();
+    await row.getByText(item.optional ? 'Optional' : 'Required', { exact: true }).waitFor();
+    if (item.description) await row.getByText(item.description, { exact: true }).waitFor();
+    if (item.url) {
+      const link = row.getByRole('link', { name: `Open ${item.name} instructions`, exact: true });
+      assert.equal(await link.getAttribute('href'), item.url);
+      assert.equal(await link.getAttribute('rel'), 'noopener noreferrer');
+    }
+  }
+  if (external === undefined) await scope.getByText('Not declared by the author. Check the guide.', { exact: true }).waitFor();
+  else if (!external.length) await scope.getByText('The author declares no extra requirements.', { exact: true }).waitFor();
+};
+const assertMetadataUi = async (plugin, scope, location) => {
+  const author = scope.locator('.pc-market-author');
+  assert.equal((await author.innerText()).trim(), plugin.author ?? 'Not declared',
+    `${plugin.id}: ${location} author does not fall back to the maintainer`);
+  assert.equal(await author.getAttribute('role'), 'group');
+  assert.equal(await author.getAttribute('aria-label'), `Author: ${plugin.author ?? 'Not declared'}`);
+  const range = plugin.requirements?.dfsc;
+  const status = range === undefined ? 'undeclared' : semver.satisfies(appVersion, range) ? 'matches' : 'mismatch';
+  const version = scope.locator(`.pc-version-requirement[data-version-status="${status}"]`);
+  await version.waitFor({ state: 'visible' });
+  if (range) assert.ok((await version.innerText()).includes(range), `${plugin.id}: ${location} displays its declared range`);
+  const verdict = status === 'matches' ? 'Version matches' : status === 'mismatch' ? 'Version mismatch' : 'Version requirement not declared';
+  for (const attribute of ['aria-label', 'data-tooltip']) {
+    assert.ok((await version.getAttribute(attribute)).includes(verdict));
+    assert.ok((await version.getAttribute(attribute)).includes('DFSC version comparison only; dependencies and services have not been checked'));
+  }
+  if (status === 'matches') assert.equal(await version.locator('.pc-version-verdict').count(), 0,
+    `${plugin.id}: matching ranges do not add a redundant compatibility verdict`);
+  const external = plugin.requirements?.external;
+  const requirements = scope.locator('.pc-install-requirements');
+  const downloads = scope.locator('.pc-downloads');
+  if (location === 'detail') {
+    assert.equal(await downloads.getAttribute('aria-label'), 'Downloads: no statistics');
+    assert.equal((await downloads.innerText()).trim(), 'No statistics');
+    assert.equal((await requirements.locator('.pc-current-version').innerText()).trim(), `Current ${appVersion}`,
+      `${plugin.id}: details compare the real app version`);
+    await requirements.getByText('Author declarations \u00b7 Local environment not checked', { exact: true }).waitFor();
+    await assertExternalRequirements(plugin, requirements);
+  } else {
+    assert.equal(await downloads.count(), 0, `${plugin.id}: unavailable download statistics do not occupy catalog cards`);
+    assert.equal(await scope.locator('.pc-card-requirements .pc-requirement-chip').count(), 2);
+    const required = external?.filter(item => !item.optional).length ?? 0;
+    const trigger = scope.locator('.pc-extra-requirement');
+    const text = await trigger.innerText();
+    assert.equal(text.trim(), external === undefined ? 'Extra requirements not declared'
+      : !external.length ? 'No extra requirements'
+        : required ? `${external.length} extra requirement${external.length === 1 ? '' : 's'}` : `${external.length} optional`);
+    assert.equal(await trigger.evaluate(element => element.tagName === 'BUTTON' && !element.closest('.pc-card-open')), true);
+    assert.equal(await trigger.getAttribute('aria-haspopup'), 'dialog');
+    assert.equal(await trigger.getAttribute('aria-expanded'), 'false');
+    await trigger.scrollIntoViewIfNeeded();
+    await settleLayout(scope);
+    const before = await scope.boundingBox();
+    await trigger.click();
+    const panel = main.getByRole('dialog', { name: 'Extra requirements', exact: true });
+    await panel.waitFor({ state: 'visible' });
+    await settleLayout(panel);
+    assert.equal(await trigger.getAttribute('aria-expanded'), 'true');
+    assert.equal(await trigger.getAttribute('aria-controls'), await panel.getAttribute('id'));
+    assert.equal(await panel.evaluate(element => element.matches(':popover-open')), true);
+    await panel.getByText('Author declarations \u00b7 Local environment not checked', { exact: true }).waitFor();
+    await assertExternalRequirements(plugin, panel);
+    assert.deepEqual(await scope.boundingBox(), before, 'the native dependency dialog does not resize or move its catalog card');
+    assert.equal(await center().locator('.pc-detail:visible').count(), 0, 'dependency disclosure does not accidentally open a plugin guide');
+    assert.equal(await panel.evaluate(element => {
+      const rect = element.getBoundingClientRect();
+      return rect.left >= 0 && rect.top >= 0 && rect.right <= innerWidth && rect.bottom <= innerHeight
+        && element.scrollWidth <= element.clientWidth + 1;
+    }), true);
+    await main.screenshot({ path: join(output, `metadata-popover-${plugin.id}.png`) });
+    await main.keyboard.press('Escape');
+    await panel.waitFor({ state: 'detached' });
+    assert.equal(await trigger.getAttribute('aria-expanded'), 'false');
+    assert.equal(await trigger.evaluate(element => element === document.activeElement), true);
+    await main.screenshot({ path: join(output, `metadata-catalog-${plugin.id}.png`) });
+  }
+  metadataChecks.push({ id: plugin.id, location, author: plugin.author ?? null, appVersion, range: range ?? null,
+    versionStatus: status, external: external === undefined ? 'not-declared' : external.length ? 'declared-items' : 'declared-empty',
+    downloads: location === 'detail' ? 'no-statistics' : 'hidden-on-card' });
 };
 const assertHermesIcon = async (image, surface, size) => {
   await image.waitFor({ state: 'visible' });
@@ -252,6 +362,11 @@ try {
   main = await app.firstWindow();
   main.setDefaultTimeout(30000);
   main.on('pageerror', error => errors.push(error.message));
+  appVersion = await app.evaluate(({ app }) => app.getVersion());
+  assert.ok(semver.valid(appVersion), 'Electron supplies an actual semantic app version');
+  await main.waitForFunction(() => typeof window.desktop?.updateState === 'function');
+  assert.equal(await main.evaluate(async () => (await window.desktop.updateState()).currentVersion), appVersion,
+    'The production preload exposes the actual app version used by PluginCenter');
   const mainId = await app.evaluate(({ BrowserWindow }) => {
     const view = BrowserWindow.getAllWindows()[0];
     view.setOpacity(0); view.setIgnoreMouseEvents(true); view.showInactive(); view.setSize(1440, 940);
@@ -292,11 +407,23 @@ try {
   for (const plugin of plugins) {
     await center().getByRole('textbox', { name: 'Search plugins', exact: true }).fill(plugin.id);
     const row = center().locator('.pc-plugin-row').filter({ hasText: plugin.name });
+    const genericFixture = fixturePlugins.includes(plugin);
+    if (genericFixture) {
+      const available = (await catalog()).available.find(item => item.name === plugin.id);
+      assertMetadataProjection(plugin, available?.package, 'marketplace');
+      await assertMetadataUi(plugin, row, 'card');
+    }
     if (plugin === hermes) await assertHermesIcon(row.locator('.cap-plugin-icon img:visible'), 'market-catalog', 72);
     await row.getByRole('button', { name: 'Install', exact: true }).click();
     await center().getByRole('heading', { name: plugin.name, exact: true, level: 2 }).waitFor();
     const active = await installed(plugin.id);
     assert.equal(active.package.provenance, 'recorded');
+    if (genericFixture) {
+      assertMetadataProjection(plugin, active.package, 'installed');
+      await assertMetadataUi(plugin, center().locator('.pc-detail'), 'detail');
+      await settleLayout(center());
+      await main.screenshot({ path: join(output, `metadata-${plugin.id}.png`) });
+    }
     if (plugins.indexOf(plugin) < 3) await action(plugin).waitFor();
     else await main.getByRole('button', { name: 'More plugins', exact: true }).waitFor();
     assert.equal((await main.evaluate(() => window.desktop.snapshot())).runtimeId, before.runtimeId,
@@ -318,6 +445,7 @@ try {
     }
   }
   checks.push('real local Git marketplace and UI install immediately project all plugin shortcuts without reloading or replacing the session');
+  checks.push('generic market and installed metadata preserve authors and semver; quiet version cards omit unknown download counts; independent native dependency dialogs show required/optional/empty/undeclared declarations without layout shifts or accidental detail navigation and restore focus on Escape');
 
   await center().getByRole('button', { name: 'Back to conversation', exact: true }).click();
   await composer.waitFor();
@@ -543,6 +671,7 @@ try {
   native.on('pageerror', error => errors.push(error.message));
   const replacementState = await native.evaluate(() => window.desktop.pluginWindowState());
   assert.equal(replacementState.plugin.version, '0.2.0');
+  assertMetadataProjection(fixturePlugins[2], replacementState.plugin.package, 'updated native window');
   assert.notEqual(replacementState.plugin.package.ref, oldRef);
   assert.ok((await native.locator('[data-plugin-workspace]').innerText()).includes('Version 0.2.0'));
   assert.equal((await main.evaluate(() => window.desktop.snapshot())).runtimeId, before.runtimeId);
@@ -556,10 +685,29 @@ try {
     /capability:stale/);
   await assert.rejects(native.evaluate(() => window.desktop.pluginWindowState()), /capability:stale/);
   const closed = native.waitForEvent('close');
-  await native.evaluate(() => { void window.desktop.windowControl('close'); });
-  await closed;
+  // Closing can destroy this renderer before its IPC/evaluate reply reaches Playwright.
+  await Promise.all([closed, native.evaluate(() => window.desktop.windowControl('close')).catch(error => {
+    if (!/Target page, context or browser has been closed/.test(error.message)) throw error;
+  })]);
   assert.ok(await app.evaluate(({ BrowserWindow }, id) => !BrowserWindow.fromId(id).isDestroyed(), mainId));
-  checks.push('real uninstall removes the shortcut, rejects old package/state reads, clears native content and still permits closing only the plugin window');
+  if (!await center().isVisible()) await main.getByRole('button', { name: 'Plugin marketplace', exact: true }).click();
+  if (await center().getByRole('button', { name: 'All plugins', exact: true }).isVisible())
+    await center().getByRole('button', { name: 'All plugins', exact: true }).click();
+  await center().getByRole('tab', { name: /^Installed/ }).click();
+  await center().getByRole('textbox', { name: 'Search plugins', exact: true }).fill(fixturePlugins[1].id);
+  const removedCard = center().locator('.pc-plugin-row').filter({ hasText: fixturePlugins[1].name });
+  await removedCard.locator('.pc-extra-requirement').click();
+  const removedPopover = main.getByRole('dialog', { name: 'Extra requirements', exact: true });
+  await removedPopover.waitFor({ state: 'visible' });
+  await mutate({ action: 'plugin-remove', id: fixturePlugins[1].id });
+  assert.equal((await catalog()).plugins.some(plugin => plugin.id === fixturePlugins[1].id), false);
+  // External mutations do not refresh PluginCenter's local catalog until its existing check action runs.
+  await center().getByRole('button', { name: 'Check plugin updates', exact: true }).evaluate(element => element.click());
+  await removedCard.waitFor({ state: 'detached' });
+  await removedPopover.waitFor({ state: 'detached' });
+  assert.equal(await main.locator('.pc-requirements-popover:popover-open').count(), 0);
+  assert.equal((await main.evaluate(() => window.desktop.snapshot())).runtimeId, before.runtimeId);
+  checks.push('real uninstall removes the shortcut, rejects old package/state reads, clears native content, permits closing only the plugin window and unmounts an open dependency dialog with its removed card');
 
   const bridgePlugin = fixturePlugins[3];
   await writePlugin(bridgePlugin, '0.2.0', true);
@@ -754,7 +902,7 @@ try {
     for (const socket of bridgeSockets) socket.destroy();
     await new Promise(resolve => bridgeServer.close(resolve));
     await writeFile(join(output, 'verification.json'), JSON.stringify({
-      profile, checks, errors, inferenceRequests, bridgeRequests, shutdown,
+      profile, checks, errors, inferenceRequests, bridgeRequests, shutdown, appVersion, metadataChecks,
       scope: 'Full production Desktop main/preload/renderer, capability service, real staged runtime, isolated profile and local Git marketplace. No model inference.',
       hermes: hermes ? { id: hermes.id, title: hermes.title, pages: hermes.metadata.desktop.pages.length,
         icon: { sha256: hermes.icon.sha256, bytes: hermes.icon.bytes, width: hermes.icon.width, height: hermes.icon.height },

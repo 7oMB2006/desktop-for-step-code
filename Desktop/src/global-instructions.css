@@ -3,6 +3,9 @@
 .instructions-scope > div { display: grid; grid-template-columns: 38px minmax(0, 1fr); gap: 12px; margin-top: 6px; }
 .instructions-scope dt { color: var(--muted); }
 .instructions-scope dd { margin: 0; overflow-wrap: anywhere; }
+.instructions-path { display: flex; align-items: flex-start; gap: 8px; padding: 4px; margin: -4px; }
+.instructions-path code { flex: 1; min-width: 0; user-select: text; }
+.instructions-path .icon-button { flex: none; width: 28px; height: 28px; }
 .instructions-editor { margin-bottom: 8px; }
 .instructions-editor textarea { display: block; width: 100%; height: 244px; min-height: 160px; max-height: 420px; padding: 12px; line-height: 1.7; font-size: 13px; overflow-wrap: anywhere; white-space: pre-wrap; }
 .instructions-meta { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 6px 12px; min-height: 22px; font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }

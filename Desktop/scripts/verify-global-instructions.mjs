@@ -75,6 +75,10 @@ const launch = async () => {
     const input = document.querySelector('.composer > .composer-input');
     return input && !input.disabled;
   }, undefined, { timeout: 60000 });
+  // Keep clipboard acceptance inside this fixture process, not the user's clipboard.
+  await app.evaluate(({ clipboard }) => {
+    clipboard.writeText = text => { globalThis.instructionsCopiedPath = text; };
+  });
 };
 const snapshot = () => page.evaluate(() => window.desktop.snapshot());
 const openInstructions = async (name = '全局指令') => {
@@ -85,7 +89,15 @@ const openInstructions = async (name = '全局指令') => {
 const saveUI = async content => {
   await page.locator('.instructions-editor textarea').fill(content);
   await page.getByRole('button', { name: '保存指令', exact: true }).click();
-  await page.locator('.instructions-meta').getByText('已保存', { exact: true }).waitFor();
+  await page.locator('.instructions-meta').getByText('已保存到文件', { exact: true }).waitFor();
+};
+const assertPath = async (name, copyLabel) => {
+  const expected = join(root, 'agent', name);
+  assert.equal(await page.locator('.instructions-path code').textContent(), expected);
+  assert.equal((await page.evaluate(() => window.desktop.globalInstructions())).path, expected);
+  await page.getByRole('button', { name: copyLabel, exact: true }).click();
+  assert.equal(await app.evaluate(() => globalThis.instructionsCopiedPath), expected);
+  await assertFocusVisible(page, page.getByRole('button', { name: copyLabel, exact: true }), 'Instruction path copy');
 };
 const closeSettings = async () => {
   await page.getByRole('button', { name: 'Close', exact: true }).click();
@@ -114,13 +126,16 @@ try {
   await page.reload();
   await openInstructions();
   assert.equal(await page.locator('.instructions-editor textarea').inputValue(), '');
+  await page.locator('.instructions-meta').getByText('尚未创建指令文件', { exact: true }).waitFor();
+  await assertPath('AGENTS.md', '复制指令文件路径');
+  assert.ok((await page.locator('.instructions-scope').textContent()).includes('已启动的会话不会自动更新'));
   assert.equal(await page.getByRole('button', { name: '保存指令', exact: true }).isDisabled(), true);
   await page.locator('.instructions-editor textarea').fill(globalA);
   await page.getByRole('button', { name: '通用', exact: true }).click();
   await page.getByRole('button', { name: '全局指令', exact: true }).click();
   assert.equal(await page.locator('.instructions-editor textarea').inputValue(), globalA, 'Switching settings tabs preserves edits');
   await page.getByRole('button', { name: '保存指令', exact: true }).click();
-  await page.locator('.instructions-meta').getByText('已保存', { exact: true }).waitFor();
+  await page.locator('.instructions-meta').getByText('已保存到文件', { exact: true }).waitFor();
   assert.equal(await readFile(join(root, 'agent', 'AGENTS.md'), 'utf8'), globalA);
   assert.equal((await snapshot()).runtimeId, oldEmpty.runtimeId, 'Saving does not restart a resident runtime');
   await mkdir('test-results', { recursive: true });
@@ -179,7 +194,7 @@ try {
   assert.equal(await page.locator('.instructions-editor textarea').inputValue(), '');
   assert.equal(await readFile(join(root, 'agent', 'AGENTS.md'), 'utf8'), globalB, 'Clear is not persisted before Save');
   await page.getByRole('button', { name: '保存指令', exact: true }).click();
-  await page.locator('.instructions-meta').getByText('已保存', { exact: true }).waitFor();
+  await page.locator('.instructions-meta').getByText('已保存到文件', { exact: true }).waitFor();
   await closeSettings();
   const independent = await page.evaluate(() => window.desktop.newIndependentSession());
   await send('INDEPENDENT-CLEARED', independent.runtimeId); assertPrompt('INDEPENDENT-CLEARED');
@@ -194,6 +209,7 @@ try {
   await page.getByRole('button', { name: 'Global instructions', exact: true }).click();
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(640, 720));
   await page.emulateMedia({ reducedMotion: 'reduce' });
+  await assertPath('AGENTS.md', 'Copy instructions file path');
   await page.getByRole('textbox', { name: 'Global instructions content', exact: true }).focus();
   await page.getByRole('textbox', { name: 'Global instructions content', exact: true }).press('Tab');
   assert.equal(await page.getByRole('button', { name: 'Clear editor', exact: true }).evaluate(element => document.activeElement === element), true);
@@ -217,14 +233,32 @@ try {
   assert.equal(resumed.state.sessionId, a.state.sessionId, 'Cold history restoration keeps its original identity');
   assert.ok(JSON.stringify(resumed.messages).includes('A-FIRST'), 'Cold restoration preserves the earlier conversation');
   await send('RELAUNCH-A', resumed.runtimeId); assertPrompt('RELAUNCH-A', 'beta', 'a');
+  await openInstructions('Global instructions');
+  await page.locator('.instructions-meta').getByText('Loaded from local file', { exact: true }).waitFor();
+  await writeFile(join(root, 'agent', 'AGENTS.override.md'), 'PRIORITY_OVERRIDE');
+  await page.getByRole('button', { name: 'Reload saved instructions', exact: true }).click();
+  await page.waitForFunction(() => document.querySelector('.instructions-editor textarea')?.value === 'PRIORITY_OVERRIDE');
+  await assertPath('AGENTS.override.md', 'Copy instructions file path');
+  await page.locator('.instructions-editor textarea').fill('UPDATED_OVERRIDE');
+  await app.evaluate(({ clipboard }) => { clipboard.writeText = () => { throw new Error('Fixture clipboard failure'); }; });
+  await page.getByRole('button', { name: 'Copy instructions file path', exact: true }).click();
+  await page.getByRole('alert').getByText('Could not copy the path. Try again.', { exact: true }).waitFor();
+  assert.equal(await page.locator('.instructions-editor textarea').inputValue(), 'UPDATED_OVERRIDE', 'Copy failure preserves edits');
+  await page.getByRole('button', { name: 'Save instructions', exact: true }).click();
+  await page.locator('.instructions-meta').getByText('Saved to file', { exact: true }).waitFor();
+  assert.equal(await readFile(join(root, 'agent', 'AGENTS.override.md'), 'utf8'), 'UPDATED_OVERRIDE');
+  assert.equal(await readFile(join(root, 'agent', 'AGENTS.md'), 'utf8'), globalB, 'Saving an override leaves the lower-priority file unchanged');
+  assert.equal(await page.locator('.settings-content:visible').evaluate(element => element.scrollWidth > element.clientWidth), false);
+  await page.screenshot({ path: 'test-results/global-instructions-override-path.png' });
   assert.deepEqual(errors, []);
   await writeFile('test-results/global-instructions-results.json', JSON.stringify({
     provider: 'isolated-local-http-fixture', requests: [...requests.keys()],
     checked: ['native-global-context', 'product-and-project-rules-preserved', 'user-text-unchanged', 'old-empty-worker-not-reused',
       'running-session-unchanged', 'restart-preserves-history', 'cross-project', 'independent-session', 'clear',
-      'strict-ipc', 'revision-conflict', 'full-relaunch', 'light-dark-narrow-en-keyboard'],
+      'strict-ipc', 'revision-conflict', 'full-relaunch', 'actual-file-path', 'copy-path', 'copy-failure-retains-draft',
+      'override-path-and-save', 'light-dark-narrow-en-keyboard'],
   }, null, 2));
-  console.log('Global instructions passed: native system context, unchanged user text, existing/running sessions, empty-worker reuse, restart/history, cross-project and independent sessions, persistence, clear, revision conflicts, IPC validation, light/dark/narrow English and keyboard. Local HTTP fixture only.');
+  console.log('Global instructions passed: native system context, unchanged user text, existing/running sessions, empty-worker reuse, restart/history, cross-project and independent sessions, persistence, clear, revision conflicts, IPC validation, actual file and override paths, path copying and failure retention, light/dark/narrow English and keyboard. Local HTTP fixture only.');
 } catch (error) {
   failed = true;
   console.error(error);

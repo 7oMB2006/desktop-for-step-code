@@ -1,5 +1,36 @@
 # Verification
 
+## Global Instructions File Transparency (2026-11-09)
+
+The settings editor now displays the actual native context file selected by
+the main process, including an existing override or fallback, and provides a
+copy-path action through the existing clipboard bridge. A missing profile shows
+the future `AGENTS.md` path without creating the file. Read, unchanged-save,
+changed-save and clear responses retain that same trusted path; no arbitrary
+filesystem API is added.
+
+Status copy distinguishes a missing file, a loaded local file and a completed
+file save. It does not claim that a resident conversation has loaded the saved
+instructions. The lifecycle note explicitly requires a new conversation or a
+manual runtime restart; saving still does not interrupt or hot-update existing
+workers.
+
+Local typecheck/build passed. The focused store, runtime, session ownership,
+MiniChat catalog and plugin-window policy run passed 123 of 125 tests, with two
+existing POSIX-only skips and no failures. The production Electron verifier
+passed through an isolated local HTTP/SSE provider, inspecting actual system
+requests before and after saving, new sessions, manual restart and cold restore.
+It additionally checks actual/default/override paths, exact clipboard payloads,
+copy failure without draft loss, override-only saves, light/dark/640px English
+layout and four-sided editor/copy-button focus visibility. Clipboard writes are
+stubbed only in the fixture's main process, leaving the user's clipboard intact.
+The light and narrow dark screenshots were inspected.
+
+Evidence is in `Desktop/test-results/global-instructions-results.json` and the
+matching light, dark-narrow, conflict and override-path screenshots. This is
+local Windows source acceptance, not paid-model obedience, native macOS,
+current cloud CI, package acceptance or a public release.
+
 ## 插件工作区验收就绪时序修复（2026-11-09）
 
 PR #221 的 macOS 界面验收在 `verify-plugin-workspace.mjs:27` 失败：

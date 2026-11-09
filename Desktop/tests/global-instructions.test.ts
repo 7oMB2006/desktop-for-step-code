@@ -14,8 +14,9 @@ async function fixture(t: TestContext) {
 }
 
 test('global instructions default to empty without creating configuration', async t => {
-  const { directory, store } = await fixture(t);
-  assert.deepEqual(await store.read(), { content: '', revision: 'missing' });
+  const { directory, agentDir, store } = await fixture(t);
+  assert.deepEqual(await store.read(), { path: join(agentDir, 'AGENTS.md'), content: '', revision: 'missing' });
+  assert.deepEqual(await store.save('', 'missing'), await store.read());
   assert.deepEqual(await readdir(directory), []);
 });
 
@@ -23,6 +24,8 @@ test('global instructions round-trip Unicode, persist across stores and clear wi
   const { agentDir, store } = await fixture(t);
   const content = '# \u5168\u5c40\u6307\u4ee4\n\u9ed8\u8ba4\u7528\u4e2d\u6587\u56de\u7b54\u3002\n';
   const saved = await store.save(content, 'missing');
+  assert.equal(saved.path, join(agentDir, 'AGENTS.md'));
+  assert.deepEqual(await store.save(content, saved.revision), saved);
   assert.equal(await readFile(join(agentDir, 'AGENTS.md'), 'utf8'), content);
   assert.deepEqual(await new GlobalInstructionsStore(agentDir).read(), saved);
   const cleared = await store.save('', saved.revision);
@@ -61,7 +64,8 @@ test('manual edits and new higher-priority context files invalidate an editor re
   await writeFile(join(agentDir, 'AGENTS.override.md'), 'override');
   await assert.rejects(store.save('lost override', current.revision), /CONFLICT/);
   const override = await store.read();
-  await store.save('updated override', override.revision);
+  assert.equal(override.path, join(agentDir, 'AGENTS.override.md'));
+  assert.equal((await store.save('updated override', override.revision)).path, override.path);
   assert.equal(await readFile(join(agentDir, 'AGENTS.md'), 'utf8'), 'external');
   assert.equal(await readFile(join(agentDir, 'AGENTS.override.md'), 'utf8'), 'updated override');
 });
@@ -71,8 +75,10 @@ test('existing fallback files and UTF-8 BOM follow native context discovery', as
   await mkdir(agentDir);
   await writeFile(join(agentDir, 'CLAUDE.md'), '\ufeffexisting preferences');
   const existing = await store.read();
+  assert.equal(existing.path, join(agentDir, 'CLAUDE.md'));
   assert.equal(existing.content, 'existing preferences');
-  await store.save('updated preferences', existing.revision);
+  assert.deepEqual(await store.save(existing.content, existing.revision), existing);
+  assert.equal((await store.save('updated preferences', existing.revision)).path, existing.path);
   assert.deepEqual(await readdir(agentDir), ['CLAUDE.md']);
   assert.equal(await readFile(join(agentDir, 'CLAUDE.md'), 'utf8'), 'updated preferences');
 });

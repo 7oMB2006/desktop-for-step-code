@@ -33,8 +33,7 @@ export class GlobalInstructionsStore {
 
   async read(): Promise<GlobalInstructions> {
     await this.writes.catch(() => {});
-    const { content, revision } = await this.load();
-    return { content, revision };
+    return this.load();
   }
 
   save(content: unknown, revision: unknown): Promise<GlobalInstructions> {
@@ -45,7 +44,7 @@ export class GlobalInstructionsStore {
     const write = this.writes.catch(() => {}).then(async () => {
       const current = await this.load();
       if (current.revision !== revision) throw new Error('GLOBAL_INSTRUCTIONS_CONFLICT');
-      if (current.content === content) return { content, revision: current.revision };
+      if (current.content === content) return current;
       await mkdir(this.agentDir, { recursive: true });
       const temporary = join(this.agentDir, `.instructions-${randomUUID()}.tmp`);
       try {
@@ -54,8 +53,7 @@ export class GlobalInstructionsStore {
       } finally {
         await unlink(temporary).catch((error: NodeJS.ErrnoException) => { if (error.code !== 'ENOENT') throw error; });
       }
-      const saved = await this.load();
-      return { content: saved.content, revision: saved.revision };
+      return this.load();
     });
     this.writes = write;
     return write;

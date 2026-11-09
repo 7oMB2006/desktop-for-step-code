@@ -197,3 +197,12 @@ test('runtime packaging and standalone worker helpers use the current integratio
       `${helper} still selects an older integration manifest`);
   }
 });
+
+test('the Desktop-only compile-cache extension is staged and launched without changing the upstream entry', async () => {
+  const stage = await readFile(resolve('scripts/stage-runtime.mjs'), 'utf8');
+  const main = await readFile(resolve('electron/main.ts'), 'utf8');
+  assert.ok(stage.includes("cp('electron/runtime-compile-cache.mjs', join(runtime, 'runtime-compile-cache.mjs'))"));
+  assert.ok(main.includes("NODE_COMPILE_CACHE: join(dataRoot, 'compile-cache')"));
+  assert.ok(main.includes("'--extension', join(runtimeRoot, 'runtime-compile-cache.mjs')"));
+  assert.ok(stage.includes("entry: 'step/dist/bundle/step.js'"));
+});

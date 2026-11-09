@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Columns2, Maximize2, PanelRight, PanelRightClose } from 'lucide-react';
 import { AppMenu } from './AppMenu';
 import type { RightPanelWidth } from './RightPanelWidthControl';
+import { beginConversationLayout } from './conversation-layout';
 import './right-panel-handle.css';
 
 export function RightPanelHandle({ panel, value, standard, wide, language, onChange, onClose, onBlocked }: {
@@ -10,16 +11,16 @@ export function RightPanelHandle({ panel, value, standard, wide, language, onCha
 }) {
   const trigger = useRef<HTMLButtonElement>(null);
   const settling = useRef<(() => void) | undefined>(undefined);
-  const [left, setLeft] = useState(0);
+  const frame = useRef(0);
   const [menu, setMenu] = useState(false);
-  const drag = useRef<{ x: number; width: number; max: number; surface: HTMLElement; track: HTMLElement | null; moved: boolean } | undefined>(undefined);
+  const drag = useRef<{ x: number; width: number; max: number; nextWidth: number; surface: HTMLElement; track: HTMLElement | null; moved: boolean } | undefined>(undefined);
   const zh = language === 'zh';
   const closeMenu = useCallback(() => setMenu(false), []);
   useEffect(() => { onBlocked(menu); return () => onBlocked(false); }, [menu, onBlocked]);
   useEffect(() => {
     const surface = document.querySelector<HTMLElement>(`.right-inspector-surface:not([aria-hidden="true"]):not(.is-closing)`);
     if (!surface) return;
-    const measure = () => setLeft(Math.max(surface.getBoundingClientRect().left, 0));
+    const measure = () => { if (trigger.current) trigger.current.style.left = `${Math.max(surface.getBoundingClientRect().left, 0)}px`; };
     measure();
     const observer = new ResizeObserver(measure);
     observer.observe(surface);
@@ -27,6 +28,7 @@ export function RightPanelHandle({ panel, value, standard, wide, language, onCha
     return () => { observer.disconnect(); window.removeEventListener('resize', measure); };
   }, [panel, value]);
   const restore = useCallback(() => {
+    cancelAnimationFrame(frame.current); frame.current = 0;
     settling.current?.();
     settling.current = undefined;
     const current = drag.current;
@@ -39,7 +41,13 @@ export function RightPanelHandle({ panel, value, standard, wide, language, onCha
   }, [onBlocked]);
   useEffect(() => restore, [restore, panel]);
   const select = (next: string) => next === 'closed' ? onClose() : onChange(next as RightPanelWidth);
-  return <><button ref={trigger} className="right-panel-handle" style={{ left }} type="button"
+  const paintDrag = () => {
+    const current = drag.current;
+    if (!current) return;
+    current.surface.style.width = `${current.nextWidth}px`;
+    if (current.track && !current.track.classList.contains('is-overlay')) current.track.style.flexBasis = `${current.nextWidth}px`;
+  };
+  return <><button ref={trigger} className="right-panel-handle" type="button"
     aria-label={zh ? '调整右栏宽度' : 'Adjust panel width'} aria-haspopup="menu" aria-expanded={menu}
     onClick={() => setMenu(true)}
     onKeyDown={event => {
@@ -58,7 +66,7 @@ export function RightPanelHandle({ panel, value, standard, wide, language, onCha
       if (!surface || !app) return;
       const sidebar = parseFloat(getComputedStyle(app).getPropertyValue('--sidebar-track')) || 0;
       drag.current = { x: event.clientX, width: surface.getBoundingClientRect().width, max: innerWidth - sidebar - 44,
-        surface, track: surface.parentElement, moved: false };
+        nextWidth: surface.getBoundingClientRect().width, surface, track: surface.parentElement, moved: false };
       event.currentTarget.setPointerCapture(event.pointerId);
     }}
     onPointerMove={event => {
@@ -66,11 +74,13 @@ export function RightPanelHandle({ panel, value, standard, wide, language, onCha
       if (!current) return;
       const delta = current.x - event.clientX;
       if (!current.moved && Math.abs(delta) < 5) return;
-      if (!current.moved) current.moved = true;
-      document.querySelector('.app')?.setAttribute('data-panel-drag', '');
-      const width = Math.max(80, Math.min(current.max, current.width + delta));
-      current.surface.style.width = `${width}px`;
-      if (current.track && !current.track.classList.contains('is-overlay')) current.track.style.flexBasis = `${width}px`;
+      if (!current.moved) {
+        current.moved = true;
+        beginConversationLayout(current.surface);
+        document.querySelector('.app')?.setAttribute('data-panel-drag', '');
+      }
+      current.nextWidth = Math.max(80, Math.min(current.max, current.width + delta));
+      if (!frame.current) frame.current = requestAnimationFrame(() => { frame.current = 0; paintDrag(); });
     }}
     onPointerUp={event => {
       const current = drag.current;
@@ -79,6 +89,9 @@ export function RightPanelHandle({ panel, value, standard, wide, language, onCha
       const desired = current.width + current.x - event.clientX;
       const max = current.max;
       if (moved) {
+        cancelAnimationFrame(frame.current); frame.current = 0;
+        current.nextWidth = Math.max(80, Math.min(max, desired));
+        paintDrag();
         // Keep the dragged geometry for one paint so the CSS transition starts
         // at the pointer, rather than jumping back to the original preset.
         current.surface.getBoundingClientRect();

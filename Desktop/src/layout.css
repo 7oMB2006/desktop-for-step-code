@@ -8,13 +8,12 @@
 *::-webkit-scrollbar-track, *::-webkit-scrollbar-corner { background: transparent; }
 *::-webkit-scrollbar-thumb { background: var(--muted); border-radius: 3px; }
 *::-webkit-scrollbar-button { display: none; width: 0; height: 0; }
-.message-body::selection, .message-body ::selection, .composer-input::selection, .composer-input ::selection {
+/* Highlight inheritance covers descendants without a universal match per node. */
+.message-body::selection, .composer-input::selection {
   background: oklch(.86 0 0); color: oklch(.22 0 0);
 }
 :root[data-theme=dark] .message-body::selection,
-:root[data-theme=dark] .message-body ::selection,
-:root[data-theme=dark] .composer-input::selection,
-:root[data-theme=dark] .composer-input ::selection {
+:root[data-theme=dark] .composer-input::selection {
   background: oklch(.42 0 0); color: oklch(.97 0 0);
 }
 .selection-toolbar {
@@ -29,9 +28,9 @@
 }
 .selection-toolbar button:hover { background: var(--surface); }
 .selection-toolbar-divider { width: 1px; height: 17px; background: var(--border); margin: 0 2px; }
-::highlight(quote-annotation-selection) { background: color-mix(in srgb, var(--primary) 20%, transparent); color: var(--ink); }
-::highlight(quote-annotation-marks) { background: color-mix(in srgb, var(--primary) 18%, transparent); }
-::highlight(quote-annotation-focus) { background: color-mix(in srgb, var(--primary) 32%, transparent); }
+:root[data-highlight-quote-annotation-selection] ::highlight(quote-annotation-selection) { background: color-mix(in srgb, var(--primary) 20%, transparent); color: var(--ink); }
+:root[data-highlight-quote-annotation-marks] ::highlight(quote-annotation-marks) { background: color-mix(in srgb, var(--primary) 18%, transparent); }
+:root[data-highlight-quote-annotation-focus] ::highlight(quote-annotation-focus) { background: color-mix(in srgb, var(--primary) 32%, transparent); }
 .annotation-footnote { position: fixed; z-index: 14; min-height: 18px; height: 18px; min-width: 22px; padding: 0 2px; border: 1px solid color-mix(in srgb, var(--primary) 24%, var(--bg)); border-radius: 4px; background: color-mix(in srgb, var(--primary) 14%, var(--bg)); color: var(--primary); font-size: 11px; line-height: 16px; font-weight: 600; font-variant-numeric: tabular-nums; }
 .annotation-footnote:hover:not(:disabled), .annotation-footnote[aria-expanded=true] { background: color-mix(in srgb, var(--primary) 24%, var(--bg)); border-color: color-mix(in srgb, var(--primary) 40%, var(--bg)); }
 .annotation-footnote-panel { position: fixed; inset: auto; margin: 0; padding: 12px; width: min(320px, calc(100vw - 24px)); max-height: calc(100dvh - 80px); overflow: auto; color: var(--ink); background: var(--bg); border: 1px solid var(--border); border-radius: 7px; box-shadow: 0 4px 16px rgb(0 0 0 / 12%), 0 1px 3px rgb(0 0 0 / 6%); }

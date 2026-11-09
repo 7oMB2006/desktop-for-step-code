@@ -146,6 +146,9 @@ try {
   assert.ok(await panel.locator('[data-search-match=true]').evaluate(element =>
     document.activeElement === element && element.textContent.includes('bodyneedle')));
   assert.ok(await page.evaluate(() => CSS.highlights.get('desktop-search-match')?.size > 0));
+  assert.equal(await page.evaluate(() => document.documentElement.hasAttribute('data-highlight-desktop-search-match')), true);
+  assert.notEqual(await panel.locator('[data-search-match=true]').evaluate(element =>
+    getComputedStyle(element, '::highlight(desktop-search-match)').backgroundColor), 'rgba(0, 0, 0, 0)');
   const preview = await snapshot();
   assert.equal(preview.runtimeId, before.runtimeId);
   assert.equal(preview.draftId, before.draftId);
@@ -299,6 +302,9 @@ try {
     assert.equal(await liveMatch.getAttribute('data-message-index'), '1');
     assert.ok(await liveMatch.innerText().then(text => text.includes('locationneedle')));
     assert.ok(await page.evaluate(() => CSS.highlights.get('desktop-conversation-search-match')?.size > 0));
+    assert.equal(await page.evaluate(() => document.documentElement.hasAttribute('data-highlight-desktop-conversation-search-match')), true);
+    assert.notEqual(await liveMatch.evaluate(element =>
+      getComputedStyle(element, '::highlight(desktop-conversation-search-match)').backgroundColor), 'rgba(0, 0, 0, 0)');
   };
   await located();
   assert.equal(await liveMatch.evaluate(element => element === document.activeElement), true, 'Opening cannot return focus to the sidebar');
@@ -379,7 +385,9 @@ try {
   await panel.getByText('已找到消息，但当前可见正文没有匹配关键词。', { exact: true }).waitFor();
   await panel.getByRole('button', { name: '打开并定位', exact: true }).click();
   await locationBar.getByText('已找到消息，但当前可见正文没有匹配关键词', { exact: true }).waitFor();
-  assert.equal(await page.evaluate(() => CSS.highlights.get('desktop-conversation-search-match')?.size), 0);
+  assert.equal(await page.evaluate(() => CSS.highlights.has('desktop-conversation-search-match')), false);
+  assert.equal(await page.evaluate(() => document.documentElement.hasAttribute('data-highlight-desktop-conversation-search-match')), false,
+    'A message without keyword ranges must not leave document-wide highlight styles enabled');
   await mode('');
   phase = 'missing authoritative entry and conversation-level fallbacks';
   await locationBar.getByRole('button', { name: '返回搜索结果', exact: true }).click();
@@ -400,6 +408,7 @@ try {
   await locationBar.getByRole('button', { name: '关闭搜索定位', exact: true }).click();
   assert.equal(await locationBar.count(), 0);
   assert.equal(await page.evaluate(() => CSS.highlights.has('desktop-conversation-search-match')), false);
+  assert.equal(await page.evaluate(() => document.documentElement.hasAttribute('data-highlight-desktop-conversation-search-match')), false);
   await mode('');
   phase = 'English search and escape focus return';
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1280, 900));

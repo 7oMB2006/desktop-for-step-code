@@ -42,12 +42,15 @@ import { permissionApprovalPresentation } from './approval-presentation';
 import { ContextRing } from './ContextRing';
 import { ImageContextMenu, type ImageMenuTarget, type ImageMenuAction } from './ImageContextMenu';
 import { AppTooltip } from './AppTooltip';
-import { ConversationMarkers, ConversationNavigationPanel, conversationTurns, scrollToTurn } from './ConversationNavigation';
+import { ConversationMarkers, ConversationNavigationPanel, createConversationTurnsReader, scrollToTurn } from './ConversationNavigation';
 import { ArchivedSessions } from './ArchivedSessions';
 import { ConversationScrollThumb } from './ConversationScrollThumb';
 import { followAfterScroll, scrollKeyIntent, type ScrollIntent } from './conversation-scroll';
+import { afterConversationLayout, followConversationTail, observeConversationLayout, releaseConversationLayout } from './conversation-layout';
 import { updateRunMetrics, type RunMetrics } from './performance';
 import { ConversationMessages, PendingUserMessages } from './ConversationMessages';
+import { prepareHistoryMarkdown } from './markdown-preparation';
+import type { PreparedMarkdown } from './markdown-parser';
 import { messageBlocks, messageText } from './conversation-presentation';
 import { ComposerActionIcon } from './ComposerActionIcon';
 import { ComposerMenu } from './ComposerMenu';
@@ -63,16 +66,15 @@ import { QuoteAnnotations, quoteSourceRange } from './QuoteAnnotations';
 import { MAX_QUOTES, MAX_QUOTE_LENGTH, MAX_PROMPT_LENGTH, MAX_ANNOTATION_LENGTH, quotePrompt, restoreQuotes, sameQuoteSelection, type ChatQuote } from './chat-quotes';
 import { playCompletionSound, prepareCompletionSound } from './completion-sound';
 import { sessionReference } from './session-reference';
-import { moveSession, orderSessions, reconcileSessionOrder } from './sidebar-order';
-import { filterSessions } from './session-search';
+import { moveSession, reconcileSessionOrder } from './sidebar-order';
+import { SidebarTree, type SidebarPreferences } from './SidebarTree';
+import { createSidebarActivityReader, updateSidebarSessionNames } from './sidebar-state';
 import { SessionSearchPanel } from './SessionSearchPanel';
 import { ConversationSearchLocation } from './ConversationSearchLocation';
 import type { SearchLocation } from './fulltext-search';
 import { scrollSearchMessage } from './search-location';
-import { SessionSearchText } from './SessionSearchText';
 import './session-search.css';
 import { useSidebarReorder } from './use-sidebar-reorder';
-import { useSidebarMotion } from './use-sidebar-motion';
 import { ProjectRemoval } from './ProjectRemoval';
 import { SessionMoveDialog } from './SessionMoveDialog';
 import { ContextPanel } from './ContextPanel';
@@ -242,6 +244,9 @@ function App() {
   const [loading, setLoading] = useState(true);
   useEffect(() => { window.dispatchEvent(new Event('desktop-shell-ready')); }, []);
   const [navigationTarget, setNavigationTarget] = useState<{ session: Session; reading?: SessionReading } | null>(null);
+  const [preparedMarkdown, setPreparedMarkdown] = useState<{ sessionId: string; trees?: PreparedMarkdown }>();
+  const markdownPreparation = useRef<AbortController | undefined>(undefined);
+  useEffect(() => () => markdownPreparation.current?.abort(), []);
   const [navigationSlow, setNavigationSlow] = useState(false);
   const navigationSequence = useRef(0);
   const navigationPending = useRef<{ sequence: number; session: Session; reading?: SessionReading } | null>(null);
@@ -249,15 +254,14 @@ function App() {
   const previewPosition = useRef<ReadingPosition | undefined>(undefined);
   const readingRestore = useRef<{ runtimeId?: string; position: ReadingPosition; expectedTop?: number } | undefined>(undefined);
   const [awayFromBottom, setAwayFromBottom] = useState(false);
-  const collapsedWorkspaces = new Set(data.preferences.collapsedWorkspaces ?? []);
+  const [workspaceDisclosure, setWorkspaceDisclosure] = useState(new Map<string, { open: boolean }>());
+  const workspaceDisclosureRef = useRef(workspaceDisclosure);
   const workspaceDisclosureSave = useRef<Promise<void>>(Promise.resolve());
   const [sidebar, setSidebar] = useState(true);
   const [sessionQuery, setSessionQuery] = useState('');
   const searchingSessions = Boolean(sessionQuery.trim());
   const stellarSearchQuery = data.themePacks?.some(pack => pack.id === data.preferences.theme && pack.renderer === 'stellar-v1')
     ? sessionQuery : '';
-  const filteredSessions = useMemo(() => filterSessions(data.sessions, data.preferences, sessionQuery, bridge?.platform),
-    [data.sessions, data.preferences, sessionQuery]);
   const [compactSidebar, setCompactSidebar] = useState(() => window.innerWidth <= 760);
   const [compactSidebarOpen, setCompactSidebarOpen] = useState(false);
   const compactSidebarRef = useRef(compactSidebar);
@@ -388,9 +392,6 @@ function App() {
   const [removeProject, setRemoveProject] = useState<string | null>(null);
   const [sessionMove, setSessionMove] = useState<{ session: Session; destination?: string } | null>(null);
   const [unavailableWorkspace, setUnavailableWorkspace] = useState<string | null>(null);
-  const sidebarTree = useSidebarMotion(JSON.stringify([data.preferences.workspaces, data.preferences.pinnedWorkspaces,
-    data.preferences.sessionOrder, data.preferences.sessionSort, data.preferences.archivedSessionIds,
-    sessionQuery, data.sessions.map(session => [session.id, session.cwd, session.modified])]));
   const manualOrder = data.preferences.sessionSort !== 'updated';
   const reorderSession = (id: string, target: string, after: boolean) => {
     const order = reconcileSessionOrder(data.preferences.sessionOrder ?? [], data.sessions);
@@ -411,6 +412,20 @@ function App() {
       const session = data.sessions.find(session => session.id === id);
       if (session?.path) { setContextMenu(null); setSessionMove({ session, destination }); }
     });
+  const sidebarDrag = useMemo(() => sessionDrag ? { id: sessionDrag.id, target: sessionDrag.target,
+    after: sessionDrag.after, workspaceTarget: sessionDrag.workspaceTarget } : null,
+  [sessionDrag?.id, sessionDrag?.target, sessionDrag?.after, sessionDrag?.workspaceTarget]);
+  const sidebarPreferences = useMemo<SidebarPreferences>(() => ({
+    language: data.preferences.language, workspace: data.preferences.workspace, workspaces: data.preferences.workspaces,
+    workspaceNames: data.preferences.workspaceNames, archivedSessionIds: data.preferences.archivedSessionIds,
+    sessionSort: data.preferences.sessionSort, sessionOrder: data.preferences.sessionOrder,
+    pinnedWorkspaces: data.preferences.pinnedWorkspaces, collapsedWorkspaces: data.preferences.collapsedWorkspaces,
+  }), [data.preferences.language, data.preferences.workspace, data.preferences.workspaces, data.preferences.workspaceNames,
+    data.preferences.archivedSessionIds, data.preferences.sessionSort, data.preferences.sessionOrder,
+    data.preferences.pinnedWorkspaces, data.preferences.collapsedWorkspaces]);
+  const readSidebarActivities = useMemo(createSidebarActivityReader, []);
+  const sidebarActivities = useMemo(() => readSidebarActivities(data.runtimes ?? [], sessionActivity.current, data.unreadSessionIds ?? []),
+    [data.runtimes, data.unreadSessionIds, readSidebarActivities]);
   const [name, setName] = useState('');
   const [loginProfile, setLoginProfile] = useState('step_plan');
   const [key, setKey] = useState('');
@@ -421,7 +436,11 @@ function App() {
   const follow = useRef(true);
   const scrollIntent = useRef<ScrollIntent | undefined>(undefined);
   const touchY = useRef<number | undefined>(undefined);
+  const followLayoutFrame = useRef(0);
   const handleScrollIntent = useCallback((intent: ScrollIntent) => {
+    cancelAnimationFrame(followLayoutFrame.current);
+    followLayoutFrame.current = 0;
+    releaseConversationLayout(scroll.current);
     readingRestore.current = undefined;
     scrollIntent.current = intent;
     const viewport = scroll.current;
@@ -434,7 +453,10 @@ function App() {
     }
   }, []);
   const returnToBottom = () => {
+    cancelAnimationFrame(followLayoutFrame.current);
+    followLayoutFrame.current = 0;
     const viewport = scroll.current;
+    releaseConversationLayout(viewport);
     readingRestore.current = undefined;
     scrollIntent.current = viewport && viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight > 1 ? 'tail' : undefined;
     follow.current = true;
@@ -460,6 +482,8 @@ function App() {
   view.current = { runtimeId: data.runtimeId, sessionId: data.state?.sessionId, draftId: data.draftId, draft, quotes, attachments };
   useLayoutEffect(() => { quoteScopeRef.current = quoteScope; }, [quoteScope]);
   const followLayout = useCallback(() => {
+    cancelAnimationFrame(followLayoutFrame.current);
+    followLayoutFrame.current = 0;
     const viewport = scroll.current;
     if (viewport && navigationPending.current) {
       const pending = navigationPending.current;
@@ -476,9 +500,15 @@ function App() {
     if (viewport && viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight <= 1) {
       follow.current = followAfterScroll(follow.current, 0, scrollIntent.current);
     }
-    if (follow.current && viewport) viewport.scrollTop = viewport.scrollHeight;
+    if (follow.current && viewport) followConversationTail(viewport);
     else if (viewport) setAwayFromBottom(viewport.scrollHeight > viewport.clientHeight);
   }, []);
+  // A history mount can notify once per disclosure. Restore the viewport once
+  // before paint instead of interleaving full-document reads with each child.
+  const scheduleFollowLayout = useCallback(() => {
+    if (!followLayoutFrame.current) followLayoutFrame.current = requestAnimationFrame(followLayout);
+  }, [followLayout]);
+  useLayoutEffect(() => () => cancelAnimationFrame(followLayoutFrame.current), []);
   const locateSearchMessage = useCallback((target: HTMLElement, match?: DOMRect) => {
     const viewport = scroll.current;
     if (!viewport) return;
@@ -614,7 +644,11 @@ function App() {
   const queuedMessages = useMemo(() => data.pendingMessages?.filter(item => !item.sending) ?? [], [data.pendingMessages]);
   const hasPendingReceipt = data.pendingMessages?.some(item => item.sending);
   const activeTitle = sessionTitle(navigationTarget?.session ?? current ?? (data.state?.sessionName ? { name: data.state.sessionName, firstMessage: '' } : undefined), t('新会话', 'New session'));
-  const turns = useMemo(() => conversationTurns(data.messages, data.preferences.language), [data.messages, data.preferences.language]);
+  const readTurns = useMemo(createConversationTurnsReader, [data.runtimeId, data.state?.sessionId, data.draftId]);
+  const turns = useMemo(() => readTurns(data.messages, data.preferences.language), [data.messages, data.preferences.language, readTurns]);
+  const contextUsage = navigationTarget ? undefined : data.stats?.contextUsage;
+  const commandContext = useMemo(() => ({ usage: contextUsage, language: data.preferences.language }),
+    [contextUsage, data.preferences.language]);
   const workspaceTitle = (path: string) => data.preferences.workspaceNames?.[workspaceKey(path)] || basename(path);
   const run = async <T,>(action: () => Promise<T>): Promise<T | undefined> => { try { setError(''); return await action(); } catch (e) { setError(String(e instanceof Error ? e.message : e)); } };
   const rememberView = () => {
@@ -646,6 +680,7 @@ function App() {
       readingRestore.current = saved && !saved.follow ? { runtimeId: value.runtimeId, position: saved } : undefined;
     }
     viewId.current = value.runtimeId;
+    setPreparedMarkdown(previous => previous?.sessionId === value.state?.sessionId ? previous : undefined);
     setUnavailableWorkspace(value.workspaceIssue ?? null);
     readingCache.current.retain(value.sessions);
     setData(value); setBusy(Boolean(value.state?.isStreaming));
@@ -685,8 +720,14 @@ function App() {
     if (!bridge || switching.current && !navigationPending.current) return false;
     if (!cronRuntimeId && !navigationPending.current && session.id === view.current.sessionId) return true;
     if (!navigationPending.current) rememberView();
+    markdownPreparation.current?.abort();
+    const preparation = new AbortController();
+    markdownPreparation.current = preparation;
     const sequence = ++navigationSequence.current;
     const reading = readingCache.current.get(session);
+    // Parse cold history alongside runtime startup; cached readings stay immediate.
+    let parsing: Promise<PreparedMarkdown | undefined> | undefined = reading ? Promise.resolve(undefined) : undefined;
+    const prepare = (messages: Message[]) => parsing ??= prepareHistoryMarkdown(messages, preparation.signal);
     navigationPending.current = { sequence, session, reading };
     setNavigationDraft(composerBySession.current.get(session.id)?.draft ?? '');
     previewPosition.current = composerBySession.current.get(session.id) ?? { follow: true, top: 0 };
@@ -695,10 +736,13 @@ function App() {
     setNavigationTarget({ session, reading }); setError(''); setRequests([]);
     setSelectedSubagent(null); setSelectedBackgroundLane(undefined); setSelectedBackgroundAgent(undefined); setSelectedWorkflow(null); setSelectedWorkflowAgent(null); setSubagentView('agent'); setRightPanel(null); setContextMenu(null);
     setQueuePreviewOpen(false); setLiveChangesOpen(false);
-    if (!reading && !cronRuntimeId && bridge.sessionReading) void bridge.sessionReading(session.id).then(value => {
+    if (!reading && !cronRuntimeId && bridge.sessionReading) void bridge.sessionReading(session.id).then(async value => {
       const pending = navigationPending.current;
       if (!value || value.sessionId !== session.id || pending?.sequence !== sequence) return;
+      const trees = await prepare(value.messages);
+      if (navigationPending.current?.sequence !== sequence) return;
       pending.reading = value;
+      setPreparedMarkdown({ sessionId: session.id, trees });
       setNavigationTarget({ session, reading: value });
     }).catch(() => { /* Preview is optional; only the authoritative navigation reports errors. */ });
     let failed = false;
@@ -706,6 +750,9 @@ function App() {
       const result = cronRuntimeId ? await bridge.cronOpenHost(cronRuntimeId) : await bridge.navigateSession(session.id);
       if (navigationPending.current?.sequence !== sequence) return false;
       if (!result) throw new Error(t('会话切换已取消', 'Session navigation was cancelled'));
+      const trees = await prepare(result.messages);
+      if (navigationPending.current?.sequence !== sequence) return false;
+      setPreparedMarkdown({ sessionId: session.id, trees });
       const saved = composerBySession.current.get(session.id);
       if (navigationPending.current.reading && previewPosition.current) composerBySession.current.set(session.id, {
         draft: saved?.draft ?? '', quotes: saved?.quotes ?? [], attachments: saved?.attachments ?? [], ...previewPosition.current,
@@ -730,6 +777,7 @@ function App() {
       setError(String(error instanceof Error ? error.message : error));
     } finally {
       if (navigationPending.current?.sequence === sequence) {
+        preparation.abort();
         navigationPending.current = null; previewPosition.current = undefined;
         setNavigationTarget(null); switching.current = false; setLoading(false);
         if (!failed) void run(refresh);
@@ -775,10 +823,8 @@ function App() {
       if (event.type === 'desktop_runtimes') {
         const runtimes: RuntimeSummary[] = event.runtimes;
         for (const runtime of runtimes) sessionActivity.current.set(runtime.sessionId, runtime.status);
-        setData(previous => ({ ...previous, runtimes, unreadSessionIds: event.unreadSessionIds ?? [], sessions: previous.sessions.map(session => {
-          const runtime = runtimes.find(runtime => runtime.sessionId === session.id);
-          return runtime ? { ...session, firstMessage: runtime.firstMessage || session.firstMessage, name: runtime.name ?? session.name } : session;
-        }) }));
+        setData(previous => ({ ...previous, runtimes, unreadSessionIds: event.unreadSessionIds ?? [],
+          sessions: updateSidebarSessionNames(previous.sessions, runtimes) }));
         return;
       }
       if (!event.desktopReviewPending && !event.desktopReviewContinuation && ['agent_start', 'turn_start', 'tool_execution_start', 'tool_execution_end', 'message_update', 'message_end', 'agent_end', 'agent_settled'].includes(event.type)
@@ -906,6 +952,11 @@ function App() {
     observer.observe(viewport);
     return () => observer.disconnect();
   }, [data.messages.length > 0, followLayout]);
+  useLayoutEffect(() => {
+    const viewport = scroll.current, content = transcript.current;
+    if (viewport && content) return observeConversationLayout(viewport, content, () => follow.current);
+  }, [data.runtimeId, data.state?.sessionId, data.messages.length > 0, navigationTarget?.session.id,
+    Boolean(navigationTarget?.reading), hasPendingReceipt]);
   useEffect(() => { attachmentsRef.current = attachments; }, [attachments]);
   const openImage = useCallback((src: string, name: string, anchor: HTMLElement) => {
     previewTrigger.current = anchor;
@@ -1325,22 +1376,8 @@ function App() {
     await bridge!.saveMcp(mcpEdit.name, { ...mcpEdit.config, args: parsed }, secrets);
     closeMcpEdit(); setSettings(await bridge!.settings()); setCapabilityRevision(value => value + 1);
   });
-  const workspaceGroups = new Map<string, { path: string; sessions: typeof data.sessions }>();
-  for (const path of data.preferences.workspaces) {
-    const key = workspaceKey(path);
-    if (!workspaceGroups.has(key)) workspaceGroups.set(key, { path, sessions: [] });
-  }
-  const sessionWorkspaceKey = (session: typeof data.sessions[number]) => workspaceKey(session.workspacePath ?? session.cwd);
   const archived = new Set(data.preferences.archivedSessionIds ?? []);
-  const visibleSessions = orderSessions(filteredSessions, data.preferences);
   const archivedSessions = data.sessions.filter(session => archived.has(session.id));
-  const independentSessions = visibleSessions.filter(session => session.independent ?? !workspaceGroups.has(sessionWorkspaceKey(session)));
-  for (const session of visibleSessions) if (!independentSessions.includes(session)) workspaceGroups.get(sessionWorkspaceKey(session))?.sessions.push(session);
-  const showContext = (event: React.MouseEvent, type: 'session' | 'workspace', id: string) => {
-    event.preventDefault();
-    setContextMenu({ type, id, x: Math.max(8, Math.min(event.clientX, window.innerWidth - 206)),
-      y: Math.max(8, Math.min(event.clientY, window.innerHeight - 230)) });
-  };
   const beginRename = (type: 'session' | 'workspace', id: string) => {
     const session = data.sessions.find(s => s.id === id);
     setRenameTarget({ type, id });
@@ -1396,51 +1433,31 @@ function App() {
     setRenameTarget(null);
   };
   const pinnedWorkspaces = new Set(data.preferences.pinnedWorkspaces ?? []);
-  const renderSession = (s: Session, group: string) => {
-    const status = data.runtimes?.find(runtime => runtime.sessionId === s.id)?.status ?? sessionActivity.current.get(s.id) ?? 'idle';
-    const activity = status === 'idle' || status === 'completed' ? data.unreadSessionIds?.includes(s.id) ? 'completed' : 'idle' : status;
-    const label = activity === 'waiting' ? t('等待确认', 'Awaiting approval') : activity === 'failed' || activity === 'interrupted' ? t('任务已终止', 'Task interrupted') : activity === 'completed' ? t('有未读回复', 'Unread reply') : t('正在运行', 'Running');
-    return <div key={s.id} data-reorder-id={s.id} data-reorder-kind="session" data-reorder-group={group} data-reorder-title={sessionTitle(s, t('新会话', 'New session'))}
-      data-reorder-locked={!s.path || ['running', 'waiting'].includes(activity)}
-      className={`session-row ${!scheduledOpen && !pluginsOpen && !remoteOpen && !usageOpen && !fulltextOpen && s.id === (navigationTarget?.session.id ?? data.state?.sessionId) ? 'selected' : ''} ${sessionDrag?.id === s.id ? 'session-dragging' : ''} ${sessionDrag?.target === s.id ? sessionDrag.after ? 'drop-after' : 'drop-before' : ''}`}
-      onContextMenu={e => showContext(e, 'session', s.id)}>
-      <button aria-current={!scheduledOpen && !pluginsOpen && !remoteOpen && !usageOpen && !fulltextOpen && s.id === (navigationTarget?.session.id ?? data.state?.sessionId) ? 'page' : undefined}
-        disabled={!bridge || loading && !navigationTarget} onClick={() => void navigateSession(s)}
-        aria-keyshortcuts={!searchingSessions && manualOrder && group !== '__archived__' ? 'Alt+ArrowUp Alt+ArrowDown' : undefined}
-        onKeyDown={e => {
-          if (searchingSessions || !manualOrder || !e.altKey || !['ArrowUp', 'ArrowDown'].includes(e.key) || group === '__archived__') return;
-          e.preventDefault();
-          const siblings = group === '__independent__' ? independentSessions : workspaceGroups.get(group)?.sessions ?? [];
-          const index = siblings.findIndex(session => session.id === s.id);
-          const target = siblings[index + (e.key === 'ArrowUp' ? -1 : 1)];
-          if (target) reorderSession(s.id, target.id, e.key === 'ArrowDown');
-        }}>
-        <i className={`session-activity ${activity}`} role={activity === 'idle' ? undefined : 'img'} aria-hidden={activity === 'idle' ? true : undefined} aria-label={activity === 'idle' ? undefined : label}/>
-        <span title={searchingSessions ? `${sessionTitle(s, t('新会话', 'New session'))}\n${s.firstMessage}\n${s.cwd}` : undefined}>
-          <SessionSearchText text={sessionTitle(s, t('新会话', 'New session'))} query={stellarSearchQuery}/>
-          {searchingSessions && s.name && s.firstMessage && <small className="session-search-preview"><SessionSearchText text={s.firstMessage} query={stellarSearchQuery}/></small>}
-        </span>
-        {navigationSlow && navigationTarget?.session.id === s.id && <span className="session-navigation-spinner" role="status" aria-label={t('正在打开会话', 'Opening conversation')}/>}
-      </button>
-      <IconButton title={t('更多操作', 'More actions')} aria-haspopup="menu" disabled={loading} onClick={e => { const rect = e.currentTarget.getBoundingClientRect(); setContextMenu({ type: 'session', id: s.id, x: Math.min(rect.right, window.innerWidth - 206), y: Math.min(rect.bottom, window.innerHeight - 190) }); }}><MoreHorizontal size={15}/></IconButton>
-    </div>;
-  };
   const setWorkspaceExpanded = (key: string, expanded?: boolean) => {
-    // Serialize clicks so rapid toggles cannot overwrite another group's saved state.
+    const savedClosed = latestData.current.preferences.collapsedWorkspaces?.includes(key) ?? false;
+    const current = workspaceDisclosureRef.current.get(key)?.open ?? !savedClosed;
+    const operation = { open: expanded ?? !current };
+    workspaceDisclosureRef.current.set(key, operation);
+    setWorkspaceDisclosure(new Map(workspaceDisclosureRef.current));
+    // Reflect intent immediately, while serializing writes and rolling back only
+    // the failed intent, never a newer click on the same group.
     const pending = workspaceDisclosureSave.current.then(async () => {
       const next = new Set(latestData.current.preferences.collapsedWorkspaces ?? []);
-      const open = expanded ?? next.has(key);
-      if (open) next.delete(key); else next.add(key);
+      if (operation.open) next.delete(key); else next.add(key);
       const saved = await bridge!.preferences({ collapsedWorkspaces: [...next] });
       latestData.current = { ...latestData.current, preferences: { ...latestData.current.preferences, collapsedWorkspaces: saved.collapsedWorkspaces } };
       setData(previous => ({ ...previous, preferences: { ...previous.preferences, collapsedWorkspaces: saved.collapsedWorkspaces } }));
+    }).finally(() => {
+      if (workspaceDisclosureRef.current.get(key) === operation) {
+        workspaceDisclosureRef.current.delete(key);
+        setWorkspaceDisclosure(new Map(workspaceDisclosureRef.current));
+      }
     });
     workspaceDisclosureSave.current = pending.catch(() => {});
     return pending;
   };
   const toggleWorkspace = (key: string) => { void run(() => setWorkspaceExpanded(key)); };
-  const independentExpanded = searchingSessions || !collapsedWorkspaces.has('__independent__');
-  const createInWorkspace = async (path: string, _sessions: typeof data.sessions) => {
+  const createInWorkspace = async (path: string) => {
     setRemoteOpen(false);
     setPluginsOpen(false);
     setUsageOpen(false);
@@ -1463,29 +1480,6 @@ function App() {
   };
   const confirmRemoveProject = (path: string) => { setError(''); setRemoveProject(path); };
   const toggleSidebar = () => compactSidebar ? setCompactSidebarOpen(open => !open) : setSidebar(open => !open);
-  const renderWorkspace = ([key, group]: [string, { path: string; sessions: Session[] }]) => {
-    if (searchingSessions && !group.sessions.length) return null;
-    const expanded = searchingSessions || !collapsedWorkspaces.has(key);
-    return <section className={`workspace-group ${sessionDrag?.id === key ? 'session-dragging' : ''} ${sessionDrag?.target === key ? sessionDrag.after ? 'drop-after' : 'drop-before' : ''} ${sessionDrag?.workspaceTarget === group.path ? 'session-drop-target' : ''}`} key={key} aria-label={group.path}
-      data-session-workspace={group.path}
-      data-reorder-id={key} data-reorder-kind="workspace" data-reorder-group={pinnedWorkspaces.has(key) ? '__pinned__' : '__projects__'} data-reorder-title={workspaceTitle(group.path)}>
-      <div className={`workspace-heading ${key === workspaceKey(data.preferences.workspace ?? '') ? 'current' : ''}`} onContextMenu={e => showContext(e, 'workspace', group.path)}>
-        <button className="workspace-toggle" aria-label={workspaceTitle(group.path)} aria-expanded={expanded} aria-disabled={searchingSessions || undefined} onClick={() => { if (!searchingSessions) toggleWorkspace(key); }}
-          aria-keyshortcuts={searchingSessions ? undefined : 'Alt+ArrowUp Alt+ArrowDown'} onKeyDown={e => {
-            if (searchingSessions || !e.altKey || !['ArrowUp', 'ArrowDown'].includes(e.key)) return;
-            e.preventDefault();
-            const siblings = pinnedWorkspaces.has(key) ? [...pinnedWorkspaces] : [...workspaceGroups.keys()].filter(key => !pinnedWorkspaces.has(key));
-            const target = siblings[siblings.indexOf(key) + (e.key === 'ArrowUp' ? -1 : 1)];
-            if (target) reorderWorkspace(key, target, e.key === 'ArrowDown');
-          }}>{expanded ? <FolderOpen size={15}/> : <Folder size={15}/>}<span><SessionSearchText text={workspaceTitle(group.path)} query={stellarSearchQuery}/></span></button>
-        <IconButton title={t(`在 ${basename(group.path)} 新建会话`, `New session in ${basename(group.path)}`)} disabled={!bridge || loading} onClick={() => void createInWorkspace(group.path, group.sessions)}><Plus size={15}/></IconButton>
-        <IconButton title={t('更多操作', 'More actions')} aria-haspopup="menu" onClick={e => { const rect = e.currentTarget.getBoundingClientRect(); setContextMenu({ type: 'workspace', id: group.path, x: Math.min(rect.right, window.innerWidth - 206), y: Math.min(rect.bottom, window.innerHeight - 190) }); }}><MoreHorizontal size={15}/></IconButton>
-      </div>
-      <div className="workspace-disclosure" aria-hidden={!expanded} inert={!expanded}>
-        <div className="workspace-sessions">{group.sessions.map(s => renderSession(s, key))}{!group.sessions.length && <span className="workspace-empty">{t('暂无会话', 'No sessions yet')}</span>}</div>
-      </div>
-    </section>;
-  };
   const menus: WindowMenu[] = [
     { id: 'file', label: t('文件', 'File'), items: [
       { label: t('新建独立会话', 'New independent session'), disabled: !bridge || loading, action: () => { setRemoteOpen(false); setPluginsOpen(false); setScheduledOpen(false); void applySnapshot(() => bridge!.beginSession()); } },
@@ -1524,9 +1518,14 @@ function App() {
   const accessRisk = !renaming ? fullAccessRiskPresentation(requests[0], data.preferences.language) : undefined;
   const reviewPlan = !renaming ? planReview(requests[0]) : undefined;
   const reviewQuestion = !renaming ? questionnaire(requests[0]) : undefined;
-  const openQuestion = (callId: string) => {
+  const openQuestion = useCallback((callId: string) => {
     if (questionnaire(requests[0])?.callId === callId && !navigationPending.current) setApprovalOpen(true);
-  };
+  }, [requests]);
+  const questionContext = useMemo(() => ({
+    pending: requests.flatMap(request => { const value = questionnaire(request); return value ? [value] : []; }),
+    open: openQuestion,
+  }), [requests, openQuestion]);
+  const readingQuestionContext = useMemo(() => ({ pending: [], open: () => {} }), []);
   const respondQuestion = async (value: { value: string } | { cancelled: true }) => {
     const request = requests[0], owner = data.runtimeId;
     if (!request || !questionnaire(request) || !owner || navigationPending.current
@@ -1567,7 +1566,15 @@ function App() {
       language={data.preferences.language} disabled={!connected || loading}
       onMode={(mode, enabled) => rawCommand('set_launch_mode', { mode, enabled })}
       onAction={(action, value) => rawCommand('goal_action', { action, value })}/> };
-  return <CommandContextUsage.Provider value={{ usage: navigationTarget ? undefined : data.stats?.contextUsage, language: data.preferences.language }}><CommandCatalog.Provider value={commands}><FileOpeningContext.Provider value={{ openFile, openWeb, onError: setError }}><div ref={appLayout} className={`app ${bridge?.platform === 'darwin' ? 'platform-macos' : ''} ${sidebarVisible ? '' : 'sidebar-hidden'} ${compactSidebar ? 'sidebar-compact' : ''} ${inspectionOpen && !details ? 'summary-open' : ''} ${summaryOverlay ? 'summary-overlay' : ''} ${inspectorExpanded ? 'inspector-expanded' : ''} ${terminalDock === 'bottom' && terminalOpen && !bottomTerminalExpanded ? 'has-bottom-terminal' : ''}`} onContextMenu={e => {
+  const fileActions = useRef({ openFile, openWeb });
+  useLayoutEffect(() => { fileActions.current = { openFile, openWeb }; }, [openFile, openWeb]);
+  // This context carries actions, not panel state. Keep historical file/output
+  // controls subscribed to the current actions without rerendering their text.
+  const fileOpening = useMemo(() => ({
+    openFile: (...args: Parameters<typeof openFile>) => fileActions.current.openFile(...args),
+    openWeb: (url: string) => fileActions.current.openWeb(url), onError: setError,
+  }), []);
+  return <CommandContextUsage.Provider value={commandContext}><CommandCatalog.Provider value={commands}><FileOpeningContext.Provider value={fileOpening}><div ref={appLayout} data-settings-open={settingsOpen || undefined} className={`app ${bridge?.platform === 'darwin' ? 'platform-macos' : ''} ${sidebarVisible ? '' : 'sidebar-hidden'} ${compactSidebar ? 'sidebar-compact' : ''} ${inspectionOpen && !details ? 'summary-open' : ''} ${summaryOverlay ? 'summary-overlay' : ''} ${inspectorExpanded ? 'inspector-expanded' : ''} ${terminalDock === 'bottom' && terminalOpen && !bottomTerminalExpanded ? 'has-bottom-terminal' : ''}`} onContextMenu={e => {
     const element = e.target as HTMLElement;
     const image = element.closest<HTMLImageElement>('img') ?? element.closest('.attachment-preview-image')?.querySelector('img');
     if (!image || !image.closest('.attachment-open, .attachment-preview-image, .messages')) return;
@@ -1672,24 +1679,15 @@ function App() {
         }}
         onScheduledTasks={() => { if (scheduledOpen) setScheduledOpen(false); else openScheduled(); }}
         onPlugins={() => { if (pluginsOpen) setPluginsOpen(false); else openPlugins(); }}/>
-      <nav ref={sidebarTree} className={`workspace-tree ${sessionDrag ? 'is-reordering' : ''}`} aria-label={t('工作区与会话', 'Workspaces and sessions')}
-        onScroll={event => { event.currentTarget.dataset.scrolled = String(event.currentTarget.scrollTop > 0); }}>
-        {searchingSessions && <div className="session-search-status" role="status">{t(`找到 ${visibleSessions.length} 个会话`, `${visibleSessions.length} sessions found`)}</div>}
-        {searchingSessions && !visibleSessions.length && <p className="list-empty">{t('没有匹配的会话', 'No matching sessions')}</p>}
-        {(!searchingSessions || independentSessions.length > 0) && <section className="workspace-group independent-group" aria-label={t('独立会话', 'Independent sessions')}>
-          <div className="workspace-heading"><button className="workspace-toggle" aria-label={t('独立会话', 'Independent sessions')} aria-expanded={independentExpanded} aria-disabled={searchingSessions || undefined} onClick={() => { if (!searchingSessions) toggleWorkspace('__independent__'); }}><MessageSquare size={15}/><span><SessionSearchText text={t('独立会话', 'Independent sessions')} query={stellarSearchQuery}/></span><small>{independentSessions.length}</small></button></div>
-          <div className="workspace-disclosure" aria-hidden={!independentExpanded} inert={!independentExpanded}>
-            <div className="workspace-sessions">{independentSessions.map(s => renderSession(s, '__independent__'))}</div>
-          </div>
-        </section>}
-        {[...pinnedWorkspaces].some(key => workspaceGroups.has(key) && (!searchingSessions || workspaceGroups.get(key)!.sessions.length > 0)) && <div className="pinned-projects">
-          <div className="section-label">{t('置顶', 'Pinned')}</div>
-          {[...pinnedWorkspaces].flatMap(key => workspaceGroups.has(key) ? [[key, workspaceGroups.get(key)!] as [string, { path: string; sessions: Session[] }]] : []).map(renderWorkspace)}
-        </div>}
-        {(!searchingSessions || [...workspaceGroups].some(([key, group]) => !pinnedWorkspaces.has(key) && group.sessions.length > 0)) && <div className="section-label">{t('项目', 'Projects')}<IconButton title={t('添加工作区', 'Add workspace')} disabled={!bridge || loading} onClick={() => void openProject()}><Plus size={15}/></IconButton></div>}
-        {[...workspaceGroups].filter(([key]) => !pinnedWorkspaces.has(key)).map(renderWorkspace)}
-        {!searchingSessions && !workspaceGroups.size && <button disabled={!bridge || loading} onClick={() => void openProject()}><FolderOpen size={15}/>{t('打开项目', 'Open project')}</button>}
-      </nav>
+      <SidebarTree sessions={data.sessions} preferences={sidebarPreferences} platform={bridge?.platform ?? 'win32'}
+        activities={sidebarActivities} disclosure={workspaceDisclosure} query={sessionQuery} highlightQuery={stellarSearchQuery}
+        selected={scheduledOpen || pluginsOpen || remoteOpen || usageOpen || fulltextOpen ? undefined : navigationTarget?.session.id ?? data.state?.sessionId}
+        slow={navigationSlow ? navigationTarget?.session.id : undefined} available={Boolean(bridge)}
+        loading={loading} navigating={Boolean(navigationTarget)} drag={sidebarDrag} actions={{
+          navigate: id => { const session = data.sessions.find(item => item.id === id); if (session) void navigateSession(session); },
+          context: setContextMenu, toggle: toggleWorkspace, moveSession: reorderSession, moveWorkspace: reorderWorkspace,
+          create: path => { void createInWorkspace(path); }, openProject: () => { void openProject(); },
+        }}/>
       <div className="sidebar-bottom"><div className="sidebar-remote-utilities">
         <button className="icon-button sidebar-settings" aria-label={updateAvailable ? t('设置，有更新', 'Settings, update available') : t('设置', 'Settings')}
           data-tooltip={t('设置', 'Settings')} onClick={() => { if (updateAvailable) setTab('updates'); void openSettings(); }} disabled={!bridge}><SettingsIcon size={17}/>{updateAvailable && <i className="update-dot update-indicator"/>}</button>
@@ -1827,10 +1825,14 @@ function App() {
             }
           }}>
           {navigationTarget ? navigationTarget.reading ? <div className="messages session-reading-preview" ref={transcript}>
+            {/* Match the live hierarchy without exposing another session's pending questions. */}
+            <QuestionContext.Provider value={readingQuestionContext}>
             <ConversationMessages key={`session-${navigationTarget.session.id}`} messages={navigationTarget.reading.messages} modelChanges={navigationTarget.reading.modelChanges}
+              preparedMarkdown={preparedMarkdown?.sessionId === navigationTarget.session.id ? preparedMarkdown.trees : undefined}
               language={data.preferences.language} busy={false} canEdit={false} interfaceSettings={interfaceSettings} interfaceRevision={interfaceRevision}
               openImage={openImage} edit={editMessage} branch={branchMessage} onError={setError}
-              onLayoutChange={followLayout} arrivingUser={null} onOpenSubagent={() => setError(t('请等待会话打开', 'Wait for the conversation to open'))}/>
+              onLayoutChange={scheduleFollowLayout} arrivingUser={null} onOpenSubagent={() => setError(t('请等待会话打开', 'Wait for the conversation to open'))}/>
+            </QuestionContext.Provider>
           </div> : <div className="session-reading-placeholder" aria-hidden="true"><span/><span/><span/></div>
           : !data.messages.length && !hasPendingReceipt ? <NewSession language={data.preferences.language}
             emblem={bridge && data.themePacks?.some(pack => pack.id === data.preferences.theme && pack.renderer === 'stellar-v1')
@@ -1841,8 +1843,9 @@ function App() {
             title={workspaceTitle} disabled={!bridge || loading} composing={!!draft || !!attachments.length || !!quotes.length}
             onSelect={path => void applySnapshot(() => bridge!.beginSession(path))}
             onOpenProject={() => void openProject()} onSettings={() => void openSettings()} onOpenChange={setProjectPickerOpen}/> : <div className="messages" ref={transcript}>
-            <QuestionContext.Provider value={{ pending: requests.flatMap(request => { const q = questionnaire(request); return q ? [q] : []; }), open: openQuestion }}>
-              <ConversationMessages key={`session-${data.state?.sessionId ?? data.runtimeId}`} runtimeId={data.runtimeId} messages={data.messages} backgroundActivity={backgroundActivity} modelChanges={data.modelChanges} awaitingToolCalls={requests.flatMap(request => { const p = permissionApprovalPresentation(request, data.messages, data.preferences.language, data.runtimeId); return p ? [p.callId] : []; })} language={data.preferences.language} busy={busy} canEdit={connected && !busy && !loading} openImage={openImage} edit={editMessage} branch={branchMessage} onError={setError} onLayoutChange={followLayout} arrivingUser={arrivingUser} onOpenSubagent={openSubagent} onOpenWorkflow={openWorkflow}
+            <QuestionContext.Provider value={questionContext}>
+              <ConversationMessages key={`session-${data.state?.sessionId ?? data.runtimeId}`} runtimeId={data.runtimeId} messages={data.messages} backgroundActivity={backgroundActivity} modelChanges={data.modelChanges} awaitingToolCalls={requests.flatMap(request => { const p = permissionApprovalPresentation(request, data.messages, data.preferences.language, data.runtimeId); return p ? [p.callId] : []; })} language={data.preferences.language} busy={busy} canEdit={connected && !busy && !loading} openImage={openImage} edit={editMessage} branch={branchMessage} onError={setError} onLayoutChange={scheduleFollowLayout} arrivingUser={arrivingUser} onOpenSubagent={openSubagent} onOpenWorkflow={openWorkflow}
+                preparedMarkdown={preparedMarkdown?.sessionId === data.state?.sessionId ? preparedMarkdown?.trees : undefined}
                 searchTarget={searchLocation && searchLocation.sessionId === data.state?.sessionId ? { ...searchLocation, requestId: searchLocateRequest } : undefined}
                 interfaceSettings={interfaceSettings} interfaceRevision={interfaceRevision} settledStatus={!busy && hasTaskStatus ? taskStatusControls : undefined} completedStatus={completedStatus}/>
             </QuestionContext.Provider>
@@ -1857,7 +1860,7 @@ function App() {
             </div>}
             <PendingUserMessages messages={data.pendingMessages ?? []} connected={connected} busy={busy}
               onRecover={() => bridge!.command('queue_recover', undefined, data.runtimeId)}
-              language={data.preferences.language} openImage={openImage} onError={setError} onLayoutChange={followLayout}/>
+              language={data.preferences.language} openImage={openImage} onError={setError} onLayoutChange={scheduleFollowLayout}/>
           </div>}
         </div>
         {!navigationTarget && <ConversationMarkers scrollRef={scroll} turns={turns} language={data.preferences.language}
@@ -1873,11 +1876,11 @@ function App() {
           remove={id => setQuotes(value => value.filter(quote => quote.id !== id))}
           reveal={quote => {
             readingRestore.current = undefined;
-            const source = transcript.current?.querySelector<HTMLElement>(`[data-message-index="${quote.messageIndex}"]`);
-            if (source) {
-              handleScrollIntent('backward');
-              source.scrollIntoView({ block: 'center', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth' });
-            }
+            handleScrollIntent('backward');
+            afterConversationLayout(transcript.current, () => {
+              transcript.current?.querySelector<HTMLElement>(`[data-message-index="${quote.messageIndex}"]`)
+                ?.scrollIntoView({ block: 'center', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth' });
+            });
           }}/>
         <QueuePreview key={`queue-${data.runtimeId}`} messages={queuedMessages} language={data.preferences.language}
           onOpenChange={setQueuePreviewOpen}

@@ -318,6 +318,7 @@ try {
   await toolbar.getByRole('textbox', { name: '选段批注', exact: true }).fill('SIDE-NOTE');
   await toolbar.getByRole('button', { name: '添加批注', exact: true }).click();
   await page.waitForFunction(() => CSS.highlights.get('quote-annotation-marks')?.size === 2);
+  assert.equal(await page.evaluate(() => document.documentElement.hasAttribute('data-highlight-quote-annotation-marks')), true);
   assert.deepEqual(await page.evaluate(() => [...CSS.highlights.get('quote-annotation-marks')].map(range =>
     Boolean(range.startContainer.parentElement.closest('#btw-panel'))).sort()), [false, true],
     'Main and side annotations coexist in the shared highlight registry');
@@ -328,6 +329,8 @@ try {
   await panel.getByRole('button', { name: '关闭旁问', exact: true }).click();
   await panel.waitFor({ state: 'hidden' });
   await page.waitForFunction(() => CSS.highlights.get('quote-annotation-marks')?.size === 1);
+  assert.equal(await page.evaluate(() => document.documentElement.hasAttribute('data-highlight-quote-annotation-marks')), true,
+    'Hiding side annotations must keep styles active for main-transcript annotations');
   assert.equal(await page.locator('.annotation-footnote').count(), 1, 'Hidden side panels leave no floating annotation markers');
   await open();
   await page.waitForFunction(() => CSS.highlights.get('quote-annotation-marks')?.size === 2);

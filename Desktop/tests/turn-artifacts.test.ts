@@ -106,6 +106,37 @@ test('preview inference does not turn remote citations, credentials or example c
   assert.deepEqual(turnArtifacts('[Reference](https://example.com/)\n\n`curl http://localhost:8765/`\n\n```bash\ncurl http://localhost:8765/\n```'), []);
 });
 
+test('artifact-negative prose still preserves recorded output paths', () => {
+  const text = '# Finished\n\n**Formatted prose**, `inline`, and [remote references](https://example.com/docs).\n\n'
+    + '```typescript\nexport function sample() { return { ready: true }; }\n```\n';
+  assert.deepEqual(turnArtifacts(text.repeat(100)), []);
+  assert.deepEqual(turnArtifacts(text, ['output/report.pdf']), [
+    { path: 'output/report.pdf', label: 'report.pdf', kind: 'document', inferred: true },
+  ]);
+});
+
+test('artifact preflight never excludes supported extensions, encoded destinations or loopback URLs', () => {
+  for (const ext of ['html', 'htm', 'png', 'jpg', 'jpeg', 'webp', 'gif', 'svg', 'pdf', 'doc', 'docx',
+    'md', 'txt', 'xls', 'xlsx', 'csv', 'ppt', 'pptx', 'wav', 'mp3', 'ogg', 'flac', 'mp4', 'webm', 'mov']) {
+    for (const spelling of [ext, ext.toUpperCase()]) {
+      const path = `output/report.${spelling}`;
+      assert.equal(turnArtifacts(`[Output](${path})`)[0]?.path, path);
+      assert.equal(turnArtifacts(`\`${path}\``)[0]?.path, path);
+    }
+  }
+  for (const [text, path] of [
+    ['[Encoded](./report%2epdf)', './report.pdf'],
+    ['[Encoded](./report.pd&#102;)', './report.pdf'],
+    ['[Encoded](./report&#x2e;pdf)', './report.pdf'],
+    ['[Escaped](./report\\.pdf)', './report.pdf'],
+    ['[Ref][r]\n\n[r]: ./report%2Epdf', './report.pdf'],
+    ['[Local](http://2130706433:8765/)', 'http://127.0.0.1:8765/'],
+    ['[Local](http://0x7f000001:8765/)', 'http://127.0.0.1:8765/'],
+    ['[Local](http://[::1]:8765/)', 'http://[::1]:8765/'],
+    ['[Local](http&#58;//localhost:8765/)', 'http://localhost:8765/'],
+  ]) assert.equal(turnArtifacts(text)[0]?.path, path, text);
+});
+
 
 test('POSIX delivery retains case-distinct and literal-backslash files while Windows folds aliases', () => {
   const text = '[Upper](Report.pdf) [Lower](report.pdf) [Literal](<a%5Cb.pdf>) [Nested](a/b.pdf)';

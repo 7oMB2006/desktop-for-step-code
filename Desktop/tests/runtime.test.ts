@@ -223,9 +223,13 @@ test('real Step runtime streams a local fixture response and restores its persis
   } finally { await rpc.stop(); await admin.stop(); await new Promise<void>(resolve => server.close(() => resolve())); }
 });
 test('isolated runtime removes inherited provider credentials and legacy profile overrides', () => {
-  const env = isolatedEnvironment('D:/isolated', { PATH: 'tools', STEP_API_KEY: 'private', OPENAI_API_KEY: 'private', STEPCODE_AUTH_PATH: 'personal', NODE_OPTIONS: '--require malicious.js', USERPROFILE: 'C:/Users/test' });
+  const env = isolatedEnvironment('D:/isolated', { PATH: 'tools', STEP_API_KEY: 'private', OPENAI_API_KEY: 'private', STEPCODE_AUTH_PATH: 'personal', NODE_OPTIONS: '--require malicious.js', USERPROFILE: 'C:/Users/test',
+    NODE_COMPILE_CACHE: 'personal-cache', node_compile_cache_portable: '1', NODE_DISABLE_COMPILE_CACHE: '1' });
   assert.equal(env.PATH, 'tools'); assert.equal(env.STEP_API_KEY, undefined); assert.equal(env.OPENAI_API_KEY, undefined);
   assert.equal(env.STEPCODE_AUTH_PATH, 'D:/isolated/auth.json'); assert.equal(env.STEPCODE_LEGACY_AUTH_PATH, 'D:/isolated/legacy-auth.json'); assert.equal(env.NODE_OPTIONS, undefined);
+  assert.equal(env.NODE_COMPILE_CACHE, undefined);
+  assert.equal(env.node_compile_cache_portable, undefined);
+  assert.equal(env.NODE_DISABLE_COMPILE_CACHE, '1', 'Keep the explicit cache opt-out');
 });
 test('legacy approval presets are projected as Ask by both draft management and the actual runtime', { timeout: 60000 }, async () => {
   for (const preset of ['read-only', 'bypass', 'autopilot']) {

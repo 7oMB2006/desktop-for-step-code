@@ -282,13 +282,11 @@
 }
 
 /* Selection stays local to prose; code and semantic records keep native selection. */
-:root[data-theme-material=stellar] .response-text::selection,
-:root[data-theme-material=stellar] .response-text ::selection {
+:root[data-theme-material=stellar] .response-text::selection {
   background: #625d53;
   color: #fffaf0;
 }
-:root[data-theme-material=stellar] .response-text :is(pre, code, table, [role=alert], .warning, .error)::selection,
-:root[data-theme-material=stellar] .response-text :is(pre, code, table, [role=alert], .warning, .error) ::selection {
+:root[data-theme-material=stellar] .response-text :is(pre, code, table, [role=alert], .warning, .error)::selection {
   background: oklch(.42 0 0);
   color: oklch(.97 0 0);
 }

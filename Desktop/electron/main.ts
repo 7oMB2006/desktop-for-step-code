@@ -268,7 +268,7 @@ const terminals = new TerminalSessions(nodePath,
   app.isPackaged ? join(process.resourcesPath, 'terminal-runtime/host.cjs') : resolve('terminal-runtime/host.cjs'),
   event => { if (window && !window.isDestroyed()) window.webContents.send('terminal-event', event); });
 crashLog.setPhase('runtime staged');
-const env = isolatedEnvironment(dataRoot);
+const env: NodeJS.ProcessEnv = { ...isolatedEnvironment(dataRoot), NODE_COMPILE_CACHE: join(dataRoot, 'compile-cache') };
 const vault = new AuthVault(dataRoot);
 let authData: Record<string, unknown> = {};
 let appliedAuthData: Record<string, unknown> = {};
@@ -407,7 +407,9 @@ const runtimes: SessionRuntimes = new SessionRuntimes(event => {
   launch: worker => {
     usageEstimates.attach(worker);
     const launch = collaboration.attach(worker);
-    return { ...launch, args: [...launch.args, '--extension', join(runtimeRoot, 'project-instructions.mjs')] };
+    return { ...launch, args: [...launch.args,
+      '--extension', join(runtimeRoot, 'project-instructions.mjs'),
+      '--extension', join(runtimeRoot, 'runtime-compile-cache.mjs')] };
   },
   dispose: worker => {
     remote.dispose(worker);

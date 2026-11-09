@@ -1,0 +1,9 @@
+.streaming-fixture { height: 100dvh; }
+.streaming-fixture > header { display: flex; align-items: center; gap: 8px; min-height: 54px; padding: 8px 18px; border-bottom: 1px solid var(--border); }
+.streaming-fixture > header strong { font-size: 13px; margin-right: auto; }
+.streaming-fixture > header select { font-size: 12px; padding: 5px 8px; }
+.streaming-fixture .conversation { overflow-anchor: none; }
+.streaming-fixture .messages { width: 100%; max-width: 900px; }
+@media (max-width: 500px) {
+  .streaming-fixture > header { gap: 4px; padding-inline: 10px; }
+}

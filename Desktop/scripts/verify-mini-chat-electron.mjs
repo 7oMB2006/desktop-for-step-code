@@ -671,9 +671,26 @@ try {
   await mini.waitForFunction(() => window.desktop.snapshot().then(value => value.state?.model?.provider === 'fixture'));
   await editor.press('Escape');
   await mini.evaluate(() => window.desktop.command('set_launch_mode', { mode: 'review', enabled: false }));
-  await editor.fill('MINI-PROVIDER-REFRESH'); await editor.press('Enter');
+  // Match the editing verifier: native fill() selection can race ProseMirror.
+  await editor.press('ControlOrMeta+a');
+  await editor.press('Backspace');
+  await mini.waitForFunction(() => {
+    const input = document.querySelector('main .composer-input');
+    return input?.value === '' && input.dataset.empty === 'true';
+  });
+  const providerPrompt = 'MINI-PROVIDER-REFRESH';
+  await editor.pressSequentially(providerPrompt);
+  await mini.waitForFunction(async ({ draftId, text }) => {
+    const input = document.querySelector('main .composer-input');
+    return input?.value === text && input.textContent === text && input.dataset.empty === 'false'
+      && (await window.desktop.composerRead({ draftId })).value.text === text;
+  }, { draftId: providerDraft, text: providerPrompt });
+  await editor.press('Enter');
   await mini.getByText('Completed MINI-PROVIDER-REFRESH.', { exact: true }).waitFor();
   await mini.waitForFunction(async () => !(await window.desktop.snapshot()).state.isStreaming);
+  assert.equal(requests.length, beforeProviderRequests + 1, 'The refreshed draft submits exactly one request');
+  assert.equal(textOf(requests.at(-1).messages.findLast(message => message.role === 'user')?.content), providerPrompt,
+    'The submitted prompt contains no previous draft text');
   await main.evaluate(() => window.desktop.preferences({ theme: 'light', language: 'en' }));
   await mini.getByRole('button', { name: 'Switch MiniChat conversation', exact: true }).waitFor();
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().find(window => window.getTitle() === 'MiniChat').setSize(380, 400));

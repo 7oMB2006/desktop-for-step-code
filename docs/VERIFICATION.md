@@ -74,6 +74,24 @@ with one existing platform skip. Evidence is under
 `git diff --check` passed. These source checks do not establish a cloud rerun,
 macOS native behavior or packaged acceptance.
 
+The Windows cloud rerun on `5276154` passed the sound assertion but later timed
+out at the provider-refresh completion assertion. Its recorded reply was
+`Completed Keep provider-refresh draftMINI-PROVIDER-REFRESH.` rather than the
+exact expected new prompt. The replacement step now follows the existing
+composer-editing verifier's keyboard select-all, delete and typing sequence
+instead of relying on `fill()`'s DOM selection. Before sending, it checks the
+ProseMirror value, rendered text, controlled empty state and persisted draft.
+The exact completion assertion remains, with added checks for exactly one
+request and its exact user text. No product code or timeout was changed.
+
+Three consecutive full MiniChat source reruns passed locally, each with nine
+local fixture model requests and no renderer errors. The composer-editing
+verifier, 35 notification/audio/editor/shared-draft unit tests, and 24 CI
+runner/policy tests also passed, with one existing platform skip in the latter.
+The failed cloud log is retained at
+`Desktop/test-results/notifications/ci-5276154-windows-sessions.log`.
+These local results do not establish the new commit's cloud or macOS outcome.
+
 ## 插件工作区验收就绪时序修复（2026-11-09）
 
 PR #221 的 macOS 界面验收在 `verify-plugin-workspace.mjs:27` 失败：

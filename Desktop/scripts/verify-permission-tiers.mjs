@@ -197,7 +197,19 @@ try {
   const page = await app?.firstWindow().catch(() => undefined);
   if (page) {
     await page.screenshot({ path: 'test-results/permission-tiers-failure.png' }).catch(() => {});
-    console.error('Permission fixture state:', JSON.stringify(await page.evaluate(() => window.desktop.snapshot()).catch(() => undefined)));
+    const diagnostic = await page.evaluate(async () => {
+      const state = await window.desktop.snapshot();
+      const input = document.querySelector('.composer > .composer-input');
+      const owner = state.state?.sessionId ? { sessionId: state.state.sessionId }
+        : state.draftId ? { draftId: state.draftId } : undefined;
+      const shared = owner ? await window.desktop.composerRead(owner).catch(() => undefined) : undefined;
+      const summary = text => ({ length: text?.length ?? 0, restored: text === 'VERIFY-WRITE-CANCELLED' });
+      return { status: state.status, permissionPreset: state.permissionPreset, hasSession: Boolean(state.state?.sessionId),
+        requests: state.requests.length, messages: state.messages.length, streaming: Boolean(state.state?.isStreaming),
+        editor: summary(input?.value), shared: summary(shared?.value.text),
+        disabled: input?.disabled, busy: document.querySelector('.composer-wrap')?.getAttribute('aria-busy') };
+    }).catch(() => ({ unavailable: true }));
+    console.error('Permission fixture diagnostic:', JSON.stringify(diagnostic));
   }
   throw error;
 } finally {

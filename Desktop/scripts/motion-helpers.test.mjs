@@ -3,6 +3,7 @@ import { after, before, test } from 'node:test';
 import { chromium } from 'playwright';
 import { sampleMotion } from './sample-motion.mjs';
 import { captureWaapi } from './capture-waapi.mjs';
+import { settleLayout } from './settle-layout.mjs';
 
 // Browser regressions stay outside the protocol-only tests/*.test.ts inventory.
 // Run after installing the test browser: node --test scripts/motion-helpers.test.mjs
@@ -40,6 +41,35 @@ const animate = (page, frames = [{ translate: '-100px' }, { translate: '0px' }],
   }, { frames, timing });
 const cleanCss = page => page.evaluate(() => globalThis.desktopMotionSamples.size);
 const cleanWaapi = page => page.evaluate(() => globalThis.desktopWaapiSamples.size);
+
+test('layout settling waits for ancestor pseudo-element track motion before measuring a nested form', { timeout: 5000 }, async () => {
+  const page = await browser.newPage();
+  try {
+    await page.setContent(`<style>
+      #host { display: flex; width: 640px; }
+      #host::before { content: ''; flex: 0 0 244px; transition: flex-basis 280ms linear; }
+      #host.compact::before { flex-basis: 0px; }
+      main { flex: 1; min-width: 0; }
+      #rows { display: flex; flex-wrap: wrap; }
+      #rows span { width: 190px; height: 40px; }
+      textarea { display: block; }
+    </style><div id="host"><main><div id="rows"><span></span><span></span><span></span></div><textarea></textarea></main></div><div id="unrelated"></div>`);
+    const before = await page.locator('textarea').boundingBox();
+    await page.locator('#host').evaluate(element => {
+      getComputedStyle(element, '::before').flexBasis;
+      element.classList.add('compact');
+      getComputedStyle(element, '::before').flexBasis;
+      if (!element.getAnimations({ subtree: true }).some(animation => animation.playState === 'running'))
+        throw new Error('The ancestor track must actually animate');
+      document.querySelector('#unrelated').animate([{ opacity: 0 }, { opacity: 1 }], { duration: 60000 });
+    });
+    await settleLayout(page.locator('textarea'));
+    const after = await page.locator('textarea').boundingBox();
+    assert.equal(before.y - after.y, 40, 'Ancestor resizing changes the form row wrapping');
+    assert.equal(await page.locator('#host').evaluate(element =>
+      parseFloat(getComputedStyle(element, '::before').flexBasis)), 0);
+  } finally { await page.close(); }
+});
 
 test('CSS sampling survives action latency, samples real geometry and restores native playback', { timeout: 10000 }, async () => {
   await fixture(async page => {

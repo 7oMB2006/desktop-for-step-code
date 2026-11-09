@@ -111,6 +111,7 @@ export class SessionRuntimes {
     private create: (receive: (event: RuntimeEvent) => void) => WorkerTransport = receive =>
       new RpcProcess(receive, 256 * 1024 * 1024),
     private hooks: { launch?: (worker: SessionRuntime) => { env: Record<string, string>; args: string[] }; dispose?: (worker: SessionRuntime) => void;
+      canReuseEmpty?: (worker: SessionRuntime) => boolean;
       event?: (worker: SessionRuntime, event: RuntimeEvent) => RuntimeEvent;
       messages?: (worker: SessionRuntime, messages: Message[]) => Promise<Message[]>;
       initializeModel?: (worker: SessionRuntime, restoring: boolean) => Promise<void>;
@@ -217,7 +218,8 @@ export class SessionRuntimes {
       const candidates = [...this.workers.values()].filter(worker =>
         workspaceKey(worker.cwd) === key && worker.status === 'connected' && worker.state?.sessionId &&
         !worker.messages.length && !worker.state.isStreaming && !this.isBusy(worker) && !hasBackgroundWork(worker) && !worker.mutating &&
-        !worker.failed && !worker.interrupted && !worker.remoteAttached && !this.hooks.retain?.(worker));
+        !worker.failed && !worker.interrupted && !worker.remoteAttached && !this.hooks.retain?.(worker) &&
+        (this.hooks.canReuseEmpty?.(worker) ?? true));
       const empty = candidates.find(worker => !worker.operations);
       if (empty) {
         const transport = empty.rpc;

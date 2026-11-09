@@ -17,11 +17,12 @@ export function prepareCompletionSound() {
   } catch { /* Audio availability must not affect event handling. */ }
 }
 
-export function playCompletionSound(scope?: TaskCompletion) {
+export function playCompletionSound(scope?: TaskCompletion, audible = true) {
   // Live-only delivery: reopening a panel must never replay a previous completion.
   if (scope) for (const listener of listeners) {
     try { listener(scope); } catch { /* Visual feedback cannot suppress the notification. */ }
   }
+  if (!audible) return;
   try {
     prepareCompletionSound();
     if (!sound) return;

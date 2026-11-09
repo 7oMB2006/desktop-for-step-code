@@ -11,6 +11,8 @@ import { PluginConfigurationForm } from './PluginConfigurationForm';
 import { ScrollThumb } from './ConversationScrollThumb';
 import { StepPageSettings } from './StepPageSettings';
 import { PluginDocumentation, PluginDocumentReader, PluginStars } from './PluginDocumentation';
+import { PluginAuthor, PluginCardRequirements, PluginRequirements } from './PluginMarketplaceMetadata';
+import { pluginMarketplaceSearchText } from './plugin-market-metadata';
 import { pluginCategoryLabel, pluginClassificationText, pluginPresentation, pluginSourceLabel } from './plugin-presentation';
 import { PluginUpdateAction, PluginUpdateBadge, PluginUpdateRow, pluginUpdatePending, type PluginUpdatesPresentation, type PluginUpdateState } from './PluginUpdatePresentation';
 import './capability-settings.css';
@@ -37,8 +39,9 @@ function ProjectLink({ entry, language }: { entry: Entry; language: string }) {
     aria-label={language === 'zh' ? `打开 ${entry.name} GitHub 项目` : `Open ${entry.name} on GitHub`}>
     <span className="pc-github-mark" aria-hidden="true"/></a>;
 }
-export function PluginCenter({ bridge, language, busy, active, runtimeId, settings, target, updates: previewUpdates, onChanged, onRestart, onManageMcp, onBack, onOpenDesktop }: {
+export function PluginCenter({ bridge, language, busy, active, runtimeId, currentVersion, settings, target, updates: previewUpdates, onChanged, onRestart, onManageMcp, onBack, onOpenDesktop }: {
   bridge: PluginCenterBridge; language: string; busy: boolean; active: boolean; runtimeId?: string;
+  currentVersion?: string;
   settings?: { mcp: Record<string, McpServer> }; target?: CapabilityTarget;
   updates?: PluginUpdatesPresentation;
   onChanged(): Promise<void>; onRestart(): Promise<void>; onManageMcp(name?: string): void; onBack(): void;
@@ -303,7 +306,7 @@ export function PluginCenter({ bridge, language, busy, active, runtimeId, settin
     return !owned.length ? t('无 MCP 服务', 'No MCP services') : owned.every(server => server.enabled) ? t('服务已启用', 'Services enabled')
       : owned.every(server => !server.enabled) ? t('服务已停用', 'Services disabled') : t('部分服务启用', 'Some services enabled');
   };
-  const matches = (item: Entry) => `${item.name} ${item.description ?? ''} ${item.installed?.id ?? item.available?.name ?? ''} ${item.source ?? ''} ${pluginClassificationText(item.package)}`.toLocaleLowerCase().includes(query.toLocaleLowerCase());
+  const matches = (item: Entry) => `${item.name} ${item.description ?? ''} ${item.installed?.id ?? item.available?.name ?? ''} ${item.source ?? ''} ${pluginClassificationText(item.package)} ${pluginMarketplaceSearchText(item.package)}`.toLocaleLowerCase().includes(query.toLocaleLowerCase());
   const shown = (tab === 'installed' ? installed : available).filter(matches);
   const repositoryEntries = entry ? [entry] : tab === 'sources' ? [] : shown;
   const repositoryKey = JSON.stringify(repositoryEntries.filter(item => item.repository && item.package)
@@ -404,14 +407,16 @@ export function PluginCenter({ bridge, language, busy, active, runtimeId, settin
             <div className="pc-plugin-grid">{shown.map(item => <article className="pc-plugin-row" key={item.key}>
               <button className="pc-card-open" aria-label={t(`查看 ${item.name} 使用说明`, `Read ${item.name} guide`)} onClick={event => choose(item, event.currentTarget, 'about')}>
                 <span className="pc-card-heading"><CapabilityPluginIconView icon={item.icon}/><span><strong>{item.name}</strong>
-                  <span className="pc-card-version">{item.installed?.version || item.version ? `v${item.installed?.version ?? item.version}` : item.installed?.id ?? item.available?.name}
-                    <PluginUpdateBadge state={item.installed && updates?.items[item.installed.id]} language={language}/></span></span></span>
+                  <span className="pc-card-version">{item.version ? `v${item.version}` : item.installed?.id ?? item.available?.name}
+                    {item.available && item.installed?.version && <span className="pc-installed-version">{t('已安装', 'Installed')} v{item.installed.version}</span>}
+                    <PluginUpdateBadge state={!item.available && item.installed ? updates?.items[item.installed.id] : undefined} language={language}/></span>
+                  <PluginAuthor pkg={item.package} language={language}/></span></span>
                 <span className="pc-card-description">{item.description}</span>
-                <PluginCategoryTags pkg={item.package} language={language} compact/>
-                <span className="pc-card-meta"><span>{item.source}</span>
-                  <PluginStars value={item.repository && item.package ? item.package.stars ?? { status: 'unknown' } : undefined} language={language}/>
-                  </span>
               </button>
+              <PluginCardRequirements pkg={item.package} currentVersion={currentVersion} language={language} active={active}/>
+              <PluginCategoryTags pkg={item.package} language={language} compact/>
+              <span className="pc-card-meta"><span>{item.source}</span>
+                <PluginStars value={item.repository && item.package ? item.package.stars ?? { status: 'unknown' } : undefined} language={language}/></span>
               <footer className="pc-card-footer"><div className="pc-card-state">{item.installed ? <>{toggle(item.installed)}<span className="pc-status">{status(item.installed)}</span></>
                 : <button disabled={installLocked(item) || item.available?.installed || item.available?.blocked} onClick={() => item.available && void perform({ action: 'plugin-install', name: item.available.name, marketplace: item.available.marketplace, ref: item.package?.ref })}>
                   {item.available?.installed ? <Check size={14}/> : <ArrowDownToLine size={14}/>} {item.available?.installed ? t('已安装', 'Installed') : t('安装', 'Install')}</button>}</div>
@@ -436,9 +441,10 @@ export function PluginCenter({ bridge, language, busy, active, runtimeId, settin
         <button className="icon-button" aria-label={t('返回会话', 'Back to conversation')} onClick={onBack}><X size={16}/></button></div>
       <div className="pc-detail-workspace"><div ref={scroll} id={`${id}-scroll`} className="pc-detail-scroll"><div className="pc-detail-document">
         <header className="pc-plugin-header"><div className="pc-plugin-identity"><CapabilityPluginIconView icon={entry.icon}/><div className="pc-plugin-title">
-          <h2 ref={heading} tabIndex={-1}>{entry.name}</h2><p><span>{entry.installed?.version || entry.version ? `v${entry.installed?.version ?? entry.version}` : ''}</span>
-            <PluginUpdateBadge state={entry.installed && updates?.items[entry.installed.id]} language={language}/><span>{entry.source}</span></p>
-          {entry.package?.author && <p className="pc-plugin-byline">{entry.package.author}</p>}</div></div>
+          <h2 ref={heading} tabIndex={-1}>{entry.name}</h2><p><span>{entry.version ? `v${entry.version}` : ''}</span>
+            {entry.available && entry.installed?.version && <span className="pc-installed-version">{t('已安装', 'Installed')} v{entry.installed.version}</span>}
+            <PluginUpdateBadge state={!entry.available && entry.installed ? updates?.items[entry.installed.id] : undefined} language={language}/><span>{entry.source}</span></p>
+          <p className="pc-plugin-byline"><PluginAuthor pkg={entry.package} language={language}/></p></div></div>
           <div className="pc-plugin-summary"><p>{entry.description}</p><PluginCategoryTags pkg={entry.package} language={language}/>
             {entry.installed && <span className="pc-status">{status(entry.installed)}</span>}</div>
           <div className="pc-header-actions"><span className="pc-repository"><ProjectLink entry={entry} language={language}/><PluginStars value={entry.repository && entry.package ? entry.package.stars ?? { status: 'unknown' } : undefined} language={language}/>
@@ -493,6 +499,7 @@ export function PluginCenter({ bridge, language, busy, active, runtimeId, settin
             </> : <p className="pc-body-copy">{t('安装后查看运行时发现的能力。', 'Install to view runtime-discovered capabilities.')}</p>}
           </div>
           <div id={`${id}-about-panel`} role="tabpanel" aria-labelledby={`${id}-detail-about`} hidden={detailTab !== 'about'}>
+            <PluginRequirements pkg={entry.package} currentVersion={currentVersion} language={language}/>
             {!!entry.package?.keywords?.length && <dl className="pc-plugin-keywords"><dt>{t('关键词', 'Keywords')}</dt>
               <dd>{entry.package.keywords.join(' · ')}</dd></dl>}
             <PluginDocumentation presentation={entry.package} description={entry.description} version={entry.version} language={language}

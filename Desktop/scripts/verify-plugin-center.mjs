@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { chromium } from 'playwright';
 import { createServer } from 'vite';
+import { verifyPluginMarketInfo } from './plugin-market-info-checks.mjs';
 
 const cacheDir = await mkdtemp(join(tmpdir(), 'dfsc-plugin-center-vite-'));
 const server = process.env.DESKTOP_PREVIEW_URL ? undefined : await createServer({
@@ -29,6 +30,7 @@ function focusClips(element) {
   return clips;
 }
 try {
+  await verifyPluginMarketInfo({ browser, base, output: `${output}/market-info` });
   const updates = await browser.newPage({ viewport: { width: 1440, height: 980 } });
   const updateErrors = [];
   updates.on('pageerror', error => updateErrors.push(error.message));
@@ -143,8 +145,8 @@ try {
     const card = native.locator('.pc-plugin-row').filter({ has: native.locator('.pc-card-heading strong', { hasText: /^Bilibili Video Research$/ }) });
     const action = card.locator('.pc-update-action');
     await native.getByRole('tab', { name: '发现', exact: true }).click();
-    assert.match(await card.locator('.pc-card-version').innerText(), /^v0.1.0[\s\S]*v0.1.1/,
-      'Discover compares the installed version to the candidate, not the candidate to itself');
+    assert.match(await card.locator('.pc-card-version').innerText(), /^v0.1.1[\s\S]*已安装 v0.1.0/,
+      'Discover labels candidate metadata with its own version and separately identifies the installed version');
     await native.getByRole('tab', { name: /^已安装/ }).click();
     await native.getByRole('button', { name: '检查插件更新', exact: true }).click();
     await native.waitForFunction(() => window.pluginCenterTest.updateCounts().checks === 1);
@@ -409,7 +411,11 @@ try {
         });
         return page.screenshot({ clip, animations: 'disabled' });
       };
-      const firstBand = await stickyBand(360), nextBand = await stickyBand(410);
+      const stickyStart = await page.locator('.pc-detail-tabs').evaluate(element => {
+        const scroll = element.closest('.pc-detail-scroll');
+        return scroll.scrollTop + element.getBoundingClientRect().top - scroll.getBoundingClientRect().top;
+      });
+      const firstBand = await stickyBand(stickyStart + 32), nextBand = await stickyBand(stickyStart + 82);
       assert.deepEqual(nextBand, firstBand, `${theme}/${width}: scrolling body must not bleed above, through or beside sticky tabs`);
       await page.screenshot({ path: `${output}/${theme}-${width}-scrolled-guide.png` });
       await page.locator('.pc-detail-scroll').evaluate(element => { element.scrollTop = 0; });

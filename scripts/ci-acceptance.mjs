@@ -83,6 +83,7 @@ export const acceptanceGroups = {
   ],
   runtime: [
     'verify-electron.mjs',
+    'verify-notice-toast.mjs',
     'verify-cron-runtime.mjs',
     'verify-cron-management.mjs',
     'verify-cron-transcript-electron.mjs',

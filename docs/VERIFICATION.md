@@ -1,5 +1,171 @@
 # Verification
 
+## 通知 PR 文档冲突解决与本地回归（2026-11-10）
+
+同步主线 `0d70ee0`（MiniChat 最小化和插件市场信息），仅
+`docs/VERIFICATION.md` 产生冲突；双方验收记录均保留，产品代码采用自动合并结果。
+合并后的 Windows 本地类型检查、生产构建和 234 项相关测试全部通过。
+完整 MiniChat Electron 验收、通知 7 组原生验收、插件市场信息 20 组浏览器
+交互检查及提示条时序回归通过；原生测试使用隔离 profile 并正常退出。
+新增回归日志位于 `Desktop/test-results/notifications/main-0d70ee0-*-local.log`。
+
+此前 `afdedff` 的 Windows 和 macOS 云端检查已全部通过，对应运行
+`42638705403`、`42638705546`。经维护者明确同意，本次同步提交使用
+`[skip ci]` 避免再次执行云端全量验收，不修改 CI 规则。旧提交的全绿不代表
+当前最终组合已通过云端或 macOS 重验；本次未打包、发布、安装或改动快捷方式。
+
+## Desktop Notifications Mainline Integration (2026-11-09)
+
+The approved notification preview is integrated on main baseline `9e493eda`,
+without importing the old shared workspace's provider, speech or other edits.
+Settings > General adds independent approval notifications (on), completion
+notifications (off) and completion sound (off). Native notices stay silent;
+muting completion audio retains the existing completion animation. See
+[the behavior contract](NOTIFICATIONS.md).
+
+Local Windows source evidence:
+
+- Typecheck, production build and whitespace checks passed.
+- Notification, completion audio/review, session-runtime and staging regressions
+  passed 127 tests, including stale-notice removal after worker replacement.
+- A serial broad regression excluding `terminal-sessions.test.ts` completed
+  1,814 tests: 1,801 passed, 13 existing platform skips, no failures.
+  The known local terminal process-tree cleanup problem was not retested or
+  declared fixed. The final notification-save rollback and fixture follow-ups
+  were covered by the focused rerun and actual Electron acceptance.
+- Shared CI inventory/policy/runner checks passed 24 tests with one existing
+  platform skip. The new verifier is assigned to the shared interface group;
+  this is not a cloud CI result.
+- The production-main/preload/renderer notification verifier passed seven
+  groups with isolated profiles and a local HTTP model. It checks defaults,
+  persistence/reload, strict booleans, actual filesystem save-failure rollback,
+  Chinese/light and English/dark/narrow layouts, keyboard focus bounds,
+  independent sound, main/MiniChat de-duplication and foreground suppression,
+  timed-out-notice click routing, tray restoration and draft retention.
+  A real runtime write approval opens its source drawer without approving or
+  creating the requested file. No renderer errors were recorded; fixture
+  shutdown confirmed launcher exit code zero and no remaining windows.
+- Existing real Electron task-progress, session-concurrency and
+  session-navigation acceptance passed, including completion sound/animation,
+  targeted abort, scoped approvals, draft recovery, reduced motion and narrow
+  layouts. The two sound fixtures explicitly opt in to the new default-off
+  setting rather than weakening their audio assertions.
+
+Build, focused/broad logs and the final notification acceptance JSON/screenshots
+are under
+`D:\Desktop For Step Code\Desktop\release\notifications-mainline-source-20261109`.
+Light/dark settings and the scoped approval screenshots were visually inspected.
+The source build reuses the existing `plugin-workspaces-runtime` through a
+junction without restaging it: commit `29eb4607`, Windows/x64, all 47
+patched-source hashes, Node v24.16.0/SHA-256, 20 helper files and two current
+helper bundles were checked against this branch before reuse. No upstream
+runtime pin or source was changed.
+
+Notification show/close and OS focus are controlled in the deterministic
+verifier. It establishes application routing and policy, not visible native
+banners, physical notification-center clicks, installer registration or native
+macOS behavior. The optional native-smoke mode was not run for this integration.
+Windows Do Not Disturb and notification settings remain respected.
+No installer, release, shortcut change, real-account inference or cloud CI
+acceptance is claimed; the owner's running app, profile and prior packages
+remain untouched.
+
+## Notification CI Fixture Follow-up (2026-11-09)
+
+The first PR #226 cloud run failed both Windows and macOS sessions jobs at
+`verify-mini-chat-electron.mjs:477`: the existing one-sound assertion waited
+30 seconds, but its isolated profile had not opted into the new default-off
+completion sound. The two aggregate checks failed because those jobs failed.
+The MiniChat fixture now explicitly sets `completionSound: true`, matching the
+concurrency and task-progress fixtures. Product defaults, sound de-duplication
+assertions, deadlines and CI coverage are unchanged.
+
+The local Windows rerun passed the full MiniChat verifier (nine local fixture
+model requests, zero renderer errors, orderly shutdown), all seven notification
+verifier groups, 14 notification/audio unit tests, and 24 CI runner/policy tests
+with one existing platform skip. Evidence is under
+`Desktop/test-results/mini-chat-native/` and `Desktop/test-results/notifications/`.
+`git diff --check` passed. These source checks do not establish a cloud rerun,
+macOS native behavior or packaged acceptance.
+
+The Windows cloud rerun on `5276154` passed the sound assertion but later timed
+out at the provider-refresh completion assertion. Its recorded reply was
+`Completed Keep provider-refresh draftMINI-PROVIDER-REFRESH.` rather than the
+exact expected new prompt. The replacement step now follows the existing
+composer-editing verifier's keyboard select-all, delete and typing sequence
+instead of relying on `fill()`'s DOM selection. Before sending, it checks the
+ProseMirror value, rendered text, controlled empty state and persisted draft.
+The exact completion assertion remains, with added checks for exactly one
+request and its exact user text. No product code or timeout was changed.
+
+Three consecutive full MiniChat source reruns passed locally, each with nine
+local fixture model requests and no renderer errors. The composer-editing
+verifier, 35 notification/audio/editor/shared-draft unit tests, and 24 CI
+runner/policy tests also passed, with one existing platform skip in the latter.
+The failed cloud log is retained at
+`Desktop/test-results/notifications/ci-5276154-windows-sessions.log`.
+These local results do not establish the new commit's cloud or macOS outcome.
+
+## MiniChat Return Presentation Race (2026-11-09)
+
+PR #226 on `281da75` passed all Windows groups and the macOS interface/runtime
+groups, but macOS source sessions timed out at the MiniChat return reading-anchor
+assertion. A delayed main-window snapshot reproduces the same failure locally:
+the mini window transfers `follow: false` at scroll top 180, then the revealed
+main view saves its old `follow: true` bottom position before reading the
+transferred snapshot. This is a product race, not a deadline or tolerance issue.
+
+The renderer now suspends presentation persistence while a requested
+presentation-restoring snapshot is pending, releasing the guard on success or
+failure. The Electron verifier holds that snapshot at the real IPC boundary,
+dispatches old-view scroll/blur events, drains the IPC queue and checks that no
+old presentation was written before releasing it. The original exact reading
+anchor check remains. No fixed sleep, longer deadline or wider tolerance was
+added.
+
+The controlled regression fails against the prior production renderer with
+old main-window bottom-position writes, and the complete MiniChat verifier
+passes with the repaired production renderer. Typecheck, the isolated renderer
+production build, 56 related unit tests and 24 CI policy/runner tests passed
+(one existing platform skip in the latter). Diagnostics are under
+`Desktop/test-results/notifications/`, including the original macOS log and
+artifact, the delayed-snapshot reproduction, and the controlled before/after
+logs. These local Windows checks do not establish macOS or packaged acceptance.
+
+## Replacement Notice Pause Ordering (2026-11-09)
+
+The next run on `8103bcd` passed every Windows group, but macOS source runtime
+timed out at `verify-electron.mjs:995` waiting for the restored-session success
+toast to disappear. The artifact confirms a stuck replacement toast, not the
+internal hook ordering. The local timer-instrumented full native run passed.
+
+A controlled real-React/browser regression establishes a compatible race:
+deliver mouse-leave between the replacement commit and its passive effect,
+while `:hover` still reflects the preceding pointer position. The old passive
+effect overwrites that newer leave event and never starts a dismiss timer.
+The regression fails on the old component. Sampling hover/focus during the
+synchronous layout effect instead preserves subsequent leave/blur events;
+the regression then passes, including ordinary hover, keyboard-focus and
+actually-hovered replacement pauses and their resumed deadlines.
+
+The new verifier belongs to the shared interface inventory on both platforms.
+It uses the actual component and React lifecycle, with the Playwright clock
+advancing deadlines and no stubs for component state or timer registration.
+Existing success durations, pause caps and the original native
+10-second assertion are unchanged. The original cloud log/artifact and local
+timer/before/after logs are retained under `Desktop/test-results/notifications/`.
+The corrected component verifier passed three consecutive reruns. The complete
+native Electron/proposed-home verifier passed with the new production renderer,
+as did typecheck, the renderer build and 24 CI runner/policy tests (one existing
+platform skip). This establishes the controlled race and local fix, not a
+completed macOS rerun or proof of the original cloud process's internal timing.
+
+On `4e427b2`, Windows passed the original native Electron/proposed-home verifier,
+then the added component verifier could not launch: the runtime job does not
+install Playwright Chromium. Its assignment is corrected to the interface
+group, which already provisions browsers for component fixtures. No browser
+download step, product change or assertion change is required for this correction.
+
 ## MiniChat 交接验收时序（2026-11-09）
 
 PR #228 的 Windows sessions 在裸 `/workflows` 的目录与详情互斥断言失败。

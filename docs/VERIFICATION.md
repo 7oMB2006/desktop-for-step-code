@@ -15,6 +15,11 @@ Windows runtime 验收在权限菜单点击返回、原生权限 RPC 尚未完�
 快照等待复用 Node 侧的已解析值轮询，关闭复用现有有界 fixture 关闭助手。
 没有修改产品权限策略、worker 并发保护、原有断言或通过超时。
 
+提交 `4f1f01b` 的 Windows sessions/runtime 全组通过；interface 在已有插件
+验收的卸载关闭步骤失败：原生窗口已关闭，但该页面的 `evaluate` 回包随之
+中断。脚本现在并行等待真实 close 事件和关闭 RPC，仅接受页面销毁对应的
+Playwright 错误，其他错误仍抛出，并保留主窗口存活断言。
+
 本地 Windows 验证结果：
 
 - 源码全局指令验收在 junction 临时目录下通过；权限验收连续三次通过。
@@ -23,9 +28,16 @@ Windows runtime 验收在权限菜单点击返回、原生权限 RPC 尚未完�
   均经现有串行 CI runner 执行，仅限定这两项，不声称全组已执行。
 - 类型检查通过；CI 清单、执行器、策略和汇总测试 41 项中 40 项通过、
   1 项既有 POSIX 平台跳过；fixture 关闭回归 16 项全部通过。
+- 插件完整源码验收连续两次通过八组检查，均确认零推理请求、零渲染器错误、
+  启动器退出码 0 和零剩余窗口。额外的现有 Windows 包执行通过八组业务断言，
+  但最后退出整个 fixture 超时 30 秒，结果仍记为失败，不算包验收通过。
+  后续未发现该 r2 包的残留进程；未据此修改产品或放宽退出判定。
 
 日志为 `Desktop/test-results/pr224-ci-targeted-source.log` 和
-`Desktop/test-results/pr224-ci-targeted-package.log`。以上是隔离 profile、
+`Desktop/test-results/pr224-ci-targeted-package.log`，插件追加执行日志为
+`Desktop/test-results/pr224-ci-plugin-close.log`，详细结果在对应
+`pr224-plugin-close-{source-1,source-2,package}/verification.json`。
+以上是隔离 profile、
 本地 HTTP/SSE fixture 验证，不替代新提交的云端 CI、原生 macOS 或付费模型
 验收。未重新打包，也未改用户应用、快捷方式、个人配置或共享 runtime。
 

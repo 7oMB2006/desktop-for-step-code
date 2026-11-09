@@ -134,7 +134,7 @@ synchronous layout effect instead preserves subsequent leave/blur events;
 the regression then passes, including ordinary hover, keyboard-focus and
 actually-hovered replacement pauses and their resumed deadlines.
 
-The new verifier belongs to the shared runtime inventory on both platforms.
+The new verifier belongs to the shared interface inventory on both platforms.
 It uses the actual component and React lifecycle, with the Playwright clock
 advancing deadlines and no stubs for component state or timer registration.
 Existing success durations, pause caps and the original native
@@ -145,6 +145,12 @@ native Electron/proposed-home verifier passed with the new production renderer,
 as did typecheck, the renderer build and 24 CI runner/policy tests (one existing
 platform skip). This establishes the controlled race and local fix, not a
 completed macOS rerun or proof of the original cloud process's internal timing.
+
+On `4e427b2`, Windows passed the original native Electron/proposed-home verifier,
+then the added component verifier could not launch: the runtime job does not
+install Playwright Chromium. Its assignment is corrected to the interface
+group, which already provisions browsers for component fixtures. No browser
+download step, product change or assertion change is required for this correction.
 
 ## 全局指令 PR 验收脚本修复（2026-11-09）
 

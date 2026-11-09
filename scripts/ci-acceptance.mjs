@@ -27,6 +27,7 @@ export const acceptanceGroups = {
     'verify-plugin-input-mcp.mjs',
     'verify-desktop-tray.mjs',
     'verify-notifications.mjs',
+    'verify-notice-toast.mjs',
     'verify-composer-menu.mjs',
     'verify-command-dispatch.mjs',
     'verify-mini-chat-preview.mjs',
@@ -83,7 +84,6 @@ export const acceptanceGroups = {
   ],
   runtime: [
     'verify-electron.mjs',
-    'verify-notice-toast.mjs',
     'verify-cron-runtime.mjs',
     'verify-cron-management.mjs',
     'verify-cron-transcript-electron.mjs',

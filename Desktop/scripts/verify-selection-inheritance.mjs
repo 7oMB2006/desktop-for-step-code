@@ -30,6 +30,7 @@ try {
         table { border-collapse: collapse; } td, th { padding: 4px 8px; border: 1px solid #777; }
         a { color: #73a4ff; } textarea, [contenteditable] { font: inherit; color: var(--ink); background: var(--bg); }
         textarea { display: block; width: 100%; box-sizing: border-box; }
+        textarea:focus-visible { outline: 2px solid var(--muted); outline-offset: 2px; }
       </style><style>${styles}</style></head><body>
       <article class="message-body"><div class="response-text">
         <p>Readable <strong>bold <em>nested emphasis</em></strong> and <a href="https://example.com/">linked text</a>.</p>
@@ -56,6 +57,9 @@ try {
         const range = document.createRange(); range.selectNodeContents(target);
         getSelection().removeAllRanges(); getSelection().addRange(range);
       }, selector);
+      const settlePaint = () => page.evaluate(() => new Promise(resolve =>
+        requestAnimationFrame(() => requestAnimationFrame(resolve))));
+      await settlePaint();
       const read = () => page.evaluate(selector => {
         const target = document.querySelector(selector);
         return { text: target instanceof HTMLTextAreaElement ? target.value.slice(target.selectionStart, target.selectionEnd) : getSelection().toString(),
@@ -81,6 +85,7 @@ try {
       assert.equal(count, 4);
       const reference = await read();
       assert.deepEqual(actual, reference, `${theme}/${width}/${selector}: native selection colors and text must match`);
+      await settlePaint();
       const referenceImage = await page.screenshot({ caret: 'hide', animations: 'disabled' });
       await writeFile(resolve(output, `${theme}-${width}-${index}.png`), image);
       await writeFile(resolve(output, `${theme}-${width}-${index}-reference.png`), referenceImage);

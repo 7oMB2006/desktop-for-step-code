@@ -55,6 +55,7 @@ export class CustomBackgroundStore {
   }
 
   state(): StoredBackgroundState { return structuredClone(this.current); }
+  isBoundTo(instance?: string): boolean { return this.initialized && this.instance === instance; }
 
   private enqueue<T>(action: () => Promise<T>): Promise<T> {
     const operation = this.writes.then(async () => {

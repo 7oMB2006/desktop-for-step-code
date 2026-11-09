@@ -330,6 +330,21 @@ async function syncCustomBackground() {
     return publishCustomBackground(context, 'storage');
   }
 }
+async function refreshCustomBackground() {
+  const available = () => !capabilityGate.active && !settingsMutation && !updateInstalling && !quitting && !quitPending;
+  if (!available()) return;
+  let context: { ref: string; instance: string } | undefined;
+  try {
+    // Catalog proofs can wait behind other readers; they must not reserve a mutation gate.
+    context = await capabilityService.customBackgroundContext();
+    if (!available()) return;
+    if (customBackground.isBoundTo(context?.instance)) return publishCustomBackground(context);
+    // Ownership changed. Re-prove it inside the gate before changing the binding.
+    return await capabilityGate.run(syncCustomBackground);
+  } catch {
+    if (available()) return publishCustomBackground(context, 'storage');
+  }
+}
 async function changeCustomBackground(ref: unknown, change: () => Promise<unknown>, expected?: string) {
   return capabilityGate.run(async () => {
     if (settingsMutation || undoBusy || transition || updateInstalling || quitting || quitPending || !capabilityService.available)
@@ -2441,7 +2456,7 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
     case 'capabilityCatalog': {
       if (settingsMutation || updateInstalling || quitting || quitPending) throw new Error('Shared settings operation in progress');
       const catalog = await capabilityService.catalog();
-      if (!capabilityGate.active && !updateInstalling && !quitting && !quitPending) await capabilityGate.run(syncCustomBackground);
+      await refreshCustomBackground();
       return catalog;
     }
     case 'pluginDocument': {

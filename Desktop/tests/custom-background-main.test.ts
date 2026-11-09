@@ -22,7 +22,7 @@ const javascript = (source: string) => ts.transpileModule(source, {
 }).outputText;
 const methods = ['customBackgroundState', 'customBackgroundImage', 'customBackgroundImport', 'customBackgroundSave', 'customBackgroundRemove',
   'capabilityCatalog'];
-const helpers = ['publishCustomBackground', 'syncCustomBackground', 'changeCustomBackground'].map(name =>
+const helpers = ['publishCustomBackground', 'syncCustomBackground', 'refreshCustomBackground', 'changeCustomBackground'].map(name =>
   find(node => ts.isFunctionDeclaration(node) && node.name?.text === name).getText(file)).join('\n');
 const cases = methods.map(method => find(node => ts.isCaseClause(node)
   && ts.isStringLiteral(node.expression) && node.expression.text === method).getText(file)).join('\n');
@@ -58,6 +58,7 @@ function fixture(flags: Flags = {}, enabled = false) {
   let instance: string | undefined = approved.instance;
   const background = {
     state: () => structuredClone(stored),
+    isBoundTo: (next?: string) => instance === next,
     async bind(next?: string) {
       calls.push(`bind:${next ?? 'none'}`);
       await controls.onBind?.(next);
@@ -420,13 +421,62 @@ test('actual main catalog reads reconcile adapter ownership only when the gate i
   const f = fixture();
   f.controls.context = undefined;
   assert.deepEqual(await f.invoke('capabilityCatalog'), { plugins: [] });
-  assert.deepEqual(f.calls, ['catalog', 'proof:current', 'bind:none', 'publish']);
+  assert.deepEqual(f.calls, ['catalog', 'proof:current', 'proof:current', 'bind:none', 'publish']);
   assert.equal(f.state().available, false);
   const busy = fixture();
   await busy.gate.run(async () => {
     assert.deepEqual(await busy.invoke('capabilityCatalog'), { plugins: [] });
     assert.deepEqual(busy.calls, ['catalog']);
   });
+});
+
+test('actual main catalog ownership proofs never reserve the shared mutation gate when binding is unchanged', async () => {
+  for (const installed of [true, false]) {
+    const f = fixture();
+    if (!installed) { f.controls.context = undefined; await f.sync(); }
+    f.calls.length = 0;
+    const entered = deferred(), release = deferred();
+    f.controls.onProof = async () => { entered.resolve(); await release.promise; };
+    const pending = f.invoke('capabilityCatalog');
+    try {
+      await entered.promise;
+      assert.equal(f.gate.active, false, 'A pending read must not reject an unrelated settings save');
+      await f.gate.run(async () => {});
+      assert.equal(f.gate.active, false);
+    } finally { release.resolve(); }
+    assert.deepEqual(await pending, { plugins: [] });
+    assert.deepEqual(f.calls, ['catalog', 'proof:current']);
+    assert.equal(f.gate.active, false);
+  }
+});
+
+test('actual main catalog rechecks ownership under the gate and skips reconciliation during a native change', async () => {
+  const f = fixture();
+  f.controls.context = undefined;
+  let proofs = 0;
+  f.controls.onProof = () => {
+    proofs++;
+    assert.equal(f.gate.active, proofs === 2);
+    if (proofs === 2) f.controls.context = { ...approved, instance: 'installation-two' };
+  };
+  await f.invoke('capabilityCatalog');
+  assert.equal(proofs, 2);
+  assert.ok(f.calls.includes('bind:installation-two'));
+  assert.equal(f.calls.includes('bind:none'), false, 'The stale read proof cannot change the binding');
+  assert.equal(f.state().options.enabled, false);
+
+  const busy = fixture(), entered = deferred(), proofRelease = deferred(), mutationRelease = deferred();
+  busy.controls.onProof = async () => { entered.resolve(); await proofRelease.promise; };
+  const pending = busy.invoke('capabilityCatalog');
+  await entered.promise;
+  const mutation = busy.gate.run(() => mutationRelease.promise);
+  try {
+    busy.controls.context = undefined;
+    proofRelease.resolve();
+    await pending;
+    assert.deepEqual(busy.calls, ['catalog', 'proof:current']);
+    assert.equal(busy.state().available, true, 'A read cannot publish while a mutation owns the gate');
+  } finally { proofRelease.resolve(); mutationRelease.resolve(); await mutation; }
 });
 
 test('actual main serves cached appearance during shutdown and refuses pickers or catalog work', async () => {

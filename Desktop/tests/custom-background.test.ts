@@ -61,7 +61,11 @@ test('imports persist normalized private PNG and options across restart without 
   assert.equal((await store.image(imported.image!.revision)).dataUrl, `data:image/png;base64,${pixel.toString('base64')}`);
   await store.save({ zoom: 132, blur: 3.5, positionY: 25 });
   const next = new CustomBackgroundStore(root, decode);
+  assert.equal(next.isBoundTo(instance), false, 'Uninitialized storage cannot prove its binding');
+  assert.equal(next.isBoundTo(), false);
   assert.deepEqual(await next.initialize(), store.state());
+  assert.equal(next.isBoundTo(instance), true);
+  assert.equal(next.isBoundTo(), false);
   assert.deepEqual(await next.bind(instance), store.state());
   assert.deepEqual(Object.keys(JSON.parse(await readFile(join(root, 'custom-background/state.json'), 'utf8'))).sort(),
     ['image', 'instance', 'options', 'schemaVersion']);
@@ -113,11 +117,14 @@ test('changing or removing the installation marker disables without losing image
   await store.save({ zoom: 150, parallax: 4 });
   assert.equal((await store.bind(instance)).options.enabled, true);
   const changed = await store.bind('installation-two');
+  assert.equal(store.isBoundTo(instance), false);
+  assert.equal(store.isBoundTo('installation-two'), true);
   assert.equal(changed.options.enabled, false);
   assert.equal(changed.options.zoom, 150);
   assert.deepEqual(changed.image, original.image);
   await store.save({ enabled: true });
   await store.bind();
+  assert.equal(store.isBoundTo(), true);
   assert.equal(store.state().options.enabled, false);
   assert.equal(JSON.parse(await readFile(join(root, 'custom-background/state.json'), 'utf8')).instance, undefined);
   await assert.rejects(store.save({ enabled: true }), /unavailable/);

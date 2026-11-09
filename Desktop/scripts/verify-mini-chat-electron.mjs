@@ -601,21 +601,27 @@ try {
         entered(); await beforeTransfer;
       }
       if (probe.returning && event.sender.id === mainContentsId) {
-        if (method === 'windowPresentation')
-          (probe.transferred ? probe.writes : probe.beforeWrites).push(args[1].position);
+        probe.mainEvent = event;
         if (probe.transferred && method === 'snapshot') { arrived(); await gate; }
       }
-      return handler(event, method, ...args);
+      const result = await handler(event, method, ...args);
+      if (probe.returning && event.sender.id === mainContentsId && method === 'windowPresentation') {
+        const writes = probe.transferred ? probe.writes : probe.beforeWrites;
+        if (result === true) writes.push(args[1].position);
+      }
+      return result;
     });
   }, mainWindowId);
   try {
     await mini.getByRole('button', { name: '回到主窗口', exact: true }).click();
     await app.evaluate(() => globalThis.miniReturnGate.entering);
     // A save before the host commits the transfer is valid and must be superseded.
-    await main.evaluate(async () => {
+    const oldRevision = await main.evaluate(async () => {
       const value = await window.desktop.snapshot();
-      await window.desktop.windowPresentation({ sessionId: value.state.sessionId },
-        { position: { follow: true, top: 0 }, disclosures: [] });
+      const accepted = await window.desktop.windowPresentation({ sessionId: value.state.sessionId },
+        { position: { follow: true, top: 0 }, disclosures: [] }, value.windowPresentationRevision);
+      if (!accepted) throw new Error('A pre-transfer save must still be accepted');
+      return value.windowPresentationRevision;
     });
     assert.ok(await app.evaluate(() => globalThis.miniReturnGate.beforeWrites
       .some(position => position.follow && position.top === 0)));
@@ -623,6 +629,9 @@ try {
     await main.getByRole('region', { name: '远程访问', exact: true }).waitFor({ state: 'detached' });
     await main.locator('main .conversation').waitFor({ state: 'visible' });
     await app.evaluate(() => globalThis.miniReturnGate.ready);
+    assert.equal(await main.evaluate(revision => window.desktop.windowPresentation({ sessionId: 'one' },
+      { position: { follow: true, top: 0 }, disclosures: [] }, revision), oldRevision), false,
+    'The host rejects an old-view save even after the transfer commits but before the renderer installs its snapshot');
     await main.evaluate(async () => {
       document.querySelector('.conversation').dispatchEvent(new Event('scroll', { bubbles: true }));
       window.dispatchEvent(new Event('blur'));
@@ -630,6 +639,14 @@ try {
     });
     assert.deepEqual(await app.evaluate(() => globalThis.miniReturnGate.writes), [],
       'The old main view cannot overwrite the transferred reading position while its snapshot is pending');
+    const transferred = await app.evaluate(async () => {
+      const { handler, mainEvent } = globalThis.miniReturnGate;
+      const value = await handler(mainEvent, 'snapshot');
+      return { revision: value.windowPresentationRevision, position: value.windowPresentation.position };
+    });
+    assert.equal(transferred.revision, oldRevision + 1);
+    assert.equal(transferred.position.follow, false, 'Rejected saves leave the transferred cache unchanged');
+    assert.equal(transferred.position.anchor.index, Number(anchor.index));
   } finally {
     await app.evaluate(({ ipcMain }) => {
       const { handler, contents, send, release, releaseTransfer } = globalThis.miniReturnGate;

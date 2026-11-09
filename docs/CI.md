@@ -184,7 +184,7 @@ script names against the group's existing inventory. It does not collect raw
 environment values, credentials, child-process output or conversation content.
 It does not retry tests, change deadlines, grant completion receipts, or modify
 the shared runner, acceptance assignments or macOS workflow.
-The helper filenames also stay outside the macOS workflow's path filters.
+The helper cannot select the documentation route or grant macOS acceptance.
 
 Inspect the assigned scripts without building:
 
@@ -303,7 +303,7 @@ run's job/queue time, per-stage duration, total runner-minutes and failures befo
 claiming an improvement. Sharing complete native build artifacts is deferred
 until transfer cost and fixture/native dependency packaging have been measured.
 
-The last serial baseline (run `41477155903`) took 47m27s, including about 20.6
+For macOS, the last serial baseline (run `41477155903`) took 47m27s, including about 20.6
 minutes of source and 20.5 minutes of packaged acceptance. Compare cloud elapsed
 time, queue time, group durations, artifact-transfer cost, failures and total
 runner-minutes before claiming a speedup. Parallel acceptance duplicates native

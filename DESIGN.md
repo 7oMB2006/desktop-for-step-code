@@ -19,7 +19,10 @@ MiniChat is a native view of a normal conversation, not BTW or a second agent.
 Reuse the actual conversation/composer/queue/approval components and shared
 tokens; omit unrelated rails and the performance footer. The titlebar entry
 sits immediately before Minimize. A draggable compact header provides the
-shared session menu, pin, Return and Close. Close hides without affecting work;
+shared session menu, pin, Return, Minimize and Close. Minimize uses the native
+window action, affects only MiniChat and preserves its session, draft and reading
+state while work continues. Restore it from the taskbar/Dock or MiniChat entry.
+Close hides without affecting work;
 reopen resumes the mini selection, and Return explicitly transfers it to main.
 Draft text, quotes/annotations and attachments are session-owned. Presentation
 state is per window/session; streaming must not pull an older reader to the

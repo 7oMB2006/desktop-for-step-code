@@ -134,6 +134,38 @@ try {
   await mini.waitForFunction(() => document.querySelector('main .composer-input')?.textContent === 'Shared from main');
   await editor.fill('Shared from mini');
   await main.waitForFunction(() => document.querySelector('main .composer-input')?.textContent === 'Shared from mini');
+  const minimizeState = await app.evaluate(({ BrowserWindow }, mainId) => {
+    const miniWindow = BrowserWindow.getAllWindows().find(window => window.getTitle() === 'MiniChat');
+    return { miniId: miniWindow.id, mainMinimized: BrowserWindow.fromId(mainId).isMinimized() };
+  }, mainWindowId);
+  const minimizeWindow = async () => {
+    await mini.getByRole('button', { name: '最小化', exact: true }).click();
+    await app.evaluate(async ({ BrowserWindow }, id) => {
+      const window = BrowserWindow.fromId(id), deadline = Date.now() + 5000;
+      while (!window.isMinimized() && Date.now() < deadline)
+        await new Promise(resolve => setTimeout(resolve, 20));
+    }, minimizeState.miniId);
+    assert.deepEqual(await app.evaluate(({ BrowserWindow }, { miniId, mainId }) => ({
+      miniMinimized: BrowserWindow.fromId(miniId).isMinimized(),
+      mainMinimized: BrowserWindow.fromId(mainId).isMinimized(),
+    }), { miniId: minimizeState.miniId, mainId: mainWindowId }),
+    { miniMinimized: true, mainMinimized: minimizeState.mainMinimized }, 'Minimize targets only MiniChat');
+  };
+  const restoreMiniWindow = async () => {
+    await main.getByRole('button', { name: 'MiniChat', exact: true }).click();
+    assert.equal(await app.evaluate(({ BrowserWindow }, id) => {
+      const window = BrowserWindow.fromId(id);
+      window.showInactive();
+      return window.isMinimized();
+    }, minimizeState.miniId), false, 'The MiniChat entry restores the same native window');
+    await editor.waitFor();
+  };
+  const runtimeBeforeMinimize = (await mini.evaluate(() => window.desktop.snapshot())).runtimeId;
+  await minimizeWindow();
+  await restoreMiniWindow();
+  assert.equal(await editor.innerText(), 'Shared from mini', 'Minimize retains the shared draft');
+  assert.equal((await mini.evaluate(() => window.desktop.snapshot())).runtimeId, runtimeBeforeMinimize,
+    'Restoring reuses the same session runtime');
   const both = await Promise.all([main.evaluate(() => window.desktop.snapshot()), mini.evaluate(() => window.desktop.snapshot())]);
   assert.equal(both[0].runtimeId, both[1].runtimeId);
   assert.equal(both[0].runtimes.filter(worker => worker.sessionId === 'one').length, 1);
@@ -479,6 +511,13 @@ try {
   assert.equal(await main.evaluate(() => window.__soundPlays), 1);
   await editor.fill('MINI-HOLD-STOP'); await editor.press('Enter');
   await mini.getByText('Mini streaming is live.', { exact: true }).waitFor();
+  const runningBeforeMinimize = await mini.evaluate(() => window.desktop.snapshot());
+  await minimizeWindow();
+  const runningWhileMinimized = await main.evaluate(() => window.desktop.snapshot());
+  assert.equal(runningWhileMinimized.state.isStreaming, true, 'Minimizing never stops the worker');
+  assert.equal(runningWhileMinimized.runtimeId, runningBeforeMinimize.runtimeId);
+  await restoreMiniWindow();
+  await mini.getByRole('button', { name: '停止此轮', exact: true }).waitFor();
   await mini.getByRole('button', { name: '关闭小窗', exact: true }).click();
   assert.equal((await main.evaluate(() => window.desktop.snapshot())).state.isStreaming, true, 'Hiding MiniChat never stops the worker');
   await main.getByRole('button', { name: 'MiniChat', exact: true }).click();

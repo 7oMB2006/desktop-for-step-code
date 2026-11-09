@@ -294,6 +294,25 @@ try {
   await bottom.waitFor();
   assert.equal(await bottom.getAttribute('data-tooltip'), '回到底部');
   const readingTop = await scrollTop(miniViewport);
+  await editor.fill('最小化后保留的草稿。');
+  const minimizedEditor = await editor.elementHandle();
+  const miniMinimize = mini.getByRole('button', { name: '最小化', exact: true });
+  assert.equal(await miniMinimize.getAttribute('data-tooltip'), '最小化');
+  assert.equal(await miniMinimize.evaluate(element => getComputedStyle(element.closest('.mini-chat-window-actions')).webkitAppRegion), 'no-drag');
+  await miniMinimize.focus();
+  await miniMinimize.press('Enter');
+  await mini.waitFor({ state: 'hidden' });
+  assert.equal(await entry.getAttribute('aria-pressed'), 'true', 'Minimize retains the open window');
+  await entry.click();
+  await editor.waitFor();
+  assert.equal(await editor.evaluate((element, previous) => element === previous, minimizedEditor), true,
+    'Restoring does not remount the editor');
+  await minimizedEditor.dispose();
+  assert.equal(await editor.innerText(), '最小化后保留的草稿。');
+  assert.ok(Math.abs(await scrollTop(miniViewport) - readingTop) <= 2, 'minimize/restore preserves reading position');
+  assert.equal(await thought.getAttribute('data-expanded'), 'true');
+  assert.equal(await tool.getAttribute('data-expanded'), 'true');
+  await editor.fill('');
   await switchMini('搜索命中定位');
   await scrollTo(miniViewport, 360);
   await mini.getByRole('button', { name: '关闭小窗', exact: true }).click();
@@ -331,6 +350,12 @@ try {
   await scrollTo(miniViewport, 200);
   await page.waitForTimeout(250);
   assert.ok(Math.abs(await scrollTop(miniViewport) - 200) <= 2, 'streaming does not steal an older reading position');
+  await mini.getByRole('button', { name: '最小化', exact: true }).click();
+  await mini.waitFor({ state: 'hidden' });
+  await main.getByRole('button', { name: '停止此轮', exact: true }).waitFor();
+  await entry.click();
+  await mini.getByRole('button', { name: '停止此轮', exact: true }).waitFor();
+  assert.ok(Math.abs(await scrollTop(miniViewport) - 200) <= 2, 'minimize/restore during streaming keeps reading position');
   await mini.getByRole('button', { name: '关闭小窗', exact: true }).click();
   await main.getByRole('button', { name: '停止此轮', exact: true }).waitFor();
   await entry.click();
@@ -509,6 +534,12 @@ try {
     await page.goto(`${url}?open=1${query}`);
     await mini.waitFor();
     await noOverflow();
+    const minimizeControl = mini.getByRole('button', { name: query.includes('lang=en') ? 'Minimize' : '最小化', exact: true });
+    assert.equal(await minimizeControl.getAttribute('data-tooltip'), query.includes('lang=en') ? 'Minimize' : '最小化');
+    const [minimizeBox, closeBox] = await Promise.all([
+      minimizeControl.boundingBox(), mini.locator('.mini-chat-close').boundingBox(),
+    ]);
+    assert.ok(minimizeBox.x + minimizeBox.width <= closeBox.x, `${name}: Minimize sits immediately before Close`);
     const [headerBox, sessionBox] = await Promise.all([
       mini.locator('.mini-chat-header').boundingBox(), mini.locator('.mini-chat-session').boundingBox(),
     ]);
@@ -648,7 +679,7 @@ try {
   await page.waitForFunction(() => document.querySelector('.window-bar [aria-label="MiniChat"]') === document.activeElement);
   assert.deepEqual(errors, []);
   assert.deepEqual(external, []);
-  console.log('MiniChat preview passed: current/other-project collapse remains open for mouse/keyboard and cross-project selection, grouped project/session search, same-name path disambiguation, independent drafts, main-sidebar isolation, keyboard/IME/outside dismissal, bounded picker/focus gutters, draft-edit protection, atomic quote/annotation clearing, Markdown source location, focused instance-scoped menus, low-height controls, entry placement, draft/reference/reading handoff, independent session scroll and disclosures, close/reopen during streaming, shared return-to-bottom, gesture-aware follow/pause, stop preserves reading, keyboard, menus, pin state, drag, responsive layout, focus gutters and reduced motion.');
+  console.log('MiniChat preview passed: minimize/restore retains mounted editor, draft, reading, disclosures and streaming; localized Minimize placement; current/other-project collapse remains open for mouse/keyboard and cross-project selection, grouped project/session search, same-name path disambiguation, independent drafts, main-sidebar isolation, keyboard/IME/outside dismissal, bounded picker/focus gutters, draft-edit protection, atomic quote/annotation clearing, Markdown source location, focused instance-scoped menus, low-height controls, entry placement, draft/reference/reading handoff, independent session scroll and disclosures, close/reopen during streaming, shared return-to-bottom, gesture-aware follow/pause, stop preserves reading, keyboard, menus, pin state, drag, responsive layout, focus gutters and reduced motion.');
 } catch (error) {
   await browser?.contexts()[0]?.pages()[0]?.screenshot({ path: `${output}/failure.png` }).catch(() => {});
   throw error;

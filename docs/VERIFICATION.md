@@ -67,6 +67,19 @@ Windows/macOS 源码和包内云端验收，不宣称已合并或完成最终 ma
 
 ## Windows 验收控制器退出与原生进程分离（2026-11-10）
 
+#217 Windows run `42696239500` 再次在 then_run 业务断言通过后关闭超时。
+该次 Node inspector 为 61125，残留连接却是原生 Electron 的 Chromium
+调试端口 61127；旧守卫只认 Node 端口，漏掉了 Playwright 的第二条连接。
+夹具现在从本次隔离 profile 的 `DevToolsActivePort` 严格解析 Chromium
+端口，分别捕获两个唯一 loopback 端点。释放条件仍为 launcher 正常退出、
+所有页面关闭、真实主 PID 已不存在；含糊端点不处理，其他连接不触碰。
+
+新增格式边界、双连接释放及歧义端点回归，23 项退出测试通过；类型检查、
+生产构建及完整 Windows then_run / 原生命令 / 后代取消探针通过。
+日志为 `Desktop/test-results/goal217-cdp-*-20261110.log`。
+本次暂停 Chromium 接收的尝试未能稳定复现旧助手超时，不作新旧原生对照
+成功的声明；本地通过不代替新 head 云端验收，内核端点保留来源仍未确认。
+
 #216 Windows runtime run `42683351410` 的 then_run 业务断言通过后退出超时。
 诊断确认启动器已正常退出、页面为零，实际 Electron 主 PID 已不在
 进程清单中，但它的调试 TCP 端点仍未结束。仅释放启动器管道不够，

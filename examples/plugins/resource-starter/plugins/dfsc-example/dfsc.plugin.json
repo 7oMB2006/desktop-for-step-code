@@ -3,6 +3,7 @@
   "authors": [{ "name": "Desktop for Step Code contributors" }],
   "maintainers": [{ "name": "Desktop for Step Code contributors" }],
   "license": "MIT",
+  "requirements": { "external": [] },
   "documentation": { "readme": "README.md" },
   "desktop": {
     "title": "Checklist workspace",

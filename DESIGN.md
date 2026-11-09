@@ -19,7 +19,10 @@ MiniChat is a native view of a normal conversation, not BTW or a second agent.
 Reuse the actual conversation/composer/queue/approval components and shared
 tokens; omit unrelated rails and the performance footer. The titlebar entry
 sits immediately before Minimize. A draggable compact header provides the
-shared session menu, pin, Return and Close. Close hides without affecting work;
+shared session menu, pin, Return, Minimize and Close. Minimize uses the native
+window action, affects only MiniChat and preserves its session, draft and reading
+state while work continues. Restore it from the taskbar/Dock or MiniChat entry.
+Close hides without affecting work;
 reopen resumes the mini selection, and Return explicitly transfers it to main.
 Draft text, quotes/annotations and attachments are session-owned. Presentation
 state is per window/session; streaming must not pull an older reader to the
@@ -116,6 +119,38 @@ Plugin authoring, fixed layout, control/copy conventions and the BVR mapping
 are documented in `docs/PLUGIN_AUTHORING.md`. `examples/plugins` separates a
 native-installable resource starter from a host-owned React field template;
 neither declares a third-party frontend SDK.
+
+Marketplace cards expose declared authors, DFSC version requirements and
+required/optional external preparation. Unknown authors and requirements remain
+explicitly undeclared; an absent dependency list is not a declaration of none.
+Author bylines use the person icon and name without a visible label prefix;
+retain a localized accessible author label. Version badges show the DFSC range
+quietly when it matches; only warnings and unknown results need visible verdict
+text. The complete version verdict and its limited scope remain accessible.
+Version and dependency chips share one compact size, padding and quiet fill.
+Keep version content continuous, without internal dividers or code-block styling.
+A warning tints the whole version chip and uses one leading status icon plus
+visible verdict text, never multiple separately framed segments.
+External-preparation summaries are separate icon-and-count buttons, never
+nested inside the card's guide button. They open an anchored native popover
+without resizing the card. Mixed required/optional totals use a neutral summary,
+not a claim that every item is mandatory. Empty and undeclared remain distinct
+and can open their explanation. Escape, explicit close and a second click return
+to the trigger; outside interaction, leaving the surface and catalog scrolling
+dismiss the popover. Preserve visible keyboard focus, viewport bounds and reduced
+motion. Keep author-declaration and unchecked-environment qualifications in the
+accessible summary and the expanded surface. The popover and unframed detail
+requirements section share the same dependency list and safe document links.
+Keep the complete requirements section inside Guide, below the detail tabs,
+so long declarations never push configuration or capability navigation away.
+Compare semantic ranges with the actual running app version, but label only
+the version result, never overall compatibility, installed dependencies or
+dispatch readiness. Discover metadata belongs to its candidate version; show
+the installed version separately and keep configuration bound to the installed
+package. Adaptation maintainers are not a substitute for project authors.
+Unavailable download statistics are explained in details, not repeated on every
+card, until a trusted market measurement exists. GitHub stars and author-supplied numbers are not downloads;
+this UI does not add telemetry, dependency execution or installation permissions.
 
 First-run setup is a separate bootstrap surface, not a settings dialog layered
 over the conversation. Only a fresh Desktop profile enters it. Reuse the native

@@ -1,5 +1,6 @@
 import { settleLayout } from './settle-layout.mjs';
 import { sampleMotion } from './sample-motion.mjs';
+import { waitForBrowserFixtureSnapshot } from './browser-fixture.mjs';
 import { _electron as electron } from 'playwright';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
@@ -70,11 +71,12 @@ try {
   const viewState = () => app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].contentView.children.map(view =>
     ({ url: view.webContents?.getURL(), visible: view.getVisible(), bounds: view.getBounds() })));
   await rail.click();
-  await page.waitForFunction(async () => (await window.desktop.browserList()).tabs.length === 1);
+  await waitForBrowserFixtureSnapshot(page, snapshot => snapshot.tabs.length === 1, 'the first native tab');
+  await panel.getByRole('tab', { selected: true }).waitFor();
   const first = (await list()).tabs[0].id;
   await panel.getByRole('textbox', { name: '网页地址', exact: true }).fill(`127.0.0.1:${port}`);
-  await page.keyboard.press('Enter');
-  await page.waitForFunction(async () => (await window.desktop.browserList()).tabs[0].title === '项目预览');
+  await panel.getByRole('textbox', { name: '网页地址', exact: true }).press('Enter');
+  await waitForBrowserFixtureSnapshot(page, snapshot => snapshot.tabs[0]?.title === '项目预览', 'the initial page title');
   await settleLayout(page.locator('.app'));
   await page.waitForFunction(() => {
     const composer = document.querySelector('.composer')?.getBoundingClientRect();
@@ -88,10 +90,10 @@ try {
   // Native navigation/title events can precede Playwright's target attachment.
   let webPage;
   await assert.doesNotReject(async () => {
-    await page.waitForFunction(async () => {
-      const tab = (await window.desktop.browserList()).tabs[0];
+    await waitForBrowserFixtureSnapshot(page, snapshot => {
+      const tab = snapshot.tabs[0];
       return tab?.title === '项目预览' && !tab.loading;
-    });
+    }, 'a loaded native page');
     const deadline = Date.now() + 15000;
     while (!(webPage = app.windows().find(value => value.url().startsWith(url)))) {
       if (Date.now() >= deadline) {
@@ -134,10 +136,10 @@ try {
   await panel.getByRole('textbox', { name: '网页地址', exact: true }).press('Escape');
   assert.equal(await rail.getAttribute('aria-pressed'), 'true', 'Escape in the URL input does not close the panel');
   await webPage.getByRole('link', { name: '查看项目详情', exact: true }).click();
-  await page.waitForFunction(async () => (await window.desktop.browserList()).tabs[0].canGoBack);
+  await waitForBrowserFixtureSnapshot(page, snapshot => snapshot.tabs[0]?.canGoBack, 'back navigation');
   await panel.getByRole('button', { name: '后退', exact: true }).click();
   await webPage.waitForURL(url);
-  await page.waitForFunction(async () => (await window.desktop.browserList()).tabs[0].canGoForward);
+  await waitForBrowserFixtureSnapshot(page, snapshot => snapshot.tabs[0]?.canGoForward, 'forward navigation');
   await panel.getByRole('button', { name: '前进', exact: true }).click();
   await webPage.waitForURL(`${url}details`);
   await panel.getByRole('button', { name: '后退', exact: true }).click();
@@ -167,14 +169,14 @@ try {
   await webPage.evaluate(() => window.open('file:///C:/Windows/win.ini', '_blank'));
   assert.equal((await list()).tabs.length, 1, 'unsupported popup targets cannot create a tab');
   await page.evaluate(({ first, url }) => window.desktop.browserAction(first, 'navigate', `${url}redirect`), { first, url });
-  await page.waitForFunction(async () => !(await window.desktop.browserList()).tabs[0].loading);
+  await waitForBrowserFixtureSnapshot(page, snapshot => snapshot.tabs[0] && !snapshot.tabs[0].loading, 'the settled redirect');
   assert.ok(!webPage.url().startsWith('file:'), 'redirects cannot enter the local filesystem');
   if ((await list()).tabs[0].error) {
     assert.equal((await viewState()).filter(view => view.visible && view.url?.startsWith('http:')).length, 0,
       'a failed redirect shows an error instead of an unrelated old page');
   } else assert.equal((await list()).tabs[0].url, webPage.url(), 'aborted redirects retain the actual committed address');
   await page.evaluate(({ first, url }) => window.desktop.browserAction(first, 'navigate', url), { first, url });
-  await page.waitForFunction(async () => (await window.desktop.browserList()).tabs[0].title === '项目预览');
+  await waitForBrowserFixtureSnapshot(page, snapshot => snapshot.tabs[0]?.title === '项目预览', 'the restored page title');
   const ease = await panel.evaluate(element => getComputedStyle(element).transitionTimingFunction);
   assert.ok(ease.includes('cubic-bezier(0.22, 1, 0.36, 1)'));
   async function screenshot(name) {
@@ -332,7 +334,7 @@ try {
   await page.waitForTimeout(300);
   assert.equal(await page.locator('.main-content').evaluate(element => element.inert), false);
   await webPage.getByRole('link', { name: '新标签页打开', exact: true }).click();
-  await page.waitForFunction(async () => (await window.desktop.browserList()).tabs.length === 2);
+  await waitForBrowserFixtureSnapshot(page, snapshot => snapshot.tabs.length === 2, 'the popup tab');
   const second = (await list()).activeId;
   assert.notEqual(second, first);
   await page.evaluate(id => window.desktop.browserSelect(id), first);
@@ -444,11 +446,11 @@ try {
   assert.equal(await widthControl.getAttribute('data-width'), 'wide');
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
   await page.evaluate(({ first, url }) => window.desktop.browserAction(first, 'navigate', `${url}fail`), { first, url });
-  await page.waitForFunction(async () => (await window.desktop.browserList()).tabs[0].error);
+  await waitForBrowserFixtureSnapshot(page, snapshot => snapshot.tabs[0]?.error, 'the failed page');
   await panel.getByText('网页无法加载', { exact: true }).waitFor();
   assert.equal((await viewState()).filter(view => view.visible && view.url?.startsWith('http:')).length, 0);
   await page.evaluate(({ first, url }) => window.desktop.browserAction(first, 'navigate', url), { first, url });
-  await page.waitForFunction(async () => (await window.desktop.browserList()).tabs[0].title === '项目预览');
+  await waitForBrowserFixtureSnapshot(page, snapshot => snapshot.tabs[0]?.title === '项目预览', 'the retried page title');
   await page.reload();
   await page.getByText('Step Code 已连接', { exact: true }).waitFor({ state: 'attached', timeout: 60000 });
   await rail.click();

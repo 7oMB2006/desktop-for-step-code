@@ -576,29 +576,63 @@ try {
   // Hold the return snapshot while the old main view emits presentation-saving events.
   await app.evaluate(({ ipcMain, BrowserWindow }, mainWindowId) => {
     const handler = ipcMain._invokeHandlers.get('desktop');
-    const mainContentsId = BrowserWindow.fromId(mainWindowId).webContents.id;
-    let release, arrived;
+    const contents = BrowserWindow.fromId(mainWindowId).webContents, send = contents.send;
+    const mainContentsId = contents.id;
+    let release, arrived, releaseTransfer, entered;
     const gate = new Promise(resolve => { release = resolve; });
     const ready = new Promise(resolve => { arrived = resolve; });
-    globalThis.miniReturnGate = { handler, release, ready, returning: false, writes: [] };
+    const beforeTransfer = new Promise(resolve => { releaseTransfer = resolve; });
+    const entering = new Promise(resolve => { entered = resolve; });
+    globalThis.miniReturnGate = {
+      handler, contents, send, release, ready, releaseTransfer, entering,
+      returning: false, transferred: false, beforeWrites: [], writes: [],
+    };
+    contents.send = function (channel, ...args) {
+      if (channel === 'runtime-event' && args[0]?.type === 'desktop_view_changed'
+        && args[0].surface === 'main' && args[0].restorePresentation)
+        globalThis.miniReturnGate.transferred = true;
+      return send.call(this, channel, ...args);
+    };
     ipcMain.removeHandler('desktop');
     ipcMain.handle('desktop', async (event, method, ...args) => {
       const probe = globalThis.miniReturnGate;
+      const afterTransfer = probe.transferred;
       if (method === 'miniChatReturn') {
         probe.returning = true;
+        entered(); await beforeTransfer;
       }
       if (probe.returning && event.sender.id === mainContentsId) {
-        if (method === 'windowPresentation') probe.writes.push(args[1].position);
-        if (method === 'snapshot') { arrived(); await gate; }
+        probe.mainEvent = event;
+        if (probe.transferred && method === 'snapshot') { arrived(); await gate; }
       }
-      return handler(event, method, ...args);
+      const result = await handler(event, method, ...args);
+      if (probe.returning && event.sender.id === mainContentsId && method === 'windowPresentation') {
+        const writes = afterTransfer ? probe.writes : probe.beforeWrites;
+        if (result === true) writes.push(args[1].position);
+      }
+      return result;
     });
   }, mainWindowId);
   try {
     await mini.getByRole('button', { name: '回到主窗口', exact: true }).click();
+    await app.evaluate(() => globalThis.miniReturnGate.entering);
+    // A save before the host commits the transfer is valid and must be superseded.
+    const oldRevision = await main.evaluate(async () => {
+      const value = await window.desktop.snapshot();
+      const accepted = await window.desktop.windowPresentation({ sessionId: value.state.sessionId },
+        { position: { follow: true, top: 0 }, disclosures: [] }, value.windowPresentationRevision);
+      if (!accepted) throw new Error('A pre-transfer save must still be accepted');
+      return value.windowPresentationRevision;
+    });
+    assert.ok(await app.evaluate(() => globalThis.miniReturnGate.beforeWrites
+      .some(position => position.follow && position.top === 0)));
+    await app.evaluate(() => globalThis.miniReturnGate.releaseTransfer());
     await main.getByRole('region', { name: '远程访问', exact: true }).waitFor({ state: 'detached' });
     await main.locator('main .conversation').waitFor({ state: 'visible' });
     await app.evaluate(() => globalThis.miniReturnGate.ready);
+    assert.equal(await main.evaluate(revision => window.desktop.windowPresentation({ sessionId: 'one' },
+      { position: { follow: true, top: 0 }, disclosures: [] }, revision), oldRevision), false,
+    'The host rejects an old-view save even after the transfer commits but before the renderer installs its snapshot');
     await main.evaluate(async () => {
       document.querySelector('.conversation').dispatchEvent(new Event('scroll', { bubbles: true }));
       window.dispatchEvent(new Event('blur'));
@@ -606,11 +640,20 @@ try {
     });
     assert.deepEqual(await app.evaluate(() => globalThis.miniReturnGate.writes), [],
       'The old main view cannot overwrite the transferred reading position while its snapshot is pending');
+    const transferred = await app.evaluate(async () => {
+      const { handler, mainEvent } = globalThis.miniReturnGate;
+      const value = await handler(mainEvent, 'snapshot');
+      return { revision: value.windowPresentationRevision, position: value.windowPresentation.position };
+    });
+    assert.equal(transferred.revision, oldRevision + 1);
+    assert.equal(transferred.position.follow, false, 'Rejected saves leave the transferred cache unchanged');
+    assert.equal(transferred.position.anchor.index, Number(anchor.index));
   } finally {
     await app.evaluate(({ ipcMain }) => {
-      const { handler, release } = globalThis.miniReturnGate;
+      const { handler, contents, send, release, releaseTransfer } = globalThis.miniReturnGate;
+      contents.send = send;
       ipcMain.removeHandler('desktop'); ipcMain.handle('desktop', handler);
-      release(); delete globalThis.miniReturnGate;
+      releaseTransfer(); release(); delete globalThis.miniReturnGate;
     });
   }
   await main.waitForFunction(anchor => {
@@ -821,6 +864,17 @@ try {
     title: window.getTitle(), url: window.webContents.getURL(),
   }))).catch(() => []));
   for (const [index, page] of (app?.windows() ?? []).entries()) {
+    console.error(`window ${index} reading geometry`, await page.evaluate(async () => {
+      const viewport = document.querySelector('.conversation');
+      return {
+        position: (await window.desktop.snapshot()).windowPresentation?.position,
+        hidden: viewport?.closest('main')?.hidden, top: viewport?.scrollTop,
+        height: viewport?.clientHeight, scrollHeight: viewport?.scrollHeight,
+        articles: viewport ? [...viewport.querySelectorAll('.messages > article[data-message-index]')].slice(0, 4)
+          .map(article => ({ index: article.dataset.messageIndex,
+            offset: article.getBoundingClientRect().top - viewport.getBoundingClientRect().top })) : [],
+      };
+    }).catch(() => undefined));
     await page.screenshot({ path: join(output, `failure-${index}.png`) }).catch(() => {});
     console.error(`window ${index}`, await page.locator('body').innerText().catch(() => ''), errors);
   }

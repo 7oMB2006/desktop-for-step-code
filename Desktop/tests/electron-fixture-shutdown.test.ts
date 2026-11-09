@@ -4,7 +4,7 @@ import { PassThrough } from 'node:stream';
 import { runInNewContext } from 'node:vm';
 import test from 'node:test';
 
-const { closeDesktopFixture, closeDesktopFixtureAndWait, releaseExitedFixturePipes } = await import(new URL('../scripts/close-desktop-fixture.mjs', import.meta.url).href);
+const { closeDesktopFixture, closeDesktopFixtureAndWait, releaseExitedFixturePipes, releaseExitedFixtureInspector, fixtureBrowserPort } = await import(new URL('../scripts/close-desktop-fixture.mjs', import.meta.url).href);
 
 test('launcher exit cannot complete shutdown before the driver close settles', async () => {
   const { child, page, context, dispose } = fixture();
@@ -89,6 +89,39 @@ test('orderly fixture shutdown answers existing and changed quit reviews without
   });
   assert.equal(closed, true);
   assert.equal(child.listenerCount('exit'), 0);
+});
+
+test('bounded shutdown completes while a failed acceptance leaves an approval pending', async () => {
+  const child = Object.assign(new EventEmitter(), { exitCode: null as number | null });
+  const context = new EventEmitter();
+  let onEvent: (event: unknown) => void = () => {};
+  let acceptQuit!: () => void;
+  const reviewed = new Promise<void>(resolve => { acceptQuit = resolve; });
+  const desktop = {
+    onEvent: (listener: typeof onEvent) => { onEvent = listener; },
+    snapshot: async () => ({ requests: [{ id: 'pending-tool', method: 'confirm' }] }),
+    quitRespond: async (id: string, approved: boolean) => {
+      assert.equal(id, 'quit-with-pending-approval');
+      assert.equal(approved, true);
+      acceptQuit();
+    },
+  };
+  const page = Object.assign(new EventEmitter(), {
+    closed: false, isClosed() { return this.closed; },
+    evaluate: async (callback: () => void) => runInNewContext(`(${callback.toString()})()`, { window: { desktop } }),
+  });
+  await closeDesktopFixtureAndWait({
+    process: () => child, windows: () => [page], context: () => context,
+    close: async () => {
+      onEvent({ type: 'desktop_quit_review', state: { request: { id: 'quit-with-pending-approval', phase: 'review' } } });
+      await reviewed;
+      child.exitCode = 0; child.emit('exit', 0);
+      page.closed = true; page.emit('close'); context.emit('close');
+    },
+  }, 1000);
+  assert.equal(child.listenerCount('exit'), 0);
+  assert.equal(page.listenerCount('close'), 0);
+  assert.equal(context.listenerCount('close'), 0);
 });
 
 test('orderly fixture shutdown releases inherited pipes only after successful exit and closed pages', async () => {
@@ -281,4 +314,101 @@ test('disposing the fixture guard removes process and page listeners', () => {
   page.emit('close');
   context.emit('close');
   assert.equal(child.stdout.destroyed, false);
+});
+
+test('inspector cleanup requires successful launcher exit, closed pages and a dead native process', async () => {
+  const child = { exitCode: null as number | null };
+  let pageClosed = false, nativeAlive = true;
+  const socket = Object.assign(new PassThrough(), { remoteAddress: '127.0.0.1', remotePort: 34567 });
+  const other = Object.assign(new PassThrough(), { remoteAddress: '127.0.0.1', remotePort: 34568 });
+  const app = { process: () => child, windows: () => [{ isClosed: () => pageClosed }] };
+  const dispose = releaseExitedFixtureInspector(app, { pid: 12345, debugPort: 34567 }, [socket, other],
+    (pid: number) => { assert.equal(pid, 12345); return nativeAlive; });
+  const tick = () => new Promise(resolve => setTimeout(resolve, 50));
+  try {
+    await tick();
+    assert.equal(socket.destroyed, false);
+    child.exitCode = 1; pageClosed = true; nativeAlive = false;
+    await tick();
+    assert.equal(socket.destroyed, false, 'a failed exit cannot be turned into a graceful close');
+    child.exitCode = 0; pageClosed = false;
+    await tick();
+    assert.equal(socket.destroyed, false, 'an open page keeps its inspector');
+    pageClosed = true; nativeAlive = true;
+    await tick();
+    assert.equal(socket.destroyed, false, 'a dead shell launcher does not prove native Electron exited');
+    nativeAlive = false;
+    await tick();
+    assert.equal(socket.destroyed, true);
+    assert.equal(other.destroyed, false, 'unrelated sockets remain untouched');
+  } finally { dispose(); socket.destroy(); other.destroy(); }
+});
+
+test('inspector cleanup refuses ambiguous, external and invalid launch identities', async () => {
+  const app = { process: () => ({ exitCode: 0 }), windows: () => [] };
+  const sockets = [
+    Object.assign(new PassThrough(), { remoteAddress: '127.0.0.1', remotePort: 34567 }),
+    Object.assign(new PassThrough(), { remoteAddress: '127.0.0.1', remotePort: 34567 }),
+    Object.assign(new PassThrough(), { remoteAddress: '192.0.2.1', remotePort: 34568 }),
+  ];
+  const disposers = [
+    releaseExitedFixtureInspector(app, { pid: 12345, debugPort: 34567 }, sockets, () => false),
+    releaseExitedFixtureInspector(app, { pid: 12345, debugPort: 34568 }, sockets, () => false),
+    releaseExitedFixtureInspector(app, { pid: 0, debugPort: 34567 }, [sockets[0]], () => false),
+    releaseExitedFixtureInspector(app, { pid: 12345, debugPort: 0 }, [sockets[0]], () => false),
+  ];
+  try {
+    await new Promise(resolve => setTimeout(resolve, 50));
+    assert.ok(sockets.every(socket => !socket.destroyed));
+  } finally { for (const dispose of disposers) dispose(); for (const socket of sockets) socket.destroy(); }
+});
+
+test('disposing an inspector guard leaves its captured socket intact', async () => {
+  const socket = Object.assign(new PassThrough(), { remoteAddress: '127.0.0.1', remotePort: 34567 });
+  const dispose = releaseExitedFixtureInspector({ process: () => ({ exitCode: 0 }), windows: () => [] },
+    { pid: 12345, debugPort: 34567 }, [socket], () => false);
+  dispose();
+  await new Promise(resolve => setTimeout(resolve, 50));
+  assert.equal(socket.destroyed, false);
+  socket.destroy();
+});
+
+test('Chromium debugging port accepts only the bounded DevToolsActivePort format', () => {
+  const path = '/devtools/browser/12345678-1234-1234-1234-123456789abc';
+  assert.equal(fixtureBrowserPort(`34568\n${path}`), 34568);
+  assert.equal(fixtureBrowserPort(`34568\r\n${path}\r\n`), 34568);
+  for (const value of [undefined, '', '34568', `0\n${path}`, `65536\n${path}`, `-1\n${path}`,
+    `34568\nhttp://example.com`, `34568\n${path}\nextra`, `34568\n${path}${'x'.repeat(300)}`])
+    assert.equal(fixtureBrowserPort(value), undefined);
+});
+
+test('both unique inspector connections release only after the native process and pages exit', async () => {
+  const child = { exitCode: 0 };
+  let nativeAlive = true;
+  const node = Object.assign(new PassThrough(), { remoteAddress: '127.0.0.1', remotePort: 34567 });
+  const browser = Object.assign(new PassThrough(), { remoteAddress: '127.0.0.1', remotePort: 34568 });
+  const other = Object.assign(new PassThrough(), { remoteAddress: '127.0.0.1', remotePort: 34569 });
+  const dispose = releaseExitedFixtureInspector({ process: () => child, windows: () => [] },
+    { pid: 12345, debugPort: 34567, browserPort: 34568 }, [node, browser, other], () => nativeAlive);
+  try {
+    await new Promise(resolve => setTimeout(resolve, 50));
+    assert.equal(node.destroyed, false);
+    assert.equal(browser.destroyed, false);
+    nativeAlive = false;
+    await new Promise(resolve => setTimeout(resolve, 50));
+    assert.equal(node.destroyed, true);
+    assert.equal(browser.destroyed, true);
+    assert.equal(other.destroyed, false);
+  } finally { dispose(); node.destroy(); browser.destroy(); other.destroy(); }
+});
+
+test('an ambiguous Chromium endpoint does not release either of its possible connections', async () => {
+  const sockets = Array.from({ length: 2 }, () =>
+    Object.assign(new PassThrough(), { remoteAddress: '127.0.0.1', remotePort: 34568 }));
+  const dispose = releaseExitedFixtureInspector({ process: () => ({ exitCode: 0 }), windows: () => [] },
+    { pid: 12345, debugPort: 34567, browserPort: 34568 }, sockets, () => false);
+  try {
+    await new Promise(resolve => setTimeout(resolve, 50));
+    assert.ok(sockets.every(socket => !socket.destroyed));
+  } finally { dispose(); for (const socket of sockets) socket.destroy(); }
 });

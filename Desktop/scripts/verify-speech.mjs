@@ -135,12 +135,27 @@ const launch = async () => {
   await page.getByRole('textbox', { name: '消息', exact: true }).waitFor();
   await page.waitForFunction(() => document.querySelector('.composer-input')?.getAttribute('aria-disabled') === 'false');
   await page.evaluate(() => {
+    const media = navigator.mediaDevices, getUserMedia = media.getUserMedia.bind(media);
+    window.__speechFixtureTracks = [];
+    // Chromium recommends unprocessed input for WAV-backed fake microphones.
+    // Keep native permission/capture; only prevent speech filters from removing the test tone.
+    media.getUserMedia = async constraints => {
+      const stream = await getUserMedia({ ...constraints, audio: constraints.audio ? {
+        ...(typeof constraints.audio === 'object' ? constraints.audio : {}),
+        echoCancellation: false, noiseSuppression: false, autoGainControl: false,
+      } : constraints.audio });
+      for (const track of stream.getAudioTracks()) {
+        const { echoCancellation, noiseSuppression, autoGainControl, sampleRate, channelCount } = track.getSettings();
+        window.__speechFixtureTracks.push({ echoCancellation, noiseSuppression, autoGainControl, sampleRate, channelCount });
+      }
+      return stream;
+    };
     const Original = window.AudioWorkletNode;
     window.AudioWorkletNode = class extends Original {
       constructor(...args) {
         super(...args);
         if (args[1] !== 'desktop-speech-capture') return;
-        const capture = { samples: 0, voicedSamples: 0 };
+        const capture = { samples: 0, voicedSamples: 0, maxRms: 0 };
         window.__speechFixtureCapture = capture;
         // Observe the production worklet without replacing capture or transcription.
         this.port.addEventListener('message', ({ data }) => {
@@ -148,7 +163,9 @@ const launch = async () => {
           capture.samples += data.samples.length;
           let energy = 0;
           for (const sample of data.samples) energy += sample * sample;
-          if (Math.sqrt(energy / Math.max(1, data.samples.length)) >= 0.01) capture.voicedSamples += data.samples.length;
+          const rms = Math.sqrt(energy / Math.max(1, data.samples.length));
+          capture.maxRms = Math.max(capture.maxRms, rms);
+          if (rms >= 0.01) capture.voicedSamples += data.samples.length;
         });
       }
     };
@@ -278,6 +295,17 @@ try {
   await assertGeometry(idleGeometry);
   await page.screenshot({ path: join(evidence, 'recording-dark.png') });
   await until(async () => (await text()).includes('语音输入验收文本'), 'Continuous ASR did not append while recording');
+  const continuousCapture = await page.evaluate(() => ({
+    ...window.__speechFixtureCapture, tracks: window.__speechFixtureTracks,
+  }));
+  assert.ok(continuousCapture.voicedSamples >= 3200, 'The native worklet must receive voiced PCM before ASR');
+  assert.ok(continuousCapture.maxRms > 0.1, 'The unprocessed WAV must retain its fixture amplitude');
+  assert.ok(continuousCapture.tracks.length > 0);
+  for (const track of continuousCapture.tracks) {
+    assert.equal(track.echoCancellation, false);
+    assert.equal(track.noiseSuppression, false);
+    assert.equal(track.autoGainControl, false);
+  }
   assert.equal(await page.getByRole('button', { name: '结束听写', exact: true }).isVisible(), true);
   assert.equal(await page.getByRole('button', { name: '发送', exact: true }).isDisabled(), true);
   assert.equal(await text(), '保留已有草稿\n语音输入验收文本');
@@ -477,7 +505,7 @@ try {
   assert.equal((await settingsValue()).source, 'follow');
   assert.equal(await permission(), false);
   assert.deepEqual(errors, []); assert.deepEqual(failures, []);
-  const result = { ok: true, requests: calls, evidence, checks: [
+  const result = { ok: true, requests: calls, evidence, continuousCapture, checks: [
     'production Electron and synthetic microphone', 'first-use disclosure and Plan route',
     'same shared adapter as plugins and BVR', 'no Agent worker or automatic prompt',
     'text before Finish without whole-recording reupload', 'manual edits survive incremental append',
@@ -494,7 +522,9 @@ try {
   if (page && !page.isClosed()) {
     await page.screenshot({ path: join(evidence, 'failure.png') });
     await writeFile(join(evidence, 'failure-diagnostic.json'), JSON.stringify({
-      calls, failures, errors, capture: await page.evaluate(() => window.__speechFixtureCapture),
+      calls, failures, errors, capture: await page.evaluate(() => ({
+        ...window.__speechFixtureCapture, tracks: window.__speechFixtureTracks,
+      })),
     }, null, 2));
     console.error(await page.locator('body').innerText());
   }

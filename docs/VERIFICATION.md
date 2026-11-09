@@ -2,6 +2,22 @@
 
 ## 原生听写 CI 回归修订（2026-11-09）
 
+head `0024c96` 的 Windows 三组完整验收及 CI 汇总门禁、两平台 SDK、
+macOS ARM64 候选以及 runtime、sessions 源码/包内验收通过。macOS interface
+在首次连续听写等待文字时失败：诊断中原生 worklet 收到 323,200 个
+采样，但有声采样为零，没有 ASR 请求、transport 断言或 renderer 错误。
+这不是“已观察到 ASR HTTP 失败”，也不据此推断真实麦克风故障。
+
+合成 WAV fixture 现通过原生 getUserMedia 显式关闭回声消除、降噪和
+自动增益，返回原 MediaStream；不替换权限、采集、worklet、分段、
+IPC 或 provider，不改变产品默认约束。新增音轨处理开关和真实 PCM
+振幅断言，失败证据补入最大 RMS 与去除设备标识的音轨设置。
+本地完整语音验收连续两轮通过，每轮 7 次请求均走 loopback；
+首段 64,000 个采样均有声、最大 RMS 约 0.1414。语音服务/分段/
+worklet/实际 main IPC 共 35 项回归通过。原 20 秒等待和全部功能断言
+保留，新 head 的 macOS 结果仍需独立确认，不将本地成功写成已证明
+macOS 原因或已完成其源码/包内验收。
+
 head `34e26b1` 的 Windows runtime、sessions、两平台 SDK 和 macOS
 ARM64 候选构建通过。Windows interface 已通过语音验收，随后在既有
 市场诊断脚本轮询运行中的 Git checkout 文件时遇到 `ENOENT`。

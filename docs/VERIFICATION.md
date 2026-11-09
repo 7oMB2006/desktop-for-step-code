@@ -1,5 +1,32 @@
 # Verification
 
+## MiniChat 交接验收时序（2026-11-09）
+
+PR #228 的 Windows sessions 在裸 `/workflows` 的目录与详情互斥断言失败。
+连续打开同一条工作流或子代理记录时，主窗口已有的相同内容不能证明新一轮
+交接完成。验收现在先等待原生 MiniChat 窗口实际隐藏，再检查目标内容；
+关闭详情后等待面板卸载，才进行下一次交接。仍保留目录不能误开详情、
+重复交接不切错记录和零模型请求等原有断言，不修改产品逻辑或放宽超时。
+
+本地 Windows 类型检查、生产构建、43 项相关测试和完整 MiniChat Electron
+验收通过，包含原生最小化恢复、流式输出、审批与关闭退出。日志为
+`Desktop/test-results/pr228-ci-native-fixed.log`。这不替代修复提交的云端、
+macOS 或打包验收；未打包、改快捷方式或操作用户配置。
+
+## MiniChat Minimize (2026-11-09)
+
+The shared MiniChat header now invokes the existing sender-scoped native
+Minimize action. Typecheck, build, 38 focused unit tests and browser MiniChat
+acceptance pass, including retained editor identity, draft, reading position,
+disclosures and streaming. Light/dark and narrow screenshots were inspected.
+Native Windows assertions confirm that only MiniChat minimizes, its entry
+restores the same window/runtime, and streaming continues.
+
+The full native verifier did not pass: its later runtime-restart step reports
+`Runtime process-tree termination failed (1)`, followed by a shutdown timeout.
+Host CIM process queries also fail. Only this fixture's verified processes were
+stopped. No package, shortcut, cloud or macOS acceptance is claimed.
+
 ## Performance PR Integration (2026-11-09)
 
 The owner-accepted performance implementation is committed as `58fd3b7`, with
@@ -119,6 +146,18 @@ CrashLog fields, not child stderr or configuration contents. All 30 focused
 readiness/shutdown regressions and typecheck pass; the complete native workflow
 verifier passes three consecutive runs with the new orderly close. Replacement
 cloud acceptance is still required.
+
+Both Windows and macOS cloud workflows then pass on `533d65d`, including all
+three Windows groups, all macOS source/package groups and both final gates.
+Main advances during that run with MiniChat Minimize PR #228 (`12d054e`).
+Its native minimize and handoff-readiness changes are retained alongside the
+delayed presentation guard; only the verification history conflicts.
+Those passing cloud runs remain evidence for `533d65d`, not the subsequent
+integrated head. Integrated typecheck/build, 82 focused regressions and the
+complete native and browser MiniChat verifiers pass. Native verification retains
+the delayed historical anchor while also checking minimize/restore, streaming
+and repeated workflow/subagent handoffs. Replacement cloud checks remain required
+for this integrated head.
 
 This source combination has its own verification logs under
 `D:\Desktop Runtime Builds\performance-pr-20261109`. It does not replace the

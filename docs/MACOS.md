@@ -33,8 +33,9 @@ The commands below target the development v0.1.7 announcement source baseline
 freeze and acceptance records above remain historical. Darwin patch replay on
 Windows is not a native macOS build or package acceptance.
 
-Use an Apple Silicon Mac running macOS 13.5 or newer, Git, Xcode Command Line Tools, Node.js 24.15.0 and
+Use an Apple Silicon Mac running macOS 13.5 or newer, Git, Xcode Command Line Tools, Node.js 24.16.0 and
 Corepack. Use a dedicated checkout when the existing Step-Code directory has local changes.
+The SDK plugin examples and staged Node runtime use the same tested Node.js version.
 
 From the repository root:
 

@@ -13,6 +13,8 @@ export async function hostService(t: Pick<TestContext, 'after'>, options: {
   capabilities?: Array<'model.text' | 'model.video' | 'model.asr' | 'model.tts'>;
   profile?: string; configured?: boolean; settings?: boolean; request?: typeof fetch;
   packageDirectory?: string;
+  command?: string;
+  serverWrapper?: string;
   budgets?: { lease?: number; queue?: number; confirmation?: number; provider?: number };
 } = {}) {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'dfsc-host-service-')));
@@ -24,7 +26,8 @@ export async function hostService(t: Pick<TestContext, 'after'>, options: {
   const directory = join(root, 'plugins', 'example');
   await mkdir(directory, { recursive: true });
   if (options.packageDirectory) await cp(options.packageDirectory, directory, { recursive: true });
-  const manifest = { id: 'dfsc-host-example', mcpServers: { example: { command: 'node', args: ['dist/server.mjs'],
+  const manifest = { id: 'dfsc-host-example', mcpServers: { example: { command: options.command ?? 'node',
+    args: options.serverWrapper ? [options.serverWrapper, 'dist/server.mjs'] : ['dist/server.mjs'],
     ...(options.settings ? { env: { STEPFUN_API_KEY: 'DFSC_INDEPENDENT_PLUGIN' } } : {}) } } };
   await writeFile(join(directory, 'step.plugin.json'), JSON.stringify(manifest));
   await writeFile(join(directory, 'dfsc.host.json'), JSON.stringify({ schemaVersion: 1, hostApiVersion: 1,

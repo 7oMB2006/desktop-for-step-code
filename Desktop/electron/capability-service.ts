@@ -1,8 +1,9 @@
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { RpcManagementStopError, RpcProcess } from './runtime';
 import { PluginLibrary } from './plugin-library.mjs';
 import { PluginRepositoryInfo } from './plugin-repository.mjs';
 import { PluginConfigurationStore } from './plugin-configuration.mjs';
+import type { ConfigurationDescriptor } from './plugin-configuration.mjs';
 import { inspectPluginUpdate, recoverPluginUpdate } from './plugin-update.mjs';
 import { dataOnlyThemeFingerprint, optionalFile, scanInstalled } from './plugin-files.mjs';
 import { capabilityPolicy, type CapabilityGuard } from './capability-policy';
@@ -41,6 +42,7 @@ export class CapabilityService {
     root: string; runtime: string; node: string; environment(): NodeJS.ProcessEnv;
     validateImage?(bytes: Buffer, maxDimension?: number): boolean;
     fetchRepository?: typeof globalThis.fetch;
+    beforePluginMutation?(): void;
     createWorker?(): RpcProcess;
     guardRecovery?: (id: string) => Promise<void | (() => void)>;
   }) {
@@ -129,11 +131,32 @@ export class CapabilityService {
     if (!pending) return;
     if (!this.options.guardRecovery) throw new Error('capability:update-recovery-required');
     const release = await this.options.guardRecovery(pending.id);
-    try { await recoverPluginUpdate(this.options.root, { expectedJournal: pending.fingerprint }); }
+    try {
+      this.options.beforePluginMutation?.();
+      await recoverPluginUpdate(this.options.root, { expectedJournal: pending.fingerprint });
+    }
     catch (error) { this.runtimeQuarantined = true; throw error; }
     finally { release?.(); }
   }); }
   catalog(): Promise<CapabilityCatalog> { return this.enqueue(() => this.readCatalog()); }
+  // Main-only. Native discovery supplies the root; the management catalog and
+  // receipt must independently identify the same installed stdio consumer.
+  withHostDescriptor<T>(pluginId: string, root: string, consumer: string,
+    action: (descriptor: ConfigurationDescriptor) => Promise<T>): Promise<T> {
+    return this.enqueue(async () => {
+      const catalog = await this.readCatalog();
+      const plugins = catalog.plugins.filter(plugin => plugin.id === pluginId);
+      const servers = catalog.mcp.filter(server => server.name === `${pluginId}__${consumer}`);
+      if (plugins.length !== 1 || plugins[0].package?.provenance !== 'recorded'
+        || servers.length !== 1 || servers[0].source !== 'plugin' || servers[0].pluginId !== pluginId
+        || !servers[0].enabled || servers[0].transport !== 'stdio') throw new Error('capability:host-unavailable');
+      const ref = plugins[0].package!.ref;
+      const { descriptor } = await this.library.reference(ref);
+      if (descriptor.kind !== 'installed' || resolve(descriptor.root) !== resolve(root))
+        throw new Error('capability:host-unavailable');
+      return action({ ...descriptor, ref });
+    });
+  }
   private async readCatalog(): Promise<CapabilityCatalog> {
     const catalog = await this.library.project(await this.request('catalog'));
     for (const plugin of [...catalog.plugins, ...catalog.available]) {
@@ -202,6 +225,7 @@ export class CapabilityService {
     const current = await this.configurations.read(context);
     if (catalog.mcp.some(server => server.name === `${descriptor.id}__${current.schema.consumer.server}` && server.source !== 'plugin'))
       throw new Error('capability:configuration-consumer-conflict');
+    if (save) this.options.beforePluginMutation?.();
     return save ? this.configurations.save(context, save) : current;
   }); }
   mutate(input: CapabilityMutation, guard?: CapabilityGuard): Promise<CapabilityResult> {
@@ -257,6 +281,7 @@ export class CapabilityService {
         }
         await this.initializeStorage();
         if (input.action.startsWith('marketplace-') || ['plugin-install', 'plugin-remove', 'plugin-update', 'plugin-check-updates'].includes(input.action)) this.library.invalidate();
+        if (policy.scope === 'runtime') this.options.beforePluginMutation?.();
         return await this.request('mutate', { input: { ...input, ...expected, preserveRuntime: policy.scope !== 'runtime' } },
           policy.scope === 'runtime');
       } finally {
@@ -266,6 +291,7 @@ export class CapabilityService {
   }
   importSkill(path: string): Promise<CapabilityResult> { return this.enqueue(async () => {
     await this.initializeStorage();
+    this.options.beforePluginMutation?.();
     return this.request('import', { path }, true);
   }); }
   async stop() { await Promise.all([...this.workers].map(async worker => {

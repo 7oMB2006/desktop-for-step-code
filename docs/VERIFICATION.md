@@ -1,5 +1,75 @@
 # Verification
 
+## 市场刷新诊断夹具的文件替换间隙（2026-11-10）
+
+#218 Windows interface run `42703156585` 在
+`verify-capability-diagnostics.mjs:390` 读健康市场的 manifest 时遇到
+`ENOENT`，此前单市场失败诊断和 Remote 保留检查均已完成。
+夹具直接轮询 Git 正在更新的文件，缺少文件暂时不存在这一等待状态。
+两个在途 manifest 轮询现在仅将 `ENOENT` 当作尚未发布；仍须读到指定
+新修订才通过，非法 JSON、权限和其他 I/O 错误继续立即失败。
+保留原 60 秒期限、100ms 间隔、Remote 身份和流式任务断言。
+
+受控回归真实移走旧文件，确认旧读法当场失败；在第一次空快照后发布新
+文件，确认轮询只在新描述出现后完成。56 项定向回归、类型检查及生产
+构建通过，完整 Windows 市场诊断 12 个场景通过且确认清理完成。
+日志为 `Desktop/test-results/goal218-manifest-native-20261110.log`。
+源码、包内与新 head 云端结果仍分别验收，不将该夹具修复当作任何
+产品刷新错误的豁免。
+
+## 宿主启动层同步管理保护（2026-11-09）
+
+启动层合入本轮代理分支，保留主线 `6edeb18` 的管理租约、Remote、
+恢复 journal 摘要校验、确认关闭及 MiniChat surface/诊断参数。
+宿主授权仅在通过 guard 后的运行时修改前撤销；市场发现和已证明的
+纯主题操作不撤销。隔离的管理或运行时状态不会恢复延后启动。
+RPC 同时保留关闭 ACK 和安全错误详情，并丢弃未知或迟到的私有响应。
+
+本轮 80 项代理、launcher、管理策略、实际 main IPC 和关闭回归全部通过，
+含 3 项新增组合边界测试；类型检查和生产构建通过。全新固定源码重放、
+构建及 staging 完成后，4 项真实原生 SDK 启动测试通过，覆盖实际 broker、
+确认、账户撤销、全局覆盖、初始化错误隔离和 opt-in 关闭兼容性。
+
+初次暂存虽通过源码后像检查，但 CLI 依赖 junction 解析到了旧 checkout，
+使 3 项原生测试报私有命令不存在；该次失败日志保留，不计入通过。
+仅在新建隔离目录重建 CLI 依赖链接、令 coding-agent 指向同一重放源码后
+重新构建及复验；没有改动原 checkout 或重新安装依赖。重放目录：
+`D:\Desktop Runtime Builds\plugin-host-stack-main-20261109\Step-Code`。
+成功日志为 `Desktop/test-results/plugin-host-launch-main-native-isolated-20261109.log`
+与 `plugin-host-stack-staging-isolated-20261109.log`。
+
+修正依赖后的同一暂存运行时还通过 RPC/模型/会话回归 122 项中的
+120 项（2 项 POSIX 跳过），以及默认 sandbox 下的真实 Electron
+启动、设置、MCP、主题、窄窗口和重开验收。日志为
+`plugin-host-launch-main-protocol-20261109.log` 与
+`plugin-host-launch-main-electron-isolated-20261109.log`。
+
+#215 新 head `21181d1` 的 Windows 会话组在
+`verify-mini-chat-electron.mjs:524` 的阅读锚点返回检查超时，根因未确认。
+不沿用旧 head 的绿项，也没有为此降低断言、增加超时或改动 MiniChat 产品逻辑。
+本层仍为草稿；没有打包、市场发布、真实付费请求或日用 profile 变更。
+
+## 宿主叠加 PR 的 CI 依赖准备（2026-11-08）
+
+#218 的 `9d5f0a3` 与 #220 的 `9914784` 在依赖准备阶段仍失败，
+尚未进入本轮授权验收。canvas 安装器没有取得预编译包，随后在 Windows
+回退编译时找不到支持的 Visual Studio，在 macOS 缺少 pangocairo。
+此前另有 Electron 下载 504；这些现象不能证明授权断言失败，也不能
+仅凭安装器的 “No prebuilt binaries found” 判断官方资产不存在。
+
+本轮只复用另一工作分支的公共 CI 修复（`585b359`、`32cd89a`、
+`4a69dc9`），不引入 #219 的产品改动及其验收记录。预取固定版本的
+官方 canvas 和 Electron 归档，Release 下载失败时只尝试同一官方资产
+的 GitHub API；每个下载有有限期限及重试，校验 SHA-256 后才交给
+原安装器。保留 frozen-lockfile、正常安装生命周期、测试及产物门禁，
+不改 runtime pin、Node 24.16.0、依赖版本或镜像。
+
+本地 CI 策略、Win/mac runner、产物回执、摘要和预取回归共 50 项：
+49 通过，1 项 POSIX 专属场景在 Windows 跳过。已从官方 Release
+metadata 独立核对两个平台的 canvas/Electron 资产 ID 和 SHA-256。
+该结果不等于本轮云端新下载或 macOS 原生验收通过，须按新提交单独确认。
+未安装依赖、构建安装包、触碰日用账户或快捷方式。
+
 ## Windows 短路径测试夹具冷启动（2026-11-10）
 
 #217 Windows sessions run `42668131299` 在全量协议测试失败：
@@ -11115,6 +11185,96 @@ BVR 仅提取并共用原有官方账户路由选择器，仍使用旧桥。
 代理、配置、会话和全局指令测试通过，官方 SDK 示例共 7 项通过。
 未改变账户路由、租约边界、公开 SDK、固定 runtime pin 或依赖，
 未接入生产启动器、调用真实模型或生成安装包；新云端检查另行确认。
+
+## 插件宿主原生启动绑定与生命周期 (2026-11-08)
+
+本轮基于代理服务候选 `6203e1b`，接通生产主进程的能力门控启动链，
+没有增加用户模式选择界面或升级 pin。运行时仍固定
+`29eb460780489801ce8afc8bffc1a2efae7cbded`。
+只有声明了宿主消费者、安装 receipt/包指纹/模式有效、真实原生记录唯一，
+并且会话和实际模型恢复完毕时才签发；上下文只注入这一次 stdio 启动。
+没有模式或存在全局覆盖、来源冲突时保持延后，不默认继承账户授权。
+
+账户持久化、实际模型应用、transport 退出、插件/配置管理和全局 MCP 保存
+均主动撤销。供应商、登录及额度凭据刷新事务结束后只恢复等待中的新启动；
+中途门控再次关闭可以继续等待，已签发后失败或撤销的记录不透明重签。
+原生关闭等待进行中的延后启动；单个失败只释放自己的租约。
+私有 RPC 未进入 preload/renderer allowlist，超时迟到和未匹配响应直接丢弃，
+hosted 初始化/目录失败不回显原始 launch 上下文。
+
+本地 Windows 源码验收：
+
+- Desktop 全量串行回归 1,530 项：1,517 通过、13 项平台跳过，
+  零失败、零取消，耗时 974.2 秒。日志：
+  `Desktop/test-results/plugin-host-launch-full-20261108.log`。
+- launcher 与原生 SDK 集成 12 项全部通过，使用真实固定 runtime、原生发现、
+  私有 RPC、安装 receipt、管理目录及自包含 SDK 子进程。
+  测试专用 MCP proxy 调用同一子进程工具，provider 为隔离 fixture；
+  验证门控释放、逐能力确认、实际 broker 调用、账户撤销、全局覆盖、
+  初始化错误回显隔离及关闭 opt-in 的兼容行为，不向模型发送 prompt。
+- 原生 `desktop-plugin-host.test.ts` 和 `src/step/mcp.test.ts` 共 22 项通过，
+  包括来源/策略/声明变化、重复启动、session 变化和关闭交错。
+  五份改动原生文件 Biome 检查、原生根目录及 coding-agent 构建配置的
+  `tsgo --noEmit`、`check-no-secret-leak` 通过；没有声称执行完整根 `check`。
+- Desktop 类型检查、最终生产构建通过。最终构建上的真实 Electron
+  基础启动及模型切换验收通过，使用隔离 profile 和假模型返回；
+  覆盖真实 RPC、renderer 无 Node 权限、设置、窄窗口、重载、
+  会话独立模型、队列换模及缺失模型保护。日志：
+  `plugin-host-launch-electron-20261108.log`、`plugin-host-launch-models-20261108.log`。
+- CI 策略、清单及 runner 40 项：39 通过、1 项平台跳过。
+  Windows/macOS 工作流已纳入原生 22 项回归，YAML 解析通过。
+- 隔离源码和全新补丁重放后像匹配：共享 53 项、Darwin 组合 54 项；
+  所有补丁哈希、staging 源码哈希和 Node 24.16.0 SHA-256 匹配，
+  staged manifest 含 25 个能力标记。Darwin 补丁重放不是原生 macOS 执行。
+
+调试中曾以假 Key 命中上游接口并收到 401；最终集成不再走该模型驱动路径。
+没有使用个人账户或验证付费权益，不能将调试过程描述为全程无外连。
+现有 Step provider 路由单独由 broker/SDK 隔离测试覆盖，原生集成的假 provider
+不证明真实 Step 权益。生产 IPC 中连续设置事务、多消费者交错及付费确认
+尚缺完整端到端覆盖；基础 Electron 验收不能替代这一点。
+
+模式/授权设置界面、未来模式写入的管理队列接入、真实账户权益、
+TTS、BVR 旧桥迁移、Cron 恢复自动接线、实包和跨仓库发布仍未交付。
+本轮未打包、修改快捷方式、重启日用应用或更改用户 profile。
+新 PR 的云端 CI 与原生 macOS 结果分别确认，不把本地通过写成云端通过。
+
+可重建产物已盘点，未删除：本工作树 `Desktop/runtime` 约 124 MiB、
+`Desktop/dist` 约 12 MiB，隔离源码的 coding-agent/CLI dist 合计约 29 MiB；
+`D:\Desktop Runtime Builds\plugin-host-launch-20261108` 下保留源码、
+新补丁重放目录及必要验收证据。没有生成或囤积新的安装包。
+
+### 信任命令与更新器验收竞态修正 (2026-11-09)
+
+本轮针对 #218 Windows 更新器退出超时和 #220 macOS 包内信任审批失败。
+macOS 失败截图实际包含 `Session operation in progress`，不是已经证实的
+菜单或 Enter 故障。受控延迟普通快照读取后，旧代码稳定无法产生审批；
+修正后普通快照不再阻止信任命令，审批、原生空闲检查、真正操作互斥、
+transport/目录复查、取消不写入和不调用模型的边界不变。
+
+更新器断言通过后卡在收尾；本地旧验收的诊断显示收尾时仅有测试窗口，
+真实主窗口尚未创建。现在先等待真实主窗口及 typed 退出桥就绪再运行
+UI 验收，正常收尾同时等待 controller、进程退出与 context close，
+沿用 30 秒有界等待，不强杀、不延长外层 300 秒期限。云端原始卡点
+没有更细的退出现场，因此不将这一启动竞态描述为已排除其他可能。
+
+#218 本地 130 项定向测试全部通过，包含快照在命令前/审批中交错、
+非快照操作保留拒绝、退出控制器和会话池回归；Desktop 类型检查及
+生产构建通过。真实源码 Electron 信任完整流程、命令菜单和两次
+更新器正常收尾验收串行通过，profile 与模型均为隔离 fixture。
+本轮未重跑全量测试，未在本机执行原生 macOS 或生成安装包；
+#220 合并后组合复验及新 head 云端状态需分别确认。
+
+### 启动层同步新主线底座（2026-11-10）
+
+合入代理分支 `5ef63a6`，继承 main `12d054e`。主进程冲突同时保留
+原生宿主消费者挂载与全局指令空会话复用钩子，退出边界测试同时保留
+宿主启动器和插件窗口桩；验证记录保留双方历史。未改变启动签发、
+账户撤销、隔离、权限或固定 runtime pin。
+
+类型检查及 160 项启动器、真实原生 runtime、会话、全局指令、
+实际主进程 IPC/退出、能力门控和插件窗口策略测试全部通过。
+组合 Electron 与新 head 云端验收另行确认；未打包、访问日用档案、
+调用真实模型或合并发布。
 
 ## Plugin Desktop Workspaces (2026-11-09, Local Source Verification)
 

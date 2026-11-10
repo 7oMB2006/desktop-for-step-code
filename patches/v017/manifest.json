@@ -24,7 +24,8 @@
     "step-code-desktop-background-reply.patch": "a8e8d7b19cdcf186575041388933dfcca32bdf40",
     "step-code-desktop-completion-review.patch": "760a44aa097f5777587243e4b8eb22d15485f987",
     "step-code-desktop-v017.patch": "8ea430ad9a01b20a98af88ad98b7100f2213f56f",
-    "step-code-desktop-mcp-credentials.patch": "1fbd6267db3d54e4c109c633f6ab832d94880106"
+    "step-code-desktop-mcp-credentials.patch": "1fbd6267db3d54e4c109c633f6ab832d94880106",
+    "step-code-desktop-plugin-host.patch": "b075e7b79a718b37fb8d6e52012b9565ee7e47cb"
   },
   "sources": {
     "packages/coding-agent/src/step/mcp-environment.ts": "d46ee0c3e07fbcd2432b43bd355080e52e3aca50",
@@ -100,9 +101,9 @@
     "packages/coding-agent/src/index.ts": "88a6fa66fbcb23d623d164ebd7620fbb54aff08c",
     "packages/coding-agent/src/modes/rpc/desktop-btw.ts": "0d9656fb61e93fecee1a602d17b30d5d668017f5",
     "packages/coding-agent/src/modes/rpc/desktop-completion-review.ts": "072dc370724cfc0d2ac9e81b35063ac04885f2a9",
-    "packages/coding-agent/src/modes/rpc/rpc-mode.ts": "a2dbb20d2f66d38a121a3dcd776b60abe33d9d10",
-    "packages/coding-agent/src/modes/rpc/rpc-types.ts": "5be771e3b2294f727b102719b4ea260d37ea94d3",
-    "packages/coding-agent/src/step/mcp.ts": "569b7203dfa2ce28955ac1c2c93b0a9fd317d484",
+    "packages/coding-agent/src/modes/rpc/rpc-mode.ts": "45bc8f9712f4a95aa554d65f9d70748e464a504a",
+    "packages/coding-agent/src/modes/rpc/rpc-types.ts": "3551a4f9fa8e20c987702379768cd37b27618772",
+    "packages/coding-agent/src/step/mcp.ts": "350404da2b43b06a03b2b771b4e2ea3b6908ce29",
     "packages/coding-agent/src/step/usage/recording.ts": "069045cda51c11b0fb642c4ebc5fddecfe91be1a",
     "packages/coding-agent/src/utils/shell.ts": "34a10c2fcd947c4951e1fb85bea3de9ae3d6a365",
     "packages/coding-agent/test/desktop-background-replies.test.ts": "ea7fa101b0c61628c812e744b360cb204dd09132",
@@ -121,7 +122,9 @@
     "packages/coding-agent/test/workflow-extension.test.ts": "b6552efac93489ef58d0b7b76035fbca44081399",
     "packages/coding-agent/test/workflow-runtime.test.ts": "07eeb84ba39fa010af7481109f943de59782c259",
     "scripts/build-coding-agent-bundle.mjs": "fac2aeda34008d81d0a01b1fa4d8a0af2ab4b476",
-    "packages/coding-agent/test/suite/plan-storage.test.ts": "e1f28ca03e6ed8e91f8a13b137af622933259591"
+    "packages/coding-agent/test/suite/plan-storage.test.ts": "e1f28ca03e6ed8e91f8a13b137af622933259591",
+    "packages/coding-agent/src/step/desktop-plugin-host.ts": "82149ab7ca422968425c3b2e81fae678e195c405",
+    "packages/coding-agent/test/desktop-plugin-host.test.ts": "dd61a808d4fef580264589426227753f3d59923c"
   },
   "platforms": {
     "darwin": {

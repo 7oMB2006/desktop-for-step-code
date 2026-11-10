@@ -16,13 +16,14 @@ test('only a standalone explicit /trust invokes Desktop project trust', () => {
     assert.throws(() => isProjectTrustInput(data), /by itself/);
 });
 
-async function fixture(t: TestContext) {
+async function fixture(t: TestContext, beforeRequest?: (type: string) => Promise<void> | undefined) {
   const cwd = await realpath(await mkdtemp(join(tmpdir(), 'desktop-trust-unit-')));
   const calls: string[] = [];
   const pool = new SessionRuntimes(() => {}, () => ({
     start() {},
     async request(type: string) {
       calls.push(type);
+      await beforeRequest?.(type);
       if (type === 'get_state') return { sessionId: 'trust-test', isStreaming: false };
       if (type === 'get_messages') return { messages: [] };
       if (type === 'get_available_models') return { models: [] };
@@ -97,6 +98,68 @@ test('busy hosts cannot start project trust or write a decision', async t => {
   assert.equal(f.worker.pendingUI.size, 0);
   assert.deepEqual(f.writes, []);
   assert.equal(f.worker.mutating, false);
+});
+
+for (const phase of ['before command', 'during approval'] as const) {
+  test(`read-only snapshot refresh ${phase} cannot reject idle project trust`, async t => {
+    let hold = false;
+    let release!: () => void;
+    const blocked = new Promise<void>(resolve => { release = resolve; });
+    const f = await fixture(t, type => hold && type === 'get_messages' ? blocked : undefined);
+    hold = true;
+    let reading = phase === 'before command' ? f.pool.read(f.worker) : undefined;
+    t.after(release);
+    const pending = f.run();
+    void pending.catch(() => {});
+    try {
+      await f.request();
+      reading ??= f.pool.read(f.worker);
+      assert.equal(f.worker.operations, 1);
+      await f.answer(true);
+      assert.deepEqual(await pending, { saved: true });
+      assert.deepEqual(f.writes, [f.cwd]);
+      assert.equal(f.worker.operations, 1, 'trust does not cancel or complete the snapshot read');
+    } finally {
+      release();
+      await reading;
+    }
+  });
+}
+
+test('non-snapshot operations still block project trust', async t => {
+  const f = await fixture(t);
+  f.worker.operations++;
+  try {
+    await assert.rejects(f.run(), /operation in progress/);
+    assert.equal(f.worker.pendingUI.size, 0);
+    assert.deepEqual(f.writes, []);
+  } finally { f.worker.operations--; }
+});
+
+test('a snapshot cannot mask an additional operation starting during trust approval', async t => {
+  const f = await fixture(t);
+  const pending = f.run();
+  const rejected = assert.rejects(pending, /operation in progress/);
+  await f.request();
+  let release!: () => void;
+  const blocked = new Promise<void>(resolve => { release = resolve; });
+  const original = f.worker.rpc.request;
+  f.worker.rpc.request = async (type, ...args) => {
+    if (type === 'get_messages') await blocked;
+    return original(type, ...args);
+  };
+  const reading = f.pool.read(f.worker);
+  f.worker.operations++;
+  try {
+    await f.answer(true);
+    await rejected;
+    assert.deepEqual(f.writes, []);
+    assert.equal(f.worker.mutating, false);
+  } finally {
+    f.worker.operations--;
+    release();
+    await reading;
+  }
 });
 
 test('replaced transports cannot inherit a pending project approval', async t => {

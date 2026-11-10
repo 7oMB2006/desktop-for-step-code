@@ -1,7 +1,7 @@
 # DFSC host client 候选
 
 只使用 Node 内置能力的窄调用 client，不是提供商 SDK，也不是拿 Key 的接口。
-这是尚未由生产启动器签发的协议候选；完整约定见
+候选源码的启动器已按原生记录签发，模式设置入口尚未交付，安装不自动授权；完整约定见
 [插件宿主模型协议](../../../docs/PLUGIN_HOST_CONTRACT.md)。
 
 作者源码可以复制本目录的 `client.mjs`、`protocol.mjs`、对应类型和 LICENSE

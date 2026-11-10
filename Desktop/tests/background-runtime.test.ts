@@ -12,6 +12,99 @@ import type { RuntimeEvent } from '../src/contracts';
 import { BackgroundAgents } from '../electron/background-agents';
 import { backgroundSubagentStates, projectBackgroundSubagentStates } from '../src/conversation-presentation';
 
+type BackgroundSlotStatus = {
+  slot: number;
+  admission: 'pending' | 'admitted' | 'rejected' | 'invalid' | 'duplicate';
+  lane: 'unknown' | 'running' | 'completed' | 'failed' | 'aborted' | 'invalid';
+  model: 'missing' | 'held';
+};
+
+function backgroundSlotStatuses(events: readonly RuntimeEvent[], slots: ReadonlyMap<string, unknown>): BackgroundSlotStatus[] {
+  const admissions = Array.from({ length: 8 }, () => ({
+    admission: 'pending' as BackgroundSlotStatus['admission'], laneId: undefined as string | undefined,
+  }));
+  const owners = new Map<string, number>();
+  const terminals = new Map<string, BackgroundSlotStatus['lane']>();
+  for (const event of events) {
+    if (event.type === 'tool_execution_end' && event.toolName === 'subagent') {
+      const match = typeof event.toolCallId === 'string' && /^background-slot-([0-7])$/.exec(event.toolCallId);
+      if (!match) continue;
+      const slot = Number(match[1]);
+      const admission = admissions[slot];
+      if (admission.admission !== 'pending') {
+        admission.admission = 'duplicate';
+        continue;
+      }
+      const details = event.result?.details;
+      if (event.isError === true || event.result?.isError === true) admission.admission = 'rejected';
+      else if (event.isError !== false || details?.mode !== 'single' || details?.status !== 'running'
+        || typeof details?.agentId !== 'string' || !/^lane_[0-9a-f]{8}$/.test(details.agentId)) {
+        admission.admission = 'invalid';
+      } else {
+        admission.laneId = details.agentId;
+        const owner = owners.get(details.agentId);
+        if (owner !== undefined) {
+          admission.admission = 'duplicate';
+          admissions[owner].admission = 'duplicate';
+        } else {
+          owners.set(details.agentId, slot);
+          admission.admission = 'admitted';
+        }
+      }
+    }
+    const message = event.type === 'message_end' ? event.message : undefined;
+    if (message?.role === 'custom' && message.customType === 'agent-notification'
+      && ['background_done', 'background_failed', 'background_interrupted'].includes(message.details?.event)) {
+      const { agentId, status } = message.details;
+      if (typeof agentId === 'string' && /^lane_[0-9a-f]{8}$/.test(agentId))
+        terminals.set(agentId, status === 'completed' || status === 'failed' || status === 'aborted' ? status : 'invalid');
+    }
+  }
+  // Keep lane ids and all native payloads internal, including out-of-order terminal notices.
+  return admissions.map((admission, slot) => ({
+    slot, admission: admission.admission,
+    lane: admission.laneId ? terminals.get(admission.laneId) ?? 'running' : 'unknown',
+    model: slots.has(`BACKGROUND-SLOT-${slot}`) ? 'held' : 'missing',
+  }));
+}
+
+test('background capacity diagnostics require eight distinct admissions and held model requests', () => {
+  const events = Array.from({ length: 8 }, (_, slot) => ({
+    type: 'tool_execution_end', toolName: 'subagent', toolCallId: `background-slot-${slot}`, isError: false,
+    result: { details: { agentId: `lane_${slot.toString(16).padStart(8, '0')}`, mode: 'single', status: 'running' } },
+  }));
+  const slots = new Map(events.map((_, slot) => [`BACKGROUND-SLOT-${slot}`, () => {}]));
+  assert.deepEqual(backgroundSlotStatuses(events, slots), events.map((_, slot) => ({
+    slot, admission: 'admitted', lane: 'running', model: 'held',
+  })));
+  slots.delete('BACKGROUND-SLOT-7');
+  events[7].result.details.agentId = events[0].result.details.agentId;
+  const snapshot = backgroundSlotStatuses(events, slots);
+  assert.equal(snapshot[0].admission, 'duplicate');
+  assert.deepEqual(snapshot[7], { slot: 7, admission: 'duplicate', lane: 'running', model: 'missing' });
+  events[7].result.details.agentId = 'lane_00000007';
+  assert.equal(backgroundSlotStatuses([...events, events[0]], slots)[0].admission, 'duplicate');
+});
+
+test('background capacity diagnostics retain early termination and allowlist rejected or malformed payloads', () => {
+  for (const status of ['completed', 'failed', 'aborted', 'cookie=private-status']) {
+    const events: RuntimeEvent[] = [
+      { type: 'message_end', message: { role: 'custom', customType: 'agent-notification',
+        details: { agentId: 'lane_00000000', event: 'background_failed', status, detail: 'cookie=private-detail' } } },
+      { type: 'tool_execution_end', toolName: 'subagent', toolCallId: 'background-slot-0', isError: false,
+        result: { details: { agentId: 'lane_00000000', mode: 'single', status: 'running' } } },
+      { type: 'tool_execution_end', toolName: 'subagent', toolCallId: 'background-slot-1', isError: true,
+        result: { content: [{ type: 'text', text: 'authorization: Bearer private-rejection' }] } },
+      { type: 'tool_execution_end', toolName: 'subagent', toolCallId: 'background-slot-2', isError: false,
+        result: { details: { agentId: 'private-path', mode: 'single', status: 'running' } } },
+    ];
+    assert.deepEqual(backgroundSlotStatuses(events, new Map()), Array.from({ length: 8 }, (_, slot) => ({
+      slot, admission: slot === 0 ? 'admitted' : slot === 1 ? 'rejected' : slot === 2 ? 'invalid' : 'pending',
+      lane: slot === 0 ? status === 'cookie=private-status' ? 'invalid' : status : 'unknown', model: 'missing',
+    })));
+  }
+});
+
 for (const outcome of ['complete', 'suspend', 'control', 'reply', 'retry', 'plan'] as const) {
 test(`pinned RPC background lane survives parent end and navigation: ${outcome}`, { timeout: outcome === 'retry' ? 90000 : 60000 }, async t => {
   const profile = await mkdtemp(join(tmpdir(), 'desktop-background-runtime-'));
@@ -162,6 +255,7 @@ test(`pinned RPC background lane survives parent end and navigation: ${outcome}`
   const node = resolve('runtime/node', process.platform === 'win32' ? 'node.exe' : 'node');
   const entry = resolve('runtime/step/dist/bundle/step.js');
   const env = isolatedEnvironment(profile);
+  let capacityDiagnostics: (() => string) | undefined;
   const waitFor = async (predicate: () => boolean, deadlineMs = 25000) => {
     const until = Date.now() + deadlineMs;
     while (!predicate()) {
@@ -173,11 +267,12 @@ test(`pinned RPC background lane survives parent end and navigation: ${outcome}`
         assert.match(request.title ?? '', /subagent/i);
         pool.respondToRequest(worker, { id: request.id, confirmed: true });
       }
-      if (Date.now() > until) throw new Error(`Background fixture timed out after ${deadlineMs}ms: child=${childRequested}, events=${events.map(event => event.type).slice(-15)}`);
+      if (Date.now() > until) throw new Error(`Background fixture timed out after ${deadlineMs}ms: ${capacityDiagnostics?.()
+        ?? `child=${childRequested}, events=${events.map(event => event.type).slice(-15)}`}`);
       await new Promise(resolve => setTimeout(resolve, 20));
     }
   };
-  const PHASES = ['start', 'open', 'parent dispatched', 'child held', 'child released', 'review pending', 'review dismissed', 'restored',
+  const PHASES = ['start', 'open', 'parent dispatched', 'child held', 'child released', 'capacity requested', 'capacity held', 'review pending', 'review dismissed', 'restored',
     'ownership cleared', 'ack', 'idle', 'cleanup-server', 'runtime'] as const;
   let phase: typeof PHASES[number] = 'start';
   // Bounded, redacted progress output: only these allow-listed phase names ever
@@ -187,7 +282,7 @@ test(`pinned RPC background lane survives parent end and navigation: ${outcome}`
     phase = next;
     console.error(`background-runtime[${outcome}] phase=${next}`);
   };
-  const diagnostics = () => [
+  const diagnostics = () => capacityDiagnostics?.() ?? [
     `phase=${phase}`,
     `startup=${startup ? JSON.stringify({ ...startup,
       elapsedMs: Math.round(startup.elapsedMs + (startup.status === 'starting' ? performance.now() - observedAt : 0)),
@@ -265,12 +360,25 @@ test(`pinned RPC background lane survives parent end and navigation: ${outcome}`
       await waitFor(() => !host.backgroundActive && !pool.isBusy(host));
       const first = (await controls.read(host.id, sessionId)).lanes[0];
       assert.equal(first.status, 'completed');
+      const capacityStart = events.length;
+      const capacity = () => backgroundSlotStatuses(events.slice(capacityStart), slots);
+      capacityDiagnostics = () => `slots=${JSON.stringify(capacity())}`;
+      bump('capacity requested');
       await host.rpc.request('prompt', { message: 'BACKGROUND-CAPACITY' });
       // Eight children start cold and their first model requests can trail the
       // parent's settled turn on shared runners. This is a fixture mechanics
       // budget for those spawns, not a product assertion: every capacity,
       // dedup and retry check below keeps its original semantics.
-      await waitFor(() => slots.size === 8 && !pool.isBusy(host), 45000);
+      await waitFor(() => {
+        const snapshot = capacity();
+        if (snapshot.some(slot => !['pending', 'admitted'].includes(slot.admission)
+          || !['unknown', 'running'].includes(slot.lane)))
+          throw new Error(`Background capacity admission or lane termination failed: slots=${JSON.stringify(snapshot)}`);
+        return slots.size === 8 && snapshot.every(slot => slot.admission === 'admitted' && slot.model === 'held')
+          && !pool.isBusy(host);
+      }, 45000);
+      capacityDiagnostics = undefined;
+      bump('capacity held');
       const request = { sessionId, action: 'reply', laneId: first.id,
         requestId: '45678901-1234-1234-1234-123456789abc', prompt: 'BACKGROUND-RETRY' };
       const reply = (patch = {}) => host.rpc.request('desktop_subagents', { ...request, ...patch });

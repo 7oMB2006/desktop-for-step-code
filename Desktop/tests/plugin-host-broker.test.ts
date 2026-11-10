@@ -31,6 +31,13 @@ function deferred<T>() {
   const promise = new Promise<T>(done => { resolve = done; });
   return { resolve, promise };
 }
+test('a failed native startup releases only its own lease', async t => {
+  const fixture = await hostService(t);
+  const first = await clientFor(t, fixture), second = await clientFor(t, fixture);
+  fixture.broker.release(first.launch);
+  await assert.rejects(first.client.context(), /STALE_CONTEXT/);
+  assert.equal((await second.client.context()).capabilities[0].model, 'step-5-preview');
+});
 
 test('only main can issue a receipt-bound lease; missing choice and conflicting transports never gain access', async t => {
   const fixture = await hostService(t, { configured: false });

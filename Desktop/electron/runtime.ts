@@ -33,7 +33,7 @@ export class JsonLines {
 export function isolatedEnvironment(root: string, parent: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
   const env = { ...parent };
   for (const key of Object.keys(env)) {
-    if (/^(STEP|PI_|AI_AGENT|ELECTRON_|NODE_OPTIONS|NODE_PATH)/i.test(key) || /(?:API_KEY|ACCESS_TOKEN|AUTH_TOKEN|SECRET|PASSWORD|COOKIE)$/i.test(key)) delete env[key];
+    if (/^(STEP|PI_|AI_AGENT|ELECTRON_|NODE_OPTIONS|NODE_PATH|DFSC_(?:HOST|LAUNCH|RUNTIME_HOST)_)/i.test(key) || /(?:API_KEY|ACCESS_TOKEN|AUTH_TOKEN|SECRET|PASSWORD|COOKIE)$/i.test(key)) delete env[key];
   }
   return { ...env, STEPCODE_ENTRYPOINT: '1', STEPCODE_STORAGE_ROOT_DIR: root, STEP_CODING_AGENT_DIR: `${root}/agent`, STEP_CODING_AGENT_SESSION_DIR: `${root}/sessions`, STEPCODE_AUTH_PATH: `${root}/auth.json`, STEPCODE_LEGACY_AUTH_PATH: `${root}/legacy-auth.json`, STEPCODE_DISABLE_PI_SERVICES: '1', STEP_CLIENT: 'desktop-for-step-code' };
 }
@@ -94,10 +94,14 @@ export class RpcProcess {
         return;
       }
       if (this.disconnected) return;
-      if (value.type === 'response' && value.id && this.pending.has(value.id)) {
-        const request = this.pending.get(value.id)!; this.pending.delete(value.id); clearTimeout(request.timer);
+      if (value.type === 'response') {
+        const request = this.pending.get(value.id);
+        if (!request) return;
+        this.pending.delete(value.id); clearTimeout(request.timer);
         value.success ? request.resolve(value.data) : request.reject(new RpcCommandError(value.error || 'Runtime command failed', value.details));
-      } else this.event(value);
+        return;
+      }
+      this.event(value);
     }, this.maxRecordChars);
     child.stdin.on('error', error => {
       if (this.child !== child || this.disconnected) return;

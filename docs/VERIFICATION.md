@@ -882,6 +882,13 @@ CI 调度、插件 Host 启动与环境隔离、通知入口、主题组合，�
 原生窗口验收与新提交的云端门禁尚待完成，不能复用旧提交的绿灯。
 本轮不打安装包、不改快捷方式，也不合并 PR 或操作用户配置。
 
+本地六项原生验收随后通过：MiniChat、会话导航、更新安装器、文件预览、
+通知和插件 Host 授权。首次完整协议回归在 `session-fixture.test.ts`
+发现旧测试只接受 `finally` 第一层直接关闭调用，而新 main 将关闭及
+退出码检查包在诊断 `try` 中。该测试改为执行真实清理块，检查确实等待
+异步关闭、拒绝未退出或非零退出码，并保留关闭异常。46 项相关回归通过；
+完整协议回归与修复后提交的云端门禁仍需重跑，前次失败日志保留。
+
 This source combination has its own verification logs under
 `D:\Desktop Runtime Builds\performance-pr-20261109`. It does not replace the
 fourteen-check package or owner-experience evidence below. No new installer,

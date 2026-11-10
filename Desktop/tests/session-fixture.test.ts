@@ -148,11 +148,20 @@ test('update installer fixture awaits native startup before creating a separate 
     && statement.includes('.first-run-production')), 'the native renderer must finish loading first');
   assert.ok(startup.some(statement => statement.includes('await mainPage.evaluate(() => window.desktop.snapshot())')),
     'preload availability alone cannot establish completed main-process startup');
-  const shutdown = body.finallyBlock!.statements[0];
-  assert.ok(ts.isExpressionStatement(shutdown) && ts.isAwaitExpression(shutdown.expression)
-    && ts.isCallExpression(shutdown.expression.expression)
-    && shutdown.expression.expression.expression.getText(source) === 'closeDesktopFixtureAndWait',
-  'assertion failures must still perform bounded, orderly shutdown');
+  const cleanup = runInNewContext(`(async (app, child, closeDesktopFixtureAndWait) => ${body.finallyBlock!.getText(source)})`,
+    { assert, console: { error: () => {} } });
+  const app = { windows: () => [] };
+  let closed = false;
+  await cleanup(app, { exitCode: 0 }, async (owner: unknown) => {
+    assert.equal(owner, app);
+    await new Promise(resolve => setImmediate(resolve));
+    closed = true;
+  });
+  assert.equal(closed, true, 'assertion failures must still await bounded, orderly shutdown');
+  for (const exitCode of [null, 1])
+    await assert.rejects(cleanup(app, { exitCode }, async () => {}), /the updater fixture must exit successfully/);
+  const failure = new Error('Fixture shutdown failed');
+  await assert.rejects(cleanup(app, { exitCode: 0 }, async () => { throw failure; }), error => error === failure);
   const success = source.statements.find(statement => statement.getText(source).includes('Update UI acceptance passed:'))!;
   assert.ok(success.getStart(source) > body.end, 'acceptance cannot pass before Electron has actually closed');
 });

@@ -1,7 +1,7 @@
 import { normalizedWorkspaceKey } from '../src/workspace-key';
 import { statusAccount } from './status-account';
 import { statusBuild } from './session-status';
-import { app, BrowserWindow, dialog, ipcMain, shell, session, net, clipboard, ClipboardItem, nativeImage, nativeTheme, Menu } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, shell, session, net, clipboard, ClipboardItem, nativeImage, nativeTheme, Menu, Notification } from 'electron';
 import { join, resolve, extname, basename } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { existsSync, readFileSync, realpathSync } from 'node:fs';
@@ -11,6 +11,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { RpcProcess, isolatedEnvironment } from './runtime';
 import { SessionImports, importedProjectDirectory } from './session-import';
 import { SessionRuntimes, firstUserText, type SessionRuntime } from './session-runtimes';
+import { GlobalInstructionsStore } from './global-instructions';
 import { inspectProjectInstructions, projectInstructionsMessage } from './project-instructions';
 import { isProjectInstructionsCommand, projectInstructionsInput } from '../src/project-instructions';
 import { hasBackgroundWork } from './background-work';
@@ -23,6 +24,8 @@ import { isChildSession } from './session-visibility';
 import { SessionNavigation } from './session-navigation';
 import { ComposerStore, parseComposerOwner } from './composer-store';
 import { MiniChatWindow } from './mini-chat-window';
+import { PluginWindows } from './plugin-windows';
+import { pluginWindowMethodAllowed } from './plugin-window-policy';
 import { parseWindowPresentation } from './window-presentation';
 import { composerKey, type ComposerOwner, type WindowPresentation } from '../src/window-conversation';
 import { importedHistoryMessages } from './imported-history';
@@ -90,6 +93,8 @@ import { MacUpdateDriver, macUpdateVersion, acknowledgeMacUpdate } from './macos
 import { NativeUpdateDriver } from './native-update-driver';
 import { cleanInstalledUpdate } from './update-cache';
 import { DesktopTray } from './desktop-tray';
+import { DesktopNotifications } from './desktop-notifications';
+import { notificationPreferences, notificationPreferencePatch } from '../src/notification-preferences';
 import { QuitReview, quitReasons, needsQuitReview } from './quit-review';
 import { quitConfirmation } from '../src/quit-confirmation';
 import { StartupWindow } from './startup-window';
@@ -179,8 +184,10 @@ let sessionDraft: { id: string; workspace?: string; model?: Model; models?: Mode
 type Surface = 'main' | 'mini';
 const miniView: { draft?: typeof sessionDraft; runtimeId?: string; worker?: SessionRuntime } = {};
 let miniChat: MiniChatWindow | undefined;
+let pluginWindows: PluginWindows | undefined;
 let resumeMini = false;
 const presentations = { main: new Map<string, WindowPresentation>(), mini: new Map<string, WindowPresentation>() };
+const presentationRevisions = { main: 0, mini: 0 };
 const selectedDraft = (surface: Surface) => surface === 'mini' ? miniView.draft : sessionDraft;
 const selectDraft = (surface: Surface, draft: typeof sessionDraft) => {
   if (draft && sessionDraft?.id === draft.id) sessionDraft = draft;
@@ -238,6 +245,8 @@ async function importAttachment(path: string) {
 }
 const runtimeRoot = app.isPackaged ? join(process.resourcesPath, 'runtime') : resolve('runtime');
 const dataRoot = join(app.getPath('userData'), 'step-runtime');
+const globalInstructions = new GlobalInstructionsStore(join(dataRoot, 'agent'));
+const outdatedInstructions = new WeakSet<SessionRuntime>();
 const independentRoot = join(app.getPath('userData'), 'workspaces', 'independent');
 const pathKey = (path: string) => normalizedWorkspaceKey(resolve(path), process.platform);
 async function samePath(a: string, b: string) {
@@ -303,9 +312,9 @@ const capabilityService: CapabilityService = new CapabilityService({ root: dataR
     } catch (error) { settingsMutation = alreadyMutating || !capabilityService.runtimeAvailable; throw error; }
   },
   fetchRepository: (url, options) => net.fetch(url instanceof URL ? url.href : url, { ...options, credentials: 'omit' }),
-  environment: () => isolatedEnvironment(dataRoot), validateImage: bytes => {
+  environment: () => isolatedEnvironment(dataRoot), validateImage: (bytes, maxDimension = 4096) => {
     const image = nativeImage.createFromBuffer(bytes), size = image.getSize();
-    return !image.isEmpty() && size.width <= 4096 && size.height <= 4096;
+    return !image.isEmpty() && size.width <= maxDimension && size.height <= maxDimension;
   } });
 const sessionImports = new SessionImports(nodePath, join(runtimeRoot, 'session-import.mjs'), dataRoot,
   () => emit({ type: 'desktop_sessions_changed' }), async sessionIds => {
@@ -384,6 +393,7 @@ async function persistAuth(next: Record<string, unknown>) {
 const emit = (event: unknown) => {
   if (window && !window.isDestroyed() && !window.webContents.isDestroyed()) window.webContents.send('runtime-event', event);
   if (miniChat?.window && !miniChat.window.isDestroyed() && !miniChat.window.webContents.isDestroyed()) miniChat.window.webContents.send('runtime-event', event);
+  pluginWindows?.broadcast(event as { type: string; [key: string]: unknown });
 };
 const composers = new ComposerStore(snapshot => emit({ type: 'desktop_composer', snapshot }));
 const rendererGenerations = new Map<number, number>();
@@ -431,6 +441,8 @@ function publishModelSelection(worker: import('./session-runtimes').SessionRunti
     state: worker.state ? { ...worker.state, model: worker.state.model ? providerModelNames([worker.state.model], appliedAuthData)[0] : undefined } : undefined });
 }
 const runtimes: SessionRuntimes = new SessionRuntimes(event => {
+  notifications.handle(event);
+  if (event.type === 'desktop_task_completed') event = { ...event, playSound: preferences.completionSound === true };
   const queueWorker = runtimes.workers.get(event.runtimeId);
   if (event.type === 'desktop_btw') {
     if (queueWorker) btw.event(queueWorker, event);
@@ -504,6 +516,7 @@ const runtimes: SessionRuntimes = new SessionRuntimes(event => {
   },
   beforePrompt: (worker, message) => modelSelections.prepare(worker, message),
   pluginsReady: worker => pluginHosts.attach(worker),
+  canReuseEmpty: worker => !outdatedInstructions.has(worker),
   // Keep at most two extra idle children when Windows has ample free memory.
   // This is a retention budget, never permission to speculatively start agents.
   idleLimit: () => process.platform === 'win32' && freemem() >= 3 * 1024 ** 3 ? 4 : 2,
@@ -531,6 +544,32 @@ const runtimes: SessionRuntimes = new SessionRuntimes(event => {
     collaboration.detach(worker);
     if (worker.status === 'disconnected' && worker.queued) pendingMessages.recover(worker);
     else pendingMessages.clear(worker);
+  },
+});
+const notifications = new DesktopNotifications({
+  preferences: () => preferences,
+  workers: () => runtimes.workers,
+  foreground: sessionId => {
+    const focused = (view?: BrowserWindow) => Boolean(view && !view.isDestroyed()
+      && view.isVisible() && !view.isMinimized() && view.isFocused());
+    return !sessionDraft && runtimes.active?.state?.sessionId === sessionId && focused(window)
+      || !miniView.draft && miniView.worker?.state?.sessionId === sessionId && focused(miniChat?.window);
+  },
+  create: options => Notification.isSupported() ? new Notification({
+    ...options, icon: app.isPackaged ? join(process.resourcesPath, process.platform === 'darwin' ? 'icon.png' : 'icon.ico')
+      : resolve(process.platform === 'darwin' ? 'build/icon.png' : 'build/icon.ico'),
+  }) : undefined,
+  open: (sessionId, kind) => {
+    if (quitting || quitPending) return;
+    showMainWindow();
+    const contents = window?.webContents;
+    if (!contents || contents.isDestroyed()) return;
+    const send = () => {
+      if (!quitting && !contents.isDestroyed())
+        contents.send('runtime-event', { type: 'desktop_notification_open', sessionId, kind });
+    };
+    if (contents.isLoadingMainFrame()) contents.once('did-finish-load', send);
+    else send();
   },
 });
 const bvrBridge = new BvrBridge(dataRoot, runtimes, () => appliedAuthData,
@@ -854,6 +893,7 @@ async function snapshot(worker = runtimes.active, refresh = true, ignoreDraft = 
   const sessions = refresh ? await listSessions() : cachedSessions();
   return {
     windowPresentation: presentations[surface].get(composerKey(draft ? { draftId: draft.id } : worker?.state?.sessionId ? { sessionId: worker.state.sessionId } : undefined)),
+    windowPresentationRevision: presentationRevisions[surface],
     firstRun: { required: firstRun.required },
     quitReview: quitReview.state,
     statusAccount: statusAccount(appliedAuthData),
@@ -965,6 +1005,7 @@ function commitSessionNavigation(worker: SessionRuntime, value: Snapshot, surfac
     void savePreferences().catch(() => emit({ type: 'desktop_error', message: 'Could not save the selected workspace' }));
   }
   return { ...value, windowPresentation: presentations[surface].get(composerKey({ sessionId: worker.state!.sessionId! })),
+    windowPresentationRevision: presentationRevisions[surface],
     runtimes: runtimes.summaries(), unreadSessionIds: [...runtimes.unreadSessionIds] };
 }
 async function decorateSessionMessages(id: string, cwd: string, messages: Message[]) {
@@ -1164,6 +1205,8 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
       transition = true;
       try {
         const value = worker ? await snapshot(worker, false, true) : undefined;
+        // Fence saves sent by the old main view before it receives the transfer event.
+        presentationRevisions.main++;
         savePresentation('main', owner, presentation);
         if (draft) selectDraft('main', draft);
         else commitSessionNavigation(worker!, value!);
@@ -1187,8 +1230,9 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
     }
     case 'windowPresentation': {
       const owner = requireComposerOwner(args[0]);
+      if (!Number.isSafeInteger(args[2]) || args[2] !== presentationRevisions[surface]) return false;
       savePresentation(surface, owner, parseWindowPresentation(args[1]));
-      return;
+      return true;
     }
     case 'composerRead': return composers.read(requireComposerOwner(args[0]));
     case 'composerWrite': return composers.write({ ...args[0], owner: requireComposerOwner(args[0]?.owner) });
@@ -2395,6 +2439,13 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
     case 'finishSpeech': return speech.finish(args[0]);
     case 'cancelSpeech':
       speech.cancel(text(args[0], 80)); return;
+    case 'globalInstructions': return globalInstructions.read();
+    case 'saveGlobalInstructions': {
+      const saved = await globalInstructions.save(args[0], args[1]);
+      // Resident conversations keep their context; new sessions must not reuse older empty workers.
+      if (saved.revision !== args[1]) for (const worker of runtimes.workers.values()) outdatedInstructions.add(worker);
+      return saved;
+    }
     case 'settings': return { ...await admin.request('settings', { cwd: (sessionDraft ? sessionDraft.workspace : preferences.workspace) ?? app.getPath('documents') }), providers: providerInfos(authData) };
     case 'discoverProviderModels': return discoverProviderModels(authData, args[0], args[1]);
     case 'cancelProviderTest': providerTestController?.abort(); return;
@@ -2454,6 +2505,12 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
     case 'capabilityCatalog': {
       if (settingsMutation) throw new Error('Shared settings operation in progress');
       return capabilityService.catalog();
+    }
+    case 'pluginWindowOpen': {
+      if (quitting || quitPending || settingsMutation) throw new Error('capability:busy');
+      const plugin = await capabilityService.desktop(args[0]?.ref);
+      await pluginWindows!.open(plugin);
+      return;
     }
     case 'pluginDocument': {
       if (settingsMutation) throw new Error('capability:busy');
@@ -2523,7 +2580,7 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
     }
     case 'themePoster': return themePacks.poster(args[0]);
     case 'capabilityMutate': {
-      return capabilityGate.run(async () => {
+      try { return await capabilityGate.run(async () => {
         markCapabilityPhase?.('idle-check');
         let refreshThemes = false;
         const result = await capabilityService.mutate(args[0], async policy => {
@@ -2553,7 +2610,9 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
           window.webContents.send('runtime-event', { type: 'desktop_theme_packs', packs: themePacks.packs, preferences });
         }
         return result;
-      });
+      }); } finally {
+        emit({ type: 'desktop_plugin_catalog_changed' });
+      }
     }
     case 'capabilityImportSkill': {
       await guardIdle({ stopHost: false });
@@ -2580,6 +2639,7 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
     }
     case 'preferences': {
       const patch = args[0] ?? {};
+      const notificationPatch = notificationPreferencePatch(patch);
       const panelPatch = panelPreferencePatch(patch);
       const interfaceSettings = patch.interfaceSettings === undefined ? undefined : validateInterfaceSettings(patch.interfaceSettings);
       const colorPatch = themePreferencePatch(patch);
@@ -2618,13 +2678,20 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
       Object.assign(preferences, sidebarPatch, updatePatch, panelPatch);
       if (interfaceSettings) preferences.interfaceSettings = interfaceSettings;
       const previousFavorites = preferences.favoriteModels;
+      const previousNotifications = notificationPreferences(preferences);
+      Object.assign(preferences, notificationPatch);
       if (favoriteModels) preferences.favoriteModels = favoriteModels;
       try { await savePreferences(); } catch (error) {
         if (favoriteModels && preferences.favoriteModels === favoriteModels) preferences.favoriteModels = previousFavorites;
+        for (const key of Object.keys(notificationPatch) as (keyof typeof notificationPatch)[]) {
+          if (preferences[key] === notificationPatch[key]) preferences[key] = previousNotifications[key];
+        }
         throw error;
       }
+      notifications.sync();
       window.setBackgroundColor(resolveTheme(preferences.theme, nativeTheme.shouldUseDarkColors, preferences.accentColor).tokens['--bg']);
       miniChat?.window?.setBackgroundColor(resolveTheme(preferences.theme, nativeTheme.shouldUseDarkColors, preferences.accentColor).tokens['--bg']);
+      pluginWindows?.setBackground(resolveTheme(preferences.theme, nativeTheme.shouldUseDarkColors, preferences.accentColor).tokens['--bg']);
       emit({ type: 'desktop_preferences', preferences });
       updates.setChannel(preferences.updateChannel ?? 'preview');
       tray?.relabel();
@@ -2694,7 +2761,7 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
     default: throw new Error('Unknown desktop operation');
   }
 }
-app.on('will-quit', () => { startupWindow?.destroy(); tray?.dispose(); tray = undefined; localPages.dispose(); updates.dispose(); installer.dispose(); });
+app.on('will-quit', () => { notifications.dispose(); startupWindow?.destroy(); tray?.dispose(); tray = undefined; localPages.dispose(); updates.dispose(); installer.dispose(); });
 app.on('before-quit', event => {
   speech.cancel();
   if (quitting) return;
@@ -2719,6 +2786,7 @@ app.on('before-quit', event => {
       }
       await terminals.stopAll();
       await miniChat?.dispose();
+      pluginWindows?.dispose();
       await sessionImports.close();
       await remote.shutdown();
       await Promise.all([runtimes.stopAll(), admin.stop(), capabilityService.stop(), collaboration.stop(), bvrBridge.stop(), pluginHosts.close()]);
@@ -2764,6 +2832,7 @@ else app.whenReady().then(async () => {
   try { preferences = { ...preferences, ...JSON.parse(await readFile(preferencesFile, 'utf8')) }; } catch {}
   preferences = migrateWorkspaceIdentity(preferences);
   Object.assign(preferences, normalizePanelPreferences(preferences));
+  Object.assign(preferences, notificationPreferences(preferences));
   preferences.preferredModel = modelPreference(preferences.preferredModel);
   preferences.favoriteModels = normalizeFavoriteModels(preferences.favoriteModels);
   delete (preferences as Preferences & { recentModels?: unknown }).recentModels;
@@ -2812,7 +2881,7 @@ else app.whenReady().then(async () => {
   // to theme events: a change that lands before that subscription is dropped,
   // and this query is what corrects the startup snapshot.
   ipcMain.handle('desktop-system-theme', event => {
-    if (!miniChat?.owns(event) && (event.sender !== window.webContents || event.senderFrame !== window.webContents.mainFrame)) throw new Error('Untrusted sender');
+    if (!miniChat?.owns(event) && !pluginWindows?.owner(event) && (event.sender !== window.webContents || event.senderFrame !== window.webContents.mainFrame)) throw new Error('Untrusted sender');
     return { systemDark: nativeTheme.shouldUseDarkColors };
   });
   session.defaultSession.webRequest.onHeadersReceived((details, callback) => callback({ responseHeaders: { ...details.responseHeaders, 'Content-Security-Policy': ["default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' ws://127.0.0.1:*; object-src 'none'; frame-src 'none'"] } }));
@@ -2825,7 +2894,16 @@ else app.whenReady().then(async () => {
     background: () => resolvedColors().tokens['--bg'], noFocus: backgroundAcceptance,
     changed: state => emit({ type: 'desktop_mini_chat', state }),
     error: error => { void crashLog.record('mini-chat-window', error); },
-    created: watchComposerWindow,
+    created: view => {
+      watchComposerWindow(view);
+      view.on('focus', () => notifications.sync());
+    },
+  });
+  pluginWindows = new PluginWindows({
+    preload: join(__dirname, 'preload.cjs'), file: join(__dirname, 'renderer/index.html'),
+    devUrl: !app.isPackaged ? process.env.DESKTOP_DEV_URL : undefined,
+    background: () => resolvedColors().tokens['--bg'], noFocus: backgroundAcceptance,
+    openExternal: url => shell.openExternal(url),
   });
   let shellShown = false;
   const revealShell = () => {
@@ -2851,6 +2929,7 @@ else app.whenReady().then(async () => {
     if (window && !window.isDestroyed()) {
       window.setBackgroundColor(resolvedColors().tokens['--bg']);
       miniChat?.window?.setBackgroundColor(resolvedColors().tokens['--bg']);
+      pluginWindows?.setBackground(resolvedColors().tokens['--bg']);
       emit({ type: 'desktop_system_theme', dark: nativeTheme.shouldUseDarkColors });
     }
   });
@@ -2864,6 +2943,7 @@ else app.whenReady().then(async () => {
   window.on('enter-full-screen', windowState);
   window.on('leave-full-screen', windowState);
   window.on('focus', windowState);
+  window.on('focus', () => notifications.sync());
   window.on('blur', windowState);
   window.on('hide', () => speech.cancel());
   window.webContents.setWindowOpenHandler(({ url }) => { try { const u = new URL(url); if (['https:', 'http:'].includes(u.protocol)) void shell.openExternal(u.href); } catch {} return { action: 'deny' }; });
@@ -2889,6 +2969,32 @@ else app.whenReady().then(async () => {
     app.quit();
   });
   ipcMain.handle('desktop', async (event, method, ...args) => {
+    const pluginOwner = pluginWindows?.owner(event);
+    if (pluginOwner) {
+      if (!pluginWindowMethodAllowed(method, args, pluginOwner.ref)) throw new Error('capability:invalid-input');
+      // Plugin windows receive no conversation snapshots or runtime mutation APIs.
+      if (method === 'windowControl') {
+        const view = pluginOwner.window;
+        if (args[0] === 'minimize') view.minimize();
+        if (args[0] === 'toggleMaximize') view.isMaximized() ? view.unmaximize() : view.maximize();
+        if (args[0] === 'close') view.close();
+        return view.isDestroyed() ? { maximized: false, fullscreen: false, focused: false }
+          : { maximized: view.isMaximized(), fullscreen: view.isFullScreen(), focused: view.isFocused() };
+      }
+      if (quitting || settingsMutation) throw new Error('capability:busy');
+      const plugin = await capabilityService.desktop(pluginOwner.ref);
+      if (method === 'pluginWindowState') return { plugin, preferences: {
+        language: preferences.language, theme: preferences.theme, accentColor: preferences.accentColor,
+        appearance: preferences.appearance,
+      } };
+      if (method === 'pluginWindowConfigure') {
+        showMainWindow();
+        window.webContents.send('runtime-event', { type: 'desktop_main_action', action: 'plugins',
+          payload: { page: 'plugins', pluginId: plugin.id, detail: 'config' } });
+        return;
+      }
+      return capabilityService.document(args[0]);
+    }
     const surface: Surface = miniChat?.owns(event) ? 'mini' : 'main';
     if (surface === 'main' && (event.sender !== window.webContents || event.senderFrame !== window.webContents.mainFrame)) throw new Error('Untrusted sender');
     if (surface === 'mini' && !miniMethods.has(method)) throw new Error('Return to the main window for this operation');
@@ -2898,7 +3004,7 @@ else app.whenReady().then(async () => {
       // Reads must not observe the admin transport halfway through an idle reload.
       if (providerApplication) await providerApplication;
       const capabilityMutation = ['capabilityMutate', 'capabilityImportSkill', 'bvrSaveConfiguration', 'pluginSaveConfiguration', 'pluginSaveHostSettings', 'saveCompactionSettings'].includes(method);
-      const capabilityRead = ['capabilityCatalog', 'pluginDocument', 'pluginRepositoryInfo', 'pluginConfiguration', 'pluginHostSettings',
+      const capabilityRead = ['capabilityCatalog', 'pluginDocument', 'pluginRepositoryInfo', 'pluginConfiguration', 'pluginHostSettings', 'pluginWindowOpen',
         'pluginChoosePath', 'themeScene', 'themePoster', 'bvrConfiguration', 'bvrCheckEnvironment', 'bvrChoosePath'].includes(method);
       // CapabilityService selects its trusted scope after freezing the package.
       // Discovery network work and data-only themes must not block Remote I/O.

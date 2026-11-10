@@ -91,6 +91,12 @@ import { AccountSettings, ProviderIcon, StepPlatformIcon } from './AccountSettin
 import { ProviderSettings } from './ProviderSettings';
 import { CapabilitySettings } from './CapabilitySettings';
 import { PluginCenter } from './PluginCenter';
+import { PluginActionGroup } from './PluginActionGroup';
+import { PluginWorkspace } from './PluginWorkspace';
+import { PluginWindowApp } from './PluginWindowApp';
+import { getPluginDesktopEntries, type PluginDesktopEntry } from './plugin-desktop';
+import type { CapabilityPlugin } from './capabilities';
+import './plugin-surfaces.css';
 import { capabilityCommand, type CapabilityTarget } from './capability-command';
 import { SessionImportSettings } from './SessionImportSettings';
 import { NewSession } from './NewSession';
@@ -101,6 +107,8 @@ import { CompactionSettings } from './CompactionSettings';
 import { SpeechInput } from './SpeechInput';
 import { SpeechSettings } from './SpeechSettings';
 import { appendSpeechText } from './speech-segments';
+import { NotificationSettings } from './NotificationSettings';
+import { GlobalInstructionsSettings, useGlobalInstructionsEditor } from './GlobalInstructionsSettings';
 import { InterfaceSettings } from './InterfaceSettings';
 import { normalizeInterfaceSettings } from './interface-presets';
 import { applyAppearance } from './appearance';
@@ -140,7 +148,7 @@ import type { QuitReviewState } from './quit-confirmation';
 
 const bridge = window.desktop;
 const isMini = bridge?.surface === 'mini';
-document.documentElement.dataset.windowSurface = isMini ? 'mini' : 'main';
+document.documentElement.dataset.windowSurface = bridge?.surface ?? 'main';
 registerPluginThemes(window.desktopTheme?.themePacks ?? []);
 // Seed the placeholder with the main-process-resolved theme so the first React
 // write matches the bootstrap instead of flipping to a system guess before the
@@ -224,7 +232,6 @@ function App() {
   const [speechConsentOpen, setSpeechConsentOpen] = useState(false);
   const [miniState, setMiniState] = useState({ open: false, pinned: false });
   const savePresentationRef = useRef<() => void>(() => {});
-  const presentationRestores = useRef(0);
   const disclosuresByOwner = useRef(new Map<string, ConversationDisclosureState>());
   const [disclosures, setDisclosures] = useState<ConversationDisclosureState>(() => new Map());
   const [workflowCatalogRequest, setWorkflowCatalogRequest] = useState<{ runtimeId?: string; sessionId?: string; id: number } | null>(null);
@@ -268,6 +275,8 @@ function App() {
   const readingCache = useRef(new SessionReadingCache());
   const previewPosition = useRef<ReadingPosition | undefined>(undefined);
   const readingRestore = useRef<{ runtimeId?: string; position: ReadingPosition; expectedTop?: number } | undefined>(undefined);
+  const pendingPresentationRestores = useRef(0);
+  const presentationRevision = useRef(data.windowPresentationRevision ?? 0);
   const [awayFromBottom, setAwayFromBottom] = useState(false);
   const collapsedWorkspaces = new Set(data.preferences.collapsedWorkspaces ?? []);
   const workspaceDisclosureSave = useRef<Promise<void>>(Promise.resolve());
@@ -293,6 +302,13 @@ function App() {
   const [remoteOpen, setRemoteOpen] = useState(false);
   const [pluginsOpen, setPluginsOpen] = useState(false);
   const [pluginsVisited, setPluginsVisited] = useState(false);
+  const [pluginEntries, setPluginEntries] = useState<PluginDesktopEntry[]>([]);
+  const [desktopMainId, setDesktopMainId] = useState<string>();
+  const [desktopSideId, setDesktopSideId] = useState<string>();
+  const [desktopVisited, setDesktopVisited] = useState<Set<string>>(() => new Set());
+  const [pluginMenuOpen, setPluginMenuOpen] = useState(false);
+  const pluginOpener = useRef<HTMLElement | null>(null);
+  const openedPluginId = useRef('');
   const [fulltextOpen, setFulltextOpen] = useState(false);
   const [fulltextRequest, setFulltextRequest] = useState<{ id: number; text: string }>();
   const fulltextAnchor = useRef<HTMLButtonElement>(null);
@@ -300,6 +316,7 @@ function App() {
   const [searchLocation, setSearchLocation] = useState<SearchLocation>();
   const [searchLocateRequest, setSearchLocateRequest] = useState(0);
   const [tab, setTab] = useState('account');
+  const globalInstructionsEditor = useGlobalInstructionsEditor(bridge, settingsOpen && tab === 'instructions');
   const [capabilityTarget, setCapabilityTarget] = useState<CapabilityTarget>();
   const [capabilityRevision, setCapabilityRevision] = useState(0);
   const [details, setDetails] = useState('');
@@ -309,6 +326,7 @@ function App() {
   const [queuePreviewOpen, setQueuePreviewOpen] = useState(false);
   const [liveChangesOpen, setLiveChangesOpen] = useState(false);
   const [rightPanel, setRightPanel] = useState<'auto' | 'turns' | 'summary' | 'context' | 'review' | 'terminal' | 'browser' | 'file' | 'subagent' | 'btw' | null>('auto');
+  const pluginPreviousPanel = useRef<typeof rightPanel>(null);
   const [contextView, setContextView] = useState<'status' | 'context' | 'clm'>('context');
   const [statusRevision, setStatusRevision] = useState(0);
   const [expandedRightPanel, setExpandedRightPanel] = useState<'context' | 'review' | 'terminal' | 'browser' | 'file' | 'subagent' | 'btw' | null>(null);
@@ -324,6 +342,35 @@ function App() {
   const panelPreferences = normalizePanelPreferences(data.preferences);
   const terminalDock = panelPreferences.terminalDock;
   const [handleBlocked, setHandleBlocked] = useState(false);
+  useEffect(() => {
+    if (!bridge || isMini) return;
+    let alive = true;
+    let generation = 0;
+    const refresh = () => {
+      const request = ++generation;
+      void bridge.capabilityCatalog().then(catalog => {
+        if (!alive || request !== generation) return;
+        const entries = getPluginDesktopEntries(catalog);
+        setPluginEntries(entries);
+        setDesktopMainId(id => entries.some(entry => entry.id === id && entry.desktop.surface === 'main-view') ? id : undefined);
+        setDesktopSideId(id => entries.some(entry => entry.id === id && entry.desktop.surface === 'side-panel') ? id : undefined);
+        setDesktopVisited(ids => new Set([...ids].filter(id => entries.some(entry => entry.id === id))));
+      }).catch(() => {
+        if (!alive || request !== generation) return;
+        // Never leave old package documents visible after a failed catalog refresh.
+        setPluginEntries([]);
+        setDesktopMainId(undefined);
+        setDesktopSideId(undefined);
+        setDesktopVisited(new Set());
+      });
+    };
+    const unsubscribe = bridge.onEvent(event => { if (event.type === 'desktop_plugin_catalog_changed') refresh(); });
+    refresh();
+    return () => { alive = false; generation++; unsubscribe(); };
+  }, [capabilityRevision]);
+  useEffect(() => {
+    if (rightPanel !== null) setDesktopSideId(undefined);
+  }, [rightPanel]);
   const openingSequence = useRef(0);
   const openFile = useCallback(async (target?: FileTarget, destination?: string, toggle = true) => {
     if (isMini) { await handoff('file', { target, destination }); return; }
@@ -528,12 +575,13 @@ function App() {
   const sidebarVisible = compactSidebar ? compactSidebarOpen : sidebar;
   const bottomTerminalExpanded = terminalDock === 'bottom' && bottomTerminalOpen && expandedRightPanel === 'terminal'
     && !usageOpen && !remoteOpen && !scheduledOpen && !pluginsOpen && !fulltextOpen && !details;
-  const visibleRightPanel = isMini || usageOpen || remoteOpen || scheduledOpen || pluginsOpen || fulltextOpen || bottomTerminalExpanded ? null : rightPanel === 'auto' ? (summarySpace ? 'summary' : null) : rightPanel;
+  const desktopSideOpen = Boolean(desktopSideId) && !isMini && !usageOpen && !remoteOpen && !scheduledOpen && !pluginsOpen && !fulltextOpen && !details;
+  const visibleRightPanel = isMini || desktopSideOpen || usageOpen || remoteOpen || scheduledOpen || pluginsOpen || fulltextOpen || bottomTerminalExpanded ? null : rightPanel === 'auto' ? (summarySpace ? 'summary' : null) : rightPanel;
   const inspectionOpen = visibleRightPanel === 'summary' || visibleRightPanel === 'context';
   const summaryOverlay = inspectionOpen && !summarySpace;
   const inspectorExpanded = bottomTerminalExpanded || expandedRightPanel === visibleRightPanel && !details &&
     (visibleRightPanel === 'context' || visibleRightPanel === 'review' || visibleRightPanel === 'terminal' || visibleRightPanel === 'browser' || visibleRightPanel === 'file' || visibleRightPanel === 'subagent' || visibleRightPanel === 'btw');
-  const terminalOpen = !isMini && !usageOpen && !remoteOpen && !scheduledOpen && !pluginsOpen && !fulltextOpen && (terminalDock === 'bottom'
+  const terminalOpen = !isMini && !desktopSideOpen && !usageOpen && !remoteOpen && !scheduledOpen && !pluginsOpen && !fulltextOpen && (terminalDock === 'bottom'
     ? bottomTerminalOpen && (!inspectorExpanded || bottomTerminalExpanded)
     : visibleRightPanel === 'terminal' && !details);
   useEffect(() => {
@@ -600,12 +648,40 @@ function App() {
     setRightPanel(null);
     rightRail.current?.querySelector<HTMLButtonElement>('[aria-pressed="true"]')?.focus();
   }, []);
+  const restorePluginOpener = useCallback(() => {
+    requestAnimationFrame(() => {
+      const opener = pluginOpener.current;
+      const visible = opener?.isConnected && !opener.closest('[hidden], [inert]') && opener.getClientRects().length;
+      const fallback = document.querySelector<HTMLButtonElement>(`[data-plugin-action="${CSS.escape(openedPluginId.current)}"]`)
+        ?? document.querySelector<HTMLButtonElement>('.plugin-action-overflow, .plugin-action-group button, .window-sidebar-toggle');
+      (visible ? opener : fallback)?.focus();
+    });
+  }, []);
+  const closePluginSide = useCallback(() => {
+    setDesktopSideId(undefined);
+    setRightPanel(pluginPreviousPanel.current);
+    restorePluginOpener();
+  }, [restorePluginOpener]);
+  const closePluginMain = () => {
+    setPluginsOpen(false);
+    restorePluginOpener();
+  };
   const closeTerminal = useCallback(() => {
     if (terminalDock === 'right') { closeRightPanel(); return; }
     setBottomTerminalOpen(false);
     setExpandedRightPanel(value => value === 'terminal' ? null : value);
     rightRail.current?.querySelector<HTMLButtonElement>('[aria-controls="terminal-panel"]')?.focus();
   }, [terminalDock, closeRightPanel]);
+  useEffect(() => {
+    if (!desktopSideOpen || settingsOpen || preview || requests.length || renaming || pluginMenuOpen || windowMenuOpen) return;
+    const escape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && !event.defaultPrevented) {
+        event.preventDefault(); closePluginSide();
+      }
+    };
+    window.addEventListener('keydown', escape);
+    return () => window.removeEventListener('keydown', escape);
+  }, [desktopSideOpen, settingsOpen, preview, requests.length, renaming, pluginMenuOpen, windowMenuOpen, closePluginSide]);
   useEffect(() => {
     if ((!visibleRightPanel && !terminalOpen) || details || settingsOpen || preview || requests.length || renaming) return;
     const escape = (event: KeyboardEvent) => {
@@ -660,9 +736,10 @@ function App() {
     disclosures: [...(disclosuresByOwner.current.get(composerKey(composerOwner(latestData.current))) ?? disclosures)].slice(-512),
   });
   const saveWindowPresentation = () => {
-    if (navigationPending.current || switching.current || presentationRestores.current) return;
+    if (navigationPending.current || switching.current || pendingPresentationRestores.current) return;
     const owner = composerOwner(latestData.current);
-    if (owner && bridge?.windowPresentation) void bridge.windowPresentation(owner, currentPresentation()).catch(() => {});
+    if (owner && bridge?.windowPresentation)
+      void bridge.windowPresentation(owner, currentPresentation(), latestData.current.windowPresentationRevision ?? 0).catch(() => {});
   };
   savePresentationRef.current = saveWindowPresentation;
   useEffect(() => {
@@ -682,7 +759,7 @@ function App() {
   const handoff = async (action?: string, payload?: unknown) => {
     await composer.client.flush();
     const owner = composerOwner(latestData.current);
-    if (owner) await bridge!.windowPresentation(owner, currentPresentation());
+    if (owner) await bridge!.windowPresentation(owner, currentPresentation(), latestData.current.windowPresentationRevision ?? 0);
     if (action) await bridge!.miniChatMainAction(action, payload);
     else await bridge!.miniChatReturn(currentPresentation());
   };
@@ -702,13 +779,16 @@ function App() {
     }
   };
   const installSnapshot = (value: Snapshot) => {
+    const revision = value.windowPresentationRevision ?? 0;
+    if (revision < presentationRevision.current) return false;
     acceptQuitReview(value.quitReview);
     if (!messageRevision.current.acceptSnapshot(value)) return false;
     registerPluginThemes(value.themePacks ?? []);
     const previous = view.current;
     const changedOwner = composerKey(composerOwner(value)) !== composerKey(previous.draftId ? { draftId: previous.draftId }
       : previous.sessionId ? { sessionId: previous.sessionId } : undefined);
-    if (previous.runtimeId !== value.runtimeId || changedOwner || navigationPending.current) {
+    if (previous.runtimeId !== value.runtimeId || changedOwner || navigationPending.current
+      || revision !== presentationRevision.current) {
       if (!navigationPending.current) rememberView();
       const saved = value.state?.sessionId ? composerBySession.current.get(value.state.sessionId) : undefined;
       composer.client.select(composerOwner(value));
@@ -723,6 +803,7 @@ function App() {
       restoreWindowPresentation(value, navigationPending.current?.reading ? saved : undefined);
     }
     viewId.current = value.runtimeId;
+    presentationRevision.current = revision;
     composer.client.select(composerOwner(value));
     setUnavailableWorkspace(value.workspaceIssue ?? null);
     readingCache.current.retain(value.sessions);
@@ -825,6 +906,7 @@ function App() {
   };
   const command = async (type: string, args?: Record<string, unknown>) => run(() => rawCommand(type, args));
   const mainActionRef = useRef<(event: RuntimeEvent) => Promise<void>>(async () => {});
+  const notificationOpenRef = useRef<(event: RuntimeEvent) => Promise<void>>(async () => {});
   useEffect(() => {
     void run(refresh).finally(() => setLoading(false));
     if (!bridge) return;
@@ -837,7 +919,8 @@ function App() {
         setData(value => ({ ...value, preferences: { ...event.preferences, workspace: value.preferences.workspace } })); return;
       }
       if (event.type === 'desktop_view_changed' && event.surface === (isMini ? 'mini' : 'main')) {
-        if (event.restorePresentation) presentationRestores.current++;
+        // Revealing the old view can emit scroll/blur before the transferred snapshot arrives.
+        if (event.restorePresentation) pendingPresentationRestores.current++;
         if (!isMini && event.restorePresentation) {
           finishSettingsClose();
           setRemoteOpen(false); setUsageOpen(false); setScheduledOpen(false);
@@ -849,11 +932,11 @@ function App() {
             const value = await bridge.snapshot();
             if (event.restorePresentation) {
               // Do not persist the previous viewport while the handoff is in flight.
-              flushSync(() => { installSnapshot(value); restoreWindowPresentation(value); });
+              flushSync(() => { if (installSnapshot(value)) restoreWindowPresentation(value); });
               followLayout();
             } else installSnapshot(value);
           } finally {
-            if (event.restorePresentation) presentationRestores.current--;
+            if (event.restorePresentation) pendingPresentationRestores.current--;
           }
         }); return;
       }
@@ -866,10 +949,14 @@ function App() {
       if (event.type === 'desktop_main_action' && !isMini) {
         void run(() => mainActionRef.current(event)); return;
       }
+      if (event.type === 'desktop_notification_open') {
+        if (!isMini) void run(() => notificationOpenRef.current(event));
+        return;
+      }
       if (event.type === 'desktop_quit_review') { acceptQuitReview(event.state); return; }
       if (event.type === 'desktop_workspace_unavailable') { setUnavailableWorkspace(event.path); return; }
       if (event.type === 'desktop_task_completed') {
-        if (!isMini) playCompletionSound({ runtimeId: event.runtimeId, sessionId: event.sessionId });
+        if (!isMini) playCompletionSound({ runtimeId: event.runtimeId, sessionId: event.sessionId }, event.playSound === true);
         return;
       }
       if (event.type === 'desktop_runtime_replaced') {
@@ -1007,7 +1094,7 @@ function App() {
       if (viewId.current === id) { setLevels((data.modelSelection?.model ?? data.state?.model)?.thinkingServiceDefault ? [] : effort.levels); setCommands(desktopCommands(available.commands)); }
     });
   }, [connected, data.runtimeId, data.draftId, data.state?.model?.id, data.state?.model?.provider, data.state?.model?.thinkingLevels, data.state?.model?.thinkingServiceDefault, data.modelSelection?.model]);
-  useLayoutEffect(followLayout, [data.messages, data.pendingMessages, busy, followLayout]);
+  useLayoutEffect(followLayout, [data.messages, data.pendingMessages, data.windowPresentationRevision, busy, followLayout]);
   useLayoutEffect(() => {
     const viewport = scroll.current;
     const content = transcript.current;
@@ -1180,9 +1267,40 @@ function App() {
     if (!bridge) return;
     finishSettingsClose(); setFulltextOpen(false); setScheduledOpen(false); setUsageOpen(false); setRemoteOpen(false);
     setDetails(''); setExpandedRightPanel(null); setCompactSidebarOpen(false);
+    setDesktopMainId(undefined); setDesktopSideId(undefined);
     setCapabilityTarget(target); setPluginsVisited(true); setPluginsOpen(true);
     void bridge.settings().then(setSettings).catch(() => setError(t('无法读取插件设置', 'Could not read plugin settings')));
   };
+  const openPluginDesktop = (entry: PluginDesktopEntry) => {
+    if (!bridge) return;
+    pluginOpener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    openedPluginId.current = entry.id;
+    if (entry.desktop.surface === 'window') {
+      void run(() => bridge.pluginWindowOpen({ ref: entry.plugin.package!.ref }));
+      return;
+    }
+    if (entry.desktop.surface === 'main-view' && pluginsOpen && desktopMainId === entry.id) {
+      closePluginMain();
+      return;
+    }
+    setDesktopVisited(ids => new Set([...ids, entry.id]));
+    setPluginsVisited(true);
+    finishSettingsClose(); setFulltextOpen(false); setScheduledOpen(false); setUsageOpen(false); setRemoteOpen(false);
+    setDetails(''); setExpandedRightPanel(null); setCompactSidebarOpen(false);
+    if (entry.desktop.surface === 'side-panel') {
+      if (desktopSideId === entry.id && desktopSideOpen) { closePluginSide(); return; }
+      if (!desktopSideId) pluginPreviousPanel.current = rightPanel;
+      setRightPanel(null); setPluginsOpen(false); setDesktopSideId(entry.id);
+    } else {
+      setDesktopSideId(undefined); setDesktopMainId(entry.id); setPluginsOpen(true);
+    }
+  };
+  const openInstalledDesktop = (plugin: CapabilityPlugin) => {
+    const desktop = plugin.package?.desktop;
+    if (desktop && plugin.package?.provenance === 'recorded') openPluginDesktop({ id: plugin.id, plugin, desktop });
+  };
+  const configurePluginDesktop = (entry: PluginDesktopEntry) =>
+    openPlugins({ page: 'plugins', pluginId: entry.id, detail: 'config' });
   const closeFulltext = () => {
     setFulltextOpen(false);
     // Restored tools can schedule focus of their own during this frame.
@@ -1717,7 +1835,7 @@ function App() {
       onAction={(action, value) => rawCommand('goal_action', { action, value })}/> };
   mainActionRef.current = async event => {
     const value = await bridge!.snapshot();
-    installSnapshot(value); restoreWindowPresentation(value);
+    if (installSnapshot(value)) restoreWindowPresentation(value);
     if (event.action === 'settings') { setTab(typeof event.payload === 'string' ? event.payload : 'account'); await openSettings(); }
     else if (event.action === 'usage') openUsage();
     else if (event.action === 'cron') openScheduled();
@@ -1738,6 +1856,15 @@ function App() {
       setBtwRequest({ runtimeId: value.runtimeId, sessionId: value.state.sessionId, id: ++btwSequence.current,
         question: event.payload?.question ?? '', quote: event.payload?.quote });
     } else { setContextView(event.action === 'clm' ? 'clm' : 'status'); setRightPanel('context'); }
+  };
+  notificationOpenRef.current = async event => {
+    const session = (await bridge!.sessions()).find(session => session.id === event.sessionId);
+    if (!session) throw new Error(t('会话已不可用', 'Conversation is no longer available'));
+    finishSettingsClose();
+    if (await navigateSession(session) && view.current.sessionId === session.id) {
+      await refresh();
+      if (view.current.sessionId === session.id && event.kind === 'approval') setApprovalOpen(true);
+    }
   };
   return <CommandContextUsage.Provider value={{ usage: navigationTarget ? undefined : data.stats?.contextUsage, language: data.preferences.language }}><CommandCatalog.Provider value={commands}><FileOpeningContext.Provider value={{ openFile, openWeb, onError: setError }}><div ref={appLayout} className={`app ${bridge?.platform === 'darwin' ? 'platform-macos' : ''} ${sidebarVisible ? '' : 'sidebar-hidden'} ${compactSidebar ? 'sidebar-compact' : ''} ${inspectionOpen && !details ? 'summary-open' : ''} ${summaryOverlay ? 'summary-overlay' : ''} ${inspectorExpanded ? 'inspector-expanded' : ''} ${terminalDock === 'bottom' && terminalOpen && !bottomTerminalExpanded ? 'has-bottom-terminal' : ''}`} onContextMenu={e => {
     const element = e.target as HTMLElement;
@@ -1773,8 +1900,12 @@ function App() {
         if (project && bridge && !loading && !navigationPending.current) void applySnapshot(() => bridge.beginSession(project.path));
       }}
       onReturn={() => void run(() => handoff())}
+      onMinimize={() => void run(() => bridge!.windowControl('minimize'))}
       onClose={() => { saveWindowPresentation(); void run(() => bridge!.windowControl('close')); }}>{null}</MiniChatFrame>
       : <WindowBar language={data.preferences.language} sidebarVisible={sidebarVisible} toggleSidebar={toggleSidebar} menus={menus} sessionTitle={activeTitle} onMenuOpenChange={setWindowMenuOpen} inert={settingsOpen || Boolean(removeProject)}
+        pluginActions={<PluginActionGroup entries={pluginEntries} language={data.preferences.language}
+          activeId={pluginsOpen ? desktopMainId : desktopSideOpen ? desktopSideId : undefined}
+          onOpen={openPluginDesktop} onMenuOpenChange={setPluginMenuOpen}/>}
         miniChat={{ open: miniState.open, disabled: loading || Boolean(navigationTarget), onOpen: () => void run(async () => {
           if (navigationPending.current || switching.current) return;
           await composer.client.flush(); saveWindowPresentation();
@@ -1851,7 +1982,7 @@ function App() {
         {bridge && data.themePacks?.some(pack => pack.id === data.preferences.theme && pack.renderer === 'stellar-v1') &&
           <StellarBrand motion={data.preferences.themeMotion !== false} paused={!sidebarVisible || settingsOpen || scheduledOpen || usageOpen}/>}
       </button>
-      <SidebarTaskActions selected={scheduledOpen} pluginsSelected={pluginsOpen} language={data.preferences.language} disabled={!bridge || loading} onNewSession={() => { if (bridge && !loading) void newSession(); }}
+      <SidebarTaskActions selected={scheduledOpen} pluginsSelected={pluginsOpen && !desktopMainId} language={data.preferences.language} disabled={!bridge || loading} onNewSession={() => { if (bridge && !loading) void newSession(); }}
         onSearchChange={setSessionQuery}
         fulltextOpen={fulltextOpen}
         onFulltextSearch={(text, anchor) => {
@@ -1860,7 +1991,7 @@ function App() {
           setRemoteOpen(false); setPluginsOpen(false); setUsageOpen(false); setScheduledOpen(false); setFulltextOpen(true); setCompactSidebarOpen(false);
         }}
         onScheduledTasks={() => { if (scheduledOpen) setScheduledOpen(false); else openScheduled(); }}
-        onPlugins={() => { if (pluginsOpen) setPluginsOpen(false); else openPlugins(); }}/>
+        onPlugins={() => { if (pluginsOpen && !desktopMainId) setPluginsOpen(false); else openPlugins(); }}/>
       <nav ref={sidebarTree} className={`workspace-tree ${sessionDrag ? 'is-reordering' : ''}`} aria-label={t('工作区与会话', 'Workspaces and sessions')}
         onScroll={event => { event.currentTarget.dataset.scrolled = String(event.currentTarget.scrollTop > 0); }}>
         {searchingSessions && <div className="session-search-status" role="status">{t(`找到 ${visibleSessions.length} 个会话`, `${visibleSessions.length} sessions found`)}</div>}
@@ -1894,12 +2025,13 @@ function App() {
       <CronManager bridge={bridge} onOpenHost={async (session, runtimeId) => {
         if (!await navigateSession(session, runtimeId)) throw new Error('Cron host changed; refresh before opening');
       }}/></main>}
-    {pluginsVisited && bridge && <main hidden={!pluginsOpen} inert={!pluginsOpen || settingsOpen || Boolean(removeProject)}>
+    {pluginsVisited && bridge && <main hidden={!pluginsOpen || Boolean(desktopMainId)} inert={!pluginsOpen || Boolean(desktopMainId) || settingsOpen || Boolean(removeProject)}>
       {!!requests.length && <div className="approval-notice"><TriangleAlert size={16}/><span>{t('当前会话有待确认的操作', 'The current session is awaiting approval')}</span>
         <button onClick={() => { setPluginsOpen(false); setApprovalOpen(true); }}>{t('查看', 'Review')}</button></div>}
-      <PluginCenter bridge={bridge} language={data.preferences.language} active={pluginsOpen} busy={anyBusy || busy || loading}
+      <PluginCenter bridge={bridge} language={data.preferences.language} currentVersion={appUpdate?.currentVersion} active={pluginsOpen && !desktopMainId} busy={anyBusy || busy || loading}
         runtimeId={data.runtimeId} settings={settings ?? undefined} target={capabilityTarget?.page === 'plugins' ? capabilityTarget : undefined}
-        onBack={() => setPluginsOpen(false)} onChanged={async () => { setSettings(await bridge.settings()); setCapabilityRevision(value => value + 1); }}
+        onBack={() => setPluginsOpen(false)} onOpenDesktop={openInstalledDesktop}
+        onChanged={async () => { setSettings(await bridge.settings()); setCapabilityRevision(value => value + 1); }}
         onManageMcp={name => {
           setCapabilityTarget(undefined); setTab('mcp');
           const opening = openSettings();
@@ -1921,6 +2053,14 @@ function App() {
           setSelectedSubagent(null); setSelectedWorkflow(null); setSelectedWorkflowAgent(null); setSubagentView('agent'); installSnapshot(next);
         }}/>
     </main>}
+    {bridge && pluginEntries.filter(entry => entry.desktop.surface === 'main-view' && desktopVisited.has(entry.id)).map(entry =>
+      <main key={`${entry.id}:${entry.plugin.package!.ref}`} hidden={!pluginsOpen || desktopMainId !== entry.id}
+        inert={!pluginsOpen || desktopMainId !== entry.id || settingsOpen || Boolean(removeProject)}>
+        {!!requests.length && <div className="approval-notice"><TriangleAlert size={16}/><span>{t('当前会话有待确认的操作', 'The current session is awaiting approval')}</span>
+          <button onClick={() => { setPluginsOpen(false); setApprovalOpen(true); }}>{t('查看', 'Review')}</button></div>}
+        <PluginWorkspace entry={entry} bridge={bridge} language={data.preferences.language} active={pluginsOpen && desktopMainId === entry.id}
+          onBack={closePluginMain} onConfigure={() => configurePluginDesktop(entry)}/>
+      </main>)}
     {fulltextRequest && bridge && <main hidden={!fulltextOpen} inert={!fulltextOpen || settingsOpen || Boolean(removeProject)}>
       {!!requests.length && <div className="approval-notice"><TriangleAlert size={16}/><span>{t('当前会话有待确认的操作', 'The current session is awaiting approval')}</span>
         <button onClick={() => { setFulltextOpen(false); setApprovalOpen(true); }}>{t('查看', 'Review')}</button></div>}
@@ -2247,9 +2387,9 @@ function App() {
       onClose={closeTerminal} onError={setError}/>
     <BrowserPanel open={visibleRightPanel === 'browser' && !details}
       width={browserWidth} onWidthChange={setBrowserWidth}
-      replaced={inspectionOpen || visibleRightPanel === 'turns' || visibleRightPanel === 'review' || visibleRightPanel === 'terminal' || visibleRightPanel === 'file' || visibleRightPanel === 'subagent' || visibleRightPanel === 'btw' || Boolean(details)}
+      replaced={desktopSideOpen || inspectionOpen || visibleRightPanel === 'turns' || visibleRightPanel === 'review' || visibleRightPanel === 'terminal' || visibleRightPanel === 'file' || visibleRightPanel === 'subagent' || visibleRightPanel === 'btw' || Boolean(details)}
       expanded={inspectorExpanded && visibleRightPanel === 'browser'} onToggleExpanded={() => setExpandedRightPanel(inspectorExpanded ? null : 'browser')}
-      blocked={speechConsentOpen || Boolean(quitReview.request) || handleBlocked || projectPickerOpen || queuePreviewOpen || liveChangesOpen || windowMenuOpen || settingsOpen || Boolean(removeProject) || Boolean(sessionMove) || Boolean(preview) || renaming || Boolean(contextMenu) || Boolean(imageMenu) || (approvalOpen && requests.length > 0) || (compactSidebar && compactSidebarOpen)}
+      blocked={speechConsentOpen || Boolean(quitReview.request) || handleBlocked || projectPickerOpen || queuePreviewOpen || liveChangesOpen || windowMenuOpen || pluginMenuOpen || settingsOpen || Boolean(removeProject) || Boolean(sessionMove) || Boolean(preview) || renaming || Boolean(contextMenu) || Boolean(imageMenu) || (approvalOpen && requests.length > 0) || (compactSidebar && compactSidebarOpen)}
       overlay={!summarySpace} language={data.preferences.language} onClose={closeRightPanel}/>
     <FilePreviewPanel file={previewFile} open={visibleRightPanel === 'file' && !details}
       replaced={Boolean(details) || (visibleRightPanel !== null && visibleRightPanel !== 'file')}
@@ -2338,6 +2478,13 @@ function App() {
           onRefresh={async () => { if (bridge) await applySnapshot(() => bridge.snapshot()); }} onError={setError}/>
       </div>}
     </div>
+    {bridge && pluginEntries.filter(entry => entry.desktop.surface === 'side-panel' && desktopVisited.has(entry.id)).map(entry =>
+      <aside key={`${entry.id}:${entry.plugin.package!.ref}`} className={`plugin-side-surface${summarySpace ? ' is-docked' : ' is-overlay'}`}
+        aria-label={entry.desktop.title} hidden={!desktopSideOpen || desktopSideId !== entry.id}
+        inert={!desktopSideOpen || desktopSideId !== entry.id || settingsOpen || Boolean(removeProject)}>
+        <PluginWorkspace entry={entry} bridge={bridge} language={data.preferences.language} active={desktopSideOpen && desktopSideId === entry.id}
+          onClose={closePluginSide} onConfigure={() => configurePluginDesktop(entry)}/>
+      </aside>)}
     <nav hidden={scheduledOpen || usageOpen || remoteOpen || pluginsOpen || fulltextOpen} ref={rightRail} className="right-tool-rail" style={usageOpen || remoteOpen || pluginsOpen || fulltextOpen ? { display: 'none' } : undefined} aria-label={t('右侧工具', 'Right tools')} inert={usageOpen || remoteOpen || pluginsOpen || fulltextOpen || Boolean(navigationTarget) || Boolean(removeProject)}
       onClickCapture={() => { if (bottomTerminalExpanded) setExpandedRightPanel(null); }}>
       <IconButton title={t('摘要', 'Summary')} data-tooltip-side="left" aria-controls="summary-board" aria-pressed={!details && visibleRightPanel === 'summary'} onClick={() => { setDetails(''); setRightPanel(!details && visibleRightPanel === 'summary' ? null : 'summary'); }}><Layers3 size={18}/></IconButton>
@@ -2403,8 +2550,9 @@ function App() {
         </div>
       </div>
     </div>}
-    {settingsOpen && <div className={`modal-backdrop settings-backdrop${settingsClosing ? ' is-closing' : ''}`} onAnimationEnd={event => { if (event.target === event.currentTarget && event.animationName === 'settings-backdrop-exit') finishSettingsClose(); }}><section className="settings-dialog" inert={settingsClosing} role="dialog" aria-modal="true" aria-label={t('设置', 'Settings')}><header><h2>{t('设置', 'Settings')}</h2><IconButton title="Close" onClick={closeSettings}><X size={19}/></IconButton></header><div className="settings-layout"><nav aria-label={t('设置分类', 'Settings categories')}>{[['account', StepPlatformIcon, t('账户', 'Account')], ['providers', ProviderIcon, t('供应商', 'Providers')], ['plugins', Plug, t('插件', 'Plugins')], ['mcp', McpIcon, 'MCP'], ['skills', BookOpen, 'Skills'], ['general', SunMoon, t('通用', 'General')], ['interface', SlidersHorizontal, t('界面复杂度', 'Interface complexity')], ['appearance', Pencil, t('外观', 'Appearance')], ['updates', Download, t('版本更新', 'Updates')], ['import', ArrowRightLeft, t('会话迁移', 'Session migration')], ['archived', Archive, t('已归档', 'Archived')]].map(([id, Icon, title]: any) => <button key={id} aria-label={title} aria-current={tab === id ? 'page' : undefined} className={`${tab === id ? 'selected' : ''}${id === 'import' ? ' settings-group-start' : ''}`} onClick={() => { if (id === 'plugins') { openPlugins(); return; } mcpEditRequestRevision.current++; setCapabilityTarget(undefined); setTab(id); }}><Icon size={17}/>{title}</button>)}</nav><div key={tab} className="settings-content">
-      {tab === 'interface' ? <InterfaceSettings value={interfaceSettings} language={data.preferences.language} onChange={interfaceSettings => setPreference({ interfaceSettings })}/> : tab === 'appearance' ? <><ThemeSettings preferences={data.preferences} systemDark={systemDark} language={data.preferences.language} packs={data.themePacks} loadScene={bridge?.themeScene} loadPoster={bridge?.themePoster} onChange={patch => void setPreference(patch)}/><AppearanceSettings value={data.preferences.appearance} language={data.preferences.language} onChange={appearance => void setPreference({ appearance })}/></> : tab === 'archived' ? <ArchivedSessions sessions={archivedSessions} preferences={data.preferences}
+    {settingsOpen && <div className={`modal-backdrop settings-backdrop${settingsClosing ? ' is-closing' : ''}`} onAnimationEnd={event => { if (event.target === event.currentTarget && event.animationName === 'settings-backdrop-exit') finishSettingsClose(); }}><section className="settings-dialog" inert={settingsClosing} role="dialog" aria-modal="true" aria-label={t('设置', 'Settings')}><header><h2>{t('设置', 'Settings')}</h2><IconButton title="Close" onClick={closeSettings}><X size={19}/></IconButton></header><div className="settings-layout"><nav aria-label={t('设置分类', 'Settings categories')}>{[['account', StepPlatformIcon, t('账户', 'Account')], ['providers', ProviderIcon, t('供应商', 'Providers')], ['plugins', Plug, t('插件', 'Plugins')], ['mcp', McpIcon, 'MCP'], ['skills', BookOpen, 'Skills'], ['instructions', FileText, t('全局指令', 'Global instructions')], ['general', SunMoon, t('通用', 'General')], ['interface', SlidersHorizontal, t('界面复杂度', 'Interface complexity')], ['appearance', Pencil, t('外观', 'Appearance')], ['updates', Download, t('版本更新', 'Updates')], ['import', ArrowRightLeft, t('会话迁移', 'Session migration')], ['archived', Archive, t('已归档', 'Archived')]].map(([id, Icon, title]: any) => <button key={id} aria-label={title} aria-current={tab === id ? 'page' : undefined} className={`${tab === id ? 'selected' : ''}${id === 'import' ? ' settings-group-start' : ''}`} onClick={() => { if (id === 'plugins') { openPlugins(); return; } mcpEditRequestRevision.current++; setCapabilityTarget(undefined); setTab(id); }}><Icon size={17}/>{title}</button>)}</nav>
+      <div key={tab} className="settings-content">
+      {tab === 'instructions' ? <GlobalInstructionsSettings editor={globalInstructionsEditor} language={data.preferences.language}/> : tab === 'interface' ? <InterfaceSettings value={interfaceSettings} language={data.preferences.language} onChange={interfaceSettings => setPreference({ interfaceSettings })}/> : tab === 'appearance' ? <><ThemeSettings preferences={data.preferences} systemDark={systemDark} language={data.preferences.language} packs={data.themePacks} loadScene={bridge?.themeScene} loadPoster={bridge?.themePoster} onChange={patch => void setPreference(patch)}/><AppearanceSettings value={data.preferences.appearance} language={data.preferences.language} onChange={appearance => void setPreference({ appearance })}/></> : tab === 'archived' ? <ArchivedSessions sessions={archivedSessions} preferences={data.preferences}
         runtimes={data.runtimes ?? []} activeId={data.state?.sessionId}
         onOpen={id => { closeSettings(); const session = data.sessions.find(session => session.id === id); if (session) void navigateSession(session); }}
         onRestore={id => run(() => updateArchive(id, true)).then(() => {})} onDelete={deleteArchived}/> : <>
@@ -2415,6 +2563,7 @@ function App() {
         </div>)}
       </section>}
       {settings && tab === 'general' && <>
+        <NotificationSettings preferences={data.preferences} onChange={setPreference}/>
         <h3>{t('左栏', 'Sidebar')}</h3>
         <label>{t('会话排序', 'Session order')}
           <select aria-label={t('会话排序', 'Session order')} value={data.preferences.sessionSort ?? 'manual'} onChange={e => void setPreference({ sessionSort: e.target.value })}>
@@ -2468,4 +2617,4 @@ class RenderBoundary extends React.Component<{ children: React.ReactNode }, { fa
     return this.props.children;
   }
 }
-createRoot(document.getElementById('root')!).render(<RenderBoundary><Bootstrap/></RenderBoundary>);
+createRoot(document.getElementById('root')!).render(<RenderBoundary>{bridge?.surface === 'plugin' ? <PluginWindowApp/> : <Bootstrap/>}</RenderBoundary>);

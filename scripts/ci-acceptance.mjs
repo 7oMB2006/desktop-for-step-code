@@ -25,8 +25,13 @@ export const acceptanceGroups = {
     'verify-plugin-host-settings-ui.mjs',
     'verify-plugin-host-settings-electron.mjs',
     'verify-plugin-host-authorization-electron.mjs',
+    'verify-plugin-workspace.mjs',
+    'verify-plugin-shell.mjs',
+    'verify-plugin-surfaces-electron.mjs',
     'verify-plugin-input-mcp.mjs',
     'verify-desktop-tray.mjs',
+    'verify-notifications.mjs',
+    'verify-notice-toast.mjs',
     'verify-composer-menu.mjs',
     'verify-command-dispatch.mjs',
     'verify-mini-chat-preview.mjs',
@@ -61,6 +66,7 @@ export const acceptanceGroups = {
   sessions: [
     'verify-new-session.mjs',
     'verify-launch-modes.mjs',
+    'verify-global-instructions.mjs',
     'verify-completion-review.mjs',
     'verify-plan-review.mjs',
     'verify-question-review.mjs',
@@ -128,6 +134,9 @@ export const localOnly = [
   'verify-plugin-starter.mjs',
   'verify-plugin-center-package.mjs',
   'verify-plugin-center-manual.mjs',
+  // Standalone manager harness writes compiled native fixtures to an explicit local D: evidence root.
+  // Actual installed main/side/window routing runs in verify-plugin-surfaces-electron above.
+  'verify-plugin-windows.mjs',
   // Design-only preview; the production PluginCenter fixture is self-contained and runs above.
   'verify-plugin-center-preview.mjs',
   // Local theme visual matrix; optional geometry comparison uses a captured baseline.

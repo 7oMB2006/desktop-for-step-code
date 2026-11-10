@@ -1215,6 +1215,26 @@ test('concurrent new-session requests share the startup worker', async () => {
   await pool.stopAll();
 });
 
+test('a new session skips outdated empty workers without mutating or stopping resident sessions', async () => {
+  const transports: Transport[] = [];
+  const outdated = new WeakSet();
+  const pool = new SessionRuntimes(() => {}, receive => {
+    const transport = new Transport(receive, `session-${transports.length}`);
+    transports.push(transport);
+    return transport;
+  }, { canReuseEmpty: worker => !outdated.has(worker) });
+  try {
+    const old = await pool.open('node', 'step', 'workspace', {});
+    outdated.add(old);
+    const current = await pool.open('node', 'step', 'workspace', {});
+    assert.notEqual(current, old);
+    assert.equal(transports[0].stopped, false);
+    assert.equal(old.state?.sessionId, 'session-0');
+    assert.equal(await pool.open('node', 'step', 'workspace', {}), current);
+    assert.equal(transports.length, 2);
+  } finally { await pool.stopAll(); }
+});
+
 test('new-session requests wait for all ordinary snapshot reads and then reuse the empty worker', async () => {
   const { pool, transports, open } = fixture();
   const empty = await open('workspace');

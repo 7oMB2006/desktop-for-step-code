@@ -73,7 +73,7 @@ const env = { ...process.env, DESKTOP_TEST_USER_DATA: profile, DESKTOP_TEST_NO_F
   GIT_TERMINAL_PROMPT: '0', GCM_INTERACTIVE: 'never' };
 for (const name of ['DESKTOP_DEV_URL', 'ELECTRON_RUN_AS_NODE', 'STEP_API_KEY', 'GH_TOKEN', 'GITHUB_TOKEN', 'GH_CONFIG_DIR'])
   delete env[name];
-let app, page, holder, operationError, result, remoteIdentity;
+let app, page, mainWindow, holder, operationError, result, remoteIdentity;
 const errors = [], checks = [], diagnostics = [];
 const ownedPids = new Set();
 const catalog = () => page.evaluate(() => window.desktop.capabilityCatalog());
@@ -241,9 +241,9 @@ try {
     args: executablePath ? [] : [desktop], cwd: desktop, env, timeout: 60000 });
   assert.equal(await app.evaluate(({ app }) => app.isPackaged), Boolean(executablePath));
   page = await app.firstWindow();
+  mainWindow = await app.browserWindow(page);
   page.on('pageerror', error => errors.push(error.message));
-  await app.evaluate(({ BrowserWindow }) => {
-    const window = BrowserWindow.getAllWindows()[0];
+  await mainWindow.evaluate(window => {
     window.setOpacity(0); window.setIgnoreMouseEvents(true); window.showInactive(); window.setSize(1440, 960);
   });
   await page.waitForURL('**/renderer/index.html');
@@ -499,7 +499,7 @@ try {
     await readDiagnostic('(?:operation-denied|file-in-use|directory-not-empty)', 'mutation');
     await waitForUiReady(page.getByRole('button', { name: `移除市场 ${market.name}`, exact: true }),
       'failed market removal UI settled before retry');
-    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(560, 780));
+    await mainWindow.evaluate(window => window.setSize(560, 780));
     await page.waitForFunction(() => innerWidth <= 740);
     await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
     const alertLayout = await page.getByRole('alert').evaluate(element => {
@@ -515,7 +515,7 @@ try {
       JSON.stringify(alertLayout));
     await page.screenshot({ path: join(output, 'locked-directory-narrow.png') });
     await releaseDirectory();
-    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1440, 960));
+    await mainWindow.evaluate(window => window.setSize(1440, 960));
     checks.push('windows-directory-lock-reports-filesystem-reason-without-raw-paths');
   }
   await page.getByRole('button', { name: `移除市场 ${market.name}`, exact: true }).click();

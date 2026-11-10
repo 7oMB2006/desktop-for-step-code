@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { createServer } from 'node:http';
+import { createInterface } from 'node:readline';
 import { createPatch } from 'diff';
 import { closeDesktopFixtureAndWait } from './close-desktop-fixture.mjs';
 import { sampleMotion } from './sample-motion.mjs';
@@ -122,17 +123,32 @@ for (const key of Object.keys(env)) {
 }
 let app, page;
 const errors = [];
+const nativeAudioErrors = [];
 const launch = async () => {
   app = await electron.launch({ args: [entry, '--use-fake-device-for-media-stream',
+    '--enable-logging=stderr',
+    // Let the macOS audio service read the fixture WAV without disabling the
+    // renderer sandbox or the real media permission handlers.
+    ...(process.platform === 'darwin' ? ['--disable-features=AudioServiceSandbox'] : []),
     `--use-file-for-fake-audio-capture=${microphone}`], env, timeout: 60000 });
+  const stderr = app.process().stderr;
+  if (stderr) createInterface({ input: stderr }).on('line', line => {
+    if (/Failed to read .*as input to the fake device|Input file to fake device|WAV data could be read but is not valid/.test(line)) {
+      if (nativeAudioErrors.length < 10) nativeAudioErrors.push(line.replaceAll(profile, '<fixture-profile>'));
+    }
+  });
   page = await app.firstWindow();
+  assert.deepEqual(await app.evaluate(({ BrowserWindow }) => {
+    const { sandbox, contextIsolation, nodeIntegration } = BrowserWindow.getAllWindows()[0].webContents.getLastWebPreferences();
+    return { sandbox, contextIsolation, nodeIntegration };
+  }), { sandbox: true, contextIsolation: true, nodeIntegration: false });
   await page.emulateMedia({ reducedMotion: 'no-preference' });
   page.on('pageerror', error => errors.push(error.message));
   await app.evaluate(({ BrowserWindow }) => {
     const window = BrowserWindow.getAllWindows()[0];
     window.setOpacity(0); window.setIgnoreMouseEvents(true); window.showInactive(); window.setSize(1360, 900);
   });
-  await page.getByRole('textbox', { name: '消息', exact: true }).waitFor();
+  await input().waitFor();
   await page.waitForFunction(() => document.querySelector('.composer-input')?.getAttribute('aria-disabled') === 'false');
   await page.evaluate(() => {
     const media = navigator.mediaDevices, getUserMedia = media.getUserMedia.bind(media);
@@ -300,6 +316,7 @@ try {
   }));
   assert.ok(continuousCapture.voicedSamples >= 3200, 'The native worklet must receive voiced PCM before ASR');
   assert.ok(continuousCapture.maxRms > 0.1, 'The unprocessed WAV must retain its fixture amplitude');
+  assert.deepEqual(nativeAudioErrors, []);
   assert.ok(continuousCapture.tracks.length > 0);
   for (const track of continuousCapture.tracks) {
     assert.equal(track.echoCancellation, false);
@@ -501,12 +518,14 @@ try {
   assert.equal(encrypted.includes(Buffer.from('speech-fixture-oversea-key')), false);
   assert.equal(encrypted.includes(Buffer.from('speech-fixture-custom-key')), false);
   await launch();
+  assert.equal((await snapshot()).preferences.language, 'en');
   assert.equal((await settingsValue()).acknowledged, true);
   assert.equal((await settingsValue()).source, 'follow');
   assert.equal(await permission(), false);
-  assert.deepEqual(errors, []); assert.deepEqual(failures, []);
-  const result = { ok: true, requests: calls, evidence, continuousCapture, checks: [
+  assert.deepEqual(errors, []); assert.deepEqual(failures, []); assert.deepEqual(nativeAudioErrors, []);
+  const result = { ok: true, requests: calls, evidence, continuousCapture, nativeAudioErrors, checks: [
     'production Electron and synthetic microphone', 'first-use disclosure and Plan route',
+    'renderer sandbox, context isolation and no Node integration',
     'same shared adapter as plugins and BVR', 'no Agent worker or automatic prompt',
     'text before Finish without whole-recording reupload', 'manual edits survive incremental append',
     'cancel recording and upload', 'bounded slow-provider backpressure', 'navigation isolation', 'redacted failures',
@@ -522,7 +541,7 @@ try {
   if (page && !page.isClosed()) {
     await page.screenshot({ path: join(evidence, 'failure.png') });
     await writeFile(join(evidence, 'failure-diagnostic.json'), JSON.stringify({
-      calls, failures, errors, capture: await page.evaluate(() => ({
+      calls, failures, errors, nativeAudioErrors, capture: await page.evaluate(() => ({
         ...window.__speechFixtureCapture, tracks: window.__speechFixtureTracks,
       })),
     }, null, 2));

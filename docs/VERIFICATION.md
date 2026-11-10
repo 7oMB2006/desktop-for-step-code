@@ -1,5 +1,41 @@
 # Verification
 
+## 原生听写的 macOS 音频夹具与父分支同步（2026-11-10）
+
+head `122542a` 的 Windows 三组和最终汇总、两平台 SDK、macOS
+候选及 runtime、sessions 两组通过。macOS interface 仍在首次连续
+听写失败：323,200 个采样全部为零，最大 RMS 为 0；音轨的三个
+处理开关确实关闭，没有 ASR 请求或 renderer/transport 错误。
+上一轮关闭处理的修订未解决 macOS 问题，不将其记录为根因修复。
+
+Chromium 的 WAV 假麦克风在音频服务中读文件，读失败会返回空数据。
+本轮只在 macOS 测试启动参数禁用 `AudioServiceSandbox`，不使用
+`--no-sandbox`，不改产品音频约束、权限或上传路径。每次启动实查
+renderer 的 sandbox/contextIsolation 均为 true、nodeIntegration
+为 false；补入有界、去除 profile 路径的原生 WAV 读取错误诊断。
+该参数是否解决云端静音仍须新 head 的 macOS 结果确认。
+
+同步父 PR #220 至 `6bc08a9`，合并听写与插件窗口/通知/全局指令
+的并列分支及浏览器遮挡条件，保留双方市场刷新检查，不改 runtime pin。
+本地发现并修订三个夹具同步问题：语音重启用双语精确输入定位并确认
+英文偏好持久化；市场窄窗操作绑定当前页面的 BrowserWindow，不按
+窗口列表第一项猜测；插件页面返回后等待原阅读位置恢复，仍保留
+小于 4px 的误差断言及原超时，并补入失败位置诊断。
+
+合并后的类型检查、生产构建和完整协议套件通过：1994 项中
+1981 项通过、13 项跳过、零失败；最终定向 54 项通过，CI 策略/
+运行器另 30 项通过、1 项平台跳过。11 项相关原生/浏览器验收
+通过，覆盖语音、任务模式、主窗口、设置、市场诊断、命令、浏览器、
+全局指令、插件表面、通知和归档。语音 7 次请求全部走 loopback，
+首段 64,000 个采样均有声、最大 RMS 约 0.1414，未发现原生读取错误。
+失败尝试与最终回执均保存在
+`D:\DFSC-Preview-QA\native-speech-ci-fix-20261109`。
+
+只读盘点：dist 12.23 MiB、terminal-runtime 62.96 MiB、
+test-results 95.90 MiB、本轮 CI 修订证据 139.99 MiB；
+未删除产物、改动共享 junction、生成安装包、切换快捷方式或重启日用
+应用。这不是新 head 云端全绿、真实账户/计费、物理麦克风或安装验收。
+
 ## 原生听写 CI 回归修订（2026-11-09）
 
 head `0024c96` 的 Windows 三组完整验收及 CI 汇总门禁、两平台 SDK、

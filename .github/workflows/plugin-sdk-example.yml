@@ -1,0 +1,53 @@
+name: Plugin SDK example
+
+on:
+  pull_request:
+    paths:
+      - 'examples/plugins/host-client/**'
+      - 'examples/plugins/sdk-host-starter/**'
+      - 'docs/plugin-schemas/dfsc.host.schema.json'
+      - 'Desktop/electron/plugin-host-*.ts'
+      - 'Desktop/electron/plugin-host-contract.*'
+      - 'Desktop/electron/plugin-files.*'
+      - 'Desktop/electron/plugin-configuration.*'
+      - 'Desktop/electron/step-model-account.ts'
+      - 'Desktop/tests/fixtures/plugin-host-service.ts'
+      - '.github/workflows/plugin-sdk-example.yml'
+      - '.gitattributes'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: plugin-sdk-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  self-contained:
+    name: SDK bundle (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2025, macos-15]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: examples/plugins/sdk-host-starter
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.16.0
+      - name: Install author development dependencies
+        run: corepack pnpm install --frozen-lockfile
+      - name: Load the committed payload without installed dependencies
+        run: corepack pnpm test
+      - name: Rebuild and compare the reviewed payload
+        run: |
+          corepack pnpm build
+          git diff --exit-code -- plugins/dfsc-host-example/dist plugins/dfsc-host-example/LICENSE

@@ -31,6 +31,43 @@ test('Only an explicit negative RPC response is a command rejection, not timeout
   } finally { await rpc.stop(); }
 });
 
+test('late and unsolicited RPC responses never enter the event stream', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rpc-private-response-'));
+  const entry = join(root, 'fixture.cjs');
+  await writeFile(entry, `
+    require('node:readline').createInterface({ input: process.stdin }).on('line', line => {
+      const command = JSON.parse(line);
+      const send = value => process.stdout.write(JSON.stringify(value) + '\\n');
+      if (command.type === 'late') {
+        setTimeout(() => {
+          send({ type: 'response', id: command.id, success: true, data: { privateRecord: 'late-private' } });
+          send({ type: 'response', id: command.id, success: false, error: 'late-private-error' });
+          send({ type: 'fixture_marker' });
+        }, 80);
+        return;
+      }
+      send({ type: 'response', success: true, data: { privateRecord: 'missing-id' } });
+      send({ type: 'response', id: 'unknown', success: true, data: { privateRecord: 'unknown-id' } });
+      send({ type: 'response', id: command.id, success: true, data: { ready: true } });
+    });
+  `);
+  const events: unknown[] = [];
+  let flushed!: () => void;
+  const marker = new Promise<void>(resolve => { flushed = resolve; });
+  const rpc = new RpcProcess(event => {
+    events.push(event);
+    if (event.type === 'fixture_marker') flushed();
+  });
+  try {
+    rpc.start(process.execPath, entry, root, isolatedEnvironment(root));
+    assert.deepEqual(await rpc.request('ready'), { ready: true });
+    await assert.rejects(rpc.request('late', {}, 10), /timed out/);
+    await marker;
+    assert.deepEqual(await rpc.request('ready'), { ready: true });
+    assert.deepEqual(events, [{ type: 'fixture_marker' }]);
+  } finally { await rpc.stop(); await rm(root, { recursive: true, force: true }); }
+});
+
 test('POSIX stop waits for cleanup, joins concurrent stops and prevents overlapping restarts', { skip: process.platform === 'win32', timeout: 15000 }, async () => {
   const root = await mkdtemp(join(tmpdir(), 'rpc-stop-cleanup-'));
   const entry = join(root, 'fixture.cjs');
@@ -224,12 +261,14 @@ test('real Step runtime streams a local fixture response and restores its persis
 });
 test('isolated runtime removes inherited provider credentials and legacy profile overrides', () => {
   const env = isolatedEnvironment('D:/isolated', { PATH: 'tools', STEP_API_KEY: 'private', OPENAI_API_KEY: 'private', STEPCODE_AUTH_PATH: 'personal', NODE_OPTIONS: '--require malicious.js', USERPROFILE: 'C:/Users/test',
-    NODE_COMPILE_CACHE: 'personal-cache', node_compile_cache_portable: '1', NODE_DISABLE_COMPILE_CACHE: '1' });
+    NODE_COMPILE_CACHE: 'personal-cache', node_compile_cache_portable: '1', NODE_DISABLE_COMPILE_CACHE: '1',
+    DFSC_LAUNCH_CONTEXT: 'private-context', DFSC_HOST_TOKEN: 'private-token', DFSC_RUNTIME_HOST_V1: '1' });
   assert.equal(env.PATH, 'tools'); assert.equal(env.STEP_API_KEY, undefined); assert.equal(env.OPENAI_API_KEY, undefined);
   assert.equal(env.STEPCODE_AUTH_PATH, 'D:/isolated/auth.json'); assert.equal(env.STEPCODE_LEGACY_AUTH_PATH, 'D:/isolated/legacy-auth.json'); assert.equal(env.NODE_OPTIONS, undefined);
   assert.equal(env.NODE_COMPILE_CACHE, undefined);
   assert.equal(env.node_compile_cache_portable, undefined);
   assert.equal(env.NODE_DISABLE_COMPILE_CACHE, '1', 'Keep the explicit cache opt-out');
+  assert.equal(env.DFSC_LAUNCH_CONTEXT, undefined); assert.equal(env.DFSC_HOST_TOKEN, undefined); assert.equal(env.DFSC_RUNTIME_HOST_V1, undefined);
 });
 test('legacy approval presets are projected as Ask by both draft management and the actual runtime', { timeout: 60000 }, async () => {
   for (const preset of ['read-only', 'bypass', 'autopilot']) {

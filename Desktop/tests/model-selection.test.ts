@@ -9,6 +9,27 @@ import type { Model } from '../src/contracts';
 
 const a: Model = { id: 'a', provider: 'fixture', name: 'Original Model', reasoning: true, thinkingLevels: ['off', 'low', 'high'] };
 const b: Model = { id: 'b', provider: 'fixture', name: 'Next Model', thinkingLevels: ['off', 'high'] };
+test('host invalidation runs immediately before an actual model change, not pending selection or effort', async () => {
+  const f = await fixture();
+  let invalidated = 0;
+  const selections = new ModelSelections(f.root, () => {}, () => {}, worker => {
+    assert.equal(worker.state?.model?.id, 'a');
+    assert.equal(worker.mutating, true);
+    invalidated++;
+  });
+  try {
+    selections.selectEffort(f.worker, 'high');
+    await selections.apply(f.worker);
+    assert.equal(invalidated, 0);
+    f.worker.busy = true;
+    selections.select(f.worker, b);
+    await selections.apply(f.worker);
+    assert.equal(invalidated, 0);
+    f.worker.busy = false;
+    await selections.apply(f.worker);
+    assert.equal(invalidated, 1);
+  } finally { await selections.flush(); await f.close(); }
+});
 async function fixture() {
   const root = await mkdtemp(join(tmpdir(), 'step-selection-'));
   const calls: { type: string; args?: Record<string, unknown> }[] = [];

@@ -1,0 +1,30 @@
+[
+  { "name": "host-only text", "valid": true, "value": {
+    "schemaVersion": 1, "hostApiVersion": 1, "consumer": { "kind": "mcp-stdio", "server": "example" },
+    "capabilities": ["model.text"]
+  } },
+  { "name": "separate media capabilities", "valid": true, "value": {
+    "schemaVersion": 1, "hostApiVersion": 1, "consumer": { "kind": "mcp-stdio", "server": "example" },
+    "capabilities": ["model.video", "model.asr", "model.tts"]
+  } },
+  { "name": "unknown major", "valid": false, "value": {
+    "schemaVersion": 1, "hostApiVersion": 2, "consumer": { "kind": "mcp-stdio", "server": "example" },
+    "capabilities": ["model.text"]
+  } },
+  { "name": "future image is not granted", "valid": false, "value": {
+    "schemaVersion": 1, "hostApiVersion": 1, "consumer": { "kind": "mcp-stdio", "server": "example" },
+    "capabilities": ["model.image"]
+  } },
+  { "name": "duplicate capabilities", "valid": false, "value": {
+    "schemaVersion": 1, "hostApiVersion": 1, "consumer": { "kind": "mcp-stdio", "server": "example" },
+    "capabilities": ["model.text", "model.text"]
+  } },
+  { "name": "declaration is not authorization", "valid": false, "value": {
+    "schemaVersion": 1, "hostApiVersion": 1, "consumer": { "kind": "mcp-stdio", "server": "example" },
+    "capabilities": ["model.text"], "authorized": true
+  } },
+  { "name": "no remote consumer", "valid": false, "value": {
+    "schemaVersion": 1, "hostApiVersion": 1, "consumer": { "kind": "http", "server": "example" },
+    "capabilities": ["model.text"]
+  } }
+]

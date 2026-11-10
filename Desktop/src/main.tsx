@@ -106,12 +106,14 @@ import { FirstRun } from './FirstRun';
 import { AppUpdates, useAppUpdates } from './AppUpdates';
 import { AppearanceSettings } from './AppearanceSettings';
 import { CompactionSettings } from './CompactionSettings';
+import { NotificationSettings } from './NotificationSettings';
 import { GlobalInstructionsSettings, useGlobalInstructionsEditor } from './GlobalInstructionsSettings';
 import { InterfaceSettings } from './InterfaceSettings';
 import { normalizeInterfaceSettings } from './interface-presets';
 import { applyAppearance } from './appearance';
 import { applyTheme, registerPluginThemes } from './theme';
 import { StellarWorkspace } from './StellarWorkspace';
+import { hasStellarUi } from './theme-packs';
 import { StellarEmblem } from './StellarEmblem';
 import { StellarLettering } from './StellarLettering';
 import { StellarBrand } from './StellarBrand';
@@ -273,7 +275,8 @@ function App() {
   const readingCache = useRef(new SessionReadingCache());
   const previewPosition = useRef<ReadingPosition | undefined>(undefined);
   const readingRestore = useRef<{ runtimeId?: string; position: ReadingPosition; expectedTop?: number } | undefined>(undefined);
-  const restoringPresentation = useRef(0);
+  const pendingPresentationRestores = useRef(0);
+  const presentationRevision = useRef(data.windowPresentationRevision ?? 0);
   const [awayFromBottom, setAwayFromBottom] = useState(false);
   const [workspaceDisclosure, setWorkspaceDisclosure] = useState(new Map<string, { open: boolean }>());
   const workspaceDisclosureRef = useRef(workspaceDisclosure);
@@ -281,7 +284,7 @@ function App() {
   const [sidebar, setSidebar] = useState(true);
   const [sessionQuery, setSessionQuery] = useState('');
   const searchingSessions = Boolean(sessionQuery.trim());
-  const stellarSearchQuery = data.themePacks?.some(pack => pack.id === data.preferences.theme && pack.renderer === 'stellar-v1')
+  const stellarSearchQuery = data.themePacks?.some(pack => pack.id === data.preferences.theme && hasStellarUi(pack))
     ? sessionQuery : '';
   const [compactSidebar, setCompactSidebar] = useState(() => window.innerWidth <= 760);
   const [compactSidebarOpen, setCompactSidebarOpen] = useState(false);
@@ -762,10 +765,11 @@ function App() {
     disclosures: [...(disclosuresByOwner.current.get(composerKey(composerOwner(latestData.current))) ?? disclosures)].slice(-512),
   });
   const saveWindowPresentation = () => {
-    if (navigationPending.current || switching.current || restoringPresentation.current
+    if (navigationPending.current || switching.current || pendingPresentationRestores.current
       || readingRestore.current && readingRestore.current.expectedTop === undefined) return;
     const owner = composerOwner(latestData.current);
-    if (owner && bridge?.windowPresentation) void bridge.windowPresentation(owner, currentPresentation()).catch(() => {});
+    if (owner && bridge?.windowPresentation)
+      void bridge.windowPresentation(owner, currentPresentation(), latestData.current.windowPresentationRevision ?? 0).catch(() => {});
   };
   savePresentationRef.current = saveWindowPresentation;
   useEffect(() => {
@@ -785,7 +789,7 @@ function App() {
   const handoff = async (action?: string, payload?: unknown) => {
     await composer.client.flush();
     const owner = composerOwner(latestData.current);
-    if (owner) await bridge!.windowPresentation(owner, currentPresentation());
+    if (owner) await bridge!.windowPresentation(owner, currentPresentation(), latestData.current.windowPresentationRevision ?? 0);
     if (action) await bridge!.miniChatMainAction(action, payload);
     else await bridge!.miniChatReturn(currentPresentation());
   };
@@ -805,13 +809,16 @@ function App() {
     }
   };
   const installSnapshot = (value: Snapshot) => {
+    const revision = value.windowPresentationRevision ?? 0;
+    if (revision < presentationRevision.current) return false;
     acceptQuitReview(value.quitReview);
     if (!messageRevision.current.acceptSnapshot(value)) return false;
     registerPluginThemes(value.themePacks ?? []);
     const previous = view.current;
     const changedOwner = composerKey(composerOwner(value)) !== composerKey(previous.draftId ? { draftId: previous.draftId }
       : previous.sessionId ? { sessionId: previous.sessionId } : undefined);
-    if (previous.runtimeId !== value.runtimeId || changedOwner || navigationPending.current) {
+    if (previous.runtimeId !== value.runtimeId || changedOwner || navigationPending.current
+      || revision !== presentationRevision.current) {
       if (!navigationPending.current) rememberView();
       const saved = value.state?.sessionId ? composerBySession.current.get(value.state.sessionId) : undefined;
       composer.client.select(composerOwner(value));
@@ -827,6 +834,7 @@ function App() {
     }
     viewId.current = value.runtimeId;
     setPreparedMarkdown(previous => previous?.sessionId === value.state?.sessionId ? previous : undefined);
+    presentationRevision.current = revision;
     composer.client.select(composerOwner(value));
     setUnavailableWorkspace(value.workspaceIssue ?? null);
     readingCache.current.retain(value.sessions);
@@ -942,6 +950,7 @@ function App() {
   };
   const command = async (type: string, args?: Record<string, unknown>) => run(() => rawCommand(type, args));
   const mainActionRef = useRef<(event: RuntimeEvent) => Promise<void>>(async () => {});
+  const notificationOpenRef = useRef<(event: RuntimeEvent) => Promise<void>>(async () => {});
   useEffect(() => {
     void run(refresh).finally(() => setLoading(false));
     if (!bridge) return;
@@ -954,8 +963,8 @@ function App() {
         setData(value => ({ ...value, preferences: { ...event.preferences, workspace: value.preferences.workspace } })); return;
       }
       if (event.type === 'desktop_view_changed' && event.surface === (isMini ? 'mini' : 'main')) {
-        // Closing another surface can emit scroll events before the handoff snapshot arrives.
-        if (event.restorePresentation) restoringPresentation.current++;
+        // Revealing the old view can emit scroll/blur before the transferred snapshot arrives.
+        if (event.restorePresentation) pendingPresentationRestores.current++;
         if (!isMini && event.restorePresentation) {
           finishSettingsClose();
           setRemoteOpen(false); setUsageOpen(false); setScheduledOpen(false);
@@ -965,10 +974,13 @@ function App() {
           try {
             rememberView(false);
             const value = await bridge.snapshot();
-            installSnapshot(value);
-            if (event.restorePresentation) restoreWindowPresentation(value);
+            if (event.restorePresentation) {
+              // Do not persist the previous viewport while the handoff is in flight.
+              flushSync(() => { if (installSnapshot(value)) restoreWindowPresentation(value); });
+              followLayout();
+            } else installSnapshot(value);
           } finally {
-            if (event.restorePresentation) restoringPresentation.current--;
+            if (event.restorePresentation) pendingPresentationRestores.current--;
           }
         }); return;
       }
@@ -981,10 +993,14 @@ function App() {
       if (event.type === 'desktop_main_action' && !isMini) {
         void run(() => mainActionRef.current(event)); return;
       }
+      if (event.type === 'desktop_notification_open') {
+        if (!isMini) void run(() => notificationOpenRef.current(event));
+        return;
+      }
       if (event.type === 'desktop_quit_review') { acceptQuitReview(event.state); return; }
       if (event.type === 'desktop_workspace_unavailable') { setUnavailableWorkspace(event.path); return; }
       if (event.type === 'desktop_task_completed') {
-        if (!isMini) playCompletionSound({ runtimeId: event.runtimeId, sessionId: event.sessionId });
+        if (!isMini) playCompletionSound({ runtimeId: event.runtimeId, sessionId: event.sessionId }, event.playSound === true);
         return;
       }
       if (event.type === 'desktop_runtime_replaced') {
@@ -1120,7 +1136,7 @@ function App() {
       if (viewId.current === id) { setLevels((data.modelSelection?.model ?? data.state?.model)?.thinkingServiceDefault ? [] : effort.levels); setCommands(desktopCommands(available.commands)); }
     });
   }, [connected, data.runtimeId, data.draftId, data.state?.model?.id, data.state?.model?.provider, data.state?.model?.thinkingLevels, data.state?.model?.thinkingServiceDefault, data.modelSelection?.model]);
-  useLayoutEffect(followLayout, [data.messages, data.pendingMessages, busy, followLayout]);
+  useLayoutEffect(followLayout, [data.messages, data.pendingMessages, data.windowPresentationRevision, busy, followLayout]);
   useLayoutEffect(() => {
     const viewport = scroll.current;
     const content = transcript.current;
@@ -1520,6 +1536,8 @@ function App() {
           firstSend.current = true; switching.current = true; setLoading(true);
           try {
             const created = await bridge!.createDraftSession(data.draftId);
+            // The creation reply can precede its separately published promotion event.
+            if (created.state?.sessionId) composer.client.promote(data.draftId, created.state.sessionId);
             installSnapshot(created);
             id = created.runtimeId;
             sessionId = created.state?.sessionId;
@@ -1819,7 +1837,7 @@ function App() {
   }), []);
   mainActionRef.current = async event => {
     const value = await bridge!.snapshot();
-    installSnapshot(value); restoreWindowPresentation(value);
+    if (installSnapshot(value)) restoreWindowPresentation(value);
     if (event.action === 'settings') { setTab(typeof event.payload === 'string' ? event.payload : 'account'); await openSettings(); }
     else if (event.action === 'usage') openUsage();
     else if (event.action === 'cron') openScheduled();
@@ -1840,6 +1858,15 @@ function App() {
       setBtwRequest({ runtimeId: value.runtimeId, sessionId: value.state.sessionId, id: ++btwSequence.current,
         question: event.payload?.question ?? '', quote: event.payload?.quote });
     } else { setContextView(event.action === 'clm' ? 'clm' : 'status'); setRightPanel('context'); }
+  };
+  notificationOpenRef.current = async event => {
+    const session = (await bridge!.sessions()).find(session => session.id === event.sessionId);
+    if (!session) throw new Error(t('会话已不可用', 'Conversation is no longer available'));
+    finishSettingsClose();
+    if (await navigateSession(session) && view.current.sessionId === session.id) {
+      await refresh();
+      if (view.current.sessionId === session.id && event.kind === 'approval') setApprovalOpen(true);
+    }
   };
   return <CommandContextUsage.Provider value={commandContext}><CommandCatalog.Provider value={commands}><FileOpeningContext.Provider value={fileOpening}><div ref={appLayout} data-settings-open={settingsOpen || undefined} className={`app ${bridge?.platform === 'darwin' ? 'platform-macos' : ''} ${sidebarVisible ? '' : 'sidebar-hidden'} ${compactSidebar ? 'sidebar-compact' : ''} ${inspectionOpen && !details ? 'summary-open' : ''} ${summaryOverlay ? 'summary-overlay' : ''} ${inspectorExpanded ? 'inspector-expanded' : ''} ${terminalDock === 'bottom' && terminalOpen && !bottomTerminalExpanded ? 'has-bottom-terminal' : ''}`} onContextMenu={e => {
     const element = e.target as HTMLElement;
@@ -1954,7 +1981,7 @@ function App() {
     {!isMini && <aside className="sidebar" inert={settingsOpen || Boolean(removeProject) || !sidebarVisible}>
       <button className="sidebar-identity usage-entry" aria-label={t('用量统计', 'Usage overview')} data-tooltip={t('用量统计', 'Usage overview')}
           aria-pressed={usageOpen} onClick={() => { if (usageOpen) setUsageOpen(false); else openUsage(); }}><img src="./StepCode.svg" width="26" height="26" alt=""/><span className="sidebar-wordmark"><img className="wordmark-light" src="./wordmark-light.png" alt="Desktop for Step Code"/><img className="wordmark-dark" src="./wordmark-dark.png" alt="Desktop for Step Code"/></span>
-        {bridge && data.themePacks?.some(pack => pack.id === data.preferences.theme && pack.renderer === 'stellar-v1') &&
+        {bridge && data.themePacks?.some(pack => pack.id === data.preferences.theme && hasStellarUi(pack)) &&
           <StellarBrand motion={data.preferences.themeMotion !== false} paused={!sidebarVisible || settingsOpen || scheduledOpen || usageOpen}/>}
       </button>
       <SidebarTaskActions selected={scheduledOpen} pluginsSelected={pluginsOpen && !desktopMainId} language={data.preferences.language} disabled={!bridge || loading} onNewSession={() => { if (bridge && !loading) void newSession(); }}
@@ -1994,7 +2021,7 @@ function App() {
     {pluginsVisited && bridge && <main hidden={!pluginsOpen || Boolean(desktopMainId)} inert={!pluginsOpen || Boolean(desktopMainId) || settingsOpen || Boolean(removeProject)}>
       {!!requests.length && <div className="approval-notice"><TriangleAlert size={16}/><span>{t('当前会话有待确认的操作', 'The current session is awaiting approval')}</span>
         <button onClick={() => { setPluginsOpen(false); setApprovalOpen(true); }}>{t('查看', 'Review')}</button></div>}
-      <PluginCenter bridge={bridge} language={data.preferences.language} active={pluginsOpen && !desktopMainId} busy={anyBusy || busy || loading}
+      <PluginCenter bridge={bridge} language={data.preferences.language} currentVersion={appUpdate?.currentVersion} active={pluginsOpen && !desktopMainId} busy={anyBusy || busy || loading}
         runtimeId={data.runtimeId} settings={settings ?? undefined} target={capabilityTarget?.page === 'plugins' ? capabilityTarget : undefined}
         onBack={() => setPluginsOpen(false)} onOpenDesktop={openInstalledDesktop}
         onChanged={async () => { setSettings(await bridge.settings()); setCapabilityRevision(value => value + 1); }}
@@ -2138,9 +2165,9 @@ function App() {
             </QuestionContext.Provider>
           </div> : <div className="session-reading-placeholder" aria-hidden="true"><span/><span/><span/></div>
           : !data.messages.length && !hasPendingReceipt ? <NewSession language={data.preferences.language}
-            emblem={bridge && data.themePacks?.some(pack => pack.id === data.preferences.theme && pack.renderer === 'stellar-v1')
+            emblem={bridge && data.themePacks?.some(pack => pack.id === data.preferences.theme && hasStellarUi(pack))
               ? <StellarEmblem motion={data.preferences.themeMotion !== false} paused={settingsOpen || scheduledOpen}/> : undefined}
-            renderGreeting={bridge && data.themePacks?.some(pack => pack.id === data.preferences.theme && pack.renderer === 'stellar-v1')
+            renderGreeting={bridge && data.themePacks?.some(pack => pack.id === data.preferences.theme && hasStellarUi(pack))
               ? text => <StellarLettering text={text} motion={data.preferences.themeMotion !== false} paused={settingsOpen || scheduledOpen}/> : undefined}
             workspace={data.independent ? undefined : data.preferences.workspace} workspaces={data.preferences.workspaces}
             title={workspaceTitle} disabled={!bridge || loading} composing={!!draft || !!attachments.length || !!quotes.length}
@@ -2414,7 +2441,7 @@ function App() {
             tasksRequest={tasksRequest?.runtimeId === data.runtimeId && tasksRequest?.sessionId === data.state?.sessionId
               && tasksRequest?.draftId === data.draftId ? tasksRequest?.sequence : undefined}
             onTasksRequestHandled={sequence => setTasksRequest(value => value?.sequence === sequence ? undefined : value)}
-            stellar={data.themePacks?.find(pack => pack.id === data.preferences.theme)?.renderer === 'stellar-v1'}
+            stellar={hasStellarUi(data.themePacks?.find(pack => pack.id === data.preferences.theme))}
             messages={data.messages} backgroundActivity={backgroundActivity} busy={busy} onOpenSubagent={openSubagent} onOpenWorkflow={openWorkflow} onClose={closeRightPanel}
             mcpBusy={anyBusy || busy || loading || !connected} capabilityRevision={capabilityRevision}
             onMcpChanged={async () => { setSettings(await bridge!.settings()); setCapabilityRevision(value => value + 1); }}
@@ -2523,6 +2550,7 @@ function App() {
         </div>)}
       </section>}
       {settings && tab === 'general' && <>
+        <NotificationSettings preferences={data.preferences} onChange={setPreference}/>
         <h3>{t('左栏', 'Sidebar')}</h3>
         <label>{t('会话排序', 'Session order')}
           <select aria-label={t('会话排序', 'Session order')} value={data.preferences.sessionSort ?? 'manual'} onChange={e => void setPreference({ sessionSort: e.target.value })}>

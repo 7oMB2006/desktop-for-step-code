@@ -43,7 +43,7 @@ test('Mac CI runs the same serial inventory against source and package and stage
   assert.match(acceptance, /DESKTOP_VERIFY_EXE:/);
   assert.match(acceptance, /tests\/macos-terminal.test.ts/);
   assert.match(acceptance, /if: inputs\.group == 'runtime'/);
-  assert.match(workflow, /node --test scripts\/motion-helpers.test.mjs/);
+  assert.match(workflow, /node --test scripts\/motion-helpers.test.mjs scripts\/cron-manager.test.mjs/);
   assert.match(workflow, /^  group: macos-preview-\$\{\{ github\.workflow \}\}-\$\{\{ github\.ref \}\}$/m);
   assert.match(workflow, /^  cancel-in-progress: true$/m);
   for (const group of Object.keys(macosAcceptanceGroups)) {
@@ -51,7 +51,7 @@ test('Mac CI runs the same serial inventory against source and package and stage
   }
   assert.doesNotMatch(workflow, /continue-on-error|strategy:|fail-fast:/);
   assert.doesNotMatch(acceptance, /continue-on-error|strategy:|fail-fast:/);
-  assert.match(workflow, /needs: \[prepare, interface, sessions, runtime\]/);
+  assert.match(workflow, /needs: \[changes, documentation, prepare, interface, sessions, runtime\]/);
   assert.match(workflow, /name: ARM64 build, tests and packaged acceptance\n    if: always\(\)/);
   assert.ok(workflow.indexOf('conclude receipts') < workflow.indexOf('Upload fully tested preview'));
   assert.match(acceptance, /macos-fixture-diagnostics-\$\{\{ inputs.group \}\}-\$\{\{ github.run_attempt \}\}/);
@@ -60,11 +60,14 @@ test('Mac CI runs the same serial inventory against source and package and stage
   assert.ok(acceptance.indexOf('Packaged native terminal acceptance') < acceptance.indexOf('Validate and seal both reports'));
   assert.match(workflow, /cp release\/v\*\/Desktop\.for\.Step\.Code\.\*\.arm64\.zip release\/Desktop\.for\.Step\.Code\.macos-arm64\.preview\.zip/);
   const setup = readFileSync(new URL('../.github/actions/setup-macos/action.yml', import.meta.url), 'utf8');
-  assert.match(setup, /node-version: 24\.15\.0/);
+  assert.match(setup, /node-version: 24\.16\.0/);
   assert.match(setup, /29eb460780489801ce8afc8bffc1a2efae7cbded/);
   assert.match(setup, /corepack pnpm stage:runtime/);
-  assert.match(workflow, /'\.github\/actions\/setup-macos\/\*\*'/);
-  assert.match(workflow, /'\.github\/workflows\/macos-\*\.yml'/);
+  assert.match(workflow, /^  pull_request:\s*$/m);
+  assert.doesNotMatch(workflow, /^    paths:/m, 'Required macOS gate must exist for documentation PRs');
+  const promotion = workflow.slice(workflow.indexOf('      - name: Require all job outcomes'));
+  assert.equal((promotion.match(/if: steps.outcomes.outputs.docs-only == 'false'/g) ?? []).length, 5,
+    'Documentation route must not download receipts, conclude, download candidates, recheck or promote');
   assert.equal(Object.values(macosAcceptanceGroups).flat().length, macosGroupScripts('all').length);
 });
 test('Mac listing validates the complete projected inventory without launching Electron', () => {
@@ -129,6 +132,90 @@ test('Mac runner does not start an already cancelled script', async t => {
   await assert.rejects(executeWithLog(probe.script, { ...probe.options, signal: controller.signal }), /pre-cancelled/);
   assert.equal(probe.stdout.length, 0);
   assert.equal(existsSync(probe.options.logDirectory), false);
+});
+
+test('logged runner supports isolated argument and log names without allowing path traversal', async t => {
+  const probe = logFixture(t, "console.log(process.argv.slice(2).join('|'));");
+  await executeWithLog(probe.script, { ...probe.options, args: ['a', 'b'], logName: 'another.test.ts' });
+  assert.match(readFileSync(join(probe.options.logDirectory, 'another.test.ts.log'), 'utf8'), /a\|b/);
+  await assert.rejects(executeWithLog(probe.script, { ...probe.options, logName: '../outside' }), /Invalid CI log/);
+});
+
+test('failed or ineffective termination is bounded and never becomes successful cleanup', { timeout: 10000 }, async t => {
+  for (const fails of [true, false]) {
+    const probe = logFixture(t, "setInterval(() => {}, 1000);");
+    let owned;
+    const started = Date.now();
+    try {
+      await assert.rejects(executeWithLog(probe.script, { ...probe.options, timeout: 150, cleanupTimeout: 100,
+        terminate(child) { owned = child; if (fails) throw new Error('helper failed'); },
+      }), /cleanup-unconfirmed/);
+      assert.ok(Date.now() - started < 3000);
+      assert.match(probe.log(), /cleanup-unconfirmed/);
+    } finally {
+      if (owned && owned.exitCode === null && owned.signalCode === null) {
+        const exited = new Promise(resolve => owned.once('exit', resolve));
+        owned.kill();
+        await exited;
+      }
+    }
+  }
+});
+
+test('an assertion failure with a live handle still reaches the external deadline', async t => {
+  const probe = logFixture(t, `
+    import { test } from 'node:test';
+    test('deliberate failure', () => { throw new Error('ASSERTION FAILURE'); });
+    setInterval(() => {}, 1000);
+  `);
+  await assert.rejects(executeWithLog(probe.script, { ...probe.options, timeout: 1000 }), /timed out after 1000ms/);
+  assert.match(probe.log(), /ASSERTION FAILURE/);
+  assert.match(probe.log(), /stopped=Acceptance timed out after 1000ms/);
+});
+
+test('Windows cancellation never targets an exited leader with inherited pipes', { skip: process.platform !== 'win32', timeout: 10000 }, async t => {
+  const probe = logFixture(t, `
+    import { spawn } from 'node:child_process';
+    import { tmpdir } from 'node:os';
+    const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'],
+      { cwd: tmpdir(), stdio: 'inherit', windowsHide: true, detached: true });
+    console.log(JSON.stringify({ leader: process.pid, descendant: child.pid }));
+    child.unref();
+  `);
+  const alive = pid => { try { process.kill(pid, 0); return true; } catch { return false; } };
+  const waitFor = async predicate => {
+    const deadline = Date.now() + 3000;
+    while (!predicate()) {
+      assert.ok(Date.now() < deadline, 'owned subprocess state must settle');
+      await new Promise(resolve => setTimeout(resolve, 10));
+    }
+  };
+  const controller = new AbortController();
+  let terminationCalls = 0, pids;
+  const pending = executeWithLog(probe.script, { ...probe.options, signal: controller.signal,
+    terminate() { terminationCalls++; },
+  });
+  pending.catch(() => {});
+  try {
+    await waitFor(() => {
+      try { pids = JSON.parse(Buffer.concat(probe.stdout).toString()); return true; } catch { return false; }
+    });
+    await waitFor(() => !alive(pids.leader));
+    assert.equal(alive(pids.descendant), true, 'the exited leader leaves a live child holding its output pipes');
+    const started = Date.now();
+    controller.abort();
+    await assert.rejects(pending, /cleanup-unconfirmed: leader exited before inherited pipes closed/);
+    assert.ok(Date.now() - started < 1500, 'closing owned pipes must not wait for the descendant');
+    assert.equal(terminationCalls, 0, 'an exited leader PID must never be passed to taskkill');
+    assert.match(probe.log(), /cleanup-unconfirmed/);
+  } finally {
+    controller.abort();
+    if (pids && alive(pids.descendant)) {
+      process.kill(pids.descendant);
+      await waitFor(() => !alive(pids.descendant));
+    }
+    await pending.catch(() => {});
+  }
 });
 
 test('Mac logs drain output larger than pipe buffers and retain separate source/package evidence', async t => {

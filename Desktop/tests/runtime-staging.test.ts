@@ -12,7 +12,8 @@ test('v0.1.7 retains the complete Desktop patch inventory without duplicate upst
   const previous = JSON.parse(await readFile(resolve('../patches/v016/manifest.json'), 'utf8'));
   assert.equal(manifest.commit, '29eb460780489801ce8afc8bffc1a2efae7cbded');
   assert.deepEqual(manifest.upstream.commits, []);
-  assert.deepEqual(Object.keys(manifest.patches), [...Object.keys(previous.patches), 'step-code-desktop-v017.patch']);
+  assert.deepEqual(Object.keys(manifest.patches), [...Object.keys(previous.patches),
+    'step-code-desktop-v017.patch', 'step-code-desktop-mcp-credentials.patch', 'step-code-desktop-plugin-host.patch']);
   assert.deepEqual(Object.keys(manifest.platforms.darwin.patches), Object.keys(previous.platforms.darwin.patches));
   const touched = new Set<string>();
   for (const [name, hash] of Object.entries(manifest.patches)) {
@@ -43,6 +44,11 @@ test('v0.1.7 retains the complete Desktop patch inventory without duplicate upst
   assert.match(launch, /'--desktop-plan-review', '--plan-review-surface'/);
   const stage = await readFile(resolve('scripts/stage-runtime.mjs'), 'utf8');
   assert.match(stage, /patches\/v017\/manifest\.json/);
+  assert.match(stage, /'desktop-mcp-credential-isolation'/);
+  assert.match(stage, /'desktop-plugin-host-launch'/);
+  const credentials = await readFile(join(root, 'step-code-desktop-mcp-credentials.patch'), 'utf8');
+  assert.match(credentials, /-\s+const credential = readStoredCredential/);
+  assert.match(credentials, /\+export const STEP_LOGIN_SUPPLIED_ENV: readonly string\[\] = \[\]/);
 });
 
 test('Shared v0.1.6 patch manifest pins every reviewed pre-image, result and patch', async () => {
@@ -152,36 +158,8 @@ test('staging rejects the wrong upstream before touching runtime through every s
 // instructions. The first three are coupled by the guard itself; this couples the fourth so a
 // stale build instruction fails in CI instead of on a contributor's machine.
 test('every documented pin matches the staging guard', async () => {
-  const guard = await readFile(resolve('scripts/stage-runtime.mjs'), 'utf8');
-  const manifest = JSON.parse(await readFile(resolve('../patches/v017/manifest.json'), 'utf8'));
-  const pin = manifest.commit;
-  assert.match(guard, /const PINNED_COMMIT = integrationManifest.commit/);
-  assert.match(pin ?? '', /^[0-9a-f]{40}$/, 'staging guard declares a pin');
-  // Dated verification records legitimately keep the pin they were built with, so only the
-  // locations that tell someone what to check out are listed here.
-  for (const doc of ['../README.md', '../README.zh-CN.md', '../patches/README.md', '../docs/RELEASE.md', '../docs/MACOS.md']) {
-    const text = await readFile(resolve(doc), 'utf8');
-    assert.ok(text.includes(pin!), `${doc} still documents an older pin than the staging guard`);
-  }
-  for (const doc of ['../README.md', '../README.zh-CN.md']) {
-    const text = await readFile(resolve(doc), 'utf8');
-    assert.match(text, /apply-step-code-desktop-patch\.mjs Step-Code patches\\v017\\step-code-desktop\.patch/,
-      `${doc} must apply the patch chain for the documented pin`);
-  }
-  assert.match(await readFile(resolve('../docs/MACOS.md'), 'utf8'),
-    /apply-step-code-desktop-patch\.mjs Step-Code patches\/v017\/step-code-desktop\.patch/);
-  // The workflow already fails when the two drift, because the applier checks the pinned
-  // pre-image hashes, but that error blames the upstream source. Checking here names the cause.
-  for (const buildPath of ['../.github/workflows/windows-integration.yml', '../.github/actions/setup-macos/action.yml']) {
-    const build = await readFile(resolve(buildPath), 'utf8');
-    assert.ok(build.includes(pin!), `${buildPath} still pins an older Step Code revision`);
-    assert.match(build, /patches\/v017\/step-code-desktop\.patch/,
-      `${buildPath} must apply the patch chain for the checked pin`);
-  }
-  for (const workflowPath of ['../.github/workflows/macos-integration.yml', '../.github/workflows/macos-acceptance.yml']) {
-    const workflow = await readFile(resolve(workflowPath), 'utf8');
-    assert.match(workflow, /uses: \.\/\.github\/actions\/setup-macos/, `${workflowPath} must use the checked native build action`);
-  }
+  const { validateDocumentation } = await import('../../scripts/ci-docs.mjs');
+  validateDocumentation();
 });
 
 test('runtime packaging and standalone worker helpers use the current integration manifest', async () => {

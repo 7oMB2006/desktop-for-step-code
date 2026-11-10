@@ -11,7 +11,10 @@ export async function settleLayout(locator, { includeParents = true } = {}) {
       const candidates = new Set(element.getAnimations({ subtree: true }));
       // An ancestor transform can move the target even if the target is still.
       if (includeParents) for (let parent = element.parentElement; parent; parent = parent.parentElement)
-        for (const animation of parent.getAnimations()) candidates.add(animation);
+        // Pseudo-element effects require subtree enumeration, but unrelated
+        // sibling animations must not hold up the target's geometry.
+        for (const animation of parent.getAnimations({ subtree: true }))
+          if (animation.effect?.target === parent) candidates.add(animation);
       const animations = [...candidates].filter(animation =>
         animation.playState !== 'finished'
         && Number.isFinite(animation.effect?.getComputedTiming().endTime));

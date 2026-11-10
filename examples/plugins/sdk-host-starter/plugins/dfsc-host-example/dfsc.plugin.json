@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "authors": [{ "name": "DFSC contributors" }],
+  "license": "MIT",
+  "categories": ["development"],
+  "keywords": ["MCP SDK", "host API candidate"],
+  "documentation": { "readme": "README.md" },
+  "locales": {
+    "zh": { "description": "官方 MCP SDK 打包与宿主能力协议候选示例；模型能力仅供离线验收。" }
+  }
+}

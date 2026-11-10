@@ -14,11 +14,13 @@ const css = output.outputFiles.find(file => file.path.endsWith('.css')).text;
 const env = { ...process.env, DESKTOP_TEST_USER_DATA: await mkdtemp(join(tmpdir(), 'step-update-ui-')), DESKTOP_TEST_NO_FOCUS: '1' };
 delete env.ELECTRON_RUN_AS_NODE;
 const app = await electron.launch({ ...(process.env.DESKTOP_VERIFY_EXE ? { executablePath: process.env.DESKTOP_VERIFY_EXE } : { args: [resolve('.')] }), env });
+const child = app.process();
 const errors = [];
 try {
   // Do not let the native renderer's first load race the harness window or shutdown.
   const mainPage = await app.firstWindow();
-  await mainPage.waitForFunction(() => Boolean(window.desktop && document.querySelector('.first-run-production')),
+  await mainPage.waitForFunction(() => Boolean(window.desktop?.onEvent && window.desktop?.quitRespond
+    && document.querySelector('.first-run-production')),
     undefined, { timeout: 60000 });
   await mainPage.evaluate(() => window.desktop.snapshot());
   console.log('Update UI fixture: native startup ready.');
@@ -69,5 +71,17 @@ try {
   await page.screenshot({ path: 'test-results/updater-download-narrow.png' });
   assert.deepEqual(errors, []);
   console.log('Update UI fixture: assertions complete; closing Electron.');
-} finally { await closeDesktopFixtureAndWait(app); }
+} finally {
+  try {
+    await closeDesktopFixtureAndWait(app);
+    assert.equal(child.exitCode, 0, 'the updater fixture must exit successfully');
+  }
+  catch (error) {
+    console.error('Updater shutdown diagnostic:', {
+      exitCode: child.exitCode,
+      windows: app.windows().map(page => ({ url: page.url(), closed: page.isClosed() })),
+    });
+    throw error;
+  }
+}
 console.log('Update UI acceptance passed: progress, cancel/retry, ready, blocked install, failure, narrow layout, orderly shutdown.');

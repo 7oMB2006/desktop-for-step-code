@@ -14,20 +14,24 @@ export function CronManager({ bridge, onOpenHost }: {
   const alive = useRef(true);
   const inflight = useRef<Promise<void> | undefined>(undefined);
   const dirty = useRef(false);
+  const mutating = useRef(false);
   const reload = useCallback((): Promise<void> => {
+    if (mutating.current) { dirty.current = true; return Promise.resolve(); }
     if (inflight.current) { dirty.current = true; return inflight.current; }
     const request = (async () => {
       do {
         dirty.current = false;
         if (alive.current) setLoading(true);
         try {
-          const [next, snapshot] = await Promise.all([bridge.cronList(), bridge.snapshot()]);
+          // A failed snapshot must still drain the list's host read lock.
+          const [next, snapshot] = await Promise.allSettled([bridge.cronList(), bridge.snapshot()]);
+          if (next.status !== 'fulfilled' || snapshot.status !== 'fulfilled') throw new Error('Cron refresh failed');
           if (alive.current) {
-            setData(next); setSessions(snapshot.sessions.filter(session => !snapshot.preferences.archivedSessionIds?.includes(session.id)));
+            setData(next.value); setSessions(snapshot.value.sessions.filter(session => !snapshot.value.preferences.archivedSessionIds?.includes(session.id)));
             setFailed(false);
           }
         } catch { if (alive.current) setFailed(true); }
-      } while (dirty.current && alive.current);
+      } while (dirty.current && alive.current && !mutating.current);
     })().finally(() => {
       inflight.current = undefined;
       if (alive.current) setLoading(false);
@@ -46,6 +50,19 @@ export function CronManager({ bridge, onOpenHost }: {
     });
     return () => { alive.current = false; clearTimeout(timer); unsubscribe(); };
   }, [bridge, reload]);
+  const mutate = async <T,>(action: () => Promise<T>): Promise<T> => {
+    if (mutating.current) throw new Error('Wait for the current Cron operation to finish');
+    // Drain this page's reads before writing; events are coalesced until confirmation.
+    mutating.current = true;
+    try {
+      await inflight.current;
+      if (!alive.current) throw new Error('Cron management is no longer open');
+      return await action();
+    } finally {
+      mutating.current = false;
+      if (alive.current) await reload();
+    }
+  };
   const format = (time: number) => new Intl.DateTimeFormat('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false }).format(time);
   const jobs: ScheduledTaskView[] = data.tasks.map(job => ({
     id: job.key, jobId: job.id, runtimeId: job.runtimeId, hostName: job.hostName,
@@ -56,14 +73,12 @@ export function CronManager({ bridge, onOpenHost }: {
     recurring: job.recurring, durable: job.durable, host: job.runtimeId ? 'online' : 'offline',
   }));
   const create = async (value: ScheduledTaskCreation) => {
-    await bridge.cronCreate({ runtimeId: value.runtimeId, cron: value.cron, prompt: value.prompt, recurring: value.recurring, durable: value.durable });
-    await reload();
+    await mutate(() => bridge.cronCreate({ runtimeId: value.runtimeId, cron: value.cron, prompt: value.prompt, recurring: value.recurring, durable: value.durable }));
   };
   const remove = async (key: string) => {
     const task = data.tasks.find(job => job.key === key);
     if (!task?.runtimeId) throw new Error('Open the project host before deleting this job');
-    await bridge.cronDelete(task.runtimeId, task.id);
-    await reload();
+    await mutate(() => bridge.cronDelete(task.runtimeId!, task.id));
   };
   return <ScheduledTasks jobs={jobs} hosts={data.hosts} sessions={sessions} history={data.history}
     onOpenHost={onOpenHost ? async runtimeId => {
@@ -75,12 +90,11 @@ export function CronManager({ bridge, onOpenHost }: {
     onUpdate={async (key, expected, changes) => {
       const task = data.tasks.find(job => job.key === key);
       if (!task?.runtimeId) throw new Error('Open the project host before updating this job');
-      await bridge.cronUpdate({ runtimeId: task.runtimeId, jobId: task.id, expected, ...changes });
-      await reload();
+      await mutate(() => bridge.cronUpdate({ runtimeId: task.runtimeId!, jobId: task.id, expected, ...changes }));
     }}
     onPrepareRecovery={(key, sessionId) => bridge.cronRecoveryPreview(key, sessionId)}
-    onRecover={async (token, automatic, acknowledged) => { await bridge.cronRecover(token, automatic, acknowledged); await reload(); }}
-    onDisableAutomatic={async key => { await bridge.cronDisableAutomatic(key); await reload(); }}
+    onRecover={async (token, automatic, acknowledged) => { await mutate(() => bridge.cronRecover(token, automatic, acknowledged)); }}
+    onDisableAutomatic={async key => { await mutate(() => bridge.cronDisableAutomatic(key)); }}
     live refreshing={loading} onRefresh={() => void reload()} onCreate={create} onDelete={remove}
     issue={failed ? '读取失败，正在保留上次结果。请刷新重试，当前列表可能已过期。'
       : data.issues.some(issue => issue.reason === 'unavailable') ? '部分项目或宿主暂时无法读取，列表可能不完整。'

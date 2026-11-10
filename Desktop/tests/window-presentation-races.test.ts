@@ -23,7 +23,7 @@ function harness() {
   const reads: { resolve(value: { position: ReadingPosition }): void; reject(error: Error): void }[] = [];
   const writes: ReadingPosition[] = [], requests: Promise<unknown>[] = [];
   const state = { position: { follow: true, top: 6938 } as ReadingPosition };
-  const runtime = declarations.filter(node => ['restoringPresentation', 'saveWindowPresentation'].includes(node.name.getText(source)))
+  const runtime = declarations.filter(node => ['pendingPresentationRestores', 'saveWindowPresentation'].includes(node.name.getText(source)))
     .map(node => `const ${node.getText(source)};`).join('\n');
   const program = ts.transpileModule(`
     const useRef = current => ({ current });
@@ -36,7 +36,9 @@ function harness() {
     const setRemoteOpen = () => {}, setUsageOpen = () => {}, setScheduledOpen = () => {};
     const setPluginsOpen = () => {}, setFulltextOpen = () => {}, setDetails = () => {}, setExpandedRightPanel = () => {};
     const rememberView = persist => { if (persist) throw new Error('Cannot persist the old view'); };
-    const installSnapshot = () => {};
+    const installSnapshot = () => true;
+    const flushSync = action => action();
+    const followLayout = () => {};
     const restoreWindowPresentation = value => { readingRestore.current = { position: value.position }; };
     ${runtime}
     return {

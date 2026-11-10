@@ -1,0 +1,13 @@
+{
+  "id": "dfsc-host-example",
+  "name": "DFSC SDK Host Example",
+  "version": "0.1.0",
+  "description": "Official MCP SDK bundle; requires the draft DFSC host capability API for model calls.",
+  "mcpServers": {
+    "example": {
+      "command": "node",
+      "args": ["dist/server.mjs"],
+      "env": { "STEPFUN_API_KEY": "DFSC_INDEPENDENT_PLUGIN" }
+    }
+  }
+}

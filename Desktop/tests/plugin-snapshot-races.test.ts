@@ -201,6 +201,7 @@ async function modules(fs) {
     settings: join(repository, 'Desktop/electron/capability-settings.mjs'),
     failure: join(repository, 'Desktop/electron/capability-failure.mjs'),
     files: join(repository, 'Desktop/electron/plugin-files.mjs'),
+    composition: join(repository, 'Desktop/electron/theme-composition.mjs'),
     update: join(repository, 'Desktop/electron/plugin-update.mjs'),
     configuration: join(repository, 'Desktop/electron/plugin-configuration.mjs'),
     reader: join(repository, 'examples/plugins/config-starter/plugins/dfsc-config-example/server/configuration.mjs'),
@@ -229,6 +230,7 @@ async function modules(fs) {
       if (Object.hasOwn(builtins, specifier)) return load(specifier);
       if (specifier === './capability-failure.mjs') return load('failure');
       if (specifier === './plugin-files.mjs') return load('files');
+      if (specifier === './theme-composition.mjs') return load('composition');
       if (specifier === './plugin-update.mjs') return load('update');
       if (specifier === './plugin-configuration.mjs') return load('configuration');
       throw new Error('Unexpected import: ' + specifier);

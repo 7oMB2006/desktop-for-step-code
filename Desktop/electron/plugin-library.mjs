@@ -3,6 +3,7 @@ import { lstat } from 'node:fs/promises';
 import { isAbsolute, relative, resolve, sep, posix } from 'node:path';
 import { unified } from 'unified';
 import remarkParse from 'remark-parse';
+import semver from 'semver';
 import { digest, object, optionalFile, packageFingerprint, packagePath, plainFile, PluginFileError } from './plugin-files.mjs';
 
 const bounded = (value, max = 160) => {
@@ -70,6 +71,27 @@ function parseDesktop(value) {
     ...(value.symbol !== undefined ? { symbol: value.symbol } : {}),
     ...(icon ? { icon } : {}), ...(defaultPage !== undefined ? { defaultPage } : {}) };
 }
+function parseRequirements(value) {
+  onlyKeys(value, ['dfsc', 'external']);
+  const requirements = {};
+  if (value.dfsc !== undefined) {
+    const range = bounded(value.dfsc, 128);
+    if (!semver.validRange(range)) throw new PluginFileError('invalid-presentation');
+    requirements.dfsc = range;
+  }
+  if (value.external !== undefined) requirements.external = list(value.external, 12).map(item => {
+    onlyKeys(item, ['name', 'description', 'url', 'optional']);
+    if (item.optional !== undefined && typeof item.optional !== 'boolean')
+      throw new PluginFileError('invalid-presentation');
+    const url = item.url === undefined ? undefined : documentUrl(item.url);
+    if (item.url !== undefined && !url) throw new PluginFileError('invalid-presentation');
+    return { name: bounded(item.name),
+      ...(item.description !== undefined ? { description: bounded(item.description, 512) } : {}),
+      ...(url !== undefined ? { url } : {}),
+      ...(item.optional !== undefined ? { optional: item.optional } : {}) };
+  });
+  return requirements;
+}
 export function parsePresentation(value) {
   if (!object(value) || value.schemaVersion !== 1) throw new PluginFileError('invalid-presentation');
   const names = items => list(items).map(item => {
@@ -117,6 +139,7 @@ export function parsePresentation(value) {
     ...(value.categories !== undefined ? { categories: terms(value.categories, 3, true) } : {}),
     ...(value.keywords !== undefined ? { keywords: terms(value.keywords, 5) } : {}),
     ...(value.desktop !== undefined ? { desktop: parseDesktop(value.desktop) } : {}),
+    ...(value.requirements !== undefined ? { requirements: parseRequirements(value.requirements) } : {}),
     ...(Object.keys(locales).length ? { locales } : {}) };
 }
 async function fileExists(root, path) {
@@ -185,11 +208,16 @@ export class PluginLibrary {
           const bytes = await optionalFile(root, 'dfsc.plugin.json', 65536);
           if (bytes) {
             const value = JSON.parse(bytes.toString('utf8'));
-            try { metadata = parsePresentation(value); }
-            catch (error) {
-              if (!object(value) || value.desktop === undefined) throw error;
-              metadata = parsePresentation({ ...value, desktop: undefined });
-              warnings.push('Invalid or unsupported Desktop workspace contribution.');
+            if (!object(value)) throw new PluginFileError('invalid-presentation');
+            const { desktop, requirements, ...presentation } = value;
+            metadata = parsePresentation(presentation);
+            if (desktop !== undefined) {
+              try { metadata.desktop = parseDesktop(desktop); }
+              catch { warnings.push('Invalid or unsupported Desktop workspace contribution.'); }
+            }
+            if (requirements !== undefined) {
+              try { metadata.requirements = parseRequirements(requirements); }
+              catch { warnings.push('Invalid or unsupported Desktop requirements declaration.'); }
             }
           }
         } catch { warnings.push('Invalid or unsupported Desktop presentation metadata.'); }
@@ -226,7 +254,9 @@ export class PluginLibrary {
         }
         return { ...publicPlugin, package: { ...metadata, warnings, ref: reference.ref, provenance: descriptor.provenance,
           configurationAvailable: descriptor.kind === 'installed' && descriptor.provenance === 'recorded'
-            && await fileExists(root, 'dfsc.settings.json') } };
+            && await fileExists(root, 'dfsc.settings.json'),
+          hostSettingsAvailable: descriptor.kind === 'installed' && descriptor.provenance === 'recorded'
+            && await fileExists(root, 'dfsc.host.json') } };
       } catch { return publicPlugin; }
     };
     const plugins = [];

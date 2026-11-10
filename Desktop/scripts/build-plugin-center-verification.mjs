@@ -25,7 +25,7 @@ for (const name of await readdir(runtime, { withFileTypes: true })) {
     await copyFile(await access(current).then(() => current).catch(() => source), target);
   }
 }
-for (const name of ['plugin-files.mjs', 'marketplace-refresh.mjs'])
+for (const name of ['plugin-files.mjs', 'theme-composition.mjs', 'marketplace-refresh.mjs'])
   await copyFile(resolve('electron', name), join(output, 'runtime', name));
 const define = { DESKTOP_USAGE_OVERVIEW_PREVIEW: 'false' };
 await build({ entryPoints: ['electron/main.ts', 'electron/preload.ts', 'electron/tray-preload.ts', 'electron/keyless-fetch.ts'],

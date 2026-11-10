@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { conversationTurns, readingTurn, RULER_STEP, rulerOpacity, turnCursor, turnTime } from '../src/ConversationNavigation';
+import { conversationTurns, createConversationTurnsReader, readingTurn, RULER_STEP, rulerOpacity, turnCursor, turnCursorFrom, turnTime } from '../src/ConversationNavigation';
 import { thumbMetrics } from '../src/ConversationScrollThumb';
 import type { Message } from '../src/contracts';
 
@@ -35,9 +35,9 @@ test('navigation includes visible Goal inputs but excludes internal continuation
 });
 
 test('scroll thumb reaches both ends of the full-height overlay track', () => {
-  assert.deepEqual(thumbMetrics(0, 500, 2000, 1000), { top: 0, height: 72, maxScroll: 1500 });
-  assert.deepEqual(thumbMetrics(1500, 500, 2000, 1000), { top: 928, height: 72, maxScroll: 1500 });
-  assert.deepEqual(thumbMetrics(0, 500, 500, 1000), { top: 0, height: 0, maxScroll: 0 });
+  assert.deepEqual(thumbMetrics(0, 500, 2000, 1000), { top: 0, height: 72, maxScroll: 1500, percent: 0 });
+  assert.deepEqual(thumbMetrics(1500, 500, 2000, 1000), { top: 928, height: 72, maxScroll: 1500, percent: 100 });
+  assert.deepEqual(thumbMetrics(0, 500, 500, 1000), { top: 0, height: 0, maxScroll: 0, percent: 0 });
 });
 
 test('turn dates use the original user timestamp and local month/day/time, never the current clock', () => {
@@ -50,9 +50,9 @@ test('turn dates use the original user timestamp and local month/day/time, never
 });
 
 test('compact quote thumb preserves both ends and remains bounded on a short rail', () => {
-  assert.deepEqual(thumbMetrics(0, 156, 2000, 126, true), { top: 0, height: 20, maxScroll: 1844 });
-  assert.deepEqual(thumbMetrics(1844, 156, 2000, 126, true), { top: 106, height: 20, maxScroll: 1844 });
-  assert.deepEqual(thumbMetrics(1844, 156, 2000, 12, true), { top: 0, height: 12, maxScroll: 1844 });
+  assert.deepEqual(thumbMetrics(0, 156, 2000, 126, true), { top: 0, height: 20, maxScroll: 1844, percent: 0 });
+  assert.deepEqual(thumbMetrics(1844, 156, 2000, 126, true), { top: 106, height: 20, maxScroll: 1844, percent: 100 });
+  assert.deepEqual(thumbMetrics(1844, 156, 2000, 12, true), { top: 0, height: 12, maxScroll: 1844, percent: 100 });
 });
 
 test('ruler keeps turns evenly spaced while interpolating the reading position', () => {
@@ -74,4 +74,64 @@ test('directory reading position keeps the preceding real turn through gaps', ()
   assert.equal(readingTurn(positions, 400), 4);
   assert.equal(readingTurn(positions, 899), 4);
   assert.equal(readingTurn(positions, 1200), 9);
+});
+
+test('reading cursor measures logarithmically rather than visiting every historical turn', () => {
+  let reads = 0;
+  const count = 10000;
+  const offset = (index: number) => { reads++; return index * 100; };
+  assert.equal(turnCursorFrom(count, offset, 678950), 6789.5);
+  assert.ok(reads <= 18, `Only surrounding geometry is needed, observed ${reads} reads`);
+  for (const position of [-100, 0, 50, 100, 199, 200, 500]) {
+    const offsets = [0, 100, 200];
+    assert.equal(turnCursorFrom(3, index => offsets[index], position),
+      position <= 0 ? 0 : position >= 200 ? 2 : position / 100);
+  }
+  assert.equal(turnCursorFrom(0, () => { throw new Error('Empty'); }, 20), 0);
+  assert.equal(turnCursorFrom(1, () => 100, 20), 0);
+});
+
+test('streamed assistant and tool changes retain the navigation projection', () => {
+  const read = createConversationTurnsReader();
+  const user: Message = { role: 'user', entryId: 'user', content: 'Keep reading', timestamp: 100 };
+  const first = read([user, { role: 'assistant', content: 'First' }], 'en');
+  for (let update = 0; update < 60; update++) {
+    assert.equal(read([{ ...user }, { role: 'assistant', content: `Delta ${update}` },
+      { role: 'toolResult', content: `Progress ${update}` }], 'en'), first);
+  }
+  assert.equal(read([{ ...user, content: '  Keep\nreading  ' }], 'en'), first,
+    'Equivalent previews do not reacquire historical DOM');
+  assert.deepEqual(first, [{ index: 0, preview: 'Keep reading', timestamp: 100 }]);
+});
+
+test('navigation projection invalidates for changed previews, timestamps, positions and membership', () => {
+  const variants: Message[][] = [
+    [{ role: 'user', content: 'First', timestamp: 100 }],
+    [{ role: 'user', content: 'Edited', timestamp: 100 }],
+    [{ role: 'user', content: 'Edited', timestamp: 200 }],
+    [{ role: 'assistant', content: 'Before' }, { role: 'user', content: 'Edited', timestamp: 200 }],
+    [{ role: 'assistant', content: 'Before' }, { role: 'user', content: 'Edited', timestamp: 200 }, { role: 'user', content: 'Next' }],
+    [{ role: 'custom', customType: 'desktop-goal-input', content: 'Goal' }],
+    [{ role: 'custom', customType: 'desktop-goal-input', display: false, content: 'Goal' }],
+  ];
+  const read = createConversationTurnsReader();
+  let previous = read([], 'en');
+  for (const messages of variants) {
+    const next = read(messages, 'en');
+    assert.notEqual(next, previous);
+    assert.deepEqual(next, conversationTurns(messages, 'en'));
+    previous = next;
+  }
+});
+
+test('navigation projection follows image language changes and is scoped to its reader', () => {
+  const messages: Message[] = [{ role: 'user', content: [{ type: 'image', data: 'AA==', mimeType: 'image/png' }] }];
+  const read = createConversationTurnsReader();
+  const english = read(messages, 'en');
+  const chinese = read(messages, 'zh');
+  assert.notEqual(chinese, english);
+  assert.equal(chinese[0].preview, '图片消息');
+  assert.notEqual(createConversationTurnsReader()(messages, 'zh'), chinese, 'A replacement session acquires its own nodes');
+  assert.equal(read([], 'zh').length, 0);
+  assert.equal(read([], 'zh'), read([], 'en'));
 });

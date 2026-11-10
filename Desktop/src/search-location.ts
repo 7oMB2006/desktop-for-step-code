@@ -1,4 +1,6 @@
 import { searchPattern } from './fulltext-search';
+import { releaseConversationLayout } from './conversation-layout';
+import { setTextHighlight } from './text-highlights';
 
 function* searchableText(target: HTMLElement): Generator<Node> {
   const walker = target.ownerDocument.createTreeWalker(target, 4);
@@ -39,11 +41,10 @@ export function markSearchMessage(target: HTMLElement, text: string, name: strin
       if (ranges.length >= 200) break;
     }
   }
-  if (typeof Highlight !== 'undefined' && CSS.highlights) {
-    CSS.highlights.set(name, new Highlight(...ranges));
-  }
+  const clearHighlight = typeof Highlight !== 'undefined'
+    ? setTextHighlight(name, new Highlight(...ranges)) : () => {};
   return { matched: ranges.length > 0, cleanup: () => {
-    if (typeof CSS !== 'undefined') CSS.highlights?.delete(name);
+    clearHighlight();
     delete target.dataset.searchMatch;
   } };
 }
@@ -51,6 +52,7 @@ export function markSearchMessage(target: HTMLElement, text: string, name: strin
 export function revealSearchHighlight(name: string): DOMRect | undefined {
   const range = CSS.highlights?.get(name)?.values().next().value;
   if (!(range instanceof Range)) return;
+  releaseConversationLayout(range.startContainer.parentElement);
   const page = range.startContainer.parentElement?.closest<HTMLElement>('.large-message-text > pre');
   if (page) {
     const match = range.getBoundingClientRect(), bounds = page.getBoundingClientRect();
@@ -60,6 +62,7 @@ export function revealSearchHighlight(name: string): DOMRect | undefined {
 }
 
 export function scrollSearchMessage(viewport: HTMLElement, target: HTMLElement, match?: DOMRect) {
+  releaseConversationLayout(viewport);
   const rect = match?.height ? match : target.getBoundingClientRect();
   const top = viewport.scrollTop + rect.top - viewport.getBoundingClientRect().top
     - (viewport.clientHeight - Math.min(rect.height, viewport.clientHeight)) / 2;

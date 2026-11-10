@@ -102,18 +102,35 @@ try {
     }, { runtimeId: fixture.runtimeId, text });
     await settle();
   };
+  const assertThumbState = async () => {
+    await page.waitForFunction(() => {
+      const viewport = document.querySelector('#conversation-scroll');
+      const track = document.querySelector('.main-content > .conversation-scroll-track');
+      if (!viewport || !track) return false;
+      const max = Math.max(0, viewport.scrollHeight - viewport.clientHeight);
+      if (!max) return track.getAttribute('aria-hidden') === 'true' && track.tabIndex === -1;
+      const thumb = track.querySelector('.conversation-scroll-thumb');
+      if (!thumb || track.getAttribute('aria-hidden') !== 'false' || track.tabIndex !== 0) return false;
+      const fraction = Math.max(0, Math.min(1, viewport.scrollTop / max));
+      const travel = track.clientHeight - Number.parseFloat(thumb.style.height);
+      return Number(track.getAttribute('aria-valuenow')) === Math.round(fraction * 100)
+        && Math.abs(Number.parseFloat(thumb.style.top) - travel * fraction) <= 1;
+    });
+  };
   const preservesReading = async label => {
     const before = await measure();
     await append();
     const after = await measure();
     evidence.push({ label, before, after });
     assert.ok(Math.abs(after.top - before.top) <= 1, `${label}: output pulled reading position from ${before.top} to ${after.top}`);
+    await assertThumbState();
   };
   const followsOutput = async label => {
     await append('\n\n' + 'Additional output keeps the transcript growing.\n\n'.repeat(4));
     const after = await measure();
     evidence.push({ label, after });
     assert.ok(after.max - after.top <= 1, `${label}: normal tail following did not resume`);
+    await assertThumbState();
   };
   for (const turns of [1, 2]) {
     phase = `${turns} turn: small upward wheel`;
@@ -192,6 +209,7 @@ try {
   phase = 'upward intent before the transcript overflows';
   await reset();
   assert.equal((await measure()).max, 0);
+  await assertThumbState();
   await wheel(-40);
   await append('\n\n' + 'Output eventually extends beyond the viewport.\n\n'.repeat(22));
   assert.ok((await measure()).max > 100);

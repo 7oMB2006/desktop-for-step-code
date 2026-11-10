@@ -2,6 +2,7 @@ import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useSta
 import { createPortal } from 'react-dom';
 import { Check, PencilLine, Pin, Trash2, X } from 'lucide-react';
 import { MAX_ANNOTATION_LENGTH, type ChatQuote } from './chat-quotes';
+import { setTextHighlight } from './text-highlights';
 
 // Reconstruct only verified selections. Never attach a note to a guessed occurrence.
 export function quoteSourceRange(root: HTMLElement, quote: ChatQuote) {
@@ -59,8 +60,7 @@ function refreshHighlights() {
   for (const [key, name] of [['marks', 'quote-annotation-marks'], ['focus', 'quote-annotation-focus']] as const) {
     const highlight = new Highlight(...[...annotationRanges.values()].flatMap(value => value[key]));
     highlight.priority = key === 'focus' ? 1 : 0;
-    if (highlight.size) CSS.highlights.set(name, highlight);
-    else CSS.highlights.delete(name);
+    setTextHighlight(name, highlight);
   }
 }
 
@@ -92,6 +92,12 @@ export function QuoteAnnotations({ root, quotes: allQuotes, language, scope, ann
   }, []);
   useEffect(() => { panel.current?.hidePopover(); setActive(null); setPinned(false); setEditing(false); }, [scope]);
   useLayoutEffect(() => {
+    // An empty overlay must not force layout of a newly mounted transcript.
+    if (!quotes.length) {
+      rangesRef.current.clear();
+      setMarkers(current => current.length ? [] : current);
+      return;
+    }
     let frame = 0;
     const update = () => {
       frame = 0;
@@ -145,6 +151,7 @@ export function QuoteAnnotations({ root, quotes: allQuotes, language, scope, ann
     };
   }, [root, quotes, scope, active, focusedId]);
   useEffect(() => {
+    if (!quotes.length) return;
     let openTimer: ReturnType<typeof setTimeout> | undefined;
     let closeTimer: ReturnType<typeof setTimeout> | undefined;
     let pending: string | null = null;

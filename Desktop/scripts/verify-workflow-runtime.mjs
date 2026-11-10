@@ -1,4 +1,5 @@
 import { terminateFixtureTree } from './fixture-runtime-children.mjs';
+import { closeDesktopFixtureAndWait } from './close-desktop-fixture.mjs';
 import { _electron as electron } from 'playwright';
 import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, writeFile, readdir, readFile, realpath } from 'node:fs/promises';
@@ -209,8 +210,7 @@ try {
   assert.ok(saved.agents.every(agent => agent.status === 'completed'));
   const sessionId = finished.state.sessionId;
   const requestCount = requests.length;
-  await app.evaluate(({ app }) => app.exit(0));
-  await app.close();
+  await closeDesktopFixtureAndWait(app);
   app = await launch();
   page = await app.firstWindow();
   await app.evaluate(({ BrowserWindow }) => {
@@ -381,6 +381,15 @@ try {
         })) };
     }).catch(() => null);
     console.error('Workflow fixture state:', JSON.stringify(diagnostic));
+    await page.screenshot({ path: 'test-results/workflow-runtime-failed.png' }).catch(() => {});
+  }
+  for (const name of await readdir(join(profile, 'logs')).catch(() => [])) {
+    if (!name.startsWith('crash-') || !name.endsWith('.log')) continue;
+    const record = await readFile(join(profile, 'logs', name), 'utf8').catch(() => '');
+    // CrashLog already sanitizes errors; never include child stderr or profile contents.
+    console.error('Workflow lifecycle failure:', record.split('\n')
+      .filter(line => ['kind: ', 'phase: ', 'error: ', 'exitCode: ', 'signal: '].some(prefix => line.startsWith(prefix)))
+      .join('; '));
   }
   throw error;
 } finally {
@@ -394,7 +403,6 @@ try {
     if (state.state?.isStreaming) await window.desktop.command('abort', {}, state.runtimeId);
   }).catch(() => {});
   // This app and its profile belong solely to the fixture; never touch a live user process.
-  await app.evaluate(({ app }) => app.exit(0)).catch(() => {});
-  await app.close();
+  await closeDesktopFixtureAndWait(app);
   await new Promise(resolve => server.close(resolve));
 }

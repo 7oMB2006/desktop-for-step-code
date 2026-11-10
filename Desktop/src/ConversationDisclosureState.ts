@@ -11,11 +11,15 @@ export function useConversationDisclosure(key: string | undefined, defaultExpand
     const saved = key ? memory?.get(key) : undefined;
     return saved?.revision === revision ? saved.expanded : defaultExpanded;
   };
-  const [state, setState] = useState(() => ({ memory, key, revision, expanded: read() }));
+  const [state, setState] = useState(() => ({ memory, key, revision, expanded: read(), touched: false }));
   // A saved entry ID can arrive after the user has already opened the live message.
   const adoptingIdentity = state.memory === memory && state.revision === revision && state.key === undefined && key !== undefined;
+  // Cold previews are interactive before their window presentation is restored.
+  const adoptingPreview = state.memory === undefined && memory !== undefined && state.key === key
+    && state.revision === revision && state.touched;
+  const adopting = adoptingIdentity || adoptingPreview;
   const current = state.memory === memory && state.key === key && state.revision === revision
-    ? state : { memory, key, revision, expanded: adoptingIdentity ? state.expanded : read() };
+    ? state : { memory, key, revision, expanded: adopting ? state.expanded : read(), touched: adopting && state.touched };
   if (current !== state) setState(current);
   useLayoutEffect(() => {
     if (!memory || !key) return;
@@ -23,8 +27,9 @@ export function useConversationDisclosure(key: string | undefined, defaultExpand
     memory.set(key, { revision, expanded: current.expanded });
     while (memory.size > 512) memory.delete(memory.keys().next().value!);
   }, [memory, key, revision, current.expanded]);
-  const setExpanded: Dispatch<SetStateAction<boolean>> = value => setState(previous => ({
-    ...previous, expanded: typeof value === 'function' ? value(previous.expanded) : value,
-  }));
+  const setExpanded: Dispatch<SetStateAction<boolean>> = value => setState(previous => {
+    const expanded = typeof value === 'function' ? value(previous.expanded) : value;
+    return { ...previous, expanded, touched: previous.touched || expanded !== previous.expanded };
+  });
   return [current.expanded, setExpanded] as const;
 }

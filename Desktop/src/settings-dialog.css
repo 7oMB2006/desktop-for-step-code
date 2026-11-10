@@ -6,7 +6,7 @@
   -webkit-app-region: no-drag;
   animation: settings-backdrop-enter 180ms ease-out;
 }
-.app:has(.settings-backdrop) > .window-bar { z-index: 19; }
+.app[data-settings-open] > .window-bar { z-index: 19; }
 .project-removal-backdrop .project-removal-dialog {
   animation: settings-dialog-enter 220ms cubic-bezier(.22, 1, .36, 1);
 }

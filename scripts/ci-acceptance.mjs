@@ -15,6 +15,7 @@ export const acceptanceGroups = {
     'verify-question-tool-layout.mjs',
     'verify-disclosure-summary.mjs',
     'verify-conversation-scroll.mjs',
+    'verify-selection-inheritance.mjs',
     'verify-import-performance.mjs',
     'verify-task-progress.mjs',
     'verify-settings-dialog.mjs',
@@ -168,6 +169,13 @@ export const localOnly = [
   'verify-stellar-reading.mjs',
   // Comparative startup timings need a quiet machine; navigation correctness runs in CI above.
   'verify-session-navigation-performance.mjs',
+  // Local renderer stress/visual matrices; comparisons require an identical browser and quiet host.
+  // Native scroll, sidebar order/search, navigation and shared rendering checks remain in CI.
+  'verify-long-session-interaction.mjs',
+  'verify-panel-gesture.mjs',
+  'verify-streaming-markdown.mjs',
+  'verify-sidebar-interaction.mjs',
+  'verify-viewport-highlight.mjs',
   // Real Electron coverage above complements these visual fixture matrices.
   'verify-cron-transcript.mjs',
   'verify-quit-confirmation.mjs',

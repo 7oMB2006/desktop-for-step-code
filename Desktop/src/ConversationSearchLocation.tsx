@@ -3,6 +3,7 @@ import { AlertCircle, ArrowLeft, LocateFixed, Search, X } from 'lucide-react';
 import type { Message } from './contracts';
 import type { SearchLocation } from './fulltext-search';
 import { markSearchMessage, revealSearchHighlight, searchMessageElement } from './search-location';
+import { afterConversationLayout } from './conversation-layout';
 
 export function ConversationSearchLocation({ active, location, requestId, sessionId, messages, root, language,
   onLocate, onRetry, onReturn, onDismiss }: {
@@ -30,12 +31,18 @@ export function ConversationSearchLocation({ active, location, requestId, sessio
     if (!target) return;
     const tabIndex = target.getAttribute('tabindex');
     target.tabIndex = -1;
+    let cancel = () => {};
     if (located.current?.location !== location || located.current.requestId !== requestId) {
-      located.current = { location, requestId };
-      onLocate(target, revealSearchHighlight('desktop-conversation-search-match'));
-      target.focus({ preventScroll: true });
+      cancel = afterConversationLayout(root.current, () => {
+        const current = searchMessageElement(root.current, index, location.text);
+        if (!current) return;
+        located.current = { location, requestId };
+        onLocate(current, revealSearchHighlight('desktop-conversation-search-match'));
+        current.focus({ preventScroll: true });
+      });
     }
     return () => {
+      cancel();
       if (tabIndex === null) target.removeAttribute('tabindex');
       else target.setAttribute('tabindex', tabIndex);
     };

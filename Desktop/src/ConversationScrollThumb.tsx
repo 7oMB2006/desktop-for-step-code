@@ -1,13 +1,14 @@
 import { useLayoutEffect, useRef, useState, type PointerEvent, type RefObject } from 'react';
 import { scrollOverlayWheel, type ScrollIntent } from './conversation-scroll';
 
-type ScrollMetrics = { top: number; height: number; maxScroll: number };
+type ScrollMetrics = { top: number; height: number; maxScroll: number; percent: number };
 
 export function thumbMetrics(scrollTop: number, clientHeight: number, scrollHeight: number, trackHeight: number, compact = false): ScrollMetrics {
   const maxScroll = Math.max(0, scrollHeight - clientHeight);
-  if (!maxScroll || !trackHeight) return { top: 0, height: 0, maxScroll };
+  if (!maxScroll || !trackHeight) return { top: 0, height: 0, maxScroll, percent: 0 };
   const height = Math.min(trackHeight, Math.max(compact ? 20 : 44, Math.min(compact ? 44 : 72, trackHeight * clientHeight / scrollHeight)));
-  return { top: (trackHeight - height) * scrollTop / maxScroll, height, maxScroll };
+  return { top: (trackHeight - height) * scrollTop / maxScroll, height, maxScroll,
+    percent: Math.round(Math.max(0, Math.min(1, scrollTop / maxScroll)) * 100) };
 }
 
 export function ScrollThumb({ scrollRef, language, sessionId, messageCount, scrollId = 'conversation-scroll',
@@ -19,13 +20,17 @@ export function ScrollThumb({ scrollRef, language, sessionId, messageCount, scro
 }) {
   const trackRef = useRef<HTMLDivElement>(null);
   const dragOffset = useRef<number | null>(null);
-  const [metrics, setMetrics] = useState<ScrollMetrics>({ top: 0, height: 0, maxScroll: 0 });
+  const [metrics, setMetrics] = useState<ScrollMetrics>({ top: 0, height: 0, maxScroll: 0, percent: 0 });
 
   useLayoutEffect(() => {
     const scroll = scrollRef.current;
     const track = trackRef.current;
     if (!scroll || !track) return;
-    const update = () => setMetrics(thumbMetrics(scroll.scrollTop, scroll.clientHeight, scroll.scrollHeight, track.clientHeight, compact));
+    const update = () => {
+      const next = thumbMetrics(scroll.scrollTop, scroll.clientHeight, scroll.scrollHeight, track.clientHeight, compact);
+      setMetrics(previous => previous.top === next.top && previous.height === next.height
+        && previous.maxScroll === next.maxScroll && previous.percent === next.percent ? previous : next);
+    };
     const observer = new ResizeObserver(update);
     observer.observe(scroll);
     observer.observe(track);
@@ -66,7 +71,7 @@ export function ScrollThumb({ scrollRef, language, sessionId, messageCount, scro
     aria-hidden={!metrics.maxScroll}
     aria-controls={scrollId} aria-orientation="vertical"
     aria-valuemin={0} aria-valuemax={100}
-    aria-valuenow={metrics.maxScroll ? Math.round(scrollRef.current!.scrollTop / metrics.maxScroll * 100) : 0}
+    aria-valuenow={metrics.percent}
     tabIndex={metrics.maxScroll ? 0 : -1}
     onPointerDown={onPointerDown}
     onPointerMove={event => { if (dragOffset.current !== null) setFromPointer(event.clientY, dragOffset.current); }}

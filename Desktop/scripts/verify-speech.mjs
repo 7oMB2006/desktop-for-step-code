@@ -491,6 +491,8 @@ try {
   }), 'The layout fixture did not install its explicit pending reference');
   await page.locator('.quote-chip').waitFor();
   mode = 'hold';
+  // Restoring the wide window also animates the ancestor sidebar flex track.
+  await settleLayout(page.locator('.app'));
   const contextGeometry = await geometry();
   await begin();
   assert.equal(await page.locator('.quote-chip').count(), 1, 'The pending reference stays visible during dictation');

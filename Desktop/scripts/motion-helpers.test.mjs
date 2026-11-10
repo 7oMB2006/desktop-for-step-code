@@ -3,6 +3,7 @@ import { after, before, test } from 'node:test';
 import { chromium } from 'playwright';
 import { sampleMotion } from './sample-motion.mjs';
 import { captureWaapi } from './capture-waapi.mjs';
+import { settleLayout } from './settle-layout.mjs';
 
 // Browser regressions stay outside the protocol-only tests/*.test.ts inventory.
 // Run after installing the test browser: node --test scripts/motion-helpers.test.mjs
@@ -86,6 +87,33 @@ test('CSS sampling captures host and exact pseudo-element effects together', asy
     });
     assert.equal(await cleanCss(page), 0);
   });
+});
+
+test('layout settlement waits for a finite pseudo-element flex track before measuring its child', { timeout: 10000 }, async () => {
+  await fixture(async page => {
+    const start = await page.locator('#target').evaluate(element => {
+      getComputedStyle(element, '::before').flexBasis;
+      element.classList.add('open');
+      getComputedStyle(element, '::before').flexBasis;
+      const transition = element.getAnimations({ subtree: true }).find(animation =>
+        animation instanceof CSSTransition && animation.transitionProperty === 'flex-basis');
+      if (!transition) throw new Error('Missing fixture flex track transition');
+      transition.pause();
+      transition.currentTime = 0;
+      globalThis.layoutTrack = transition;
+      return element.querySelector('#child').getBoundingClientRect().x;
+    });
+    let settled = false;
+    const pending = settleLayout(page.locator('#target')).then(() => { settled = true; });
+    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    assert.equal(settled, false, 'A paused finite ancestor track must not yield a geometry baseline');
+    await page.evaluate(() => globalThis.layoutTrack.finish());
+    await pending;
+    assert.equal(await page.locator('#child').evaluate(element => element.getBoundingClientRect().x), start + 100);
+  }, `#target, #target.open { display: flex; width: 300px; transition: none; }
+      #target::before { position: static; width: auto; flex: 0 0 0px; transform: none; transition: flex-basis 120ms ${easing}; }
+      #target.open::before { flex-basis: 100px; transform: none; }
+      #child { display: block; width: 100px; height: 20px; }`);
 });
 
 for (const [label, css] of [

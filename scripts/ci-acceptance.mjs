@@ -16,6 +16,7 @@ export const acceptanceGroups = {
     'verify-question-tool-layout.mjs',
     'verify-disclosure-summary.mjs',
     'verify-conversation-scroll.mjs',
+    'verify-selection-inheritance.mjs',
     'verify-import-performance.mjs',
     'verify-task-progress.mjs',
     'verify-settings-dialog.mjs',
@@ -156,17 +157,26 @@ export const localOnly = [
   'verify-stellar-brand.mjs',
   'verify-stellar-emblem.mjs',
   'verify-theme-composition.mjs',
+  'verify-theme-background-composition.mjs',
   'verify-theme-finishing.mjs',
   'verify-theme-idle.mjs',
   'verify-theme-navigation.mjs',
   'verify-theme-packs.mjs',
   'verify-theme-workspace.mjs',
+  'verify-theme-composition-electron.mjs',
   // Requires an explicitly prepared isolated Electron build and runtime.
   'verify-theme-pack-electron.mjs',
   'verify-stellar-pencil.mjs',
   'verify-stellar-reading.mjs',
   // Comparative startup timings need a quiet machine; navigation correctness runs in CI above.
   'verify-session-navigation-performance.mjs',
+  // Local renderer stress/visual matrices; comparisons require an identical browser and quiet host.
+  // Native scroll, sidebar order/search, navigation and shared rendering checks remain in CI.
+  'verify-long-session-interaction.mjs',
+  'verify-panel-gesture.mjs',
+  'verify-streaming-markdown.mjs',
+  'verify-sidebar-interaction.mjs',
+  'verify-viewport-highlight.mjs',
   // Real Electron coverage above complements these visual fixture matrices.
   'verify-cron-transcript.mjs',
   'verify-quit-confirmation.mjs',

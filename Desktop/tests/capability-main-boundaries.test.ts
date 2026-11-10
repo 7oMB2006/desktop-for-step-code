@@ -121,7 +121,7 @@ test('actual main passive capability reads never trigger pending provider applic
   const f = ipcFixture();
   for (const method of [
     'capabilityCatalog', 'pluginDocument', 'pluginRepositoryInfo', 'pluginConfiguration', 'pluginHostSettings', 'pluginChoosePath', 'pluginWindowOpen',
-    'themeScene', 'themePoster', 'bvrConfiguration', 'bvrCheckEnvironment', 'bvrChoosePath', 'capabilityMutate',
+    'themeScene', 'themePoster', 'themeImage', 'bvrConfiguration', 'bvrCheckEnvironment', 'bvrChoosePath', 'capabilityMutate',
   ]) assert.equal(await f.read(method), method);
   assert.equal(f.state.applications, 0);
   await f.read('beginSession');
@@ -144,13 +144,14 @@ test('merged IPC preserves MiniChat theme reads and refuses management or untrus
     calls.push(`${surface}:${method}`);
     return method;
   });
-  for (const method of ['themeScene', 'themePoster'])
+  for (const method of ['themeScene', 'themePoster', 'themeImage'])
     assert.equal(await f.miniRead(method), method);
   assert.equal(f.state.applications, 0);
-  for (const method of ['capabilityMutate', 'saveMcp', 'pluginSaveConfiguration', 'pluginHostSettings', 'pluginSaveHostSettings'])
+  for (const method of ['capabilityMutate', 'saveMcp', 'pluginSaveConfiguration', 'pluginHostSettings', 'pluginSaveHostSettings', 'pluginWindowOpen'])
     await assert.rejects(f.miniRead(method), /Return to the main window/);
-  await assert.rejects(f.untrustedRead('themeScene'), /Untrusted sender/);
-  assert.deepEqual(calls, ['mini:themeScene', 'mini:themePoster']);
+  for (const method of ['themeScene', 'themePoster', 'themeImage'])
+    await assert.rejects(f.untrustedRead(method), /Untrusted sender/);
+  assert.deepEqual(calls, ['mini:themeScene', 'mini:themePoster', 'mini:themeImage']);
   assert.equal(f.state.applications, 0);
 });
 
@@ -252,7 +253,8 @@ test('actual plugin-window IPC is scoped, revalidates stale refs and never dispa
   assert.deepEqual(snapshot.preferences, { language: 'en', theme: 'light', accentColor: 'green', appearance: { density: 'compact' } });
   assert.doesNotMatch(JSON.stringify(snapshot), /private-path|never-project/);
   assert.deepEqual(await read('pluginDocument', { ref: 'own-package', path: 'start.md' }), { text: 'start.md' });
-  for (const method of ['snapshot', 'command', 'preferences', 'pluginWindowOpen', 'capabilityMutate'])
+  for (const method of ['snapshot', 'command', 'preferences', 'pluginWindowOpen', 'capabilityMutate',
+    'themeScene', 'themePoster', 'themeImage'])
     await assert.rejects(read(method), /capability:invalid-input/);
   await assert.rejects(read('pluginDocument', { ref: 'foreign', path: 'start.md' }), /capability:invalid-input/);
   await assert.rejects(invoke({ sender, senderFrame: {} }, 'pluginWindowState'), /Untrusted sender/);

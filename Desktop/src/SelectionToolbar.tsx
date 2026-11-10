@@ -4,6 +4,7 @@ import { createPortal } from 'react-dom';
 import { Check, Copy, MessageCircleQuestion, PencilLine, X } from 'lucide-react';
 import { fencedSelection, MAX_QUOTE_LENGTH, MAX_ANNOTATION_LENGTH, type ChatQuote } from './chat-quotes';
 import { selectionMarkdown } from './selection-markdown';
+import { setTextHighlight } from './text-highlights';
 
 type Selected = { quote: ChatQuote; range: Range };
 type Props = {
@@ -107,8 +108,7 @@ export function SelectionToolbar({ root, scope, language, enabled, onQuote, onBt
   useEffect(() => () => clearTimeout(copyTimer.current), []);
   useEffect(() => {
     if (!annotating || !selected || !('highlights' in CSS)) return;
-    CSS.highlights.set('quote-annotation-selection', new Highlight(selected.range));
-    return () => { CSS.highlights.delete('quote-annotation-selection'); };
+    return setTextHighlight('quote-annotation-selection', new Highlight(selected.range));
   }, [annotating, selected]);
 
   useLayoutEffect(() => {

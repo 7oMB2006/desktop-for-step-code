@@ -8,6 +8,35 @@ try {
   const page = await browser.newPage();
   const errors = [];
   page.on('pageerror', error => { errors.push(error.message); console.error(error.message); });
+  await page.addInitScript(() => {
+    window.annotationViewportReads = 0;
+    const measure = Element.prototype.getBoundingClientRect;
+    Element.prototype.getBoundingClientRect = function (...args) {
+      if (this.matches('.conversation')) window.annotationViewportReads++;
+      return measure.apply(this, args);
+    };
+  });
+  const idleOverlay = async () => {
+    const result = await page.evaluate(async () => {
+      await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      const initial = window.annotationViewportReads;
+      window.annotationViewportReads = 0;
+      document.querySelector('.response-text p').firstChild.textContent += ' ';
+      document.dispatchEvent(new PointerEvent('pointermove', { pointerType: 'mouse', clientX: 100, clientY: 200 }));
+      document.dispatchEvent(new Event('scroll'));
+      window.dispatchEvent(new Event('resize'));
+      await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      return { initial, idle: window.annotationViewportReads };
+    });
+    assert.equal(result.idle, 0, 'An empty annotation layer must not measure history on mutations, scrolling, resize or pointer movement');
+    return result;
+  };
+  await page.goto('http://127.0.0.1:5195/tests/fixtures/quote-annotations.html?draft=[]');
+  await page.waitForFunction(() => document.querySelector('.response-text p'));
+  assert.equal((await idleOverlay()).initial, 0, 'An empty annotation layer must not force initial transcript layout');
+  assert.equal(await page.evaluate(() => [...document.documentElement.attributes]
+    .some(attribute => attribute.name.startsWith('data-highlight-'))), false,
+    'Inactive custom highlights must not enable document-wide highlight styles');
   await page.goto('http://127.0.0.1:5195/tests/fixtures/quote-annotations.html?grouped=1');
   await page.locator('.response-text p').first().waitFor();
   await page.evaluate(() => {
@@ -38,12 +67,17 @@ try {
       assert.ok(bounds.x >= 0 && bounds.x + bounds.width <= width);
       assert.ok(bounds.y >= 0 && bounds.y + bounds.height <= 800);
       assert.equal(await page.evaluate(() => CSS.highlights.has('quote-annotation-selection')), true);
+      assert.equal(await page.evaluate(() => document.documentElement.hasAttribute('data-highlight-quote-annotation-selection')), true);
       assert.notEqual(await page.locator('.response-text p').first().evaluate(element =>
         getComputedStyle(element, '::highlight(quote-annotation-selection)').backgroundColor), 'rgba(0, 0, 0, 0)');
       await page.screenshot({ path: `test-results/annotation-entry-${theme}-${width}.png` });
       await page.getByRole('button', { name: '添加批注', exact: true }).click();
       const footnote = page.getByRole('button', { name: '查看批注 1', exact: true });
       await footnote.waitFor();
+      assert.equal(await page.evaluate(() => document.documentElement.hasAttribute('data-highlight-quote-annotation-selection')), false);
+      assert.equal(await page.evaluate(() => document.documentElement.hasAttribute('data-highlight-quote-annotation-marks')), true);
+      assert.notEqual(await page.locator('.response-text p').first().evaluate(element =>
+        getComputedStyle(element, '::highlight(quote-annotation-marks)').backgroundColor), 'rgba(0, 0, 0, 0)');
       assert.equal(await footnote.textContent(), '[1]');
       await page.screenshot({ path: `test-results/annotation-footnote-${theme}-${width}.png` });
       const source = await page.locator('.response-text p').first().boundingBox();
@@ -89,9 +123,11 @@ try {
       assert.equal(await saved.inputValue(), '先确认项目，然后导入。');
       await saved.fill('请先让我确认目标项目，再执行导入。');
       await page.waitForFunction(() => CSS.highlights.get('quote-annotation-focus')?.size === 1);
+      assert.equal(await page.evaluate(() => document.documentElement.hasAttribute('data-highlight-quote-annotation-focus')), true);
       await page.screenshot({ path: `test-results/annotation-preview-${theme}-${width}.png` });
       await page.keyboard.press('Escape');
-      await page.waitForFunction(() => CSS.highlights.get('quote-annotation-focus')?.size === 0);
+      await page.waitForFunction(() => (CSS.highlights.get('quote-annotation-focus')?.size ?? 0) === 0);
+      assert.equal(await page.evaluate(() => document.documentElement.hasAttribute('data-highlight-quote-annotation-focus')), false);
       await page.getByRole('textbox', { name: '消息', exact: true }).fill('另外两点保持不变。');
       await page.getByRole('button', { name: '发送', exact: true }).click();
       assert.deepEqual(errors, []);
@@ -133,6 +169,11 @@ try {
   await page.keyboard.press('Escape');
   await page.getByRole('button', { name: '清空批注', exact: true }).click();
   assert.equal(await page.locator('.annotation-footnote').count(), 0);
+  await idleOverlay();
+  assert.equal(await page.evaluate(() => CSS.highlights.has('quote-annotation-marks')), false,
+    'Removing the final annotation releases its ranges and layout observers');
+  assert.equal(await page.evaluate(() => document.documentElement.hasAttribute('data-highlight-quote-annotation-marks')), false,
+    'Removing the final annotation deactivates its styles');
   const plain = { ...recovered[0], id: 'plain', annotation: undefined };
   await page.goto(`http://127.0.0.1:5195/tests/fixtures/quote-annotations.html?draft=${encodeURIComponent(JSON.stringify([plain, ...recovered]))}`);
   await page.getByRole('button', { name: '查看引用', exact: true }).click();

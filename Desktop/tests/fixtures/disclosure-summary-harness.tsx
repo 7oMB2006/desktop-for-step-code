@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { ConversationMessages } from '../../src/ConversationMessages';
 import { SummaryBoard } from '../../src/SummaryBoard';
@@ -33,7 +33,8 @@ function Harness() {
   const [revision, setRevision] = useState(0);
   const [mountRevision, setMountRevision] = useState(0);
   const [disclosureRevision, setDisclosureRevision] = useState(0);
-  const disclosures = useRef<ConversationDisclosureState>(new Map());
+  const [disclosures, setDisclosures] = useState<ConversationDisclosureState | undefined>(
+    () => params.has('memory') ? new Map() : undefined);
   const [target, setTarget] = useState('');
   const [preset, setPreset] = useState<'simple' | 'standard' | 'detailed'>('simple');
   Object.assign(window, { disclosureFixture: {
@@ -41,6 +42,8 @@ function Harness() {
     summary: (value: SessionSummary) => { currentSummary = value; setRevision(value => value + 1); },
     remount: () => setMountRevision(value => value + 1),
     resetDisclosures: () => setDisclosureRevision(value => value + 1),
+    disclosures: () => [...(disclosures ?? [])],
+    restoreDisclosures: (entries: [string, { revision: string; expanded: boolean }][]) => setDisclosures(new Map(entries)),
     thought, command, result,
   } });
   const agents: Message[] = [{ role: 'assistant', content: [{ type: 'toolCall', id: 'agents', name: 'subagent', arguments: { tasks: [{ agent: 'reviewer', task: '核对交互边界' }] } }] },
@@ -71,7 +74,7 @@ function Harness() {
     </nav>
     <div className="disclosure-fixture-layout">
       <div className="messages">
-        <ConversationDisclosureMemory.Provider value={params.has('memory') ? disclosures.current : undefined}>
+        <ConversationDisclosureMemory.Provider value={disclosures}>
           <ConversationMessages key={mountRevision} messages={messages} language={language} busy={busy} canEdit={false}
             interfaceSettings={selectInterfacePreset(preset)} interfaceRevision={disclosureRevision}
             openImage={() => {}} edit={async () => {}} branch={() => {}}

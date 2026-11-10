@@ -1,5 +1,7 @@
 import type { Nodes, Root } from 'mdast';
+import type { Element, Root as HtmlRoot } from 'hast';
 import type { Options } from 'react-markdown';
+import { unified } from 'unified';
 import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
@@ -45,7 +47,23 @@ export function remarkChatMath() {
 }
 
 export const messageRemarkPlugins: Options['remarkPlugins'] = [remarkGfm, remarkMath, remarkChatMath, remarkWebReferences];
-export const messageRehypePlugins: Options['rehypePlugins'] = [
+let highlight: ReturnType<typeof rehypeHighlight> | undefined;
+function rehypeChatHighlight() {
+  // Reuse registered grammars, not document trees or an unfinished token state.
+  return highlight ??= rehypeHighlight();
+}
+export const messageContentRehypePlugins: Options['rehypePlugins'] = [
   [rehypeKatex, { trust: false, strict: 'ignore', maxExpand: 1000, maxSize: 20 }],
-  rehypeHighlight,
 ];
+export const messageRehypePlugins: Options['rehypePlugins'] = [...messageContentRehypePlugins, rehypeChatHighlight];
+const codeHighlighter = unified().use(rehypeChatHighlight);
+
+export function highlightCode(text: string, className: string): Element {
+  const code: Element = { type: 'element', tagName: 'code',
+    properties: { className: className.split(/\s+/).filter(Boolean) }, children: [{ type: 'text', value: text }] };
+  const tree: HtmlRoot = { type: 'root', children: [
+    { type: 'element', tagName: 'pre', properties: {}, children: [code] },
+  ] };
+  codeHighlighter.runSync(tree);
+  return code;
+}

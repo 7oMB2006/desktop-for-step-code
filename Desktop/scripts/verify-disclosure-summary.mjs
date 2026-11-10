@@ -215,6 +215,34 @@ try {
       assert.equal(await thought.getAttribute('data-expanded'), 'false', 'explicit settings resets still invalidate old disclosure memory');
     }
   }
+  await page.goto(url + '?memory=1');
+  await page.waitForFunction(() => window.disclosureFixture);
+  const loadSavedThought = () => page.evaluate(() => {
+    const f = window.disclosureFixture;
+    f.load([{ ...f.thought, entryId: 'preview-thought' }], false);
+  });
+  await loadSavedThought();
+  await page.waitForFunction(() => document.querySelector('.thinking')?.dataset.running !== 'true');
+  const savedDisclosures = await page.evaluate(() => window.disclosureFixture.disclosures());
+  assert.ok(savedDisclosures.length > 0);
+  for (const [clicks, restored, expected] of [[0, true, true], [1, false, true], [2, true, false]]) {
+    await page.goto(url);
+    await page.waitForFunction(() => window.disclosureFixture);
+    await loadSavedThought();
+    await page.waitForFunction(() => document.querySelector('.thinking')?.dataset.running !== 'true');
+    for (let index = 0; index < clicks; index++) await thought.locator('summary').click();
+    await page.evaluate(({ entries, expanded }) => {
+      window.previewThought = document.querySelector('.thinking');
+      window.disclosureFixture.restoreDisclosures(entries.map(([key, value]) => [key, { ...value, expanded }]));
+    }, { entries: savedDisclosures, expanded: restored });
+    await page.waitForFunction(() => window.disclosureFixture.disclosures().length > 0);
+    await page.waitForFunction(expected => document.querySelector('.thinking')?.dataset.expanded === String(expected), expected);
+    assert.equal(await page.evaluate(() => window.previewThought === document.querySelector('.thinking')), true,
+      'Restoring presentation memory keeps the interactive preview mounted');
+    await page.evaluate(() => window.disclosureFixture.remount());
+    assert.equal(await thought.getAttribute('data-expanded'), String(expected),
+      'Untouched previews adopt saved state; explicit open/close choices survive handoff and remount');
+  }
   assert.deepEqual(errors, []);
   console.log('Disclosure/Summary: saved-ID adoption, remount and explicit-reset memory, singleton identity and focus, native details motion, lazy body, keyboard, record navigation, canonical progress, activity semantics, zh/en, themes and 320/390px passed.');
 } finally {

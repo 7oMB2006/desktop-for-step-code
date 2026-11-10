@@ -1,7 +1,8 @@
 import { _electron as electron } from 'playwright';
 import { captureWaapi } from './capture-waapi.mjs';
-import { closeDesktopFixture } from './close-desktop-fixture.mjs';
+import { closeDesktopFixtureAndWait } from './close-desktop-fixture.mjs';
 import { settleLayout } from './settle-layout.mjs';
+import { waitForSessionFixtureSnapshot } from './session-fixture.mjs';
 import assert from 'node:assert/strict';
 import { cp, mkdtemp, mkdir, readFile, realpath, writeFile } from 'node:fs/promises';
 import { execFileSync } from 'node:child_process';
@@ -116,6 +117,13 @@ try {
       await page.getByRole('button', { name: 'Close', exact: true }).click();
       await page.locator('.settings-dialog').waitFor({ state: 'detached' });
     } else if (await page.locator('.plugin-center').isVisible()) await page.locator('.plugin-center').getByRole('button', { name: '返回会话', exact: true }).click();
+  };
+  const restartSession = async (footer = '.cap-footer') => {
+    const before = await page.evaluate(() => window.desktop.snapshot());
+    await page.locator(footer).getByRole('button', { name: '重启当前会话', exact: true }).click();
+    await waitForSessionFixtureSnapshot(page, snapshot => snapshot.runtimeId && snapshot.runtimeId !== before.runtimeId
+      && snapshot.status === 'connected', 'the replacement capability runtime to connect');
+    await page.waitForFunction(footer => document.querySelector(`${footer} button:last-child`)?.disabled === false, footer);
   };
   await page.emulateMedia({ reducedMotion: 'no-preference' });
   page.on('pageerror', error => errors.push(error.message));
@@ -373,14 +381,12 @@ try {
   await toggle.click();
   await page.waitForFunction(() => document.querySelector('[aria-label="启用 local-review"]')?.getAttribute('aria-checked') === 'true');
   assert.equal((await commands()).some(command => command.name === 'skill:local-review'), false, 'Changes never implicitly reload an existing session');
-  await page.locator('.cap-footer').getByRole('button', { name: '重启当前会话', exact: true }).click();
-  await page.waitForFunction(() => !document.querySelector('.cap-footer button')?.disabled);
+  await restartSession();
   assert.ok((await commands()).some(command => command.name === 'skill:local-review'), 'Explicit restart loads the new Skill');
   await toggle.click();
   await page.waitForFunction(() => document.querySelector('[aria-label="启用 local-review"]')?.getAttribute('aria-checked') === 'false');
   assert.ok((await commands()).some(command => command.name === 'skill:local-review'), 'Disabling in configuration does not rewrite a live session');
-  await page.locator('.cap-footer').getByRole('button', { name: '重启当前会话', exact: true }).click();
-  await page.waitForFunction(() => !document.querySelector('.cap-footer button')?.disabled);
+  await restartSession();
   assert.equal((await commands()).some(command => command.name === 'skill:local-review'), false, 'Restart respects the upstream disabled pattern');
   await page.getByRole('button', { name: 'MCP', exact: true }).click();
   const serverToggle = page.getByRole('switch', { name: '启用 example__tools', exact: true });
@@ -393,11 +399,11 @@ try {
   await serverRow.getByText(/配置已停用 · 已连接/).waitFor();
   assert.doesNotMatch(JSON.stringify(await page.evaluate(() => window.desktop.capabilityCatalog())), /must-not-enter-the-renderer/);
   await page.screenshot({ path: 'test-results/capabilities-mcp-light.png' });
-  await page.locator('.cap-footer').getByRole('button', { name: '重启当前会话', exact: true }).click();
+  await restartSession();
   await serverRow.getByText(/会话中已停用/).waitFor();
   await serverToggle.click();
   await page.waitForFunction(() => document.querySelector('[aria-label="启用 example__tools"]')?.getAttribute('aria-checked') === 'true');
-  await page.locator('.cap-footer').getByRole('button', { name: '重启当前会话', exact: true }).click();
+  await restartSession();
   await serverRow.getByText(/已连接 · 1 个工具/).waitFor();
   await page.getByRole('button', { name: 'Skills', exact: true }).click();
   await page.getByText('local-review', { exact: true }).waitFor();
@@ -435,7 +441,7 @@ try {
   await openCategory('MCP');
   await page.getByRole('switch', { name: '启用 example__tools', exact: true }).click();
   await page.waitForFunction(() => document.querySelector('[aria-label="启用 example__tools"]')?.getAttribute('aria-checked') === 'false');
-  await page.locator('.cap-footer').getByRole('button', { name: '重启当前会话', exact: true }).click();
+  await restartSession();
   await page.getByText(/会话中已停用/).waitFor();
   await page.getByRole('button', { name: '插件', exact: true }).click();
   await removeExamplePlugin();
@@ -457,6 +463,7 @@ try {
   await composer.press('Enter');
   const pluginSearch = page.getByRole('textbox', { name: '搜索插件', exact: true });
   await pluginSearch.waitFor();
+  await page.waitForFunction(() => document.querySelector('input[aria-label="搜索插件"]')?.value === 'filter-only-for-plugins');
   assert.equal(await pluginSearch.inputValue(), 'filter-only-for-plugins');
   await closeSurface();
   await composer.fill('/mcp');
@@ -535,8 +542,7 @@ try {
     { jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'format_note', arguments: { text: 'hello' } } },
   ].map(value => JSON.stringify(value)).join('\n') + '\n', timeout: 15000 });
   assert.match(consumer, /Electron HELLO/); assert.doesNotMatch(consumer, /isolated-ui-secret/);
-  await page.getByRole('button', { name: '重启当前会话', exact: true }).click();
-  await page.waitForFunction(() => !document.querySelector('.pc-detail-footer button:last-child')?.disabled);
+  await restartSession('.pc-detail-footer');
   const connected = await page.evaluate(async () => {
     const snapshot = await window.desktop.snapshot();
     return window.desktop.summary(snapshot.runtimeId);
@@ -623,6 +629,7 @@ try {
   assert.deepEqual(errors, []);
   console.log('Capability Electron acceptance passed (isolated profile, real upstream management APIs).');
 } catch (error) {
+  console.error(error);
   const page = await app.firstWindow();
   await page.screenshot({ path: 'test-results/capabilities-failure.png' }).catch(() => {});
   console.error('Visible errors:', await page.locator('[role="alert"]').allTextContents());
@@ -643,5 +650,5 @@ try {
   }).catch(() => undefined));
   throw error;
 } finally {
-  await closeDesktopFixture(app);
+  await closeDesktopFixtureAndWait(app);
 }

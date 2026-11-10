@@ -18,6 +18,12 @@
 没有受支持的配置消费者时，详情保留已有 MCP 技术设置入口。
 BVR 的账户桥也不是可按插件名称自动继承的通用能力。
 
+主题包的 UI、默认背景及可替换范围见
+[主题组合协议](THEME_COMPOSITION.md)，清单校验参考
+[主题 JSON Schema](plugin-schemas/dfsc.theme.schema.json)。
+背景提供器只能接入主题明确开放的插槽，不获得前端执行或文件系统权限，
+也不要求 MCP 服务。一体化主题可以不开放背景替换。
+
 ### MCP 账户隔离候选
 
 当前开发候选关闭了从 Step 登录向 stdio MCP 自动补入 `STEPFUN_API_KEY` 的兜底。

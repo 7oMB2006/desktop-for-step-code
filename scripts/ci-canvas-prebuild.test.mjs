@@ -115,7 +115,7 @@ test('both CI platforms prepare the prebuild before unmodified frozen-lockfile i
   }
   const workflow = readFileSync(new URL('../.github/workflows/macos-integration.yml', import.meta.url), 'utf8');
   const policy = readFileSync(new URL('../.github/workflows/pr-ci.yml', import.meta.url), 'utf8');
-  assert.match(workflow, /'scripts\/ci-canvas-prebuild\*'/);
+  assert.match(workflow, /^  pull_request:\s*$/m, 'Every PR must classify canvas preparation changes');
   assert.match(workflow, /node --test .*ci-canvas-prebuild\.test\.mjs/);
-  assert.match(policy, /node --test .*ci-canvas-prebuild\.test\.mjs/);
+  assert.match(policy, /node --test scripts\/ci-\*\.test\.mjs/);
 });

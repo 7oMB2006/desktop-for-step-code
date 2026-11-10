@@ -73,6 +73,7 @@ const bridge: DesktopBridge = {
   pluginChoosePath: input => invoke('pluginChoosePath', input),
   themeScene: id => invoke('themeScene', id),
   themePoster: id => invoke('themePoster', id),
+  themeImage: id => invoke('themeImage', id),
   capabilityMutate: input => invoke('capabilityMutate', input),
   capabilityImportSkill: () => invoke('capabilityImportSkill'),
   bvrConfiguration: () => invoke('bvrConfiguration'),

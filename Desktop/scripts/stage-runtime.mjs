@@ -92,6 +92,7 @@ await cp('electron/capability-failure.mjs', join(runtime, 'capability-failure.mj
 await cp('electron/marketplace-refresh.mjs', join(runtime, 'marketplace-refresh.mjs'));
 await cp('electron/capability-settings.mjs', join(runtime, 'capability-settings.mjs'));
 await cp('electron/plugin-files.mjs', join(runtime, 'plugin-files.mjs'));
+await cp('electron/theme-composition.mjs', join(runtime, 'theme-composition.mjs'));
 await cp('electron/plugin-update.mjs', join(runtime, 'plugin-update.mjs'));
 await cp('electron/plugin-configuration.mjs', join(runtime, 'plugin-configuration.mjs'));
 await cp('electron/session-import.mjs', join(runtime, 'session-import.mjs'));
@@ -101,6 +102,7 @@ await cp('electron/steppage-config.mjs', join(runtime, 'steppage-config.mjs'));
 await cp('electron/usage-overview.mjs', join(runtime, 'usage-overview.mjs'));
 await cp('electron/desktop-sessions.mjs', join(runtime, 'desktop-sessions.mjs'));
 await cp('electron/desktop-remote.mjs', join(runtime, 'desktop-remote.mjs'));
+await cp('electron/runtime-compile-cache.mjs', join(runtime, 'runtime-compile-cache.mjs'));
 await build({ entryPoints: ['electron/project-instructions-extension.ts'], outfile: join(runtime, 'project-instructions.mjs'),
   bundle: true, platform: 'node', format: 'esm', target: 'node24' });
 await cp('../LICENSE', join(runtime, 'DESKTOP-LICENSE'));

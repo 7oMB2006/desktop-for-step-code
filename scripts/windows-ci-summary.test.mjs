@@ -47,6 +47,14 @@ test('preparation failures and missing reports do not claim acceptance ran or pa
   assert.doesNotMatch(result.markdown, /complete: true/);
 });
 
+test('Cron browser regressions remain a named failure after native acceptance succeeds', () => {
+  const result = summarizeWindows({
+    group: 'interface', steps: steps({ cron_browser: 'failure' }), report: report('interface'),
+  });
+  assert.match(result.markdown, /Failed stages: Cron manager browser regressions/);
+  assert.deepEqual(result.annotations, ['Windows interface: Cron manager browser regressions failed.']);
+});
+
 test('native-prebuild failures are identified before installation or acceptance starts', () => {
   const result = summarizeWindows({
     group: 'runtime',

@@ -13,6 +13,9 @@ on:
       complete:
         description: True only after every assigned check passed
         value: ${{ jobs.acceptance.outputs.complete }}
+      shared-complete:
+        description: Runtime shared checks completed, or explicitly not applicable
+        value: ${{ jobs.acceptance.outputs.shared-complete }}
 
 permissions:
   contents: read
@@ -25,6 +28,7 @@ jobs:
     outputs:
       group: ${{ steps.acceptance.outputs.group }}
       complete: ${{ steps.acceptance.outputs.complete }}
+      shared-complete: ${{ steps.shared.outputs.complete }}
     steps:
       - name: Check out Desktop
         id: checkout
@@ -44,7 +48,7 @@ jobs:
         env:
           CI_WINDOWS_GROUP: ${{ inputs.group }}
         run: |
-          node --test scripts/ci-windows.test.mjs scripts/windows-ci-summary.test.mjs
+          node --test scripts/ci-windows.test.mjs scripts/windows-ci-summary.test.mjs scripts/ci-protocol.test.mjs
           if ($LASTEXITCODE -ne 0) { throw 'Windows acceptance runner tests failed' }
           node scripts/ci-windows.mjs --list
           if ($LASTEXITCODE -ne 0) { throw 'Invalid Windows acceptance group' }
@@ -113,6 +117,7 @@ jobs:
 
       - name: Upstream Plan integration tests
         id: upstream_plan
+        if: inputs.group == 'runtime'
         working-directory: Step-Code/packages/coding-agent
         run: |
           corepack pnpm exec vitest run test/step-plan-extension.test.ts test/plan-mode-extension.test.ts test/plan-mode-utils.test.ts test/plan-review-dialog.test.ts
@@ -129,6 +134,7 @@ jobs:
 
       - name: Upstream Windows shell and Ultracode tests
         id: upstream_shell
+        if: inputs.group == 'runtime'
         working-directory: Step-Code/packages/coding-agent
         run: |
           corepack pnpm exec vitest run test/shell-discovery.test.ts test/resolve-config-value.test.ts test/workflow-ultraloop-opt-in.test.ts test/suite/ultracode-discovery.test.ts
@@ -136,6 +142,7 @@ jobs:
 
       - name: Upstream command and usage compatibility tests
         id: upstream_compatibility
+        if: inputs.group == 'runtime'
         working-directory: Step-Code/packages/coding-agent
         run: |
           corepack pnpm exec vitest run test/step-then-run-command-parity.test.ts test/step-permissions.test.ts test/step-extension.test.ts test/suite/agent-session-prompt.test.ts test/shell-process-tree.test.ts test/step-subagent-events.test.ts test/desktop-background-replies.test.ts test/subagent-exit-drain.test.ts test/step-usage-lifecycle.test.ts test/step-cron.test.ts
@@ -143,6 +150,7 @@ jobs:
 
       - name: Upstream automatic CLM tests
         id: upstream_clm
+        if: inputs.group == 'runtime'
         working-directory: Step-Code/packages/coding-agent
         run: |
           corepack pnpm exec vitest run test/auto-clm-runtime.test.ts test/context-projection.test.ts test/suite/agent-session-auto-clm.test.ts test/suite/agent-session-clm-completion.test.ts test/agent-session-stats.test.ts test/session-import.test.ts test/session-manager/build-context.test.ts test/compaction-serialization.test.ts
@@ -156,18 +164,23 @@ jobs:
 
       - name: Upstream Workflow stability tests
         id: upstream_workflow
+        if: inputs.group == 'runtime'
         working-directory: Step-Code/packages/coding-agent
         run: |
           corepack pnpm exec vitest run test/workflow-runtime.test.ts test/workflow-extension.test.ts test/workflow-agent-runner.test.ts test/workflow-vm.test.ts test/workflow-registration.test.ts
           if ($LASTEXITCODE -ne 0) { throw 'Upstream Workflow stability tests failed' }
 
       - name: Upstream v0.1.6 boundary regressions
+        id: upstream_v016
+        if: inputs.group == 'runtime'
         working-directory: Step-Code/packages/coding-agent
         run: |
           corepack pnpm exec vitest run test/subagent-lane-notifications.test.ts test/subagent-background-tui.test.ts test/step-search-web.test.ts test/suite/regressions/plan-mode-prompt-cache-prefix.test.ts test/suite/regressions/6647-compaction-retries-transient-stream-drop.test.ts test/suite/regressions/subagent-lane-progress-backlog.test.ts
           if ($LASTEXITCODE -ne 0) { throw 'Upstream v0.1.6 boundary regressions failed' }
 
       - name: Upstream v0.1.7 safety and context regressions
+        id: upstream_v017
+        if: inputs.group == 'runtime'
         working-directory: Step-Code/packages/coding-agent
         run: |
           corepack pnpm exec vitest run test/suite/plan-approval-gate.test.ts test/suite/plan-barrier.test.ts test/suite/plan-storage.test.ts test/plan-handoff.test.ts test/extension-plan-review-surface.test.ts test/step-plan-mode-prompt.test.ts test/compaction-trigger-policy.test.ts test/suite/agent-session-compaction-trigger.test.ts test/suite/incomplete-turn-recovery.test.ts test/command-outcome.test.ts test/compaction-summary-reasoning.test.ts test/compaction.test.ts test/branch-summary-extensions.test.ts test/suite/regressions/find-removed-host-cwd.test.ts
@@ -182,6 +195,7 @@ jobs:
 
       - name: Typecheck
         id: typecheck
+        if: inputs.group == 'runtime'
         working-directory: Desktop
         run: |
           corepack pnpm typecheck
@@ -189,11 +203,29 @@ jobs:
 
       - name: Protocol tests
         id: protocol
+        if: inputs.group == 'runtime'
         working-directory: Desktop
         run: |
-          New-Item -ItemType Directory -Force test-results | Out-Null
-          corepack pnpm exec tsx --test --test-concurrency=1 --test-reporter=spec --test-reporter=tap --test-reporter-destination=stdout --test-reporter-destination=test-results/protocol.tap tests/*.test.ts
+          node ../scripts/ci-protocol.mjs
           if ($LASTEXITCODE -ne 0) { throw 'Protocol tests failed' }
+
+      - name: Seal shared check outcomes
+        id: shared
+        env:
+          CI_WINDOWS_GROUP: ${{ inputs.group }}
+          CI_SHARED_STEPS: >-
+            {
+              "upstream_plan": "${{ steps.upstream_plan.outcome }}",
+              "upstream_shell": "${{ steps.upstream_shell.outcome }}",
+              "upstream_compatibility": "${{ steps.upstream_compatibility.outcome }}",
+              "upstream_clm": "${{ steps.upstream_clm.outcome }}",
+              "upstream_workflow": "${{ steps.upstream_workflow.outcome }}",
+              "upstream_v016": "${{ steps.upstream_v016.outcome }}",
+              "upstream_v017": "${{ steps.upstream_v017.outcome }}",
+              "typecheck": "${{ steps.typecheck.outcome }}",
+              "protocol": "${{ steps.protocol.outcome }}"
+            }
+        run: node scripts/ci-policy.mjs shared-receipt
 
       - name: Desktop build
         id: desktop_build
@@ -202,11 +234,27 @@ jobs:
           corepack pnpm build
           if ($LASTEXITCODE -ne 0) { throw 'Desktop build failed' }
 
+      - name: Browser motion regressions
+        id: motion_browser
+        if: inputs.group == 'interface'
+        working-directory: Desktop
+        run: |
+          node --test scripts/motion-helpers.test.mjs
+          if ($LASTEXITCODE -ne 0) { throw 'Browser motion regressions failed' }
+
       - name: Serial Electron acceptance
         id: acceptance
         env:
           CI_WINDOWS_GROUP: ${{ inputs.group }}
         run: node scripts/ci-windows.mjs
+
+      - name: Cron manager browser regressions
+        id: cron_browser
+        if: inputs.group == 'interface'
+        working-directory: Desktop
+        run: |
+          node --test scripts/cron-manager.test.mjs
+          if ($LASTEXITCODE -ne 0) { throw 'Cron manager browser regressions failed' }
 
       - name: Summarize Windows diagnostics
         if: always() && steps.checkout.outcome == 'success' && steps.node.outcome == 'success'
@@ -226,11 +274,16 @@ jobs:
               "upstream_compatibility": "${{ steps.upstream_compatibility.outcome }}",
               "upstream_clm": "${{ steps.upstream_clm.outcome }}",
               "upstream_workflow": "${{ steps.upstream_workflow.outcome }}",
+              "upstream_v016": "${{ steps.upstream_v016.outcome }}",
+              "upstream_v017": "${{ steps.upstream_v017.outcome }}",
               "runtime_stage": "${{ steps.runtime_stage.outcome }}",
               "typecheck": "${{ steps.typecheck.outcome }}",
               "protocol": "${{ steps.protocol.outcome }}",
+              "shared": "${{ steps.shared.outcome }}",
               "desktop_build": "${{ steps.desktop_build.outcome }}",
-              "acceptance": "${{ steps.acceptance.outcome }}"
+              "motion_browser": "${{ steps.motion_browser.outcome }}",
+              "acceptance": "${{ steps.acceptance.outcome }}",
+              "cron_browser": "${{ steps.cron_browser.outcome }}"
             }
         run: node scripts/windows-ci-summary.mjs
 
@@ -255,10 +308,10 @@ jobs:
           retention-days: 7
 
       - name: Upload protocol test diagnostics
-        if: always()
+        if: always() && inputs.group == 'runtime'
         uses: actions/upload-artifact@v4
         with:
           name: protocol-tests-${{ inputs.group }}-${{ github.run_attempt }}
-          path: Desktop/test-results/protocol.tap
+          path: Desktop/test-results/protocol/
           if-no-files-found: ignore
           retention-days: 7

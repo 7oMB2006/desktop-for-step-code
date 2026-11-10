@@ -1053,19 +1053,19 @@ try {
   await page.getByText('disabled-test', { exact: true }).waitFor();
   await page.screenshot({ path: 'test-results/settings-mcp.png' });
   await page.getByRole('button', { name: 'Close', exact: true }).click();
-  const resizeToCompact = () => app.evaluate(({ BrowserWindow }) => {
+  const resizeCompact = () => app.evaluate(({ BrowserWindow }) => {
     const window = BrowserWindow.getAllWindows()[0];
     if (window.isMaximized()) window.unmaximize();
     window.setSize(700, 620);
   });
+  await settleLayout(page.locator('.app'));
   if (!motionReduced) {
-    await settleLayout(page.locator('.app'));
     const compactMotion = await sampleMotion(page, {
       label: 'sidebar track at compact threshold',
       state: { selector: '.app.sidebar-compact' },
       targets: [{ name: 'app', selector: '.app', pseudoProperties: { '::before': ['flex-basis'] }, pseudoElements: ['::before'] }],
       duration: 280, easing: 'cubic-bezier(0.65, 0, 0.35, 1)',
-    }, resizeToCompact);
+    }, resizeCompact);
     const tracks = compactMotion.frames.map(frame => frame.app.pseudo['::before'].width);
     // The responsive width can change before the compact class is committed.
     const startTrack = tracks[0];
@@ -1073,7 +1073,7 @@ try {
       `Sidebar track must collapse from its responsive width: ${tracks}`);
     assert.ok(tracks.slice(1, -1).every(track => track > 0 && track < startTrack),
       `Sidebar track should animate at compact threshold: ${tracks}`);
-  } else await resizeToCompact();
+  } else await resizeCompact();
   await page.waitForFunction(() => document.querySelector('.app')?.classList.contains('sidebar-compact'));
   await page.locator('.sidebar').waitFor({ state: 'hidden' });
   assert.equal(await page.locator('.sidebar-identity').isVisible(), false);

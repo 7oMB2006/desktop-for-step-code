@@ -78,6 +78,7 @@
 .context-message-tabs > button[aria-selected=true] { color: var(--ink); box-shadow: inset 0 -2px var(--context-input); }
 .context-message-tabs small { font-size: 9px; color: var(--muted); }
 .context-message { border-bottom: 1px solid var(--border); }
+.context-message-list-long > .context-message:not([open]) { content-visibility: auto; contain-intrinsic-block-size: auto 64px; }
 .context-message summary { display: grid; grid-template-columns: 22px minmax(0, 1fr) 13px; gap: 8px; padding: 12px 0; cursor: pointer; list-style: none; align-items: center; }
 .context-message summary::-webkit-details-marker { display: none; }
 .context-message summary:hover { background: var(--surface); }

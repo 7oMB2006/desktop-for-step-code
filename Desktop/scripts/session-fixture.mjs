@@ -18,6 +18,41 @@ export async function waitForSessionFixtureSnapshot(page, predicate, label, time
   assert.fail(`Timed out waiting for ${label}`);
 }
 
+// Startup queries can outlive the editable composer. Retry only a rejected
+// preflight, never a failed or partially completed restart.
+export async function restartIdleSessionFixture(page, runtimeId, timeoutMs = 30000) {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    try { return await page.evaluate(() => window.desktop.restart()); }
+    catch (error) {
+      if (!String(error.message).endsWith('Error: Session operation in progress')) throw error;
+      const current = await page.evaluate(() => window.desktop.snapshot());
+      assert.equal(current.runtimeId, runtimeId, 'A refused restart must retain the original runtime');
+      if (Date.now() >= deadline) throw error;
+      await new Promise(resolve => setTimeout(resolve, 40));
+    }
+  }
+}
+
+export async function relocateIdleWorkspaceFixture(page, path, runtimeId, dialogCount, timeoutMs = 30000) {
+  const deadline = Date.now() + timeoutMs;
+  const beforeDialogs = await dialogCount();
+  assert.ok(Number.isSafeInteger(beforeDialogs) && beforeDialogs >= 0,
+    'Relocation readiness requires a valid directory-dialog counter');
+  for (;;) {
+    try { return await page.evaluate(path => window.desktop.relocateWorkspace(path), path); }
+    catch (error) {
+      if (!String(error.message).endsWith('Error: Session operation in progress')) throw error;
+      // A refusal after the dialog may belong to a partially completed operation.
+      if (await dialogCount() !== beforeDialogs) throw error;
+      const current = await page.evaluate(() => window.desktop.snapshot());
+      assert.equal(current.runtimeId, runtimeId, 'A refused relocation must retain the original runtime');
+      if (Date.now() >= deadline) throw error;
+      await new Promise(resolve => setTimeout(resolve, 40));
+    }
+  }
+}
+
 // Fresh-profile checks must explicitly exercise the onboarding escape hatch.
 export async function skipFirstRunFixture(page) {
   await page.getByRole('heading', { name: '连接模型服务', exact: true }).waitFor({ timeout: 60000 });

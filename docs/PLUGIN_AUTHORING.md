@@ -18,6 +18,8 @@
 没有受支持的配置消费者时，详情保留已有 MCP 技术设置入口。
 BVR 的账户桥也不是可按插件名称自动继承的通用能力。
 
+新主题作者先读 [中文主题作者快速入门](THEME_AUTHORING.zh-CN.md)，
+从 [独立 v2 起步包](../examples/plugins/theme-starter/README.md) 开始。
 主题包的 UI、默认背景及可替换范围见
 [主题组合协议](THEME_COMPOSITION.md)，清单校验参考
 [主题 JSON Schema](plugin-schemas/dfsc.theme.schema.json)。

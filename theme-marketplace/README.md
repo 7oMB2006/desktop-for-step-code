@@ -4,6 +4,11 @@ This is a local-first marketplace fixture for the new DFSC theme host. Existing
 released clients can install its files but cannot activate the theme. It is not
 an upstream terminal theme, MCP service, or executable plugin.
 
+For a new theme, use the [Chinese author quick start](../docs/THEME_AUTHORING.zh-CN.md)
+and [independent v2 starter](../examples/plugins/theme-starter/README.md).
+The version 1 Stellar package below is a legacy compatibility sample, not the
+recommended template for new packages.
+
 ## Try It
 
 Use a DFSC build containing this change. In Plugins > Marketplaces, add the

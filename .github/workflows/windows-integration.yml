@@ -248,6 +248,14 @@ jobs:
           CI_WINDOWS_GROUP: ${{ inputs.group }}
         run: node scripts/ci-windows.mjs
 
+      - name: Cron manager browser regressions
+        id: cron_browser
+        if: inputs.group == 'interface'
+        working-directory: Desktop
+        run: |
+          node --test scripts/cron-manager.test.mjs
+          if ($LASTEXITCODE -ne 0) { throw 'Cron manager browser regressions failed' }
+
       - name: Summarize Windows diagnostics
         if: always() && steps.checkout.outcome == 'success' && steps.node.outcome == 'success'
         env:
@@ -274,7 +282,8 @@ jobs:
               "shared": "${{ steps.shared.outcome }}",
               "desktop_build": "${{ steps.desktop_build.outcome }}",
               "motion_browser": "${{ steps.motion_browser.outcome }}",
-              "acceptance": "${{ steps.acceptance.outcome }}"
+              "acceptance": "${{ steps.acceptance.outcome }}",
+              "cron_browser": "${{ steps.cron_browser.outcome }}"
             }
         run: node scripts/windows-ci-summary.mjs
 

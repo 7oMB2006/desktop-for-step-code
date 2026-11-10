@@ -104,7 +104,7 @@ jobs:
         working-directory: Desktop
         run: |
           node --test ../scripts/ci-windows.test.mjs ../scripts/ci-macos.test.mjs ../scripts/ci-macos-policy.test.mjs ../scripts/ci-canvas-prebuild.test.mjs ../scripts/ci-electron-prebuild.test.mjs
-          node --test scripts/motion-helpers.test.mjs
+          node --test scripts/motion-helpers.test.mjs scripts/cron-manager.test.mjs
       - name: Package unsigned preview and verify resources
         working-directory: Desktop
         run: |

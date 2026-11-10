@@ -1,5 +1,40 @@
 # Verification
 
+## 主题组合对齐新 CI 主线（2026-11-10）
+
+#222 的 `62f673f` 已完成 Windows run `42642599418` 与 macOS
+run `42642599449` 的全部必需验收。随后为解决实际合并冲突并接入已合并的
+#231，先完成重启前保存的 `0d70ee0` 合并，再同步主线 `b78af40`。
+这不是仅修改文档：主线同时包含通知、MCP 账户隔离与插件宿主变更。
+
+冲突处理同时保留 `themeImage` 的被动只读路径、宿主设置读写分类、
+MiniChat 禁止插件管理/窗口操作、插件窗口拒绝主题读取，以及不输出完整
+快照或输入原文的权限失败诊断。Windows 汇总保留动画与 Cron 浏览器回归
+各自的阶段字段，公共检查凭据和新有界协议 runner 未被绕过。
+
+本次稳定合并候选的本地验证：
+
+- Node 24.16.0 下类型检查、生产构建及差异空白检查通过。
+- CI 策略、清单、执行器和汇总回归 67 项：66 通过、1 项既有平台跳过。
+- 八个定向协议文件共 86 项：85 通过、1 项文件符号链接权限跳过。
+  范围为实际主进程 IPC、插件窗口隔离、夹具关闭、运行时打包契约、
+  主题组合协议、资源与图片校验；不是完整协议清单。
+- Cron/动画浏览器回归 23 项通过。主题组合浏览器 10 项行为、
+  四组桌面/窄屏非空像素检查通过，四张截图已目视检查。
+
+证据在 `D:\Desktop For Step Code\output\theme-composition-main-sync-20261110`，
+定向协议通过新 runner 保留逐文件日志、独立 TAP 和明确标注范围的汇总。
+本机共享 runtime 仍为此前的只读复用目录，没有在其上覆盖新补丁；
+完整协议和新原生矩阵由云端重新构建、分组验收，不重复在本地跑全套。
+以上结果不替代新 head 的云端、原生 macOS、真实账户或发布验收。
+
+重启前的 `0d70ee0` 本地复验没有全绿：插件九组业务断言完成且零页面错误、
+零推理请求，但关闭超时；完整协议在 completion-review 文件报失败后挂起。
+未确认这两次失败的精确根因，不以重启后的进程消失或旧 head 绿灯算作修复。
+原日志保留在 `output\theme-composition-main-sync-20261109`，不放宽关闭断言、
+不加入自动重试。未合并 #222、未推进 #223，未打安装包、修改用户档案、
+运行客户端、快捷方式或本机运行时版本；本地 AGENTS.md 改动不提交。
+
 ## 市场刷新诊断夹具的文件替换间隙（2026-11-10）
 
 #218 Windows interface run `42703156585` 在
@@ -773,6 +808,177 @@ Evidence is in `Desktop/test-results/global-instructions-results.json` and the
 matching light, dark-narrow, conflict and override-path screenshots. This is
 local Windows source acceptance, not paid-model obedience, native macOS,
 current cloud CI, package acceptance or a public release.
+
+## Cron 管理页读写协调（2026-11-09）
+
+`6a50595` 的 Windows 三组及最终汇总通过；macOS runtime 在源码 Cron
+验收中，点击恢复后等待“暂停任务 Beta”超时。截图显示任务仍暂停，自动恢复
+授权已失效。旧日志没有操作拒绝原因，不能仅凭超时确定云端根因。
+
+受控浏览器测试挂载真实 `CronManager`，保持事件触发的列表读取未完成，
+稳定复现了管理页仍发送修改、被宿主读取锁拒绝的竞争；也确认写入尚未完成时
+事件会再次启动读取。这两项在修复前失败。管理页现在等待自己的读取结束后
+只发送一次写入，写入期间合并刷新，确认或失败后再读取列表。并行快照先失败
+时也等待列表读取结束；此边界单独先复现失败，再验证修复通过。
+
+后端忙碌锁、任务 revision、自动恢复授权失效规则与原生断言不变；
+不自动重试不确定的写入，不将等待期间的新任务版本套到旧操作上。
+关闭管理页会取消仍在等待读取的写入。失败现场增加仅含固定界面状态的诊断，
+不输出任务原文、完整快照、凭据或环境变量。
+
+六项协调回归与原有十七项动画／搜索回归共二十三项通过，已接入两平台 CI。
+CI 执行器、策略及 Windows 汇总回归四十二项：四十一项通过、
+一项既有平台跳过；Windows 汇总能单独标记浏览器协调测试失败。
+类型检查与工作树生产构建通过。完整原生 Cron 十四场景在普通高度和限制
+684px 内容高度下均通过，搜索原生验收通过；这是本地隔离 Windows 源码验收，
+不是完整 CI 分组、原生 macOS、付费模型、安装包或发布验收。
+Node 24.16 完整协议测试 1,855 项：1,841 项通过、14 项条件跳过、零失败。
+
+证据在共享 D: 的 `output/theme-composition-main-sync-20261109`：
+`cron-manager-before-serialization.log`、`cron-manager-snapshot-before-drain.log`、
+`browser-cron-serialization-final.log`、`ci-cron-serialization-final.log` 及
+`native-cron-serialization*.log`。新提交仍须等待云端完整验收；
+未合并 PR、生成安装包、改变运行时或用户配置，#223 保持草稿且未同步。
+
+## 主题组合与全局指令主线同步（2026-11-09）
+
+- 合入主线 `4308435`（PR #224 全局指令）。仅验收文档有文本冲突，
+  保留主线原有记录及主题分支的完整记录；自动合并的 IPC、preload、
+  设置界面、权限验收和 CI 清单已复查。
+  `themeImage`、`pluginWindowOpen` 的只读路径及 MiniChat／插件窗口边界保留。
+- 类型检查和工作树生产构建通过。Node 24.16 完整协议测试 1,855 项：
+  1,841 通过、14 项条件跳过、0 失败。
+  CI 执行器／策略测试 40 项：39 通过、1 项既有平台跳过。
+- 经现有串行 CI runner 定向执行搜索、全局指令、权限、插件窗口及 Remote
+  五项源码原生验收，全部通过；这不是执行完整 CI 分组。
+  插件检查八组，零推理请求、零页面错误、退出码 0、窗口归零；
+  Remote 包含真实退出／重启恢复。
+- 主题组合浏览器十项行为及四组桌面／窄屏像素检查通过；
+  四组主题截图及全局指令明暗／窄屏截图已检查。
+  新日志位于共享 D: 证据目录中的 `*-main4308435*` 文件。
+- 新提交仍需云端 Windows/macOS 完整验收。
+  未合并 PR、打包、改动个人档案、运行客户端、快捷方式或运行时版本；
+  自定义背景 PR #223 仍保持草稿且未同步。
+
+## 会话搜索焦点验收的动画等待（2026-11-09）
+
+- `47008c4` 的 Windows 三组及汇总通过；macOS 候选构建、会话组和运行时组
+  通过，但界面组包内验收在搜索焦点检查失败：
+  `outline: '2px'` 和无横向溢出通过，`contained` 为 false。
+  原脚本在边界断言之后才等待侧栏动画，测量可能发生在侧栏仍滑入视口时。
+- 受控浏览器回归执行原验收脚本的几何检查，使用真实侧栏和搜索框 CSS，
+  将入口动画停在视口之外，修复前稳定复现同一个失败。
+  验收现在等待原生内容尺寸同步和实际动画完成后再测量；四侧完整焦点环、
+  2px 宽度和无溢出断言不变，没有改产品样式、动画、时限或自动重试。
+  回归还人为制造动画完成后仍然裁切的情况，确认原断言继续拒绝真实裁切。
+- 动画辅助器浏览器回归 17 项通过，类型检查通过。
+  CI 执行器／策略回归 36 项：35 通过、1 项既有平台跳过。
+  隔离 Electron 的会话搜索验收连续 3 次通过明暗、宽窄窗口、键盘焦点、
+  搜索排序、临时展开、输入法 Escape、草稿／运行时隔离和结果导航。
+  四组截图已检查；窄窗口实际采用原生最小内容宽度，不假定外框请求尺寸等于视口。
+  本次提交仍需新的 Windows/macOS 云端 CI，旧 head 的通过项不能替代它。
+
+## Remote 重启验收的页面导航等待（2026-11-09）
+
+- `5707525` 的 Windows attempt 2 在 Remote 重启后读取状态时失败：
+  `firstWindow()` 返回后正式页面仍在导航，`page.evaluate()` 的执行上下文被销毁。
+  共享测试启动器现在等待实际 `renderer/index.html` 加载完成才返回；
+  保留原有启动时限、状态轮询及恢复断言，导航失败仍会关闭隔离应用并报错。
+- 源码／包内启动等待与导航失败清理共 3 项回归，修复前全部失败、修复后通过。
+  连同会话夹具和关闭门禁共 26 项通过，类型检查通过。
+  本机 Node 24.16 的完整原生 Remote 验收通过真实退出／重启恢复、队列撤回、
+  图片授权、Plan 审批及断开后不重连。日志位于共享 D: 证据目录
+  `output/theme-composition-main-sync-20261109/remote-after-navigation-fix.log`。
+- 同一旧 head 的 Windows attempt 1 在更新界面及 `then_run` 功能断言完成后
+  关闭超时；原样重跑已越过这些检查。本机 12 次隔离关闭、更新界面及完整
+  `then_run` 复测均通过，未修改关闭策略、时限或断言，关闭间歇失败根因仍未确认。
+  该旧 head 的 macOS 全部候选构建、源码／包内验收及最终汇总通过，
+  不代表本次验收修复提交的云端结果。
+- 本机 Node 24.15 的完整复测在既有 `terminal-sessions.test.ts` 的进程树
+  清理中失败并留下夹具进程；已核对 PID、父进程及精确夹具路径后停止，
+  未修改终端逻辑或降低断言。该次失败日志独立保留，不能算作完整测试通过。
+
+## 主题组合与主线插件工作区同步（2026-11-09）
+
+- 同步主线 `9e493ed`，合并只读 IPC 白名单中的 `themeImage` 与
+  `pluginWindowOpen`，保留双方的测试和验收记录。
+  MiniChat 仍拒绝打开插件窗口；插件窗口仍拒绝主题场景、海报和图片读取，
+  不扩大独立窗口的权限。
+- 类型检查及 D: 隔离生产构建通过。完整协议测试 1,843 项：
+  1,829 通过、14 项平台／资源条件跳过、0 失败。
+  CI 清单、策略与执行器测试 31 项：30 通过、1 项既有平台跳过。
+- 主题组合浏览器检查 10 项、桌面／窄屏非空与色彩像素检查 4 组通过；
+  插件工作区 14 组和实际渲染器注入 bridge 验收 11 组通过。
+  检查了桌面、390px 窄屏及四侧焦点截图。
+  插件浏览器验收复用已安装 headless shell 1243，非默认预期版本；
+  主题组合浏览器验收使用本机 Chrome，不替代云端同版本验收。
+- 隔离 Electron 主题验收通过 PNG/JPEG 原生解码、主题切换、UI 保留、
+  动效偏好、重启及缺包回退。真实本地 Git 市场的插件主／侧／独立窗口
+  验收通过 8 组，0 推理请求、0 页面错误，启动器退出码 0、窗口归零。
+- 证据在 `output/theme-composition-main-sync-20261109`，浏览器证据在
+  `output/playwright/theme-composition-main-sync-20261109`，均位于共享 D: 目录。
+  新提交仍需云端 Windows/macOS 完整 CI；旧 head 的绿灯不代表同步后通过。
+  未合并 PR、生成安装包、修改运行时版本、个人档案、客户端或快捷方式。
+
+## 主题组合 CI 后续焦点检查（2026-11-09）
+
+`082e773` 的 Windows runtime 组已通过协议测试，随后在
+`verify-cron-management.mjs` 的矮窗口原始坐标点击后，报告文本框未聚焦。
+测试现在等待前一个输入框的原生聚焦滚动和人工滚动各自跨过两帧，
+再确认文本框确实部分裁切、点击点确实命中它，然后点击并保留原来的
+完整四侧焦点边框断言。没有自动重试点击、再次聚焦或改变产品焦点行为。
+本机隔离 Electron 在 684px 高度完成四组明暗／宽窄焦点矩阵并生成截图。
+这不代表完整 Cron、默认进程关闭或替换提交的云端 CI 已通过。
+
+后续完整 Cron 本机重跑通过 14 项。`f17f93b` 的云端窄窗口检查又证明
+684px 下文本框可能自然完整容纳，因此不能假定人工滚动必然制造裁切。
+保留原有 684px 明暗／宽窄检查，并增加 540px 两组专门验证真实部分裁切
+后的原生聚焦及鼠标点击；命中检查和完整四侧边框断言继续保留。
+扩展后的六组窗口矩阵与完整 Cron management 隔离验收再次通过 14 项。
+
+## Theme Composition Foundation (2026-11-09)
+
+The version 2 source contract separates host-owned UI adapters from default
+backgrounds and declares opt-in image replacement. Version 1 remains a closed
+Stellar composition; the published Stellar package is unchanged. This phase
+supports packaged static PNG/JPEG backgrounds and an internal replacement slot,
+not the personal image-import/editor plugin. WebP was excluded after a native
+Electron probe returned an empty image for both buffer and data-URL decoding.
+No HTML, JavaScript, custom CSS or arbitrary engine execution is introduced.
+
+Local typecheck and the isolated production build pass. The 11 focused
+contract, loader, image, theme, worker, race and IPC test files report 103 passes
+and one Windows file-symlink privilege skip, with no failures. A real directory
+junction rejection test still runs. The final runtime-backed Remote and
+marketplace suites pass all 76 cases; CI inventory/policy tests pass all 15.
+The authoring Schema accepts seven valid examples and rejects 14 invalid ones.
+
+The new browser verifier passes ten behavior cases, including closed v1,
+scene replacement/disposal/restoration with retained UI and layout, stale async
+loads, same-ID resource updates, static-theme controls, reduced motion and
+cleanup. Desktop and 390-pixel canvas/image checks are nonblank and chromatic;
+1440, 760 and 390-pixel screenshots were inspected. The isolated Electron
+verifier passes actual PNG/JPEG decoding, first-frame selection, theme switching,
+Stellar UI with image/solid backgrounds, motion preference persistence, invalid
+ID rejection, restart and missing-pack fallback, without renderer errors.
+
+The unchanged legacy composition verifier had one initial reduced-motion
+pixel-equality failure. An independent full rerun and two instrumented final
+motion workflows passed. Both instrumented screenshot pairs were pixel-identical
+and background draw counts remained fixed. No deterministic defect or cause for
+the initial failure has been established; it remains an intermittent observation.
+
+Machine-local evidence is under
+`D:\Desktop For Step Code\output\theme-composition-20261109`
+(`electron-final/results.json`, `runtime-regressions.log` and
+`legacy-review/diagnostic`) and
+`D:\Desktop For Step Code\output\playwright\theme-composition-contract`.
+The two isolated verification builds under the shared D: release directory
+each contain about 7.37 MiB of owned files and link three immutable runtime
+directories. No installer was produced and no existing artifact was deleted.
+The owner's checkout, running package, profile, Remote binding and shortcuts
+are unchanged. These checks do not establish cloud CI, native macOS, installer,
+real-model or release acceptance.
 
 ## 通用插件市场信息（2026-11-09）
 

@@ -1,0 +1,40 @@
+.composition-fixture { display: flex; flex-direction: column; min-height: 100dvh; height: 100dvh; overflow: hidden; }
+.fixture-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 14px; min-height: 64px; padding: 12px 18px; background: var(--side); border-bottom: 1px solid var(--border); }
+.fixture-toolbar > strong { font-size: 13px; }
+.fixture-toolbar [role=tablist] { display: flex; flex-wrap: wrap; gap: 3px; }
+.fixture-toolbar [role=tab] { min-height: 30px; padding: 5px 8px; border: 0; background: transparent; font-size: 12px; }
+.fixture-toolbar [role=tab][aria-selected=true] { background: var(--surface); color: var(--primary); }
+.fixture-tools { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin-left: auto; }
+.fixture-tools > label { display: inline-flex; align-items: center; gap: 6px; margin: 0; font-size: 12px; }
+.fixture-tools input { width: 16px; height: 16px; margin: 0; }
+.fixture-tools > button { width: 30px; height: 30px; min-height: 30px; padding: 0; border: 0; background: transparent; }
+.fixture-body { display: flex; flex: 1; min-height: 0; }
+.composition-fixture .fixture-sidebar { position: static; width: 208px; box-shadow: none; padding-top: 20px; }
+.fixture-sidebar .workspace-heading { padding: 12px 8px; font-size: 12px; }
+.composition-fixture .fixture-main { flex: 1; min-width: 0; }
+.composition-fixture .messages { width: 100%; max-width: 780px; padding: 42px 32px 20px; }
+.composition-fixture .message-body h2 { font-size: 19px; margin-bottom: 16px; }
+.composition-fixture .message-body pre { white-space: pre; }
+.composition-fixture .composer-wrap { width: 100%; max-width: 780px; padding: 12px 32px 26px; }
+.composition-fixture .composer > textarea { resize: none; height: 88px; }
+.fixture-settings { flex: 0 0 340px; width: 340px; padding: 24px 18px; overflow: auto; background: var(--bg); border-left: 1px solid var(--border); }
+.fixture-settings > h2 { margin-bottom: 20px; font-size: 16px; }
+.fixture-settings .theme-pack-select { grid-template-columns: minmax(100px, 42%) minmax(0, 1fr); gap: 12px; }
+.fixture-settings .theme-pack-name { font-size: 15px; }
+.fixture-resolution { display: block; margin-top: 18px; color: var(--muted); font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
+@media(max-width:1000px) {
+  .composition-fixture .fixture-sidebar { display: none; }
+  .fixture-settings { flex-basis: 300px; width: 300px; }
+}
+@media(max-width:640px) {
+  .fixture-toolbar { padding: 12px; gap: 10px; }
+  .fixture-toolbar > strong { width: 100%; }
+  .fixture-tools { width: 100%; margin-left: 0; }
+  .fixture-body { display: block; overflow: auto; }
+  .composition-fixture .fixture-main { min-height: 500px; }
+  .composition-fixture .messages { padding: 24px 18px 0; }
+  .composition-fixture .composer-wrap { padding: 12px 18px 24px; }
+  .composition-fixture .message-body { font-size: 13px; }
+  .fixture-settings { width: 100%; border-left: 0; border-top: 1px solid var(--border); padding: 22px 18px; overflow: visible; }
+  .fixture-settings .theme-pack-select { grid-template-columns: minmax(110px, 42%) minmax(0, 1fr); }
+}

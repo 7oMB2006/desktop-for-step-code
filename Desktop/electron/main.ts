@@ -284,7 +284,12 @@ async function sessionWorkspacePath(path: string): Promise<string | undefined> {
 const preferencesFile = join(app.getPath('userData'), 'preferences.json');
 const firstRun = new FirstRun(app.getPath('userData'));
 const nodePath = join(runtimeRoot, 'node', process.platform === 'win32' ? 'node.exe' : 'node');
-const themePacks = new ThemePacks(join(dataRoot, 'plugins'));
+const themePacks = new ThemePacks(join(dataRoot, 'plugins'), bytes => {
+  const image = nativeImage.createFromBuffer(bytes);
+  if (image.isEmpty()) throw new Error('Invalid theme image');
+  const { width, height } = image.getSize();
+  return { bytes: image.toPNG(), width, height };
+});
 async function refreshThemePacks() {
   await themePacks.refresh();
   registerPluginThemes(themePacks.packs);
@@ -413,7 +418,7 @@ const miniMethods = new Set([
   'command', 'projectInstructions', 'branchSession', 'retryMessage', 'preferences',
   'chooseAttachments', 'importFile', 'importClipboardImage', 'imageAction', 'copyText', 'linkPreview',
   'fileOpen', 'fileOpenOptions', 'browserOpenLink', 'artifactFiles', 'artifactAction', 'backgroundAgents',
-  'updateState', 'summary', 'workflows', 'themeScene', 'themePoster',
+  'updateState', 'summary', 'workflows', 'themeScene', 'themePoster', 'themeImage',
 ]);
 function requireComposerOwner(input: unknown): ComposerOwner {
   const owner = composers.owner(parseComposerOwner(input));
@@ -2542,6 +2547,7 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
       return themePacks.scene(args[0]);
     }
     case 'themePoster': return themePacks.poster(args[0]);
+    case 'themeImage': return themePacks.image(args[0]);
     case 'capabilityMutate': {
       try { return await capabilityGate.run(async () => {
         markCapabilityPhase?.('idle-check');
@@ -2962,7 +2968,7 @@ else app.whenReady().then(async () => {
       if (providerApplication) await providerApplication;
       const capabilityMutation = ['capabilityMutate', 'capabilityImportSkill', 'bvrSaveConfiguration', 'pluginSaveConfiguration', 'pluginSaveHostSettings', 'saveCompactionSettings'].includes(method);
       const capabilityRead = ['capabilityCatalog', 'pluginDocument', 'pluginRepositoryInfo', 'pluginConfiguration', 'pluginHostSettings', 'pluginWindowOpen',
-        'pluginChoosePath', 'themeScene', 'themePoster', 'bvrConfiguration', 'bvrCheckEnvironment', 'bvrChoosePath'].includes(method);
+        'pluginChoosePath', 'themeScene', 'themePoster', 'themeImage', 'bvrConfiguration', 'bvrCheckEnvironment', 'bvrChoosePath'].includes(method);
       // CapabilityService selects its trusted scope after freezing the package.
       // Discovery network work and data-only themes must not block Remote I/O.
       const shared = capabilityMutation && method !== 'capabilityMutate'

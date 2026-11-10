@@ -25,6 +25,7 @@ export const stages = Object.freeze({
   desktop_build: 'Desktop build',
   motion_browser: 'Browser motion regressions',
   acceptance: 'Serial Electron acceptance',
+  cron_browser: 'Cron manager browser regressions',
 });
 
 const outcomes = new Set(['success', 'failure', 'cancelled', 'skipped']);

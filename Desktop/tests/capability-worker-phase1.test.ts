@@ -52,7 +52,7 @@ async function load(key) {
       for (const [name, value] of Object.entries(values)) this.setExport(name, value);
     }, { context, identifier: key });
   } else {
-    assert.ok(['capability-settings.mjs', 'capability-failure.mjs', 'plugin-files.mjs', 'plugin-update.mjs', 'plugin-configuration.mjs'].includes(key));
+    assert.ok(['capability-settings.mjs', 'capability-failure.mjs', 'plugin-files.mjs', 'theme-composition.mjs', 'plugin-update.mjs', 'plugin-configuration.mjs'].includes(key));
     module = new SourceTextModule(readFileSync(join(repository, 'Desktop/electron', key), 'utf8'),
       { context, identifier: key });
   }
@@ -129,14 +129,16 @@ function upstream(extra = {}) {
 const themeManifest = version => ({
   id: 'theme-a', name: 'Theme A', version, skills: [], commands: [], agents: [], mcpServers: {},
 });
-async function packageAt(directory, manifest) {
+const v2Theme = { schemaVersion: 2, ui: { renderer: 'stellar-v1' },
+  background: { renderer: 'solid-v1', accepts: ['image-v1'] } };
+async function packageAt(directory, manifest, theme = { schemaVersion: 1, renderer: 'stellar-v1' }) {
   await json(join(directory, 'step.plugin.json'), manifest);
-  await json(join(directory, 'dfsc.theme.json'), { schemaVersion: 1, renderer: 'stellar-v1' });
+  await json(join(directory, 'dfsc.theme.json'), theme);
 }
-async function fixture(old = themeManifest('1.0.0'), next = themeManifest('2.0.0')) {
+async function fixture(old = themeManifest('1.0.0'), next = themeManifest('2.0.0'), nextTheme) {
   const target = join(root, 'plugins/example'), transaction = randomUUID();
   const staging = join(root, 'desktop-plugins/update-' + transaction), candidate = join(staging, 'candidate');
-  await packageAt(target, old); await packageAt(candidate, next);
+  await packageAt(target, old); await packageAt(candidate, next, nextTheme);
   const previous = { instance: randomUUID(), id: old.id, folder: 'example', source: 'source-generation',
     marketplace: 'community', state: 'installed', fingerprint: await files.packageFingerprint(target) };
   const journal = { version: 1, transaction, phase: 'prepared', previous,
@@ -310,12 +312,12 @@ async function refreshFailures() {
   assert.deepEqual(mutations, []);
 }
 async function themeUpdate() {
-  const cases = scenario === 'theme-update-valid' ? ['valid'] : ['old', 'candidate'];
+  const cases = ['theme-update-valid', 'theme-update-v2'].includes(scenario) ? ['valid'] : ['old', 'candidate'];
   for (const invalid of cases) {
     const old = themeManifest('1.0.0'), next = themeManifest('2.0.0');
     if (invalid === 'old') old.commands = ['commands'];
     if (invalid === 'candidate') delete next.skills;
-    const f = await fixture(old, next), before = await tree();
+    const f = await fixture(old, next, scenario === 'theme-update-v2' ? v2Theme : undefined), before = await tree();
     if (invalid === 'valid') {
       await update.applyPluginUpdate(root, f.journal, { preserveRuntime: true });
       assert.equal(await files.packageFingerprint(f.target), f.journal.next.fingerprint);
@@ -332,7 +334,8 @@ async function workerUpdate() {
   const old = themeManifest('1.0.0'), next = themeManifest('2.0.0');
   if (scenario === 'worker-update-old') old.commands = ['commands'];
   if (scenario === 'worker-update-candidate') delete next.skills;
-  const f = await fixture(old, next), market = join(root, 'marketplaces/community'), source = join(market, 'plugins/example');
+  const f = await fixture(old, next, scenario === 'worker-update-v2' ? v2Theme : undefined),
+    market = join(root, 'marketplaces/community'), source = join(market, 'plugins/example');
   await fs.mkdir(source, { recursive: true });
   await fs.cp(f.candidate, source, { recursive: true });
   await json(join(market, '.step-plugin/marketplace.json'), { plugins: [{ name: 'example' }] });
@@ -362,7 +365,7 @@ async function workerUpdate() {
     marketplace: 'community', expectedInstance: f.journal.previous.instance, expectedSource: sourceId,
     expectedOldFingerprint: f.journal.previous.fingerprint, expectedFingerprint: f.journal.next.fingerprint,
     expectedOldVersion: '1.0.0', expectedVersion: '2.0.0' };
-  const invalid = scenario !== 'worker-update';
+  const invalid = !['worker-update', 'worker-update-v2'].includes(scenario);
   if (invalid) await assert.rejects(manager.mutate(input), code('stale'));
   else await manager.mutate(input);
   assert.equal(copied, 1); assert.ok(finalizedCandidate);
@@ -451,7 +454,9 @@ test('discovery mutations never initialize settings, builtin markets or runtime 
 test('refresh diagnostics preserve partial failure without skipping healthy markets or writing settings', () => verify('refresh-failures'));
 test('theme update revalidates both old and candidate declarations before journaling', () => verify('theme-update-invalid'));
 test('theme update accepts two proven data-only packages', () => verify('theme-update-valid'));
+test('theme replacement accepts a version one to version two composition update', () => verify('theme-update-v2'));
 test('worker forwards theme preservation to replacement and disables provisioning', () => verify('worker-update'));
+test('worker preserves the runtime when upgrading a theme to version two composition', () => verify('worker-update-v2'));
 test('worker rejects a non-theme old package even when update hashes match', () => verify('worker-update-old'));
 test('worker rejects a non-theme staged candidate even when update hashes match', () => verify('worker-update-candidate'));
 test('theme remove rejects executable declarations even with a matching ordinary hash', () => verify('theme-remove-invalid'));

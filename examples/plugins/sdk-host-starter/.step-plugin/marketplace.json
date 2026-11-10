@@ -1,0 +1,8 @@
+{
+  "name": "DFSC SDK Host Candidate",
+  "plugins": [{
+    "name": "dfsc-host-example",
+    "source": "./plugins/dfsc-host-example",
+    "description": "Official MCP SDK bundle and draft host client; offline fixture only."
+  }]
+}

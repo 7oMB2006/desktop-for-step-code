@@ -151,6 +151,13 @@ test('Chinese and English error text is bounded and retains a validated diagnost
   assert.match(capabilityWarningText('capability:marketplace-dns; diagnostic:012345abcdef', true), /DNS.*诊断编号：012345abcdef/);
   assert.match(capabilityWarningText('capability:marketplace-git-missing; diagnostic:012345abcdef', false), /could not find Git.*Diagnostic ID: 012345abcdef/);
   assert.equal(capabilityWarningText('ordinary warning', true), 'ordinary warning');
+  for (const code of ['host-unavailable', 'invalid-host-declaration', 'host-selection-incomplete']) {
+    const error = new Error(`capability:${code}; diagnostic:012345abcdef`);
+    assert.match(capabilityErrorText(error, true), /宿主|声明|模式/);
+    assert.match(capabilityErrorText(error, true), /诊断编号：012345abcdef/);
+    assert.match(capabilityErrorText(error, false), /host|declaration|mode/);
+    assert.match(capabilityErrorText(error, false), /Diagnostic ID: 012345abcdef/);
+  }
 });
 
 class Transport implements WorkerTransport {

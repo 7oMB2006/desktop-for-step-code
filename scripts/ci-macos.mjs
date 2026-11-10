@@ -9,16 +9,25 @@ import { defaultAcceptanceTimeout, macosGroupScripts, validateMacosInventory } f
 import { runGroup } from './ci-windows.mjs';
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
+function terminateOwnedProcess(child) {
+  if (process.platform === 'win32') {
+    execFileSync(join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'taskkill.exe'),
+      ['/pid', String(child.pid), '/t', '/f'], { windowsHide: true, stdio: 'pipe', timeout: 10000 });
+  } else process.kill(-child.pid, 'SIGKILL');
+}
+
 // Keep each script's output in the diagnostics artifact as well as the console.
 // Source and packaged runs use separate directories so the latter cannot erase
 // the evidence from the former. Resolve/reject only after the logfile is flushed.
 export async function executeWithLog(script, {
   cwd, timeout = defaultAcceptanceTimeout, signal,
+  args = [], logName, cleanupTimeout = 2000, terminate = terminateOwnedProcess,
   logDirectory = join(root, 'Desktop/test-results/logs', process.env.DESKTOP_VERIFY_EXE ? 'package' : 'source', process.env.CI_MACOS_GROUP ?? 'all'),
   stdout = process.stdout, stderr = process.stderr,
 } = {}) {
   signal?.throwIfAborted();
-  const name = script.split(/[\\/]/).at(-1);
+  const name = logName ?? script.split(/[\\/]/).at(-1);
+  if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/.test(name)) throw new Error('Invalid CI log name');
   mkdirSync(logDirectory, { recursive: true });
   const stream = createWriteStream(join(logDirectory, `${name}.log`), { flags: 'w' });
   const flushed = finished(stream);
@@ -34,35 +43,41 @@ export async function executeWithLog(script, {
     stamp(`cwd: ${cwd ?? process.cwd()}`);
     stamp(`timeout: ${timeout ?? 'none'}`);
     const result = await new Promise((resolveResult, reject) => {
-      const child = spawn(process.execPath, [script], {
+      const child = spawn(process.execPath, [script, ...args], {
         cwd, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true, detached: process.platform !== 'win32',
       });
-      let stopped, spawnError, closed = false;
+      let stopped, spawnError, settled = false, timer, cleanupTimer;
+      const finish = (code, exitSignal) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer); clearTimeout(cleanupTimer);
+        signal?.removeEventListener('abort', abort);
+        stream.removeListener('error', logFailed);
+        if (!stream.destroyed && !stream.writableEnded) stream.write('\n');
+        stamp(`exit: code=${exitSignal ?? code} stopped=${stopped ? stopped.message : 'no'}`);
+        resolveResult({ code, exitSignal, stopped, spawnError });
+      };
+      const unconfirmed = reason => {
+        stopped = new Error(`${stopped.message}; cleanup-unconfirmed: ${reason}`);
+        child.stdout.destroy(); child.stderr.destroy(); child.unref();
+        finish(child.exitCode, child.signalCode);
+      };
       const stop = reason => {
         // A leader can exit while descendants still hold its inherited pipes.
         // Keep the deadline/abort active until stdio actually closes.
-        if (stopped || closed) return;
+        if (stopped || settled) return;
         stopped = new Error(reason);
         if (process.platform === 'win32' && (child.exitCode !== null || child.signalCode !== null)) {
           // taskkill cannot recover an exited leader's tree, and its PID could
           // have been reused. Close only our pipe handles and report failure.
-          child.stdout.destroy(); child.stderr.destroy();
+          unconfirmed('leader exited before inherited pipes closed');
           return;
         }
+        cleanupTimer = setTimeout(() => unconfirmed('owned process did not close after termination'), cleanupTimeout);
         if (!child.pid) return;
         try {
-          // Terminate only this acceptance script's process tree.
-          if (process.platform === 'win32') {
-            execFileSync(join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'taskkill.exe'),
-              ['/pid', String(child.pid), '/t', '/f'], { windowsHide: true, stdio: 'pipe', timeout: 10000 });
-          } else {
-            process.kill(-child.pid, 'SIGKILL');
-          }
-        } catch (error) {
-          stopped = new Error(`${reason}; process-tree termination failed`, { cause: error });
-          stamp(stopped.message);
-          reject(stopped);
-        }
+          terminate(child);
+        } catch { unconfirmed('process-tree termination helper failed'); }
       };
       const logFailed = () => stop('Acceptance log write failed');
       stream.once('error', logFailed);
@@ -75,19 +90,13 @@ export async function executeWithLog(script, {
         pipe.once('end', () => capture(decoder.end()));
       }
       const abort = () => stop('Acceptance cancelled');
-      const timer = timeout ? setTimeout(() => stop(`Acceptance timed out after ${timeout}ms`), timeout) : undefined;
+      timer = timeout ? setTimeout(() => stop(`Acceptance timed out after ${timeout}ms`), timeout) : undefined;
       signal?.addEventListener('abort', abort, { once: true });
       if (signal?.aborted) abort();
       child.once('error', error => { spawnError = error; stamp(`spawn error: ${error.message}`); });
       // 'close', unlike 'exit', means both output pipes have drained.
       child.once('close', (code, exitSignal) => {
-        closed = true;
-        clearTimeout(timer);
-        signal?.removeEventListener('abort', abort);
-        stream.removeListener('error', logFailed);
-        if (!stream.destroyed && !stream.writableEnded) stream.write('\n');
-        stamp(`exit: code=${exitSignal ?? code} stopped=${stopped ? stopped.message : 'no'}`);
-        resolveResult({ code, exitSignal, stopped, spawnError });
+        finish(code, exitSignal);
       });
     });
     stream.end();

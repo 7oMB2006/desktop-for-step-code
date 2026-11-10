@@ -38,6 +38,9 @@ export function NoticeToast({ notice, language, onDismiss, onDetails }: {
     resizeAnimation.current?.cancel();
     const element = bubble.current;
     if (!element || !notice) { previousSize.current = null; return; }
+    // Sample at commit so a later passive effect cannot undo newer leave/blur events.
+    hovered.current = notice.transitionFrom !== undefined && element.matches(':hover');
+    focused.current = element.contains(document.activeElement);
     const width = element.getBoundingClientRect().width;
     const previous = previousSize.current;
     if (previous && notice.transitionFrom === previous.id && !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
@@ -50,8 +53,6 @@ export function NoticeToast({ notice, language, onDismiss, onDetails }: {
 
   useEffect(() => {
     if (!notice) return;
-    hovered.current = notice.transitionFrom !== undefined && Boolean(bubble.current?.matches(':hover'));
-    focused.current = Boolean(bubble.current?.contains(document.activeElement));
     setPending(false);
     executing.current = false;
     remaining.current = notice.type === 'success' ? 3000 : notice.type === 'warning' || notice.actions?.length ? 8000 : 4000;

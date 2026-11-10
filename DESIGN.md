@@ -92,6 +92,16 @@ plugin frontends are not executed. Package Markdown and images are read on deman
 through opaque references, never renderer filesystem access. Tutorials and
 authorship remain author declarations; GitHub Stars are host-queried snapshots.
 
+Host-model plugins reuse this same detail form and save/restart footer. An
+unconfigured installation has no selected source: Follow DFSC and Independent
+are explicit choices, not authorization. Independent fields reuse the author's
+validated schema; stored secrets never return to the renderer. The unframed
+connection/authorization list is a query snapshot, not a balance or success
+guarantee. Show actual session model, channel, region and per-capability approval
+only when confirmed. Saving, failed saves, management changes and session/restart
+changes invalidate the observation without discarding unsaved fields. Do not
+restart a session, grant access or renew a lease from this form.
+
 Installed plugins may contribute one data-only desktop workspace with a
 `main-view`, `side-panel` or `window` surface. All three render the same bounded,
 host-owned Markdown pages; they are not arbitrary frontend execution points.
@@ -507,6 +517,17 @@ Composer thumbnails and transcript images share an anchored image preview: cubic
 
 ## Window Lifecycle
 
+Settings > General > Notifications and sound has independent approval banners
+(default on), completion banners (default off) and completion sound (default off).
+Native banners are silent and use generic localized text without commands,
+paths or conversation content. Only live pending requests and authoritative
+successful task completions qualify. A session already selected in a focused,
+visible main or MiniChat window stays quiet. Clicking restores main and opens
+the source conversation; it never approves a request. Foreground activation,
+resolved requests, disabled options and new work withdraw obsolete banners.
+Windows Do Not Disturb remains an operating-system choice and is not bypassed.
+The behavior and verification boundary are documented in `docs/NOTIFICATIONS.md`.
+
 Closing the main window hides it to the Windows tray without stopping Agent tasks, queued messages, terminal processes or browser tabs. The tray uses the product icon and supplies Open and Quit in the selected language. Clicking it or launching another instance restores the existing window. File > Quit application and tray Quit perform the existing confirmed shutdown and wait for runtime/terminal cleanup; cancellation keeps the application available. A failed tray creation falls back to the explicit shutdown path instead of hiding an unreachable window. Windows session end does not request interactive task confirmation.
 
 The tray's right-click menu is an application-rendered, transparent utility window, not a Windows native context menu. It reuses AppMenu styling and theme variables with cubic enter/exit, reduced-motion support, keyboard navigation and Escape/blur dismissal. Placement uses Electron's device-independent screen work area to remain within the selected monitor. It never appears in the taskbar. A sandboxed, sender-validated dedicated preload exposes only menu state and Open/Quit/Dismiss, not the main Desktop bridge.
@@ -601,7 +622,7 @@ Unfinished task progress uses the established yellow-to-purple palette with a
 flowing highlight. Completing the checklist is not the same as finishing the
 round: keep the full bar flowing during the final response. A matching live
 round-completed event starts the bar impact, cubic-out right-to-left green sweep
-and small square dust, alongside the existing completion notification sound.
+and small square dust, alongside the completion sound when explicitly enabled.
 Keep task-row completion and folding motion unchanged. Restored or reopened
 panels show settled state without replay; hidden panels do not gate sound.
 Reduced motion settles directly without impact or particles.

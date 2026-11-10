@@ -22,7 +22,8 @@ export class ModelSelections {
   private loading = new Map<string, Promise<ChangeSet>>();
   private writes: Promise<void> = Promise.resolve();
   constructor(private root: string, private changed: (worker: SessionRuntime) => void,
-    private onError: (error: unknown) => void = () => {}) {}
+    private onError: (error: unknown) => void = () => {},
+    private beforeModelChange: (worker: SessionRuntime) => void = () => {}) {}
   private file(id: string) { return join(this.root, `${createHash('sha256').update(id).digest('hex')}.json`); }
   async load(id: string): Promise<ChangeSet> {
     if (this.records.has(id)) return this.records.get(id)!;
@@ -71,6 +72,7 @@ export class ModelSelections {
       const records = await this.load(current.sessionId);
       if (!sameModel(selection.model, current.model)) {
         const previousModel = current.model ? identity(current.model) : undefined;
+        this.beforeModelChange(worker);
         await worker.rpc.request('set_model', { provider: selection.model.provider, modelId: selection.model.id });
         const actual = await worker.rpc.request('get_state');
         worker.state = actual;

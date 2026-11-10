@@ -124,6 +124,8 @@ export interface DesktopBridge extends SessionImportBridge, BtwBridge, Backgroun
   pluginRepositoryInfo(input: { ref: string; refresh: boolean }): Promise<import('./capabilities').PluginStarSnapshot>;
   pluginConfiguration(input: { ref: string }): Promise<import('./capabilities').PluginConfiguration>;
   pluginSaveConfiguration(input: import('./capabilities').PluginConfigurationInput): Promise<import('./capabilities').PluginConfiguration>;
+  pluginHostSettings(input: { ref: string }): Promise<import('./capabilities').PluginHostSettings>;
+  pluginSaveHostSettings(input: import('./capabilities').PluginHostSettingsInput): Promise<import('./capabilities').PluginHostSettings>;
   pluginChoosePath(input: { ref: string; field: string }): Promise<string | null>;
   themeScene(id: string): Promise<import('./theme-packs').StellarScene>;
   themePoster(id: string): Promise<string | undefined>;

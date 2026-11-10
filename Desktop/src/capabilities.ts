@@ -25,6 +25,7 @@ export interface PluginPackage {
   links: { title: string; url: string }[]; warnings: string[];
   stars?: PluginStarSnapshot;
   configurationAvailable?: boolean;
+  hostSettingsAvailable?: boolean;
   dataOnlyTheme?: boolean;
   locales?: Partial<Record<'zh' | 'en', PluginLocale>>;
   desktop?: PluginDesktop;
@@ -47,6 +48,22 @@ export interface PluginConfiguration {
 export interface PluginConfigurationInput {
   ref: string; revision: string; values: Record<string, string | number | boolean>;
   secrets: Record<string, { action: 'keep' | 'replace' | 'delete'; value?: string }>;
+}
+export type PluginHostCapability = 'model.text' | 'model.video' | 'model.asr' | 'model.tts';
+export type PluginHostModels = Partial<Record<'model.asr' | 'model.tts', string>>;
+export interface PluginHostRuntime {
+  status: 'unsupported' | 'no-session' | 'unconfigured' | 'disabled' | 'restart-required' | 'connected' | 'unavailable';
+  capabilities?: { id: PluginHostCapability; available: boolean; model?: string; channel?: 'plan' | 'api';
+    region?: 'cn' | 'oversea'; authorization: 'required' | 'approved' | 'unavailable' }[];
+}
+export interface PluginHostSettings {
+  ref: string; revision: string; mode: 'follow' | 'independent' | null; consumer: string;
+  capabilities: PluginHostCapability[]; models: PluginHostModels; configurationCurrent: boolean;
+  independent?: PluginConfiguration; independentError?: string; runtime: PluginHostRuntime;
+}
+export interface PluginHostSettingsInput {
+  ref: string; revision: string; mode: 'follow' | 'independent'; models?: PluginHostModels;
+  configuration?: PluginConfigurationInput;
 }
 export interface PluginDocument {
   path: string; text: string; images: Record<string, string>; links: Record<string, string>;

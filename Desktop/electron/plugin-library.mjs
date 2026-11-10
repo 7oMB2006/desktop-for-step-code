@@ -254,7 +254,9 @@ export class PluginLibrary {
         }
         return { ...publicPlugin, package: { ...metadata, warnings, ref: reference.ref, provenance: descriptor.provenance,
           configurationAvailable: descriptor.kind === 'installed' && descriptor.provenance === 'recorded'
-            && await fileExists(root, 'dfsc.settings.json') } };
+            && await fileExists(root, 'dfsc.settings.json'),
+          hostSettingsAvailable: descriptor.kind === 'installed' && descriptor.provenance === 'recorded'
+            && await fileExists(root, 'dfsc.host.json') } };
       } catch { return publicPlugin; }
     };
     const plugins = [];

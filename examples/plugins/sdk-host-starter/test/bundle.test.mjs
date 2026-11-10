@@ -4,6 +4,8 @@ import { cp, mkdtemp, readFile, readdir, realpath, rm, stat } from 'node:fs/prom
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { EventEmitter, once } from 'node:events';
+import { createServer } from 'node:http';
 import Ajv from 'ajv';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
@@ -34,11 +36,16 @@ async function installed(t, env = {}) {
   assert.ok(!(await readdir(root)).includes('node_modules'));
   const transport = new StdioClientTransport({ command: process.execPath,
     args: [join(directory, 'dist/server.mjs')], cwd: root, stderr: 'pipe', env });
+  const messages = [], send = transport.send.bind(transport);
+  transport.send = (message, ...options) => {
+    messages.push(structuredClone(message));
+    return send(message, ...options);
+  };
   let stderr = '';
   transport.stderr?.on('data', bytes => { stderr += bytes.toString(); });
   client = new Client({ name: 'dfsc-author-acceptance', version: '1.0.0' });
   await client.connect(transport);
-  return { root, directory, client, stderr: () => stderr };
+  return { root, directory, client, messages, stderr: () => stderr };
 }
 test('tracked release payload is bounded and includes official SDK/dependency licenses', async () => {
   const licenses = await readFile(join(source, 'dist/THIRD_PARTY_LICENSES.txt'), 'utf8');
@@ -84,6 +91,44 @@ test('real SDK tool requests use the host fixture with no independent Key, requi
   assert.equal(broker.counts.provider, 0);
   assert.doesNotMatch(JSON.stringify([context, denied, granted, revoked, stderr()]), new RegExp(launch.broker.token));
 });
+for (const name of ['host_context', 'summarize_text']) {
+  test(`MCP cancellation aborts the pending host context read for ${name}`, { timeout: 15000 }, async t => {
+    const broker = await mockHost(); t.after(() => broker.close());
+    const events = new EventEmitter(), routes = [];
+    const server = createServer((request, response) => {
+      routes.push(request.url);
+      request.resume();
+      if (request.url !== '/v1/context') { response.writeHead(400); response.end(); return; }
+      response.once('close', () => events.emit('disconnected', response.writableEnded));
+      events.emit('context');
+    });
+    t.after(async () => {
+      server.closeAllConnections();
+      await new Promise(done => server.close(done));
+    });
+    await new Promise(done => server.listen(0, '127.0.0.1', done));
+    const launch = broker.launch();
+    launch.broker.origin = `http://127.0.0.1:${server.address().port}`;
+    const { client, messages, stderr } = await installed(t, { [HOST_ENV]: JSON.stringify(launch),
+      STEP_API_KEY: 'fixture-never-consumed', STEPFUN_API_KEY: 'fixture-never-consumed' });
+    const entered = once(events, 'context', { signal: AbortSignal.timeout(5000) });
+    const controller = new AbortController();
+    const pending = client.callTool({ name, arguments: name === 'host_context' ? {} : { text: 'cancel before consent' } },
+      undefined, { signal: controller.signal, timeout: 10000 });
+    const rejected = assert.rejects(pending, /fixture-mcp-cancel/);
+    await entered;
+    const disconnected = once(events, 'disconnected', { signal: AbortSignal.timeout(5000) });
+    controller.abort(new Error('fixture-mcp-cancel'));
+    await rejected;
+    assert.deepEqual(await disconnected, [false], 'The host HTTP read is aborted, not merely the MCP client wait');
+    const call = messages.find(message => message.method === 'tools/call');
+    const notice = messages.find(message => message.method === 'notifications/cancelled');
+    assert.equal(notice.params.requestId, call.id);
+    assert.deepEqual(routes, ['/v1/context']);
+    assert.equal(broker.counts.provider, 0);
+    assert.doesNotMatch(stderr(), new RegExp(`${launch.broker.token}|fixture-never-consumed`));
+  });
+}
 test('standard client removes the launch secret before an ordinary native descendant is created', async t => {
   const broker = await mockHost(); t.after(() => broker.close());
   const launch = broker.launch();

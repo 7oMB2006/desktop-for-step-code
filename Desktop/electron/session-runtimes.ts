@@ -814,7 +814,7 @@ export class SessionRuntimes {
     return new Promise(resolve => {
       const cancel = () => {
         this.clearRequest(worker, id);
-        this.emit({ type: 'desktop_ui_expired', id, runtimeId: worker.id });
+        this.emit({ type: 'desktop_ui_expired', id, runtimeId: worker.id, runtimeRevision: ++worker.revision });
         this.publish();
       };
       this.confirmations.set(id, { worker, resolve: approved => { signal?.removeEventListener('abort', cancel); resolve(approved); } });
@@ -823,7 +823,7 @@ export class SessionRuntimes {
       worker.pendingUI.set(id, request);
       worker.uiTimers.set(id, setTimeout(cancel, 120000).unref());
       signal?.addEventListener('abort', cancel, { once: true });
-      this.emit({ ...request, sessionId: worker.state?.sessionId });
+      this.emit({ ...request, sessionId: worker.state?.sessionId, runtimeRevision: ++worker.revision });
       this.publish();
     });
   }
@@ -841,6 +841,7 @@ export class SessionRuntimes {
         worker.fullAccessCancellationRevision = (worker.fullAccessCancellationRevision ?? 0) + 1;
     }
     this.clearRequest(worker, id);
+    worker.revision++;
     this.publish();
   }
   async remove(worker: SessionRuntime) {

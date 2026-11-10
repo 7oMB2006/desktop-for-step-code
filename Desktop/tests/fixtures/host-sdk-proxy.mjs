@@ -7,6 +7,8 @@ import { randomUUID } from 'node:crypto';
 // Test-only MCP proxy: native discovery performs the real SDK handshake. Tests
 // then call that same SDK process without using a paid model to request a tool.
 const launch = JSON.parse(process.env.DFSC_LAUNCH_CONTEXT);
+if (process.env.DFSC_TEST_RETAIN_LAUNCH === '1')
+  await writeFile(join(launch.dataDirectory, 'test-launch.json'), JSON.stringify(launch));
 const child = spawn(process.execPath, [process.argv[2]], { stdio: ['pipe', 'pipe', 'ignore'], windowsHide: true });
 const pending = new Map();
 let seen = 0, reading = false;
@@ -28,6 +30,16 @@ const timer = setInterval(async () => {
     const command = JSON.parse(await readFile(join(launch.dataDirectory, 'command.json'), 'utf8'));
     if (command.sequence <= seen) return;
     seen = command.sequence;
+    if (command.cancelSequence !== undefined) {
+      const id = [...pending].find(([, sequence]) => sequence === command.cancelSequence)?.[0];
+      if (id) {
+        child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', method: 'notifications/cancelled',
+          params: { requestId: id, reason: 'Isolated acceptance cancellation' } })}\n`);
+        pending.delete(id);
+      }
+      await writeFile(join(launch.dataDirectory, `result-${seen}.json`), JSON.stringify({ cancelled: Boolean(id) }));
+      return;
+    }
     const id = randomUUID();
     pending.set(id, seen);
     child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id, method: 'tools/call',

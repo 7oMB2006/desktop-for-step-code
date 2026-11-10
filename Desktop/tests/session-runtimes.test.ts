@@ -1653,6 +1653,62 @@ test('workers keep separate histories and approvals across navigation and target
   await pool.stopAll();
 });
 
+test('Desktop confirmation arrival prevents a delayed snapshot from hiding the live request', async () => {
+  const { pool, events, open } = fixture();
+  try {
+    const worker = await open();
+    worker.permissionPreset = 'full-access';
+    const revision = new MessageRevision();
+    const before = { runtimeId: worker.id, runtimeRevision: worker.revision, requests: [] };
+    assert.equal(revision.acceptSnapshot(before), true);
+    const pending = pool.confirm(worker, 'Plugin account authorization', 'Explicit approval is required');
+    const request = [...worker.pendingUI.values()][0];
+    const arrival = events.find(event => event.type === 'extension_ui_request' && event.id === request.id)!;
+    assert.equal(revision.acceptEvent(arrival), true);
+    assert.equal(arrival.runtimeRevision, worker.revision);
+    assert.equal(revision.acceptSnapshot(before), false);
+    assert.equal(worker.pendingUI.has(request.id), true);
+    pool.respondToRequest(worker, { id: request.id, confirmed: true });
+    assert.equal(await pending, true);
+  } finally { await pool.stopAll(); }
+});
+
+test('Desktop confirmation cancellation prevents a delayed snapshot from restoring an expired request', async () => {
+  const { pool, events, open } = fixture();
+  try {
+    const worker = await open(), controller = new AbortController();
+    const pending = pool.confirm(worker, 'Plugin account authorization', 'Explicit approval is required', controller.signal);
+    const request = [...worker.pendingUI.values()][0];
+    const revision = new MessageRevision();
+    const waiting = { runtimeId: worker.id, runtimeRevision: worker.revision };
+    assert.equal(revision.acceptSnapshot(waiting), true);
+    controller.abort();
+    assert.equal(await pending, false);
+    const expiry = events.find(event => event.type === 'desktop_ui_expired' && event.id === request.id)!;
+    assert.equal(revision.acceptEvent(expiry), true);
+    assert.equal(expiry.runtimeRevision, worker.revision);
+    assert.equal(revision.acceptSnapshot(waiting), false);
+    assert.equal(worker.pendingUI.size, 0);
+  } finally { await pool.stopAll(); }
+});
+
+test('Desktop confirmation answers advance snapshots without answering the native transport', async () => {
+  const { pool, transports, open } = fixture();
+  try {
+    const worker = await open();
+    const pending = pool.confirm(worker, 'Plugin account authorization', 'Explicit approval is required');
+    const request = [...worker.pendingUI.values()][0];
+    const waiting = { runtimeId: worker.id, runtimeRevision: worker.revision };
+    pool.respondToRequest(worker, { id: request.id, confirmed: true });
+    assert.equal(await pending, true);
+    const revision = new MessageRevision();
+    assert.equal(revision.acceptSnapshot({ runtimeId: worker.id, runtimeRevision: worker.revision }), true);
+    assert.equal(revision.acceptSnapshot(waiting), false);
+    assert.equal(worker.pendingUI.size, 0);
+    assert.deepEqual(transports[0].answers, []);
+  } finally { await pool.stopAll(); }
+});
+
 test('disposed workers cannot deliver late events or receive stale commands', async () => {
   const { pool, transports, events, open } = fixture();
   const a = await open();

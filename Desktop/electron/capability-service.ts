@@ -4,11 +4,13 @@ import { PluginLibrary } from './plugin-library.mjs';
 import { PluginRepositoryInfo } from './plugin-repository.mjs';
 import { PluginConfigurationStore } from './plugin-configuration.mjs';
 import type { ConfigurationDescriptor } from './plugin-configuration.mjs';
+import { PluginHostBindingStore, type HostBinding, type UnconfiguredHostBinding } from './plugin-host-contract.mjs';
 import { inspectPluginUpdate, recoverPluginUpdate } from './plugin-update.mjs';
 import { dataOnlyThemeFingerprint, optionalFile, scanInstalled } from './plugin-files.mjs';
 import { capabilityPolicy, type CapabilityGuard } from './capability-policy';
 import semver from 'semver';
-import type { PluginConfigurationInput } from '../src/capabilities';
+import type { PluginConfigurationInput, PluginHostRuntime, PluginHostSettings, PluginHostSettingsInput } from '../src/capabilities';
+import { parseModelSelection } from '../../examples/plugins/host-client/protocol.mjs';
 import type { CapabilityCatalog, CapabilityMutation, CapabilityResult } from '../src/capabilities';
 
 export async function assertPluginUnused(id: string, workers: Iterable<{
@@ -32,6 +34,7 @@ export class CapabilityService {
   private library: PluginLibrary;
   private repositories: PluginRepositoryInfo;
   private configurations: PluginConfigurationStore;
+  private hostBindings: PluginHostBindingStore;
   private mutation: Promise<unknown> = Promise.resolve();
   private quarantined = false;
   private runtimeQuarantined = false;
@@ -43,12 +46,15 @@ export class CapabilityService {
     validateImage?(bytes: Buffer, maxDimension?: number): boolean;
     fetchRepository?: typeof globalThis.fetch;
     beforePluginMutation?(): void;
+    hostAvailable?(): boolean;
+    hostStatus?(descriptor: ConfigurationDescriptor, binding: HostBinding | UnconfiguredHostBinding): Promise<PluginHostRuntime>;
     createWorker?(): RpcProcess;
     guardRecovery?: (id: string) => Promise<void | (() => void)>;
   }) {
     this.library = new PluginLibrary(options.root, options.validateImage);
     this.repositories = new PluginRepositoryInfo(options.root, { fetch: options.fetchRepository });
     this.configurations = new PluginConfigurationStore(options.root);
+    this.hostBindings = new PluginHostBindingStore(options.root);
   }
   private async request(type: string, args: Record<string, unknown> = {}, protectsRuntime = false) {
     this.assertHealthy();
@@ -228,6 +234,82 @@ export class CapabilityService {
     if (save) this.options.beforePluginMutation?.();
     return save ? this.configurations.save(context, save) : current;
   }); }
+  hostSettings(input: { ref: string }, save?: PluginHostSettingsInput): Promise<PluginHostSettings> {
+    return this.enqueue(async () => {
+      if (!input || typeof input.ref !== 'string' || Object.keys(input).some(key =>
+        !(save ? ['ref', 'revision', 'mode', 'models', 'configuration'] : ['ref']).includes(key))
+        || save && (save.ref !== input.ref || Object.keys(save).some(key =>
+          !['ref', 'revision', 'mode', 'models', 'configuration'].includes(key))))
+        throw new Error('capability:invalid-input');
+      const catalog = await this.readCatalog();
+      const matches = catalog.plugins.filter(plugin => plugin.package?.ref === input.ref);
+      if (matches.length !== 1 || matches[0].package?.provenance !== 'recorded')
+        throw new Error('capability:host-unavailable');
+      const { descriptor: installed } = await this.library.reference(input.ref);
+      const descriptor = { ...installed, ref: input.ref };
+      let binding: HostBinding | UnconfiguredHostBinding;
+      try { binding = await this.hostBindings.current(descriptor); }
+      catch (error) {
+        if (String(error).includes('dfsc-host:')) throw new Error('capability:invalid-host-declaration');
+        throw error;
+      }
+      const servers = catalog.mcp.filter(server => server.name === `${installed.id}__${binding.declaration.consumer.server}`);
+      if (servers.length !== 1 || servers[0].source !== 'plugin' || servers[0].pluginId !== installed.id
+        || servers[0].transport !== 'stdio') throw new Error('capability:configuration-consumer-conflict');
+      if (save) {
+        this.assertHealthy();
+        if (!this.runtimeAvailable
+          || await optionalFile(this.options.root, 'desktop-plugins/update-transaction.json', 65536) !== undefined)
+          throw new Error('capability:update-recovery-required');
+        if (!this.options.hostAvailable?.()) throw new Error('capability:host-unavailable');
+        if (JSON.stringify(save).length > 150000 || save.revision !== binding.revision)
+          throw new Error('capability:stale-configuration');
+        if (!['follow', 'independent'].includes(save.mode) || save.mode === 'follow' && save.configuration !== undefined
+          || save.mode === 'independent' && (save.models !== undefined || !save.configuration || save.configuration.ref !== input.ref))
+          throw new Error('capability:invalid-configuration');
+        // Validate before revocation or committing the independent configuration.
+        const models = save.mode === 'follow' ? parseModelSelection(save.models ?? {}, binding.declaration.capabilities) : undefined;
+        if (save.mode === 'independent') {
+          const config = await this.configurations.read(descriptor);
+          if (config.schema.consumer.server !== binding.declaration.consumer.server)
+            throw new Error('capability:configuration-consumer-conflict');
+        }
+        this.options.beforePluginMutation?.();
+        const config = save.mode === 'independent' ? await this.configurations.save(descriptor, save.configuration!) : undefined;
+        try {
+          binding = await this.hostBindings.select(descriptor, { revision: save.revision, mode: save.mode,
+            ...(config ? { configurationRevision: config.revision } : { models }) });
+        } catch (error) {
+          // Two commit pointers are not one transaction. Never claim the old mode
+          // still works when its independent configuration was already replaced.
+          if (config) throw new Error('capability:host-selection-incomplete');
+          throw error;
+        }
+      }
+      const selected = 'mode' in binding ? binding : undefined;
+      let independent, independentError;
+      if (matches[0].package?.configurationAvailable) {
+        try {
+          independent = await this.configurations.read(descriptor);
+          if (independent.schema.consumer.server !== binding.declaration.consumer.server)
+            throw new Error('capability:configuration-consumer-conflict');
+        } catch (error) {
+          independent = undefined;
+          independentError = /capability:[a-z-]+/u.exec(String(error))?.[0] ?? 'capability:invalid-configuration';
+        }
+      }
+      const runtime: PluginHostRuntime = !this.options.hostAvailable?.() ? { status: 'unsupported' }
+        : !servers[0].enabled ? { status: 'disabled' }
+          : save ? { status: 'restart-required' }
+            : await this.options.hostStatus?.(descriptor, binding).catch(() => ({ status: 'unavailable' as const }))
+            ?? { status: 'unavailable' };
+      // Construct the public projection explicitly; never spread a binding, receipt or launch.
+      return { ref: input.ref, revision: binding.revision, consumer: binding.declaration.consumer.server,
+        capabilities: [...binding.declaration.capabilities], mode: selected?.mode ?? null,
+        models: selected ? { ...selected.models } : {}, configurationCurrent: selected?.configurationCurrent ?? false,
+        independent, independentError, runtime };
+    });
+  }
   mutate(input: CapabilityMutation, guard?: CapabilityGuard): Promise<CapabilityResult> {
     if (!input || typeof input !== 'object' || Array.isArray(input)
       || JSON.stringify(input).length > 150000) throw new Error('capability:invalid-input');

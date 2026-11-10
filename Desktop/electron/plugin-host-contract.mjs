@@ -8,7 +8,7 @@ export { parseHostDeclaration } from '../../examples/plugins/host-client/protoco
 const fail = (code = 'stale') => { throw new PluginFileError(code); };
 const freshRevision = () => createHash('sha256').update(randomUUID()).digest('hex');
 
-// Candidate-only: the production launcher does not issue this context yet.
+// Main-only mode snapshots, shared by settings and the verified native launcher.
 export class PluginHostBindingStore {
   queue = Promise.resolve();
   constructor(root) {

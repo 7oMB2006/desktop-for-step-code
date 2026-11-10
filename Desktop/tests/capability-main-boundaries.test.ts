@@ -119,7 +119,7 @@ function ipcFixture(handler: (method: string, args: unknown[], surface: 'main' |
 test('actual main passive capability reads never trigger pending provider application or recovery', async () => {
   const f = ipcFixture();
   for (const method of [
-    'capabilityCatalog', 'pluginDocument', 'pluginRepositoryInfo', 'pluginConfiguration', 'pluginChoosePath', 'pluginWindowOpen',
+    'capabilityCatalog', 'pluginDocument', 'pluginRepositoryInfo', 'pluginConfiguration', 'pluginHostSettings', 'pluginChoosePath', 'pluginWindowOpen',
     'themeScene', 'themePoster', 'bvrConfiguration', 'bvrCheckEnvironment', 'bvrChoosePath', 'capabilityMutate',
   ]) assert.equal(await f.read(method), method);
   assert.equal(f.state.applications, 0);
@@ -137,7 +137,7 @@ test('merged IPC preserves MiniChat theme reads and refuses management or untrus
   for (const method of ['themeScene', 'themePoster'])
     assert.equal(await f.miniRead(method), method);
   assert.equal(f.state.applications, 0);
-  for (const method of ['capabilityMutate', 'saveMcp', 'pluginSaveConfiguration'])
+  for (const method of ['capabilityMutate', 'saveMcp', 'pluginSaveConfiguration', 'pluginHostSettings', 'pluginSaveHostSettings'])
     await assert.rejects(f.miniRead(method), /Return to the main window/);
   await assert.rejects(f.untrustedRead('themeScene'), /Untrusted sender/);
   assert.deepEqual(calls, ['mini:themeScene', 'mini:themePoster']);
@@ -162,14 +162,17 @@ test('merged IPC retains surface and phase marker through exactly one composer s
 test('shared IPC releases deferred host launches without changing passive reads or MiniChat restrictions', async () => {
   const f = ipcFixture();
   await f.read('pluginConfiguration');
+  await f.read('pluginHostSettings');
   await f.miniRead('themeScene');
   assert.equal(f.state.resumes, 0);
   await f.read('saveMcp');
   assert.equal(f.state.resumes, 1);
+  await f.read('pluginSaveHostSettings');
+  assert.equal(f.state.resumes, 2);
   await f.read('capabilityMutate');
-  assert.equal(f.state.resumes, 2);
+  assert.equal(f.state.resumes, 3);
   await assert.rejects(f.miniRead('capabilityMutate'), /Return to the main window/);
-  assert.equal(f.state.resumes, 2);
+  assert.equal(f.state.resumes, 3);
 });
 
 test('merged IPC rechecks renderer generation and keeps MiniChat navigation guards for shared settings', async () => {

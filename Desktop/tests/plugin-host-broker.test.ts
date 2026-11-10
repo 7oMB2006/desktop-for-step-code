@@ -183,6 +183,25 @@ test('ASR keeps the dedicated model on each selected account channel, not the ch
     assert.equal(JSON.parse(String(fixture.calls[0].init?.body)).audio.input.transcription.model, 'stepaudio-2.5-asr');
   }
 });
+test('multi-megabyte media reaches the provider unchanged through client and broker validation', async t => {
+  const fixture = await hostService(t, { capabilities: ['model.asr', 'model.video'], request: async url =>
+    String(url).endsWith('/audio/asr/sse')
+      ? new Response('data: {"type":"transcript.text.done","text":"large audio transcript"}\n\n')
+      : Response.json({ choices: [{ message: { content: 'large video result' } }] }) });
+  const { client } = await clientFor(t, fixture);
+  const context = await client.context(), data = Buffer.alloc(4 * 1024 * 1024, 0xa5).toString('base64');
+  const audio = await client.invoke({ requestId: newRequestId(), revision: context.revision, capability: 'model.asr',
+    input: { audio: { mimeType: 'audio/wav', data } } });
+  assert.equal(audio.text, 'large audio transcript');
+  assert.equal(JSON.parse(String(fixture.calls[0].init?.body)).audio.data, data);
+  const video = await client.invoke({ requestId: newRequestId(), revision: context.revision, capability: 'model.video',
+    input: { messages: [{ role: 'user', content: 'inspect' }], video: { mimeType: 'video/mp4', data } } });
+  assert.equal(video.text, 'large video result');
+  assert.equal(JSON.parse(String(fixture.calls[1].init?.body)).messages[0].content[0].video_url.url,
+    `data:video/mp4;base64,${data}`);
+  assert.equal(fixture.state.confirmations.length, 2);
+  assert.equal(fixture.calls.length, 2);
+});
 test('account, live model, mode, package, session, runtime and transport changes revoke old leases', async t => {
   const changes: Array<(fixture: Awaited<ReturnType<typeof hostService>>) => unknown> = [
     fixture => { fixture.state.auth.step.access = 'changed-private-key'; },

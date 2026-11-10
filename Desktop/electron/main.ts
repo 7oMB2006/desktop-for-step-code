@@ -294,8 +294,10 @@ async function refreshThemePacks() {
     await savePreferences();
   }
 }
-const capabilityService = new CapabilityService({ root: dataRoot, runtime: runtimeRoot, node: nodePath,
+const capabilityService: CapabilityService = new CapabilityService({ root: dataRoot, runtime: runtimeRoot, node: nodePath,
   beforePluginMutation: () => pluginHosts.invalidate(),
+  hostAvailable: () => runtimeManifest.patches?.includes('desktop-plugin-host-launch') === true,
+  hostStatus: (descriptor, binding) => pluginHosts.status(descriptor, binding),
   guardRecovery: async id => {
     const alreadyMutating = settingsMutation;
     settingsMutation = true;
@@ -2503,6 +2505,13 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
       await capabilityService.configuration(input);
       return result.filePaths[0] ?? null;
     }
+    case 'pluginHostSettings':
+    case 'pluginSaveHostSettings': {
+      if (method === 'pluginHostSettings' && settingsMutation) throw new Error('capability:busy');
+      if (method === 'pluginSaveHostSettings') await guardIdle({ stopHost: false });
+      try { return await capabilityService.hostSettings(args[0], method === 'pluginSaveHostSettings' ? args[0] : undefined); }
+      catch (error) { throw new Error(error instanceof Error && /^capability:[a-z-]+$/u.test(error.message) ? error.message : 'capability:operation-failed'); }
+    }
     case 'bvrConfiguration':
     case 'bvrSaveConfiguration':
     case 'bvrCheckEnvironment': {
@@ -2951,8 +2960,8 @@ else app.whenReady().then(async () => {
       if (method === 'quitRespond' || method === 'windowControl') return handle(method, args, surface);
       // Reads must not observe the admin transport halfway through an idle reload.
       if (providerApplication) await providerApplication;
-      const capabilityMutation = ['capabilityMutate', 'capabilityImportSkill', 'bvrSaveConfiguration', 'pluginSaveConfiguration', 'saveCompactionSettings'].includes(method);
-      const capabilityRead = ['capabilityCatalog', 'pluginDocument', 'pluginRepositoryInfo', 'pluginConfiguration', 'pluginWindowOpen',
+      const capabilityMutation = ['capabilityMutate', 'capabilityImportSkill', 'bvrSaveConfiguration', 'pluginSaveConfiguration', 'pluginSaveHostSettings', 'saveCompactionSettings'].includes(method);
+      const capabilityRead = ['capabilityCatalog', 'pluginDocument', 'pluginRepositoryInfo', 'pluginConfiguration', 'pluginHostSettings', 'pluginWindowOpen',
         'pluginChoosePath', 'themeScene', 'themePoster', 'bvrConfiguration', 'bvrCheckEnvironment', 'bvrChoosePath'].includes(method);
       // CapabilityService selects its trusted scope after freezing the package.
       // Discovery network work and data-only themes must not block Remote I/O.

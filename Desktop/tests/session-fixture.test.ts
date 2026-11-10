@@ -4,7 +4,8 @@ import { runInNewContext } from 'node:vm';
 import test from 'node:test';
 import ts from 'typescript';
 
-const { waitForNewSessionButton, waitForSessionFixtureSnapshot, restartIdleSessionFixture } =
+const { waitForNewSessionButton, waitForSessionFixtureSnapshot, restartIdleSessionFixture,
+  relocateIdleWorkspaceFixture } =
   await import(new URL('../scripts/session-fixture.mjs', import.meta.url).href);
 
 test('workflow planned relaunch and cleanup use orderly shutdown without removing the forced-crash case', async () => {
@@ -82,6 +83,93 @@ test('idle restart readiness retains the busy failure at its deadline', async ()
   } };
   await assert.rejects(restartIdleSessionFixture(page, 'old', 0), error => error === failure);
   assert.equal(calls, 2);
+});
+
+test('idle relocation waits only for refused preflights before its directory dialog', async () => {
+  const order: string[] = [];
+  let attempts = 0, dialogs = 1;
+  const page = { evaluate: async (callback: (path?: string) => unknown, path?: string) =>
+    runInNewContext(`(${callback.toString()})(path)`, {
+      path,
+      window: { desktop: {
+        relocateWorkspace: async (value: string) => {
+          assert.equal(value, '/project');
+          order.push('relocate');
+          if (++attempts < 3) throw new Error("Error invoking remote method 'desktop': Error: Session operation in progress");
+          dialogs++;
+          return { runtimeId: 'replacement' };
+        },
+        snapshot: async () => { order.push('identity'); return { runtimeId: 'original' }; },
+      } },
+    }) };
+  assert.deepEqual(await relocateIdleWorkspaceFixture(page, '/project', 'original', async () => dialogs),
+    { runtimeId: 'replacement' });
+  assert.deepEqual(order, ['relocate', 'identity', 'relocate', 'identity', 'relocate']);
+  assert.equal(dialogs, 2, 'successful relocation opens exactly one additional dialog');
+});
+
+test('idle relocation never retries after a dialog, a different failure, or a changed runtime', async () => {
+  for (const kind of ['dialog', 'different', 'identity']) {
+    let calls = 0, dialogs = 0;
+    const failure = new Error(kind === 'different' ? 'Failed to reconnect relocated session'
+      : "Error invoking remote method 'desktop': Error: Session operation in progress");
+    const page = { evaluate: async () => {
+      if (++calls === 1) {
+        if (kind === 'dialog') dialogs++;
+        throw failure;
+      }
+      assert.equal(kind, 'identity', 'other failures must not even poll');
+      return { runtimeId: 'unexpected' };
+    } };
+    await assert.rejects(relocateIdleWorkspaceFixture(page, '/project', 'original', async () => dialogs),
+      kind === 'identity' ? /A refused relocation must retain the original runtime/ : error => error === failure);
+    assert.equal(calls, kind === 'identity' ? 2 : 1);
+  }
+});
+
+test('idle relocation preserves a cancelled dialog and retains the busy failure at its deadline', async () => {
+  let calls = 0, dialogs = 0;
+  const cancelled = { evaluate: async () => { calls++; dialogs++; return null; } };
+  assert.equal(await relocateIdleWorkspaceFixture(cancelled, '/project', 'original', async () => dialogs), null);
+  assert.equal(calls, 1, 'cancelling a dialog does not repeat the operation');
+  const failure = new Error("Error invoking remote method 'desktop': Error: Session operation in progress");
+  const busy = { evaluate: async () => {
+    if (++calls === 2) throw failure;
+    return { runtimeId: 'original' };
+  } };
+  await assert.rejects(relocateIdleWorkspaceFixture(busy, '/project', 'original', async () => dialogs, 0),
+    error => error === failure);
+  assert.equal(calls, 3);
+});
+
+test('idle relocation cannot start without a valid directory-dialog counter', async () => {
+  for (const count of [undefined, -1, 0.5, NaN]) {
+    const page = { evaluate: async () => { assert.fail('Invalid readiness cannot attempt relocation'); } };
+    await assert.rejects(relocateIdleWorkspaceFixture(page, '/project', 'original', async () => count),
+      /requires a valid directory-dialog counter/);
+  }
+});
+
+test('sidebar relocation acceptance waits for backend readiness without removing its repair assertions', async () => {
+  const text = await readFile(new URL('../scripts/verify-sidebar-order.mjs', import.meta.url), 'utf8');
+  const source = ts.createSourceFile('verify-sidebar-order.mjs', text,
+    ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
+  let waits = 0;
+  const visit = (node: ts.Node) => {
+    if (ts.isCallExpression(node) && ts.isIdentifier(node.expression)
+      && node.expression.text === 'relocateIdleWorkspaceFixture') {
+      waits++;
+      assert.ok(ts.isAwaitExpression(node.parent));
+      assert.equal(node.arguments[2].getText(source), 'beforeRelocation.runtimeId');
+      assert.match(node.arguments[3].getText(source), /app\.evaluate\(\(\) => globalThis\.__sidebarRelocationDialogs\)/);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+  assert.equal(waits, 1);
+  assert.ok(text.includes("assert.equal(repaired.state.sessionId, 'sidebar-4'"));
+  assert.ok(text.includes("assert.equal(repaired.preferences.workspace, relocated)"));
+  assert.ok(text.includes("assert.equal(repaired.sessions.find(session => session.id === 'sidebar-4').cwd, relocated)"));
 });
 
 test('file preview acceptance waits for real browser state and retains native restart exit assertions', async () => {

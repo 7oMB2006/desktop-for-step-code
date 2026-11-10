@@ -889,6 +889,20 @@ CI 调度、插件 Host 启动与环境隔离、通知入口、主题组合，�
 异步关闭、拒绝未退出或非零退出码，并保留关闭异常。46 项相关回归通过；
 完整协议回归与修复后提交的云端门禁仍需重跑，前次失败日志保留。
 
+`91b13d1` 的本地完整协议回归随后完成：224 个文件、2,129 项通过、
+14 项平台跳过，零失败；同一提交的 Windows 三组与最终门禁均通过。
+macOS run `42806256203` 的构建、协议测试通过，但两个验收组尚未取得
+runner 就因 ARM64 容量不足取消；interface 组另在侧栏重定位验收中被
+`Session operation in progress` 拒绝，不能将整轮归为基础设施失败。
+
+侧栏验收现等待原 runtime 的拒绝前置检查收尾：只有目录对话框尚未打开、
+计数有效且 runtime 身份未变时才重试；对话框后失败、其他错误、身份变化
+和超时均保留失败，取消对话框也不会重试。不修改产品代码或延长原时限，
+保留重定位、会话身份、历史、取消与缺失目录恢复断言。新增五项回归覆盖
+这些边界，63 项相关回归和类型检查通过，完整 Windows 原生侧栏验收
+连续两次通过。日志为 `ci-macos-sidebar-readiness-r{1,2}.log`，但不替代
+修复后提交的 macOS 原生和打包版云端验收。
+
 This source combination has its own verification logs under
 `D:\Desktop Runtime Builds\performance-pr-20261109`. It does not replace the
 fourteen-check package or owner-experience evidence below. No new installer,

@@ -16,10 +16,14 @@ export const stages = Object.freeze({
   upstream_compatibility: 'Upstream command and usage tests',
   upstream_clm: 'Upstream automatic CLM tests',
   upstream_workflow: 'Upstream Workflow tests',
+  upstream_v016: 'Upstream v0.1.6 boundary tests',
+  upstream_v017: 'Upstream v0.1.7 safety tests',
   runtime_stage: 'Runtime staging',
   typecheck: 'Typecheck',
   protocol: 'Protocol tests',
+  shared: 'Shared check completion receipt',
   desktop_build: 'Desktop build',
+  motion_browser: 'Browser motion regressions',
   acceptance: 'Serial Electron acceptance',
 });
 

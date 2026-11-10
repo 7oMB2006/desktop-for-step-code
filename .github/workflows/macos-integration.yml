@@ -4,17 +4,6 @@ on:
   push:
     branches: [dot/macos-arm64, codex/macos-0.5.1, codex/macos-0.5.1-parity, codex/macos-0.6.0-release]
   pull_request:
-    paths:
-      - 'Desktop/**'
-      - 'patches/**'
-      - 'scripts/apply-step-code-desktop-patch.mjs'
-      - 'scripts/ci-macos*'
-      - 'scripts/ci-canvas-prebuild*'
-      - 'scripts/ci-electron-prebuild*'
-      - 'scripts/ci-acceptance.mjs'
-      - 'scripts/ci-windows*'
-      - '.github/workflows/macos-*.yml'
-      - '.github/actions/setup-macos/**'
   workflow_dispatch:
 
 permissions:
@@ -26,8 +15,54 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  changes:
+    name: Classify macOS changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      docs-only: ${{ steps.classify.outputs.docs-only }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.15.0
+      - name: Test routing and execution policies
+        run: node --test scripts/ci-*.test.mjs scripts/windows-ci-summary.test.mjs
+      - name: Classify complete PR diff
+        id: classify
+        env:
+          CI_EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: node scripts/ci-policy.mjs classify
+
+  documentation:
+    name: macOS documentation checks
+    needs: changes
+    if: needs.changes.outputs.docs-only == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.15.0
+      - name: Check documentation contracts and added lines
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: node scripts/ci-docs.mjs
+
   prepare:
     name: Build and verify one ARM64 candidate
+    needs: changes
+    if: needs.changes.outputs.docs-only == 'false'
     runs-on: macos-15
     timeout-minutes: 90
     env:
@@ -64,7 +99,7 @@ jobs:
         run: |
           corepack pnpm typecheck
           mkdir -p test-results
-          corepack pnpm exec tsx --test --test-concurrency=1 --test-reporter=spec --test-reporter=tap --test-reporter-destination=stdout --test-reporter-destination=test-results/protocol.tap tests/*.test.ts
+          node ../scripts/ci-protocol.mjs
       - name: CI runner and motion helper regressions
         working-directory: Desktop
         run: |
@@ -143,7 +178,7 @@ jobs:
     # Preserve the existing required check name.
     name: ARM64 build, tests and packaged acceptance
     if: always()
-    needs: [prepare, interface, sessions, runtime]
+    needs: [changes, documentation, prepare, interface, sessions, runtime]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
@@ -156,25 +191,31 @@ jobs:
         with:
           node-version: 24.15.0
       - name: Require all job outcomes and exact group receipts
+        id: outcomes
         run: node scripts/ci-macos-policy.mjs outcomes
       - uses: actions/download-artifact@v4
+        if: steps.outcomes.outputs.docs-only == 'false'
         with:
           artifact-ids: ${{ needs.interface.outputs.receipt-id }},${{ needs.sessions.outputs.receipt-id }},${{ needs.runtime.outputs.receipt-id }}
           merge-multiple: true
           path: receipts
       - name: Verify complete source and package inventories
+        if: steps.outcomes.outputs.docs-only == 'false'
         run: node scripts/ci-macos-policy.mjs conclude receipts
       - uses: actions/download-artifact@v4
+        if: steps.outcomes.outputs.docs-only == 'false'
         with:
           artifact-ids: ${{ needs.prepare.outputs.artifact-id }}
           merge-multiple: true
           path: candidate
       - name: Recheck the exact tested archive before promotion
+        if: steps.outcomes.outputs.docs-only == 'false'
         env:
           CI_MACOS_COMMIT: ${{ needs.prepare.outputs.commit }}
           CI_MACOS_CANDIDATE_SHA256: ${{ needs.prepare.outputs.sha256 }}
         run: node scripts/ci-macos-policy.mjs candidate candidate
       - name: Upload fully tested preview candidate (not a Release)
+        if: steps.outcomes.outputs.docs-only == 'false'
         uses: actions/upload-artifact@v4
         with:
           name: macos-arm64-preview-${{ github.sha }}-${{ github.run_attempt }}

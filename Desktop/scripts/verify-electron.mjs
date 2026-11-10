@@ -1053,17 +1053,28 @@ try {
   await page.getByText('disabled-test', { exact: true }).waitFor();
   await page.screenshot({ path: 'test-results/settings-mcp.png' });
   await page.getByRole('button', { name: 'Close', exact: true }).click();
-  await app.evaluate(({ BrowserWindow }) => {
+  const resizeToCompact = () => app.evaluate(({ BrowserWindow }) => {
     const window = BrowserWindow.getAllWindows()[0];
     if (window.isMaximized()) window.unmaximize();
     window.setSize(700, 620);
   });
-  await page.waitForFunction(() => document.querySelector('.app')?.classList.contains('sidebar-compact'));
   if (!motionReduced) {
-    await page.waitForTimeout(65);
-    const track = await page.locator('.app').evaluate(element => parseFloat(getComputedStyle(element, '::before').width));
-    assert.ok(track > 0 && track < 244, `Sidebar track should animate at compact threshold: ${track}`);
-  }
+    await settleLayout(page.locator('.app'));
+    const compactMotion = await sampleMotion(page, {
+      label: 'sidebar track at compact threshold',
+      state: { selector: '.app.sidebar-compact' },
+      targets: [{ name: 'app', selector: '.app', pseudoProperties: { '::before': ['flex-basis'] }, pseudoElements: ['::before'] }],
+      duration: 280, easing: 'cubic-bezier(0.65, 0, 0.35, 1)',
+    }, resizeToCompact);
+    const tracks = compactMotion.frames.map(frame => frame.app.pseudo['::before'].width);
+    // The responsive width can change before the compact class is committed.
+    const startTrack = tracks[0];
+    assert.ok(startTrack > 0 && startTrack <= compactMotion.before.app.pseudo['::before'].width + 1 && tracks.at(-1) < 1,
+      `Sidebar track must collapse from its responsive width: ${tracks}`);
+    assert.ok(tracks.slice(1, -1).every(track => track > 0 && track < startTrack),
+      `Sidebar track should animate at compact threshold: ${tracks}`);
+  } else await resizeToCompact();
+  await page.waitForFunction(() => document.querySelector('.app')?.classList.contains('sidebar-compact'));
   await page.locator('.sidebar').waitFor({ state: 'hidden' });
   assert.equal(await page.locator('.sidebar-identity').isVisible(), false);
   assert.equal(await page.getByRole('button', { name: '侧栏', exact: true }).getAttribute('aria-expanded'), 'false');

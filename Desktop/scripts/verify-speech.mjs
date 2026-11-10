@@ -94,7 +94,12 @@ Object.defineProperty(globalThis, 'fetch', { configurable: true, get: () => rout
   set: value => { if (value !== route) transport = value; } });
 `);
 await writeFile(entry, `
-const { net, ipcMain } = require('electron');
+const { app, net, ipcMain } = require('electron');
+// Playwright's loader replaces --disable-features before loading this entry.
+// Merge here so only the fixture audio utility can read the synthetic WAV.
+const disabled = new Set(app.commandLine.getSwitchValue('disable-features').split(',').filter(Boolean));
+disabled.add('AudioServiceSandbox');
+app.commandLine.appendSwitch('disable-features', [...disabled].join(','));
 const handle = ipcMain.handle;
 ipcMain.handle = function(channel, handler) {
   if (channel !== 'desktop') return handle.call(this, channel, handler);
@@ -124,12 +129,12 @@ for (const key of Object.keys(env)) {
 let app, page;
 const errors = [];
 const nativeAudioErrors = [];
+const audioProcesses = () => app.evaluate(({ app }) => app.getAppMetrics()
+  .filter(process => process.name === 'Audio Service' || process.serviceName === 'audio.mojom.AudioService')
+  .map(({ type, name, serviceName, sandboxed }) => ({ type, name, serviceName, sandboxed })));
 const launch = async () => {
   app = await electron.launch({ args: [entry, '--use-fake-device-for-media-stream',
     '--enable-logging=stderr',
-    // Let the macOS audio service read the fixture WAV without disabling the
-    // renderer sandbox or the real media permission handlers.
-    ...(process.platform === 'darwin' ? ['--disable-features=AudioServiceSandbox'] : []),
     `--use-file-for-fake-audio-capture=${microphone}`], env, timeout: 60000 });
   const stderr = app.process().stderr;
   if (stderr) createInterface({ input: stderr }).on('line', line => {
@@ -142,6 +147,9 @@ const launch = async () => {
     const { sandbox, contextIsolation, nodeIntegration } = BrowserWindow.getAllWindows()[0].webContents.getLastWebPreferences();
     return { sandbox, contextIsolation, nodeIntegration };
   }), { sandbox: true, contextIsolation: true, nodeIntegration: false });
+  assert.equal(await app.evaluate(({ app }) => app.commandLine.hasSwitch('no-sandbox')), false);
+  assert.equal(await app.evaluate(({ app }) =>
+    app.commandLine.getSwitchValue('disable-features').split(',').includes('AudioServiceSandbox')), true);
   await page.emulateMedia({ reducedMotion: 'no-preference' });
   page.on('pageerror', error => errors.push(error.message));
   await app.evaluate(({ BrowserWindow }) => {
@@ -149,6 +157,10 @@ const launch = async () => {
     window.setOpacity(0); window.setIgnoreMouseEvents(true); window.showInactive(); window.setSize(1360, 900);
   });
   await input().waitFor();
+  assert.equal(await app.evaluate(({ app, BrowserWindow }) => {
+    const pid = BrowserWindow.getAllWindows()[0].webContents.getOSProcessId();
+    return app.getAppMetrics().find(process => process.pid === pid)?.sandboxed;
+  }), true, 'The renderer must retain its OS-level sandbox');
   await page.waitForFunction(() => document.querySelector('.composer-input')?.getAttribute('aria-disabled') === 'false');
   await page.evaluate(() => {
     const media = navigator.mediaDevices, getUserMedia = media.getUserMedia.bind(media);
@@ -204,6 +216,7 @@ const until = async (condition, label, timeout = 20000) => {
   const end = Date.now() + timeout;
   while (!await condition()) {
     assert.deepEqual(failures, []);
+    assert.deepEqual(nativeAudioErrors, []);
     assert.ok(Date.now() < end, label);
     await new Promise(done => setTimeout(done, 30));
   }
@@ -317,6 +330,9 @@ try {
   assert.ok(continuousCapture.voicedSamples >= 3200, 'The native worklet must receive voiced PCM before ASR');
   assert.ok(continuousCapture.maxRms > 0.1, 'The unprocessed WAV must retain its fixture amplitude');
   assert.deepEqual(nativeAudioErrors, []);
+  const audio = await audioProcesses();
+  assert.ok(audio.length > 0 && audio.every(process => process.sandboxed === false),
+    `Only the fixture audio utility must be unsandboxed: ${JSON.stringify(audio)}`);
   assert.ok(continuousCapture.tracks.length > 0);
   for (const track of continuousCapture.tracks) {
     assert.equal(track.echoCancellation, false);
@@ -523,9 +539,10 @@ try {
   assert.equal((await settingsValue()).source, 'follow');
   assert.equal(await permission(), false);
   assert.deepEqual(errors, []); assert.deepEqual(failures, []); assert.deepEqual(nativeAudioErrors, []);
-  const result = { ok: true, requests: calls, evidence, continuousCapture, nativeAudioErrors, checks: [
+  const result = { ok: true, requests: calls, evidence, continuousCapture, audioProcesses: audio, nativeAudioErrors, checks: [
     'production Electron and synthetic microphone', 'first-use disclosure and Plan route',
-    'renderer sandbox, context isolation and no Node integration',
+    'renderer OS sandbox, context isolation and no Node integration',
+    'fixture audio utility only is unsandboxed; no global sandbox bypass',
     'same shared adapter as plugins and BVR', 'no Agent worker or automatic prompt',
     'text before Finish without whole-recording reupload', 'manual edits survive incremental append',
     'cancel recording and upload', 'bounded slow-provider backpressure', 'navigation isolation', 'redacted failures',
@@ -541,7 +558,7 @@ try {
   if (page && !page.isClosed()) {
     await page.screenshot({ path: join(evidence, 'failure.png') });
     await writeFile(join(evidence, 'failure-diagnostic.json'), JSON.stringify({
-      calls, failures, errors, nativeAudioErrors, capture: await page.evaluate(() => ({
+      calls, failures, errors, nativeAudioErrors, audioProcesses: await audioProcesses(), capture: await page.evaluate(() => ({
         ...window.__speechFixtureCapture, tracks: window.__speechFixtureTracks,
       })),
     }, null, 2));

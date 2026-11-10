@@ -1,5 +1,38 @@
 # Verification
 
+## 原生听写夹具开关覆盖与侧栏动画取样（2026-11-10）
+
+head `21165d7` 的 Windows 三组及 CI 汇总、两平台 SDK 和 macOS
+ARM64 候选、sessions 源码及包内验收通过。macOS interface 的
+原生诊断明确报告 WAV 读取失败并提示关闭沙箱，324,800 个采样
+全部为零；上一轮命令行参数未生效，
+不将 `AudioServiceSandbox` 已写入参数等同于实际关闭。
+
+固定版本 Playwright 的 Electron loader 会重写 `disable-features`，
+覆盖传入参数。本轮在隔离夹具入口、加载产品代码前合并该列表，
+只关闭合成 WAV 所用音频 utility 的沙箱，保留其他 Playwright 开关。
+启动时检查未使用 `--no-sandbox`、音频开关确实存在；音频开始后
+实查该 utility 的 sandboxed 为 false，每次启动均实查 renderer
+OS 沙箱为 true，并保留 sandbox/contextIsolation/nodeIntegration
+及实际有声 PCM 断言。原生读取错误会立即中止等待并保留脱敏诊断。
+未修改产品约束、权限、采集、worklet、分段、IPC 或 provider。
+
+macOS runtime 的侧栏动画验收原本在 native resize 往返后固定等待
+65 ms，读取时动画已结束。本轮复用 `sampleMotion`，在 compact
+类提交时捕获真实 pseudo-element flex-basis 过渡，验证 280 ms、
+原 cubic easing、起点/终点及两个中间帧，不添加动画或放宽期限。
+窄窗媒体查询可能先把宽度从 244px 切到 224px，断言以实际过渡
+起点为准。本地观察为 224、208.141、112、0px。
+
+本地完整语音及主窗口验收通过，分别约 45 秒、75 秒；CI 策略、
+运行器与动画 helper 测试共 46 项，45 通过、1 平台跳过；
+语音服务、分段及实际 main IPC 定向回归 35 项全部通过。
+回执、日志和失败尝试保存在
+`D:\DFSC-Preview-QA\native-speech-ci-fix-20261109`。
+新 head 的 macOS 源码及包内验收仍需云端独立确认。
+未改已确认的听写 UI、账户路由或 runtime pin，未打新包、
+变更日用快捷方式、重启用户应用、调用真实账户或删除产物。
+
 ## 原生听写的 macOS 音频夹具与父分支同步（2026-11-10）
 
 head `122542a` 的 Windows 三组和最终汇总、两平台 SDK、macOS

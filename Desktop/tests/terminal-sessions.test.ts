@@ -71,8 +71,9 @@ test('unsuccessful termination retains ownership and supports a confirmed retry'
   const cwd = await mkdtemp(join(tmpdir(), 'terminal-kill-failure-'));
   const events: TerminalEvent[] = [];
   let deny = true;
+  // Real retries use the production platform budget; only injected failures expire early.
   const sessions = new TerminalSessions(process.execPath, resolve('tests/fixtures/terminal-host.cjs'),
-    event => events.push(event), child => terminateTerminalHost(child, deny ? async () => false : undefined, deny ? 50 : 3000));
+    event => events.push(event), child => terminateTerminalHost(child, deny ? async () => false : undefined, deny ? 50 : undefined));
   try {
     const terminal = await sessions.create(cwd);
     await assert.rejects(sessions.close(terminal.id), /Could not terminate/);
@@ -90,7 +91,7 @@ test('a reported taskkill success still requires host exit confirmation', async 
   const cwd = await mkdtemp(join(tmpdir(), 'terminal-kill-confirm-'));
   let fakeSuccess = true;
   const sessions = new TerminalSessions(process.execPath, resolve('tests/fixtures/terminal-host.cjs'), () => {},
-    child => terminateTerminalHost(child, fakeSuccess ? async () => true : undefined, fakeSuccess ? 50 : 3000));
+    child => terminateTerminalHost(child, fakeSuccess ? async () => true : undefined, fakeSuccess ? 50 : undefined));
   try {
     const terminal = await sessions.create(cwd);
     const closing = sessions.close(terminal.id);

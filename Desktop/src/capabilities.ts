@@ -12,6 +12,10 @@ export interface PluginDesktop {
   defaultPage?: string;
   pages: { id: string; title: string; document: string }[];
 }
+export interface PluginRequirements {
+  dfsc?: string;
+  external?: { name: string; description?: string; url?: string; optional?: boolean }[];
+}
 export interface PluginPackage {
   ref: string; provenance: 'recorded' | 'unknown' | 'conflict';
   author?: string; maintainer?: string; license?: string;
@@ -24,6 +28,7 @@ export interface PluginPackage {
   dataOnlyTheme?: boolean;
   locales?: Partial<Record<'zh' | 'en', PluginLocale>>;
   desktop?: PluginDesktop;
+  requirements?: PluginRequirements;
 }
 export interface PluginConfigurationField {
   id: string; label: string; help?: string; type: 'text' | 'number' | 'enum' | 'boolean' | 'secret' | 'path';

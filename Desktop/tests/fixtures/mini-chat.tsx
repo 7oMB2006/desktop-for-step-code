@@ -315,6 +315,7 @@ function ChatSurface({ conversation, project, reading, scope, update, onSend, on
 function Preview() {
   const [dark, setDark] = useState(params.get('theme') === 'dark');
   const [open, setOpen] = useState(params.get('open') === '1');
+  const [minimized, setMinimized] = useState(false);
   const [pinned, setPinned] = useState(true);
   const [sidebar, setSidebar] = useState(true);
   const [mainSession, setMainSession] = useState('plugins');
@@ -365,13 +366,14 @@ function Preview() {
     reading.current[to].set(id, { position, disclosures: new Map(saved.disclosures) });
   };
   const close = () => { setOpen(false); requestAnimationFrame(() => document.querySelector<HTMLElement>('.window-bar [aria-label="MiniChat"]')?.focus()); };
+  const minimize = () => { setMinimized(true); requestAnimationFrame(() => document.querySelector<HTMLElement>('.window-bar [aria-label="MiniChat"]')?.focus()); };
   const openMini = () => {
     if (!open && !resumeMini.current) {
       handoffReading('main', 'mini', mainSession);
       setMiniSession(mainSession); setMiniHandoff(value => value + 1);
     }
     resumeMini.current = true;
-    setOpen(true); focus('mini');
+    setMinimized(false); setOpen(true); focus('mini');
   };
   const returnToMain = () => {
     handoffReading('mini', 'main', miniSession);
@@ -471,13 +473,13 @@ function Preview() {
           update={patch => update(mainSession, patch)} onSend={() => send(mainSession)} onStop={() => stop(mainSession)}/>
       </main>
     </div>
-    {open && <div className="mini-preview-floating" ref={floating} data-pinned={pinned}
+    {open && <div className="mini-preview-floating" ref={floating} data-pinned={pinned} data-minimized={minimized} inert={minimized}
       style={position ? { left: position.x, '--mini-preview-top': `${position.y}px`, right: 'auto' } as CSSProperties : undefined}
       onPointerMove={move} onPointerUp={() => { drag.current = null; }} onPointerCancel={() => { drag.current = null; }}>
       <MiniChatFrame language={language} session={sessions.find(session => session.id === miniSession)!} sessions={sessions} projects={projects}
         pinned={pinned} onPinned={setPinned} onSession={id => { setMiniSession(id); focus('mini'); }}
         onNewSession={newMiniSession}
-        onClose={close} onReturn={returnToMain} onDragStart={dragStart}>
+        onMinimize={minimize} onClose={close} onReturn={returnToMain} onDragStart={dragStart}>
         <ChatSurface key={`${miniSession}:${miniHandoff}`} scope="mini" conversation={records[miniSession]} reading={readingFor('mini', miniSession)}
           project={projects.find(project => project.id === sessions.find(session => session.id === miniSession)!.projectId)!}
           update={patch => update(miniSession, patch)} onSend={() => send(miniSession)} onStop={() => stop(miniSession)}/>

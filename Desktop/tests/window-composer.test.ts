@@ -44,6 +44,30 @@ test('draft promotion preserves input and an in-flight restoration receipt', () 
   assert.deepEqual(store.read({ draftId: 'd' }).owner, { sessionId: 'one' });
   assert.equal(store.restore(sent.receipt).value.text, 'first');
 });
+for (const eventFirst of [true, false]) test(`draft creation adopts one composer when the promotion event arrives ${eventFirst ? 'before' : 'after'} the reply`, async () => {
+  const { client, store } = fixture();
+  const a = client(), draft = { draftId: 'creating' }, session = { sessionId: 'created' };
+  a.select(draft);
+  a.update(draft, () => value('first message'));
+  await a.flush();
+  const receipt = await a.take(value('first message'));
+  store.promote(draft.draftId, session.sessionId);
+  if (eventFirst) a.promote(draft.draftId, session.sessionId);
+  // The creation reply establishes the same owner even before the event arrives.
+  a.promote(draft.draftId, session.sessionId);
+  a.select(session);
+  await a.flush();
+  const active = a.active;
+  if (!eventFirst) a.promote(draft.draftId, session.sessionId);
+  a.update(session, () => value('newer input'));
+  await a.flush();
+  await a.restore(receipt!);
+  assert.equal(a.active, active, 'A duplicate promotion never replaces the selected composer');
+  assert.equal(a.active!.value.text, 'first message\nnewer input');
+  assert.equal(a.peek(session)!.text, a.active!.value.text);
+  assert.equal(store.read(session).value.text, a.active!.value.text);
+  assert.equal(a.active!.conflict, false);
+});
 test('settled receipts cannot restore already accepted messages', () => {
   const store = new ComposerStore(() => {});
   store.write({ owner, revision: 0, value: value('sent') });

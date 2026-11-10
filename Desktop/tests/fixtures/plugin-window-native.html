@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>Host fixture content</title>
+<body>
+  <h1 id="title">Loading isolated plugin</h1>
+  <p id="document"></p>
+  <button id="configure">Configure</button>
+  <a id="external" href="https://example.com/guide" target="_blank" rel="noopener noreferrer">External guide</a>
+  <a id="insecure" href="http://example.com/guide" target="_blank">Insecure guide</a>
+  <a id="credentials" href="https://user:pass@example.com/guide" target="_blank">Credentialed guide</a>
+  <a id="navigate" href="https://example.com/navigation">Navigate away</a>
+  <script>
+    window.fixtureEvents = [];
+    window.fixtureMessages = [];
+    async function refresh() {
+      try {
+        const state = await window.desktop.pluginWindowState();
+        const page = state.plugin.package.desktop.pages[0];
+        const document = await window.desktop.pluginDocument({ ref: state.plugin.package.ref, path: page.document });
+        window.fixtureRef = state.plugin.package.ref;
+        window.document.querySelector('#title').textContent = state.plugin.package.desktop.title;
+        window.document.querySelector('#document').textContent = document.text;
+        window.document.body.dataset.state = 'ready';
+      } catch {
+        document.querySelector('#title').textContent = 'Workspace unavailable';
+        document.querySelector('#document').textContent = '';
+        document.body.dataset.state = 'stale';
+      }
+    }
+    document.querySelector('#configure').addEventListener('click', () => window.desktop.pluginWindowConfigure());
+    window.desktop.onEvent(event => {
+      window.fixtureEvents.push(event.type);
+      window.fixtureMessages.push(event);
+      if (event.type === 'desktop_plugin_catalog_changed') void refresh();
+    });
+    void refresh();
+  </script>
+</body>
+</html>

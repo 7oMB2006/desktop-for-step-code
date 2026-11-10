@@ -4,7 +4,7 @@ import { mkdir, mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import assert from 'node:assert/strict';
-import { closeDesktopFixture } from './close-desktop-fixture.mjs';
+import { closeDesktopFixtureAndWait } from './close-desktop-fixture.mjs';
 
 await mkdir('test-results', { recursive: true });
 const output = await build({ entryPoints: ['tests/fixtures/update-installer-harness.tsx'], bundle: true, write: false,
@@ -14,8 +14,12 @@ const css = output.outputFiles.find(file => file.path.endsWith('.css')).text;
 const env = { ...process.env, DESKTOP_TEST_USER_DATA: await mkdtemp(join(tmpdir(), 'step-update-ui-')), DESKTOP_TEST_NO_FOCUS: '1' };
 delete env.ELECTRON_RUN_AS_NODE;
 const app = await electron.launch({ ...(process.env.DESKTOP_VERIFY_EXE ? { executablePath: process.env.DESKTOP_VERIFY_EXE } : { args: [resolve('.')] }), env });
+const child = app.process();
 const errors = [];
 try {
+  // Do not race orderly shutdown against creation of the real application window.
+  const mainPage = await app.firstWindow();
+  await mainPage.waitForFunction(() => Boolean(window.desktop?.onEvent && window.desktop?.quitRespond));
   const windowPromise = app.waitForEvent('window');
   await app.evaluate(async ({ BrowserWindow }) => {
     const window = new BrowserWindow({ width: 780, height: 660, show: false, focusable: false,
@@ -62,5 +66,17 @@ try {
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
   await page.screenshot({ path: 'test-results/updater-download-narrow.png' });
   assert.deepEqual(errors, []);
-  console.log('Update UI acceptance passed: progress, cancel/retry, ready, blocked install, failure, narrow layout.');
-} finally { await closeDesktopFixture(app); }
+} finally {
+  try {
+    await closeDesktopFixtureAndWait(app);
+    assert.equal(child.exitCode, 0, 'the updater fixture must exit successfully');
+  }
+  catch (error) {
+    console.error('Updater shutdown diagnostic:', {
+      exitCode: child.exitCode,
+      windows: app.windows().map(page => ({ url: page.url(), closed: page.isClosed() })),
+    });
+    throw error;
+  }
+}
+console.log('Update UI acceptance passed: progress, cancel/retry, ready, blocked install, failure, narrow layout, orderly shutdown.');

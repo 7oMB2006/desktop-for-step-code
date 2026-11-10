@@ -111,9 +111,11 @@ export class SessionRuntimes {
     private create: (receive: (event: RuntimeEvent) => void) => WorkerTransport = receive =>
       new RpcProcess(receive, 256 * 1024 * 1024),
     private hooks: { launch?: (worker: SessionRuntime) => { env: Record<string, string>; args: string[] }; dispose?: (worker: SessionRuntime) => void;
+      canReuseEmpty?: (worker: SessionRuntime) => boolean;
       event?: (worker: SessionRuntime, event: RuntimeEvent) => RuntimeEvent;
       messages?: (worker: SessionRuntime, messages: Message[]) => Promise<Message[]>;
       initializeModel?: (worker: SessionRuntime, restoring: boolean) => Promise<void>;
+      pluginsReady?: (worker: SessionRuntime) => Promise<void>;
       startup?: (diagnostic: RuntimeStartupDiagnostic) => void;
       idleLimit?: () => number; backgroundAvailable?: () => boolean; retain?: (worker: SessionRuntime) => boolean;
       beforePrompt?: (worker: SessionRuntime, message: string) => Promise<void> } = {},
@@ -217,7 +219,8 @@ export class SessionRuntimes {
       const candidates = [...this.workers.values()].filter(worker =>
         workspaceKey(worker.cwd) === key && worker.status === 'connected' && worker.state?.sessionId &&
         !worker.messages.length && !worker.state.isStreaming && !this.isBusy(worker) && !hasBackgroundWork(worker) && !worker.mutating &&
-        !worker.failed && !worker.interrupted && !worker.remoteAttached && !this.hooks.retain?.(worker));
+        !worker.failed && !worker.interrupted && !worker.remoteAttached && !this.hooks.retain?.(worker) &&
+        (this.hooks.canReuseEmpty?.(worker) ?? true));
       const empty = candidates.find(worker => !worker.operations);
       if (empty) {
         const transport = empty.rpc;
@@ -513,6 +516,10 @@ export class SessionRuntimes {
       if (!existing && env.DESKTOP_CRON_RECOVERY !== '1')
         await this.hooks.initializeModel?.(worker, Boolean(sessionPath || branch));
       this.assertStartupOwner(worker, transport);
+      if (!existing && env.DESKTOP_CRON_RECOVERY !== '1') {
+        await this.hooks.pluginsReady?.(worker);
+        this.assertStartupOwner(worker, transport);
+      }
       const modelRestoredAt = performance.now();
       worker.startupTiming = {
         processReadyMs: processReadyAt - startedAt,
@@ -537,6 +544,9 @@ export class SessionRuntimes {
       if (this.workers.get(worker.id) === worker && worker.rpc === transport) this.workers.delete(worker.id);
       throw error;
     }
+  }
+  hasNonSnapshotOperations(worker: SessionRuntime): boolean {
+    return worker.operations > (this.reads.get(worker)?.size ?? 0);
   }
   read(worker: SessionRuntime): Promise<void> {
     if (worker.status !== 'connected') return Promise.resolve();
@@ -770,6 +780,7 @@ export class SessionRuntimes {
       }
       throw error;
     } finally { worker.mutating = false; this.publish(); }
+    await this.hooks.pluginsReady?.(worker);
   }
   async suspend(workers: SessionRuntime[] = [...this.workers.values()]) {
     // Keep history and navigation identities, but expose no usable mixed-config transport.
@@ -803,7 +814,7 @@ export class SessionRuntimes {
     return new Promise(resolve => {
       const cancel = () => {
         this.clearRequest(worker, id);
-        this.emit({ type: 'desktop_ui_expired', id, runtimeId: worker.id });
+        this.emit({ type: 'desktop_ui_expired', id, runtimeId: worker.id, runtimeRevision: ++worker.revision });
         this.publish();
       };
       this.confirmations.set(id, { worker, resolve: approved => { signal?.removeEventListener('abort', cancel); resolve(approved); } });
@@ -812,7 +823,7 @@ export class SessionRuntimes {
       worker.pendingUI.set(id, request);
       worker.uiTimers.set(id, setTimeout(cancel, 120000).unref());
       signal?.addEventListener('abort', cancel, { once: true });
-      this.emit({ ...request, sessionId: worker.state?.sessionId });
+      this.emit({ ...request, sessionId: worker.state?.sessionId, runtimeRevision: ++worker.revision });
       this.publish();
     });
   }
@@ -830,6 +841,7 @@ export class SessionRuntimes {
         worker.fullAccessCancellationRevision = (worker.fullAccessCancellationRevision ?? 0) + 1;
     }
     this.clearRequest(worker, id);
+    worker.revision++;
     this.publish();
   }
   async remove(worker: SessionRuntime) {

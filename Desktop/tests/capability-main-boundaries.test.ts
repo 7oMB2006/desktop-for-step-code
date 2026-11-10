@@ -7,6 +7,7 @@ import type { CapabilityPolicy } from '../electron/capability-policy';
 import { capabilityFailureDetails } from '../electron/capability-failure.mjs';
 import { CapabilityService } from '../electron/capability-service';
 import { RpcManagementStopError, type RpcProcess } from '../electron/runtime';
+import { pluginWindowMethodAllowed } from '../electron/plugin-window-policy';
 
 const file = ts.createSourceFile('main.ts', readFileSync(new URL('../electron/main.ts', import.meta.url), 'utf8'),
   ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
@@ -25,6 +26,7 @@ const mutationCase = find(node => ts.isCaseClause(node) && ts.isStringLiteral(no
 
 function mutationFixture(policy: CapabilityPolicy, unsafeFailure = false, mutationError?: Error, refreshError?: Error) {
   let refreshes = 0, idleChecks = 0, reconciliations = 0;
+  const notifications: { type: string }[] = [];
   const service = {
     runtimeAvailable: true,
     async mutate(_input: unknown, guard: (policy: CapabilityPolicy) => Promise<() => void>) {
@@ -39,7 +41,7 @@ function mutationFixture(policy: CapabilityPolicy, unsafeFailure = false, mutati
       } finally { release(); }
     },
   };
-  const create = new Function('capabilityGate', 'capabilityService', 'guardIdle', 'assertPluginUnused', 'refreshThemePacks', 'syncCustomBackground',
+  const create = new Function('capabilityGate', 'capabilityService', 'guardIdle', 'assertPluginUnused', 'refreshThemePacks', 'syncCustomBackground', 'emit',
     javascript(`
       let settingsMutation = false;
       const transition = false, undoBusy = false, updateInstalling = false, quitting = false, quitPending = false;
@@ -49,8 +51,9 @@ function mutationFixture(policy: CapabilityPolicy, unsafeFailure = false, mutati
     `));
   return {
     ...create(new CapabilityGate(), service, async () => { idleChecks++; }, async () => {},
-      async () => { refreshes++; if (refreshError) throw refreshError; }, async () => { reconciliations++; }),
-    refreshes: () => refreshes, idleChecks: () => idleChecks, reconciliations: () => reconciliations,
+      async () => { refreshes++; if (refreshError) throw refreshError; }, async () => { reconciliations++; },
+      (event: { type: string }) => notifications.push(event)),
+    refreshes: () => refreshes, idleChecks: () => idleChecks, reconciliations: () => reconciliations, notifications,
   };
 }
 
@@ -62,12 +65,14 @@ test('actual main discovery actions do not scan themes or persist appearance pre
     assert.equal(f.idleChecks(), 0);
     assert.equal(f.locked(), false);
     assert.equal(f.reconciliations(), 0);
+    assert.deepEqual(f.notifications, [{ type: 'desktop_plugin_catalog_changed' }]);
   }
   const theme = mutationFixture({ scope: 'theme', pluginId: 'theme' });
   await theme.invoke([{ action: 'plugin-install' }]);
   assert.equal(theme.refreshes(), 1);
   assert.equal(theme.locked(), false);
   assert.equal(theme.reconciliations(), 1);
+  assert.deepEqual(theme.notifications, [{ type: 'desktop_plugin_catalog_changed' }]);
 });
 
 test('actual main reconciles adapter ownership after partial plugin mutation and refresh failures', async () => {
@@ -78,12 +83,14 @@ test('actual main reconciles adapter ownership after partial plugin mutation and
     assert.equal(f.refreshes(), 0);
     assert.equal(f.reconciliations(), 1);
     assert.equal(f.locked(), false);
+    assert.deepEqual(f.notifications, [{ type: 'desktop_plugin_catalog_changed' }]);
   }
   const failure = new Error('theme refresh failed');
   const f = mutationFixture({ scope: 'theme' }, false, undefined, failure);
   await assert.rejects(f.invoke([{ action: 'plugin-remove' }]), error => error === failure);
   assert.equal(f.refreshes(), 1);
   assert.equal(f.reconciliations(), 1);
+  assert.deepEqual(f.notifications, [{ type: 'desktop_plugin_catalog_changed' }]);
 });
 
 test('actual main retains its runtime barrier after an unconfirmed executable writer', async () => {
@@ -102,13 +109,15 @@ const miniMethods = find(node => ts.isVariableDeclaration(node) && node.name.get
 function ipcFixture(handler: (method: string, args: unknown[], surface: 'main' | 'mini',
   mark?: (phase: string) => void) => unknown = method => method) {
   const webContents = { id: 1, mainFrame: {} }, miniContents = { id: 2, mainFrame: {} };
-  const state = { applications: 0, submissions: 0, generation: 1, reloadOnApply: false, miniBusy: false };
+  const state = { applications: 0, submissions: 0, resumes: 0, generation: 1, reloadOnApply: false, miniBusy: false };
   const create = new Function('window', 'miniContents', 'state', 'applyProviderSettings', 'handle', 'capabilityFailureDetails', javascript(`
     let settingsMutation = false;
     const providerApplication = undefined, providerSettingsPending = true, undoBusy = false, transition = false;
     const updateInstalling = false, quitting = false, quitPending = false;
     const capabilityGate = { active: false }, capabilityService = { available: true, runtimeAvailable: true };
+    const pluginHosts = { async resumeDeferred() { state.resumes++; } };
     const miniChat = { owns: event => event.sender === miniContents && event.senderFrame === miniContents.mainFrame };
+    const pluginWindows = undefined;
     const miniMethods = ${miniMethods.initializer!.getText(file)};
     const rendererGenerations = { get: () => state.generation };
     const miniNavigation = { get busy() { return state.miniBusy; } };
@@ -134,7 +143,7 @@ function ipcFixture(handler: (method: string, args: unknown[], surface: 'main' |
 test('actual main passive capability reads never trigger pending provider application or recovery', async () => {
   const f = ipcFixture();
   for (const method of [
-    'capabilityCatalog', 'pluginDocument', 'pluginRepositoryInfo', 'pluginConfiguration', 'pluginChoosePath',
+    'capabilityCatalog', 'pluginDocument', 'pluginRepositoryInfo', 'pluginConfiguration', 'pluginHostSettings', 'pluginChoosePath', 'pluginWindowOpen',
     'themeScene', 'themePoster', 'themeImage',
     'customBackgroundState', 'customBackgroundImage', 'customBackgroundImport', 'customBackgroundSave', 'customBackgroundRemove',
     'bvrConfiguration', 'bvrCheckEnvironment', 'bvrChoosePath', 'capabilityMutate',
@@ -154,7 +163,7 @@ test('merged IPC preserves MiniChat theme reads and refuses management or untrus
   for (const method of ['themeScene', 'themePoster', 'themeImage'])
     assert.equal(await f.miniRead(method), method);
   assert.equal(f.state.applications, 0);
-  for (const method of ['capabilityMutate', 'saveMcp', 'pluginSaveConfiguration'])
+  for (const method of ['capabilityMutate', 'saveMcp', 'pluginSaveConfiguration', 'pluginHostSettings', 'pluginSaveHostSettings', 'pluginWindowOpen'])
     await assert.rejects(f.miniRead(method), /Return to the main window/);
   for (const method of ['themeScene', 'themePoster', 'themeImage'])
     await assert.rejects(f.untrustedRead(method), /Untrusted sender/);
@@ -192,6 +201,22 @@ test('merged IPC retains surface and phase marker through exactly one composer s
   assert.equal(f.state.submissions, 2);
 });
 
+test('shared IPC releases deferred host launches without changing passive reads or MiniChat restrictions', async () => {
+  const f = ipcFixture();
+  await f.read('pluginConfiguration');
+  await f.read('pluginHostSettings');
+  await f.miniRead('themeScene');
+  assert.equal(f.state.resumes, 0);
+  await f.read('saveMcp');
+  assert.equal(f.state.resumes, 1);
+  await f.read('pluginSaveHostSettings');
+  assert.equal(f.state.resumes, 2);
+  await f.read('capabilityMutate');
+  assert.equal(f.state.resumes, 3);
+  await assert.rejects(f.miniRead('capabilityMutate'), /Return to the main window/);
+  assert.equal(f.state.resumes, 3);
+});
+
 test('merged IPC rechecks renderer generation and keeps MiniChat navigation guards for shared settings', async () => {
   let calls = 0;
   const f = ipcFixture(method => { calls++; return method; });
@@ -226,6 +251,63 @@ test('actual main IPC rewrap retains only allowlisted Git failure metadata for c
   });
 });
 
+test('actual plugin-window IPC is scoped, revalidates stale refs and never dispatches conversation operations', async () => {
+  const sender = { mainFrame: {} };
+  const state = { stale: false, busy: false, reads: 0, minimized: false, closed: false, shown: false, events: [] as unknown[] };
+  const create = new Function('sender', 'state', 'pluginWindowMethodAllowed', javascript(`
+    const quitting = false, miniChat = undefined;
+    let settingsMutation = false;
+    const owner = { ref: 'own-package', window: {
+      minimize() { state.minimized = true; }, isMaximized: () => false, isFullScreen: () => false,
+      isFocused: () => true, isDestroyed: () => state.closed, close() { state.closed = true; },
+    } };
+    const pluginWindows = { owner: event => event.sender === sender && event.senderFrame === sender.mainFrame ? owner : undefined };
+    const capabilityService = {
+      async desktop(ref) {
+        state.reads++;
+        if (state.stale || ref !== owner.ref) throw new Error('capability:stale');
+        return { id: 'example', package: { ref } };
+      },
+      async document(input) { return { text: input.path }; },
+    };
+    const preferences = { language: 'en', theme: 'light', accentColor: 'green', appearance: { density: 'compact' },
+      workspaces: ['private-path'], privateField: 'never-project' };
+    const window = { webContents: { id: 100, mainFrame: {}, send(_channel, event) { state.events.push(event); } } };
+    const showMainWindow = () => { state.shown = true; };
+    const handle = () => { throw new Error('Must not dispatch to the main conversation'); };
+    const handler = ${ipcSource};
+    return (...args) => { settingsMutation = state.busy; return handler(...args); };
+  `));
+  const invoke = create(sender, state, pluginWindowMethodAllowed);
+  const read = (method: string, ...args: unknown[]) => invoke({ sender, senderFrame: sender.mainFrame }, method, ...args);
+  const snapshot = await read('pluginWindowState');
+  assert.deepEqual(snapshot.preferences, { language: 'en', theme: 'light', accentColor: 'green', appearance: { density: 'compact' } });
+  assert.doesNotMatch(JSON.stringify(snapshot), /private-path|never-project/);
+  assert.deepEqual(await read('pluginDocument', { ref: 'own-package', path: 'start.md' }), { text: 'start.md' });
+  for (const method of ['snapshot', 'command', 'preferences', 'pluginWindowOpen', 'capabilityMutate',
+    'themeScene', 'themePoster', 'themeImage', 'customBackgroundState', 'customBackgroundImage',
+    'customBackgroundImport', 'customBackgroundSave', 'customBackgroundRemove'])
+    await assert.rejects(read(method), /capability:invalid-input/);
+  await assert.rejects(read('pluginDocument', { ref: 'foreign', path: 'start.md' }), /capability:invalid-input/);
+  await assert.rejects(invoke({ sender, senderFrame: {} }, 'pluginWindowState'), /Untrusted sender/);
+  await read('pluginWindowConfigure');
+  assert.equal(state.shown, true);
+  assert.deepEqual(state.events, [{ type: 'desktop_main_action', action: 'plugins',
+    payload: { page: 'plugins', pluginId: 'example', detail: 'config' } }]);
+  state.stale = true;
+  for (const method of ['pluginWindowState', 'pluginWindowConfigure', 'pluginDocument'])
+    await assert.rejects(read(method, ...(method === 'pluginDocument' ? [{ ref: 'own-package', path: 'start.md' }] : [])), /capability:stale/);
+  const reads = state.reads;
+  state.busy = true;
+  await assert.rejects(read('pluginWindowState'), /capability:busy/);
+  await read('windowControl', 'minimize');
+  await read('windowControl', 'close');
+  assert.equal(state.reads, reads, 'Stale windows can still close without reviving their package');
+  assert.equal(state.minimized, true);
+  assert.equal(state.closed, true);
+  await assert.rejects(read('windowControl', 'quit'), /capability:invalid-input/);
+});
+
 test('actual main recovery rechecks idle after asynchronous resource observation', async () => {
   const constructor = find(node => ts.isNewExpression(node) && node.expression.getText(file) === 'CapabilityService') as ts.NewExpression;
   const options = constructor.arguments![0] as ts.ObjectLiteralExpression;
@@ -244,6 +326,27 @@ test('actual main recovery rechecks idle after asynchronous resource observation
   await assert.rejects(value.guard('journal-owner'), /late task/);
   assert.equal(observations, 2);
   assert.equal(value.locked(), false);
+});
+
+test('actual host launcher remains unavailable while management or runtime safety is quarantined', () => {
+  const constructor = find(node => ts.isNewExpression(node) && node.expression.getText(file) === 'PluginHostLauncher') as ts.NewExpression;
+  const options = constructor.arguments![0] as ts.ObjectLiteralExpression;
+  const property = options.properties.find(node => ts.isPropertyAssignment(node)
+    && node.name.getText(file) === 'available') as ts.PropertyAssignment;
+  const state = { available: true, runtimeAvailable: true };
+  const create = new Function('capabilityService', javascript(`
+    const runtimeManifest = { patches: ['desktop-plugin-host-launch'] };
+    const settingsMutation = false, providerSettingsPending = false, providerApplyFailed = false;
+    const quitting = false, quitPending = false;
+    return ${property.initializer.getText(file)};
+  `));
+  const available = create(state);
+  assert.equal(available(), true);
+  state.available = false;
+  assert.equal(available(), false);
+  state.available = true;
+  state.runtimeAvailable = false;
+  assert.equal(available(), false);
 });
 
 const beforeQuit = find(node => ts.isCallExpression(node) && node.expression.getText(file) === 'app.on'
@@ -270,8 +373,8 @@ for (const exitConfirmed of [true, false]) {
       const state = { quits: 0, errors: 0, prevented: 0 };
       const stop = { async stopAll() {}, async stop() {}, async close() {}, async shutdown() {}, async flush() {} };
       const runtimes = stop, terminals = stop, sessionImports = stop, remote = stop, admin = stop;
-      const collaboration = stop, bvrBridge = stop, conversationTiming = stop, modelSelections = stop;
-      const usageEstimates = stop, workflowBindings = stop, miniChat = undefined, browser = undefined;
+      const collaboration = stop, bvrBridge = stop, pluginHosts = stop, conversationTiming = stop, modelSelections = stop;
+      const usageEstimates = stop, workflowBindings = stop, miniChat = undefined, pluginWindows = undefined, browser = undefined;
       const capabilityGate = { async whenIdle() {} };
       const quitReasons = () => ({}), needsQuitReview = () => false, showMainWindow = () => {};
       const preferences = { language: 'zh' }, quitReview = { reset() {} };
@@ -307,8 +410,8 @@ test('actual before-quit waits for the capability writer before stopping service
     const sessionEnding = false, transition = false, window = undefined;
     const stop = { async stopAll() {}, async stop() {}, async close() {}, async shutdown() {}, async flush() {} };
     const runtimes = stop, terminals = stop, sessionImports = stop, remote = stop, admin = stop;
-    const collaboration = stop, bvrBridge = stop, conversationTiming = stop, modelSelections = stop;
-    const usageEstimates = stop, workflowBindings = stop, miniChat = undefined, browser = undefined;
+    const collaboration = stop, bvrBridge = stop, pluginHosts = stop, conversationTiming = stop, modelSelections = stop;
+    const usageEstimates = stop, workflowBindings = stop, miniChat = undefined, pluginWindows = undefined, browser = undefined;
     const capabilityService = { async stop() { events.push('service-stopped'); } };
     const quitReasons = () => ({}), needsQuitReview = () => false, showMainWindow = () => {};
     const preferences = { language: 'zh' }, quitReview = { reset() {} };

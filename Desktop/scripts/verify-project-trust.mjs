@@ -138,6 +138,7 @@ try {
         menuOpen: input?.getAttribute('aria-expanded'),
         editable: input?.getAttribute('contenteditable'),
         status: snapshot.status, hasRuntime: Boolean(snapshot.runtimeId),
+        error: document.querySelector('.app-error-banner')?.textContent,
         requests: snapshot.requests?.map(request => ({ method: request.method, projectTrust: Boolean(request.projectTrust) })),
       };
     }).catch(() => undefined),

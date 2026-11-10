@@ -4,39 +4,14 @@ import { mkdir, readFile, writeFile, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { SessionRuntime, SessionRuntimes } from './session-runtimes';
 import type { RuntimeState } from '../src/contracts';
+import { stepModelAccount as bvrSelection, StepModelAccountError, type StepModelAccount as Selection } from './step-model-account';
+export { stepModelAccount as bvrSelection } from './step-model-account';
 
 const MAX_BODY = 32 * 1024 * 1024;
 const MAX_RESPONSE = 2 * 1024 * 1024;
-type Selection = {
-  key: string; endpoint: string; model: string; sessionId: string; expires: number;
-  channel: 'plan' | 'api'; region: 'cn' | 'global'; video: boolean;
-};
 type Lease = { worker: SessionRuntime; selection: Selection; revision: string; approved?: Promise<boolean>; active: Set<AbortController> };
 type Auth = Record<string, unknown>;
 
-export function bvrSelection(auth: Auth, worker: SessionRuntime, changing = false, now = Date.now()): Selection {
-  const model = worker.state?.model;
-  if (changing || worker.status !== 'connected' || worker.stopping || !worker.state?.sessionId || !model)
-    throw new BridgeError('DFSC account or session is not ready');
-  if (model.provider !== 'step') throw new BridgeError('Follow DFSC currently supports official Step accounts only; choose independent mode for another provider');
-  const credential = auth.step as Record<string, unknown> | undefined;
-  if (!credential || credential.type !== 'oauth' || typeof credential.access !== 'string' || !credential.access.trim())
-    throw new BridgeError('Sign in to an official Step account in DFSC first');
-  const profile = credential.profile === 'step' ? 'step_plan' : credential.profile;
-  if (!['step_plan', 'step_plan_oversea', 'platform_cn', 'platform_oversea'].includes(String(profile)))
-    throw new BridgeError('The active DFSC account has no supported billing profile');
-  if (typeof credential.expires !== 'number' || !Number.isFinite(credential.expires) || credential.expires <= now + 1000)
-    throw new BridgeError('DFSC login expired; sign in again');
-  const channel = String(profile).startsWith('platform_') ? 'api' : 'plan';
-  const region = String(profile).endsWith('oversea') ? 'global' : 'cn';
-  return {
-    key: credential.access, expires: credential.expires, channel, region, model: model.id,
-    sessionId: worker.state.sessionId,
-    endpoint: `https://${region === 'global' ? 'api.stepfun.ai' : 'api.stepfun.com'}${channel === 'plan' ? '/step_plan' : ''}/v1`,
-    // Stable BVR model plus its recorded Plan compatibility model; image input alone is insufficient.
-    video: ['step-3.7-flash', 'step-5-preview'].includes(model.id) || Boolean(model.input?.includes('video')),
-  };
-}
 function sameSelection(a: Selection, b: Selection) {
   return a.key === b.key && a.endpoint === b.endpoint && a.model === b.model && a.sessionId === b.sessionId
     && a.expires === b.expires && a.video === b.video;
@@ -145,7 +120,7 @@ export class BvrBridge {
         reply(200, await this.complete(lease, data, controller.signal));
       } catch (error) {
         // Never surface upstream bodies or transport diagnostics, which may echo credentials.
-        reply(400, { error: error instanceof BridgeError ? error.message : 'BVR host request failed or the DFSC account/session changed; no fallback was used' });
+        reply(400, { error: error instanceof BridgeError || error instanceof StepModelAccountError ? error.message : 'BVR host request failed or the DFSC account/session changed; no fallback was used' });
       }
     });
     server.requestTimeout = 30000;

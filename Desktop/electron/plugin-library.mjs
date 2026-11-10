@@ -3,6 +3,7 @@ import { lstat } from 'node:fs/promises';
 import { isAbsolute, join, relative, resolve, sep, posix } from 'node:path';
 import { unified } from 'unified';
 import remarkParse from 'remark-parse';
+import semver from 'semver';
 import { digest, object, optionalFile, packageFingerprint, packagePath, plainFile, PluginFileError, readReceipts, scanInstalled } from './plugin-files.mjs';
 
 const backgroundPluginId = 'custom-background';
@@ -68,6 +69,65 @@ const terms = (value, max, category = false) => {
     throw new PluginFileError('invalid-presentation');
   return items;
 };
+const desktopId = value => {
+  const id = bounded(value, 64);
+  if (id !== value || !/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/u.test(id)) throw new PluginFileError('invalid-presentation');
+  return id;
+};
+const onlyKeys = (value, keys) => {
+  if (!object(value) || Object.keys(value).some(key => !keys.includes(key)))
+    throw new PluginFileError('invalid-presentation');
+};
+function parseDesktop(value) {
+  onlyKeys(value, ['title', 'surface', 'symbol', 'icon', 'defaultPage', 'pages']);
+  if (!['main-view', 'side-panel', 'window'].includes(value.surface)
+    || value.symbol !== undefined && !['plug', 'bot', 'book', 'wrench', 'sparkles'].includes(value.symbol))
+    throw new PluginFileError('invalid-presentation');
+  const pages = list(value.pages).map(page => {
+    onlyKeys(page, ['id', 'title', 'document']);
+    return { id: desktopId(page.id), title: bounded(page.title), document: markdownPath(bounded(page.document, 256)) };
+  });
+  if (!pages.length || new Set(pages.map(page => page.id)).size !== pages.length)
+    throw new PluginFileError('invalid-presentation');
+  const defaultPage = value.defaultPage === undefined ? undefined : desktopId(value.defaultPage);
+  if (defaultPage !== undefined && !pages.some(page => page.id === defaultPage))
+    throw new PluginFileError('invalid-presentation');
+  let icon;
+  if (value.icon !== undefined) {
+    onlyKeys(value.icon, ['light', 'dark']);
+    const imagePath = value => {
+      const path = packagePath(bounded(value, 256));
+      if (!/\.(?:png|jpe?g|webp|ico)$/iu.test(path)) throw new PluginFileError('invalid-path');
+      return path;
+    };
+    icon = { light: imagePath(value.icon.light),
+      ...(value.icon.dark !== undefined ? { dark: imagePath(value.icon.dark) } : {}) };
+  }
+  return { title: bounded(value.title), surface: value.surface, pages,
+    ...(value.symbol !== undefined ? { symbol: value.symbol } : {}),
+    ...(icon ? { icon } : {}), ...(defaultPage !== undefined ? { defaultPage } : {}) };
+}
+function parseRequirements(value) {
+  onlyKeys(value, ['dfsc', 'external']);
+  const requirements = {};
+  if (value.dfsc !== undefined) {
+    const range = bounded(value.dfsc, 128);
+    if (!semver.validRange(range)) throw new PluginFileError('invalid-presentation');
+    requirements.dfsc = range;
+  }
+  if (value.external !== undefined) requirements.external = list(value.external, 12).map(item => {
+    onlyKeys(item, ['name', 'description', 'url', 'optional']);
+    if (item.optional !== undefined && typeof item.optional !== 'boolean')
+      throw new PluginFileError('invalid-presentation');
+    const url = item.url === undefined ? undefined : documentUrl(item.url);
+    if (item.url !== undefined && !url) throw new PluginFileError('invalid-presentation');
+    return { name: bounded(item.name),
+      ...(item.description !== undefined ? { description: bounded(item.description, 512) } : {}),
+      ...(url !== undefined ? { url } : {}),
+      ...(item.optional !== undefined ? { optional: item.optional } : {}) };
+  });
+  return requirements;
+}
 export function parsePresentation(value) {
   if (!object(value) || value.schemaVersion !== 1) throw new PluginFileError('invalid-presentation');
   const names = items => list(items).map(item => {
@@ -114,6 +174,8 @@ export function parsePresentation(value) {
     license: value.license === undefined ? undefined : bounded(value.license, 128), documentation, tutorials, links,
     ...(value.categories !== undefined ? { categories: terms(value.categories, 3, true) } : {}),
     ...(value.keywords !== undefined ? { keywords: terms(value.keywords, 5) } : {}),
+    ...(value.desktop !== undefined ? { desktop: parseDesktop(value.desktop) } : {}),
+    ...(value.requirements !== undefined ? { requirements: parseRequirements(value.requirements) } : {}),
     ...(Object.keys(locales).length ? { locales } : {}) };
 }
 async function fileExists(root, path) {
@@ -141,6 +203,15 @@ function imageType(bytes) {
   // Main-process nativeImage validates JPEG/WebP dimensions before they reach the renderer.
   if (bytes[0] === 0xff && bytes[1] === 0xd8) return 'image/jpeg';
   if (bytes.toString('ascii', 0, 4) === 'RIFF' && bytes.toString('ascii', 8, 12) === 'WEBP') return 'image/webp';
+}
+function desktopImageType(bytes) {
+  const mime = imageType(bytes);
+  if (mime === 'image/png' && (bytes.readUInt32BE(16) > 512 || bytes.readUInt32BE(20) > 512)) return undefined;
+  if (mime) return mime;
+  if (bytes.length >= 22 && bytes.readUInt32LE(0) === 0x00010000) {
+    const count = bytes.readUInt16LE(4);
+    if (count > 0 && count <= 256 && bytes.length >= 6 + count * 16) return 'image/x-icon';
+  }
 }
 export class PluginLibrary {
   references = new Map();
@@ -172,7 +243,20 @@ export class PluginLibrary {
         let metadata = { documentation: {}, tutorials: [], links: [] }, warnings = [];
         try {
           const bytes = await optionalFile(root, 'dfsc.plugin.json', 65536);
-          if (bytes) metadata = parsePresentation(JSON.parse(bytes.toString('utf8')));
+          if (bytes) {
+            const value = JSON.parse(bytes.toString('utf8'));
+            if (!object(value)) throw new PluginFileError('invalid-presentation');
+            const { desktop, requirements, ...presentation } = value;
+            metadata = parsePresentation(presentation);
+            if (desktop !== undefined) {
+              try { metadata.desktop = parseDesktop(desktop); }
+              catch { warnings.push('Invalid or unsupported Desktop workspace contribution.'); }
+            }
+            if (requirements !== undefined) {
+              try { metadata.requirements = parseRequirements(requirements); }
+              catch { warnings.push('Invalid or unsupported Desktop requirements declaration.'); }
+            }
+          }
         } catch { warnings.push('Invalid or unsupported Desktop presentation metadata.'); }
         if (!metadata.documentation.readme && await fileExists(root, 'README.md')) metadata.documentation.readme = 'README.md';
         for (const documentation of [metadata.documentation, ...Object.values(metadata.locales ?? {}).map(locale => locale.documentation ?? {})])
@@ -187,9 +271,36 @@ export class PluginLibrary {
             hostConfiguration = backgroundProvider;
           } catch { /* An unproven package cannot expose host-owned appearance controls. */ }
         }
+        if (metadata.desktop) {
+          if (descriptor.kind !== 'installed' || descriptor.provenance !== 'recorded') delete metadata.desktop;
+          else {
+            try {
+              for (const page of metadata.desktop.pages) await plainFile(root, page.document, 256 * 1024);
+              const icon = metadata.desktop.icon;
+              delete metadata.desktop.icon;
+              if (icon) {
+                const projectIcon = async path => {
+                  try {
+                    const bytes = await plainFile(root, path, 128 * 1024), mime = desktopImageType(bytes);
+                    if (mime && this.validateImage?.(bytes, 512)) return `data:${mime};base64,${bytes.toString('base64')}`;
+                  } catch {}
+                };
+                const light = await projectIcon(icon.light), dark = icon.dark ? await projectIcon(icon.dark) : undefined;
+                if (light) metadata.desktop.icon = { light, ...(dark ? { dark } : {}) };
+                if (!light || icon.dark && !dark) warnings.push('Invalid or unavailable Desktop workspace icon.');
+              }
+              for (const page of metadata.desktop.pages) reference.allowed.add(page.document);
+            } catch {
+              delete metadata.desktop;
+              warnings.push('Invalid or unavailable Desktop workspace document.');
+            }
+          }
+        }
         return { ...publicPlugin, package: { ...metadata, warnings, ref: reference.ref, provenance: descriptor.provenance,
           configurationAvailable: descriptor.kind === 'installed' && descriptor.provenance === 'recorded'
             && await fileExists(root, 'dfsc.settings.json'),
+          hostSettingsAvailable: descriptor.kind === 'installed' && descriptor.provenance === 'recorded'
+            && await fileExists(root, 'dfsc.host.json'),
           ...(hostConfiguration ? { hostConfiguration } : {}) } };
       } catch { return publicPlugin; }
     };

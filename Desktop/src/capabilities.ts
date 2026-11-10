@@ -3,6 +3,19 @@ export interface PluginLocale {
   description?: string;
   documentation?: { readme?: string; changelog?: string };
 }
+export type PluginDesktopSymbol = 'plug' | 'bot' | 'book' | 'wrench' | 'sparkles';
+export interface PluginDesktop {
+  title: string;
+  surface: 'main-view' | 'side-panel' | 'window';
+  symbol?: PluginDesktopSymbol;
+  icon?: { light: string; dark?: string };
+  defaultPage?: string;
+  pages: { id: string; title: string; document: string }[];
+}
+export interface PluginRequirements {
+  dfsc?: string;
+  external?: { name: string; description?: string; url?: string; optional?: boolean }[];
+}
 export interface PluginPackage {
   ref: string; provenance: 'recorded' | 'unknown' | 'conflict';
   author?: string; maintainer?: string; license?: string;
@@ -13,8 +26,11 @@ export interface PluginPackage {
   stars?: PluginStarSnapshot;
   configurationAvailable?: boolean;
   hostConfiguration?: 'custom-background-v1';
+  hostSettingsAvailable?: boolean;
   dataOnlyTheme?: boolean;
   locales?: Partial<Record<'zh' | 'en', PluginLocale>>;
+  desktop?: PluginDesktop;
+  requirements?: PluginRequirements;
 }
 export interface PluginConfigurationField {
   id: string; label: string; help?: string; type: 'text' | 'number' | 'enum' | 'boolean' | 'secret' | 'path';
@@ -33,6 +49,22 @@ export interface PluginConfiguration {
 export interface PluginConfigurationInput {
   ref: string; revision: string; values: Record<string, string | number | boolean>;
   secrets: Record<string, { action: 'keep' | 'replace' | 'delete'; value?: string }>;
+}
+export type PluginHostCapability = 'model.text' | 'model.video' | 'model.asr' | 'model.tts';
+export type PluginHostModels = Partial<Record<'model.asr' | 'model.tts', string>>;
+export interface PluginHostRuntime {
+  status: 'unsupported' | 'no-session' | 'unconfigured' | 'disabled' | 'restart-required' | 'connected' | 'unavailable';
+  capabilities?: { id: PluginHostCapability; available: boolean; model?: string; channel?: 'plan' | 'api';
+    region?: 'cn' | 'oversea'; authorization: 'required' | 'approved' | 'unavailable' }[];
+}
+export interface PluginHostSettings {
+  ref: string; revision: string; mode: 'follow' | 'independent' | null; consumer: string;
+  capabilities: PluginHostCapability[]; models: PluginHostModels; configurationCurrent: boolean;
+  independent?: PluginConfiguration; independentError?: string; runtime: PluginHostRuntime;
+}
+export interface PluginHostSettingsInput {
+  ref: string; revision: string; mode: 'follow' | 'independent'; models?: PluginHostModels;
+  configuration?: PluginConfigurationInput;
 }
 export interface PluginDocument {
   path: string; text: string; images: Record<string, string>; links: Record<string, string>;

@@ -5,7 +5,7 @@ import type { LaunchState } from './launch-state';
 import type { BackgroundAgentClient } from './background-agents';
 import type { WindowConversationBridge, WindowPresentation } from './window-conversation';
 import type { RemoteBridge } from './remote';
-export interface Snapshot { windowPresentation?: WindowPresentation }
+export interface Snapshot { windowPresentation?: WindowPresentation; windowPresentationRevision?: number }
 export interface Message { desktopWorkflow?: WorkflowState; desktopToolPending?: boolean }
 export interface Message { desktopImported?: boolean }
 export interface Message { desktopInput?: { version: 1; text: string } }
@@ -29,6 +29,8 @@ export interface Model { id: string; provider: string; name: string; providerNam
 export interface Preferences { preferredModel?: Pick<Model, 'provider' | 'id' | 'name'> }
 export interface Preferences { favoriteModels?: import('./model-favorites').ModelIdentity[] }
 export interface Preferences extends Partial<import('./panel-preferences').PanelPreferences> {}
+export interface NotificationPreferences { approvalNotifications: boolean; completionNotifications: boolean; completionSound: boolean }
+export interface Preferences extends Partial<NotificationPreferences> {}
 export interface Content { type: string; text?: string; thinking?: string; id?: string; name?: string; arguments?: unknown; data?: string; mimeType?: string }
 export type ComposerAttachment = { kind: 'image'; name: string; content: Content } | { kind: 'file'; id: string; name: string; size: number };
 export interface PendingMessage { id: string; message: string; attachmentCount: number; version: number; sending?: boolean; steered?: boolean }
@@ -106,7 +108,16 @@ export interface CronCreateInput { runtimeId: string; cron: string; prompt: stri
 export interface CronUpdateInput {
   runtimeId: string; jobId: string; expected: string; cron?: string; prompt?: string; paused?: boolean;
 }
+export interface PluginWindowSnapshot {
+  plugin: import('./capabilities').CapabilityPlugin;
+  preferences: Pick<Preferences, 'language' | 'theme' | 'accentColor' | 'appearance'>;
+}
 export interface DesktopBridge extends SessionImportBridge, BtwBridge, BackgroundAgentClient, WindowConversationBridge, RemoteBridge {
+  pluginWindowOpen(input: { ref: string }): Promise<void>;
+  pluginWindowState(): Promise<PluginWindowSnapshot>;
+  pluginWindowConfigure(): Promise<void>;
+  globalInstructions(): Promise<import('./global-instructions').GlobalInstructions>;
+  saveGlobalInstructions(content: string, revision: string): Promise<import('./global-instructions').GlobalInstructions>;
   projectInstructions(owner: import('./project-instructions').ProjectInstructionsOwner): Promise<import('./project-instructions').ProjectInstructionsStatus>;
   finishFirstRun(outcome: 'completed' | 'skipped'): Promise<Snapshot>;
   capabilityCatalog(): Promise<import('./capabilities').CapabilityCatalog>;
@@ -114,6 +125,8 @@ export interface DesktopBridge extends SessionImportBridge, BtwBridge, Backgroun
   pluginRepositoryInfo(input: { ref: string; refresh: boolean }): Promise<import('./capabilities').PluginStarSnapshot>;
   pluginConfiguration(input: { ref: string }): Promise<import('./capabilities').PluginConfiguration>;
   pluginSaveConfiguration(input: import('./capabilities').PluginConfigurationInput): Promise<import('./capabilities').PluginConfiguration>;
+  pluginHostSettings(input: { ref: string }): Promise<import('./capabilities').PluginHostSettings>;
+  pluginSaveHostSettings(input: import('./capabilities').PluginHostSettingsInput): Promise<import('./capabilities').PluginHostSettings>;
   pluginChoosePath(input: { ref: string; field: string }): Promise<string | null>;
   themeScene(id: string): Promise<import('./theme-packs').StellarScene>;
   themePoster(id: string): Promise<string | undefined>;

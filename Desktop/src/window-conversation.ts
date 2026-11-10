@@ -42,13 +42,13 @@ export function composerErrorText(error: unknown, language: 'zh' | 'en') {
 }
 
 export interface WindowConversationBridge {
-  readonly surface?: 'main' | 'mini';
+  readonly surface?: 'main' | 'mini' | 'plugin';
   miniChatOpen(): Promise<MiniChatState>;
   miniChatState(): Promise<MiniChatState>;
   miniChatPin(pinned: boolean): Promise<MiniChatState>;
   miniChatReturn(presentation: WindowPresentation): Promise<void>;
   miniChatMainAction(action: string, payload?: unknown): Promise<void>;
-  windowPresentation(owner: ComposerOwner, value: WindowPresentation): Promise<void>;
+  windowPresentation(owner: ComposerOwner, value: WindowPresentation, revision: number): Promise<boolean>;
   composerRead(owner: ComposerOwner): Promise<ComposerSnapshot>;
   composerWrite(input: ComposerWrite): Promise<ComposerResult>;
   composerTake(owner: ComposerOwner, revision: number): Promise<{ snapshot: ComposerSnapshot; receipt: ComposerReceipt }>;

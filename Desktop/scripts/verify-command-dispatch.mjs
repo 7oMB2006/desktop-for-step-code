@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { taskSectionIsRevealed, waitForTaskSectionReveal } from './command-dispatch-fixture.mjs';
 
 const profile = await mkdtemp(join(tmpdir(), 'step-command-dispatch-'));
 await writeFile(join(profile, 'preferences.json'), JSON.stringify({ language: 'zh', theme: 'dark', workspaces: [] }));
@@ -122,6 +123,7 @@ try {
   const taskHeading = tasks.getByRole('heading', { name: '推进清单', exact: true });
   await send('/todos');
   await tasks.getByText('本轮暂无任务清单', { exact: true }).waitFor();
+  await waitForTaskSectionReveal(page, taskHeading);
   assert.equal(await taskHeading.evaluate(element => element === document.activeElement), true,
     'The shortcut focuses the existing task section, not a separate panel');
   assert.equal(await input.evaluate(element => element.value), '');
@@ -151,15 +153,13 @@ try {
   await tasks.evaluate(element => { window.taskSectionBeforeCommand = element; });
   await board.locator('.summary-content').evaluate(element => { element.scrollTop = element.scrollHeight; });
   await send('/todos');
+  await waitForTaskSectionReveal(page, taskHeading);
   assert.equal(await tasks.evaluate(element => window.taskSectionBeforeCommand === element), true,
     'Repeated commands do not remount tasks or replay progress');
   assert.equal(await historyTrigger.getAttribute('aria-expanded'), 'true');
   assert.equal(await tasks.getByRole('button', { name: '正在检查 · 进行中', exact: true }).getAttribute('aria-expanded'), 'true');
-  assert.equal(await taskHeading.evaluate(element => {
-    const heading = element.getBoundingClientRect();
-    const viewport = element.closest('.summary-content').getBoundingClientRect();
-    return element === document.activeElement && heading.top >= viewport.top && heading.bottom <= viewport.bottom;
-  }), true, 'Repeated commands reveal the heading after manual scrolling');
+  assert.equal(await taskHeading.evaluate(taskSectionIsRevealed), true,
+    'Repeated commands reveal the heading after manual scrolling');
   await input.fill('保留输入焦点');
   await page.waitForTimeout(1400);
   assert.equal(await input.evaluate(element => element === document.activeElement), true,
@@ -265,6 +265,7 @@ try {
   }));
   await send('/todos');
   await tasks.waitFor();
+  await waitForTaskSectionReveal(page, taskHeading);
   assert.equal(await taskHeading.evaluate(element => element === document.activeElement), true);
   assert.deepEqual(await app.evaluate(() => globalThis.dispatchFixture.launch), beforeTasks.launch,
     'Opening tasks does not consume the next launch choices');

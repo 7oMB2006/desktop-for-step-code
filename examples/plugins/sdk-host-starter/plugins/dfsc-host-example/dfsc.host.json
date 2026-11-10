@@ -1,0 +1,6 @@
+{
+  "schemaVersion": 1,
+  "hostApiVersion": 1,
+  "consumer": { "kind": "mcp-stdio", "server": "example" },
+  "capabilities": ["model.text"]
+}

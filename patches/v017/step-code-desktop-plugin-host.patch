@@ -1,0 +1,791 @@
+diff --git a/packages/coding-agent/src/modes/rpc/rpc-mode.ts b/packages/coding-agent/src/modes/rpc/rpc-mode.ts
+index a2dbb20..45bc8f9 100644
+--- a/packages/coding-agent/src/modes/rpc/rpc-mode.ts
++++ b/packages/coding-agent/src/modes/rpc/rpc-mode.ts
+@@ -29,6 +29,7 @@ import { pendingHandoffText } from "../../features/plan-handoff.ts";
+ import { resumeDesktopCronRecovery, updateDesktopCronJob } from "../../features/step-cron.ts";
+ import { getStepPlanMode, pendingProposalOf } from "../../features/step-plan.ts";
+ import { redactSensitiveText } from "../../features/subagent/projection.ts";
++import { desktopPluginHostCommand } from "../../step/desktop-plugin-host.ts";
+ import { getStepMcpStatuses } from "../../step/mcp.ts";
+ import { STEPCODE_VERSION } from "../../step/version.ts";
+ import { type Theme, theme } from "../../theme/theme.ts";
+@@ -478,6 +479,8 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntimeHost, options:
+ 			return error(id, command.type, "Finish or cancel completion review before changing this task.");
+ 
+ 		switch (command.type) {
++			case "desktop_plugin_host":
++				return success(id, command.type, await desktopPluginHostCommand(session.sessionManager, command));
+ 			case "desktop_completion_review_skip":
+ 				review.skip("input");
+ 				return success(id, command.type);
+diff --git a/packages/coding-agent/src/modes/rpc/rpc-types.ts b/packages/coding-agent/src/modes/rpc/rpc-types.ts
+index 5be771e..3551a4f 100644
+--- a/packages/coding-agent/src/modes/rpc/rpc-types.ts
++++ b/packages/coding-agent/src/modes/rpc/rpc-types.ts
+@@ -18,11 +18,27 @@ import type { SourceInfo } from "../../core/source-info.ts";
+ // ============================================================================
+ 
+ export type RpcCommand =
+-	| { id?: string; type: "desktop_btw"; action: "ask"; requestId: string; scopeId: string; sessionId: string; question: string }
++	| { id?: string; type: "desktop_plugin_host"; action: string; requestId?: string; context?: string }
++	| {
++			id?: string;
++			type: "desktop_btw";
++			action: "ask";
++			requestId: string;
++			scopeId: string;
++			sessionId: string;
++			question: string;
++	  }
+ 	| { id?: string; type: "desktop_btw"; action: "cancel"; requestId: string; scopeId: string }
+ 	| { id?: string; type: "desktop_btw"; action: "clear"; scopeId: string }
+ 	// Prompting
+-	| { id?: string; type: "prompt"; message: string; images?: ImageContent[]; streamingBehavior?: "steer" | "followUp"; completionReview?: true }
++	| {
++			id?: string;
++			type: "prompt";
++			message: string;
++			images?: ImageContent[];
++			streamingBehavior?: "steer" | "followUp";
++			completionReview?: true;
++	  }
+ 	| { id?: string; type: "desktop_completion_review_skip" }
+ 	| { id?: string; type: "steer"; message: string; images?: ImageContent[] }
+ 	| { id?: string; type: "follow_up"; message: string; images?: ImageContent[] }
+diff --git a/packages/coding-agent/src/step/desktop-plugin-host.ts b/packages/coding-agent/src/step/desktop-plugin-host.ts
+new file mode 100644
+index 0000000..82149ab
+--- /dev/null
++++ b/packages/coding-agent/src/step/desktop-plugin-host.ts
+@@ -0,0 +1,215 @@
++import { createHash, randomUUID } from "node:crypto";
++import { lstat, readFile } from "node:fs/promises";
++import path from "node:path";
++
++export interface DesktopHostCandidate {
++	pluginId?: string;
++	pluginRoot?: string;
++	name: string;
++	hostConflict?: boolean;
++	declaration: {
++		command?: string;
++		args?: string[];
++		cwd?: string;
++		env?: Record<string, string>;
++		url?: string;
++		enabled_tools?: string[];
++		disabled_tools?: string[];
++	};
++}
++interface RecordView {
++	requestId: string;
++	sessionId: string;
++	pluginId: string;
++	consumer: string;
++	root: string;
++	executionHash: string;
++	declarationHash: string;
++	conflict: boolean;
++	phase: "pending" | "starting" | "connected" | "failed";
++}
++interface LaunchRecord {
++	view: RecordView;
++	candidate: DesktopHostCandidate;
++	start(context: string): Promise<boolean>;
++	connected(): boolean;
++	policy: string;
++}
++const sessions = new WeakMap<object, DesktopPluginHost>();
++const fail = (): never => {
++	throw new Error("Desktop plugin host launch is unavailable or stale");
++};
++async function sidecar(root: string) {
++	const file = path.join(root, "dfsc.host.json"),
++		info = await lstat(file);
++	if (!info.isFile() || info.isSymbolicLink() || info.size > 65536) return fail();
++	const bytes = await readFile(file);
++	if (bytes.length > 65536) return fail();
++	return { value: JSON.parse(bytes.toString("utf8")), hash: createHash("sha256").update(bytes).digest("hex") };
++}
++
++export function desktopHostExecutionHash(candidate: DesktopHostCandidate): string {
++	const declaration = candidate.declaration;
++	return createHash("sha256")
++		.update(
++			JSON.stringify([
++				declaration.command,
++				declaration.args ?? [],
++				declaration.cwd,
++				Object.entries(declaration.env ?? {}).sort(([a], [b]) => a.localeCompare(b)),
++			]),
++		)
++		.digest("hex");
++}
++
++// Records originate in native discovery, not plugin tools, PID lookups or public IPC.
++export class DesktopPluginHost {
++	private records = new Map<string, LaunchRecord>();
++	private starting = new Set<Promise<{ started: boolean }>>();
++	private owner: object;
++	private sessionId: () => string;
++	private discover: () => Promise<DesktopHostCandidate[]>;
++	private signal: AbortSignal;
++	constructor(
++		owner: object,
++		sessionId: () => string,
++		discover: () => Promise<DesktopHostCandidate[]>,
++		signal: AbortSignal,
++	) {
++		this.owner = owner;
++		this.sessionId = sessionId;
++		this.discover = discover;
++		this.signal = signal;
++		sessions.set(owner, this);
++		signal.addEventListener(
++			"abort",
++			() => {
++				this.records.clear();
++				if (sessions.get(owner) === this) sessions.delete(owner);
++			},
++			{ once: true },
++		);
++	}
++	async defer(candidate: DesktopHostCandidate, start: LaunchRecord["start"], connected: () => boolean) {
++		if (!candidate.pluginId || !candidate.pluginRoot || this.signal.aborted) return false;
++		let declaration: Awaited<ReturnType<typeof sidecar>>;
++		try {
++			declaration = await sidecar(candidate.pluginRoot);
++		} catch (error) {
++			if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
++			return true;
++		}
++		const consumer = declaration.value?.consumer?.server;
++		if (typeof consumer !== "string") return true;
++		if (candidate.name !== `${candidate.pluginId}__${consumer}`) return false;
++		if (this.records.size >= 64 || this.signal.aborted) return true;
++		const view: RecordView = {
++			requestId: randomUUID(),
++			sessionId: this.sessionId(),
++			pluginId: candidate.pluginId,
++			consumer,
++			root: path.resolve(candidate.pluginRoot),
++			executionHash: desktopHostExecutionHash(candidate),
++			declarationHash: declaration.hash,
++			conflict: candidate.hostConflict === true || Boolean(candidate.declaration.url),
++			phase: "pending",
++		};
++		this.records.set(view.requestId, {
++			view,
++			candidate,
++			start,
++			connected,
++			policy: JSON.stringify(candidate.declaration),
++		});
++		return true;
++	}
++	private current(requestId: unknown) {
++		const record = typeof requestId === "string" ? this.records.get(requestId) : undefined;
++		if (
++			!record ||
++			this.signal.aborted ||
++			sessions.get(this.owner) !== this ||
++			record.view.sessionId !== this.sessionId()
++		)
++			return fail();
++		return record;
++	}
++	async inspect(requestId: unknown) {
++		const record = this.current(requestId);
++		const fresh = (await this.discover()).filter((item) => item.name === record.candidate.name);
++		if (
++			fresh.length !== 1 ||
++			fresh[0].hostConflict ||
++			fresh[0].declaration.url ||
++			fresh[0].pluginId !== record.view.pluginId ||
++			fresh[0].pluginRoot !== record.candidate.pluginRoot ||
++			desktopHostExecutionHash(fresh[0]) !== record.view.executionHash ||
++			JSON.stringify(fresh[0].declaration) !== record.policy ||
++			(await sidecar(record.view.root)).hash !== record.view.declarationHash ||
++			record.view.conflict ||
++			record.view.phase === "failed" ||
++			(record.view.phase === "connected" && !record.connected())
++		)
++			return fail();
++		this.current(requestId);
++		return { ...record.view };
++	}
++	list() {
++		if (this.signal.aborted || sessions.get(this.owner) !== this) return [];
++		return [...this.records.values()].map((record) => ({ ...record.view }));
++	}
++	start(requestId: unknown, context: unknown) {
++		const operation = this.launch(requestId, context).finally(() => this.starting.delete(operation));
++		this.starting.add(operation);
++		return operation;
++	}
++	async settled() {
++		await Promise.allSettled([...this.starting]);
++	}
++	private async launch(requestId: unknown, context: unknown) {
++		const record = this.current(requestId);
++		await this.inspect(requestId);
++		if (record.view.phase !== "pending" || typeof context !== "string" || Buffer.byteLength(context) > 16384)
++			return fail();
++		let launch: { version?: string; mode?: string; pluginId?: string; consumer?: string; sessionId?: string };
++		try {
++			launch = JSON.parse(context);
++		} catch {
++			return fail();
++		}
++		if (
++			launch?.version !== "dfsc-launch-v1" ||
++			!["follow", "independent"].includes(launch.mode ?? "") ||
++			launch.pluginId !== record.view.pluginId ||
++			launch.consumer !== record.view.consumer ||
++			launch.sessionId !== record.view.sessionId
++		)
++			return fail();
++		record.view.phase = "starting";
++		try {
++			if (!(await record.start(context))) return fail();
++			this.current(requestId);
++			record.view.phase = "connected";
++			return { started: true };
++		} catch {
++			record.view.phase = "failed";
++			return fail();
++		}
++	}
++}
++
++export async function desktopPluginHostCommand(
++	owner: object,
++	input: {
++		action: string;
++		requestId?: string;
++		context?: string;
++	},
++) {
++	const host = sessions.get(owner);
++	if (!host) return fail();
++	if (input.action === "list") return { records: host.list() };
++	if (input.action === "inspect") return host.inspect(input.requestId);
++	if (input.action === "start") return host.start(input.requestId, input.context);
++	return fail();
++}
+diff --git a/packages/coding-agent/src/step/mcp.ts b/packages/coding-agent/src/step/mcp.ts
+index 569b720..350404d 100644
+--- a/packages/coding-agent/src/step/mcp.ts
++++ b/packages/coding-agent/src/step/mcp.ts
+@@ -10,6 +10,7 @@ import type { AgentToolResult } from "@step-harness/agent-core";
+ import type { ExtensionAPI, ExtensionFactory } from "../core/extensions/types.ts";
+ import { theme } from "../theme/theme.ts";
+ import { readGlobalStepConfig } from "./config-toml.ts";
++import { DesktopPluginHost } from "./desktop-plugin-host.ts";
+ import { createMcpToolCaller, listAllMcpTools } from "./mcp-client.ts";
+ import { resolveStepMcpEnvironment } from "./mcp-environment.ts";
+ import { createStoredMcpOAuthProvider, hasStoredMcpOAuthCredential } from "./mcp-oauth.ts";
+@@ -73,6 +74,8 @@ interface ServerDeclaration {
+ 
+ interface DiscoveredServer {
+ 	pluginId?: string;
++	pluginRoot?: string;
++	hostConflict?: boolean;
+ 	name: string;
+ 	declaration: ServerDeclaration;
+ 	provision?: StepPluginProvision;
+@@ -124,6 +127,7 @@ export function createStepMcpExtension(): ExtensionFactory {
+ 		let startup: Promise<void> | undefined;
+ 		let cancellation: AbortController | undefined;
+ 		let statuses: StepMcpStatus[] = [];
++		let desktopHost: DesktopPluginHost | undefined;
+ 
+ 		pi.on("session_start", async (_event, ctx) => {
+ 			if (startup) return;
+@@ -170,101 +174,125 @@ export function createStepMcpExtension(): ExtensionFactory {
+ 					),
+ 				);
+ 				statuses.push(...disabled);
+-				await Promise.all(
+-					discovered.map(async (item, index) => {
+-						let connected: ConnectedServer | undefined;
+-						let published = false;
+-						let pending = false;
+-						let refreshing = false;
+-						const refreshCatalog = async () => {
+-							if (refreshing || !published || !connected || connected.signal.aborted) return;
+-							const server = connected;
+-							refreshing = true;
+-							try {
+-								while (pending && !server.signal.aborted) {
+-									// Coalesce a notification burst before listing, with at most one
+-									// more pass when notifications arrive during an in-flight list.
++				desktopHost =
++					ctx.mode === "rpc" && process.env.DFSC_RUNTIME_HOST_V1 === "1" && ctx.sessionManager
++						? new DesktopPluginHost(
++								ctx.sessionManager,
++								() => ctx.sessionManager.getSessionId(),
++								() => discoverStepMcpServers(ctx.cwd, ctx.isProjectTrusted()),
++								controller.signal,
++							)
++						: undefined;
++				const connect = async (item: DiscoveredServer, index: number, launchContext?: string) => {
++					let connected: ConnectedServer | undefined;
++					let published = false;
++					let pending = false;
++					let refreshing = false;
++					const refreshCatalog = async () => {
++						if (refreshing || !published || !connected || connected.signal.aborted) return;
++						const server = connected;
++						refreshing = true;
++						try {
++							while (pending && !server.signal.aborted) {
++								// Coalesce a notification burst before listing, with at most one
++								// more pass when notifications arrive during an in-flight list.
++								await yieldToEventLoop();
++								pending = false;
++								try {
++									const tools = selectDeclaredTools(
++										await listAllMcpTools(server.client, server.signal, server.catalogTimeoutMs),
++										item.declaration,
++									);
++									const remoteTools = tools.map((tool) => createRemoteTool(server, tool));
+ 									await yieldToEventLoop();
+-									pending = false;
+-									try {
+-										const tools = selectDeclaredTools(
+-											await listAllMcpTools(server.client, server.signal, server.catalogTimeoutMs),
+-											item.declaration,
+-										);
+-										const remoteTools = tools.map((tool) => createRemoteTool(server, tool));
+-										await yieldToEventLoop();
+-										if (server.signal.aborted || !published) return;
+-										pi.registerTools(remoteTools, {
+-											remove: server.tools.map((tool) => remoteToolName(server, tool)),
+-										});
+-										publishMcpToolOwners(sessionOwners, server, tools, server.tools);
+-										server.tools = tools;
+-										statuses[index] = { name: item.name, status: "connected", toolCount: tools.length };
+-									} catch (error) {
+-										if (server.signal.aborted || !published) return;
+-										ctx.ui.notify(
+-											`MCP server '${item.name}' catalog refresh failed; keeping the previous tools: ${error instanceof Error ? error.message : String(error)}`,
+-											"warning",
+-										);
+-									}
++									if (server.signal.aborted || !published) return;
++									pi.registerTools(remoteTools, {
++										remove: server.tools.map((tool) => remoteToolName(server, tool)),
++									});
++									publishMcpToolOwners(sessionOwners, server, tools, server.tools);
++									server.tools = tools;
++									statuses[index] = { name: item.name, status: "connected", toolCount: tools.length };
++								} catch (error) {
++									if (server.signal.aborted || !published) return;
++									ctx.ui.notify(
++										`MCP server '${item.name}' catalog refresh failed; keeping the previous tools: ${launchContext !== undefined ? "Hosted MCP catalog unavailable" : error instanceof Error ? error.message : String(error)}`,
++										"warning",
++									);
+ 								}
+-							} finally {
+-								refreshing = false;
+ 							}
++						} finally {
++							refreshing = false;
++						}
++					};
++					const onToolsChanged = () => {
++						pending = true;
++						void refreshCatalog();
++					};
++					try {
++						const server = await connectStepMcpServer(item, controller.signal, onToolsChanged, launchContext);
++						server.pluginId = item.pluginId;
++						connected = server;
++						const remoteTools = server.tools.map((tool) => createRemoteTool(server, tool));
++						// Publishing a server's catalog refreshes the registry and the
++						// Step prompt once. Yield first so a server that finished while
++						// the loop was busy cannot preempt input or rendering.
++						await yieldToEventLoop();
++						server.signal.throwIfAborted();
++						pi.registerTools(remoteTools);
++						publishMcpToolOwners(sessionOwners, server, server.tools);
++						published = true;
++						servers.push(server);
++						server.signal.addEventListener(
++							"abort",
++							() => {
++								published = false;
++								publishMcpToolOwners(sessionOwners, server, [], server.tools);
++								if (controller.signal.aborted) return;
++								pi.registerTools([], { remove: server.tools.map((tool) => remoteToolName(server, tool)) });
++								statuses[index] = { name: item.name, status: "failed", toolCount: 0 };
++							},
++							{ once: true },
++						);
++						statuses[index] = {
++							name: item.name,
++							status: "connected",
++							toolCount: server.tools.length,
+ 						};
+-						const onToolsChanged = () => {
+-							pending = true;
+-							void refreshCatalog();
++						void refreshCatalog();
++						return true;
++					} catch (error) {
++						if (connected) await closeStepMcpServer(connected);
++						if (controller.signal.aborted) return;
++						statuses[index] = {
++							name: item.name,
++							status: "failed",
++							toolCount: 0,
+ 						};
+-						try {
+-							const server = await connectStepMcpServer(item, controller.signal, onToolsChanged);
+-							server.pluginId = item.pluginId;
+-							connected = server;
+-							const remoteTools = server.tools.map((tool) => createRemoteTool(server, tool));
+-							// Publishing a server's catalog refreshes the registry and the
+-							// Step prompt once. Yield first so a server that finished while
+-							// the loop was busy cannot preempt input or rendering.
+-							await yieldToEventLoop();
+-							server.signal.throwIfAborted();
+-							pi.registerTools(remoteTools);
+-							publishMcpToolOwners(sessionOwners, server, server.tools);
+-							published = true;
+-							servers.push(server);
+-							server.signal.addEventListener(
+-								"abort",
+-								() => {
+-									published = false;
+-									publishMcpToolOwners(sessionOwners, server, [], server.tools);
+-									if (controller.signal.aborted) return;
+-									pi.registerTools([], { remove: server.tools.map((tool) => remoteToolName(server, tool)) });
+-									statuses[index] = { name: item.name, status: "failed", toolCount: 0 };
+-								},
+-								{ once: true },
+-							);
+-							statuses[index] = {
+-								name: item.name,
+-								status: "connected",
+-								toolCount: server.tools.length,
+-							};
+-							void refreshCatalog();
+-						} catch (error) {
+-							if (connected) await closeStepMcpServer(connected);
+-							if (controller.signal.aborted) return;
+-							statuses[index] = {
++						ctx.ui.notify(
++							describeMcpStartFailure({
+ 								name: item.name,
+-								status: "failed",
+-								toolCount: 0,
+-							};
+-							ctx.ui.notify(
+-								describeMcpStartFailure({
+-									name: item.name,
+-									command: item.declaration.command ?? item.declaration.url ?? "configured server",
+-									provision: item.provision,
+-									error,
+-								}),
+-								"warning",
+-							);
++								command: item.declaration.command ?? item.declaration.url ?? "configured server",
++								provision: item.provision,
++								error: launchContext !== undefined ? new Error("Hosted MCP startup failed") : error,
++							}),
++							"warning",
++						);
++						return false;
++					}
++				};
++				await Promise.all(
++					discovered.map(async (item, index) => {
++						if (
++							await desktopHost?.defer(
++								item,
++								(context) => connect(item, index, context).then(Boolean),
++								() => statuses[index]?.status === "connected",
++							)
++						) {
++							statuses[index] = { name: item.name, status: "disabled", toolCount: 0 };
++							return;
+ 						}
++						await connect(item, index);
+ 					}),
+ 				);
+ 			})().catch((error: unknown) => {
+@@ -282,6 +310,8 @@ export function createStepMcpExtension(): ExtensionFactory {
+ 		pi.on("session_shutdown", async () => {
+ 			cancellation?.abort();
+ 			await startup;
++			await desktopHost?.settled();
++			desktopHost = undefined;
+ 			const closing = servers;
+ 			for (const server of closing) publishMcpToolOwners(owners, server, [], server.tools);
+ 			servers = [];
+@@ -397,6 +427,8 @@ export async function discoverStepMcpServers(cwd: string, projectTrusted: boolea
+ 				if (!isRecord(value)) continue;
+ 				const name = `${parsed.manifest.id}${PLUGIN_SERVER_SEPARATOR}${serverName}`;
+ 				if (seen.has(name)) {
++					const previous = result.find((server) => server.name === name);
++					if (previous?.pluginRoot) previous.hostConflict = true;
+ 					const global = globalServers.get(name);
+ 					if (
+ 						name === STEPPAGE_SERVER_NAME &&
+@@ -417,6 +449,7 @@ export async function discoverStepMcpServers(cwd: string, projectTrusted: boolea
+ 				seen.add(name);
+ 				const discovered: DiscoveredServer = {
+ 					pluginId: parsed.manifest.id,
++					pluginRoot: pluginDir,
+ 					name,
+ 					declaration: anchorPluginServerCwd(
+ 						pluginDir,
+@@ -587,6 +620,7 @@ export async function connectStepMcpServer(
+ 	input: DiscoveredServer,
+ 	abortSignal?: AbortSignal,
+ 	onToolsChanged?: () => void,
++	launchContext?: string,
+ ): Promise<ConnectedServer> {
+ 	abortSignal?.throwIfAborted();
+ 	const timeout = timeoutMs(input.declaration.startup_timeout_sec, MCP_STARTUP_TIMEOUT_SEC);
+@@ -594,6 +628,7 @@ export async function connectStepMcpServer(
+ 	let transport: StdioClientTransport | StreamableHTTPClientTransport;
+ 	if (input.declaration.command) {
+ 		const env = resolveStepMcpEnvironment(input.declaration.env);
++		if (launchContext !== undefined) env.DFSC_LAUNCH_CONTEXT = launchContext;
+ 		let command = input.declaration.command;
+ 		if (input.name === STEPPAGE_SERVER_NAME && isManagedStepPageCommand(input.declaration, input.provision)) {
+ 			// The trusted installer needs host setup variables (proxy/installer URL).
+@@ -629,8 +664,13 @@ export async function connectStepMcpServer(
+ 	const lifetime = AbortSignal.any([closed.signal, ...(abortSignal ? [abortSignal] : [])]);
+ 	if (onToolsChanged) client.setNotificationHandler(ToolListChangedNotificationSchema, onToolsChanged);
+ 	const signal = AbortSignal.any([AbortSignal.timeout(timeout), lifetime]);
++	let closing: Promise<void> | undefined;
++	const close = () => {
++		closing ??= closeStepMcpServer({ client, transport });
++		return closing;
++	};
+ 	const closeOnAbort = () => {
+-		void closeStepMcpServer({ client, transport });
++		void close();
+ 	};
+ 	signal.addEventListener("abort", closeOnAbort, { once: true });
+ 	try {
+@@ -648,7 +688,7 @@ export async function connectStepMcpServer(
+ 			callTimeoutMs,
+ 		};
+ 	} catch (error) {
+-		await closeStepMcpServer({ client, transport });
++		await close();
+ 		throw error;
+ 	} finally {
+ 		signal.removeEventListener("abort", closeOnAbort);
+diff --git a/packages/coding-agent/test/desktop-plugin-host.test.ts b/packages/coding-agent/test/desktop-plugin-host.test.ts
+new file mode 100644
+index 0000000..dd61a80
+--- /dev/null
++++ b/packages/coding-agent/test/desktop-plugin-host.test.ts
+@@ -0,0 +1,200 @@
++import { mkdtemp, rm, writeFile } from "node:fs/promises";
++import { tmpdir } from "node:os";
++import path from "node:path";
++import { afterEach, expect, test } from "vitest";
++import {
++	type DesktopHostCandidate,
++	DesktopPluginHost,
++	desktopPluginHostCommand,
++} from "../src/step/desktop-plugin-host.js";
++
++const roots: string[] = [];
++afterEach(async () => {
++	await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
++});
++async function fixture(sidecar: unknown = { consumer: { server: "example" } }) {
++	const root = await mkdtemp(path.join(tmpdir(), "dfsc-native-host-"));
++	roots.push(root);
++	if (sidecar !== null) await writeFile(path.join(root, "dfsc.host.json"), JSON.stringify(sidecar));
++	const candidate: DesktopHostCandidate = {
++		pluginId: "host-example",
++		pluginRoot: root,
++		name: "host-example__example",
++		declaration: { command: "node", args: ["server.mjs"], cwd: root },
++	};
++	let discovered = [candidate],
++		sessionId = "session-fixture",
++		connected = false,
++		starts = 0;
++	const controller = new AbortController(),
++		owner = {};
++	const host = new DesktopPluginHost(
++		owner,
++		() => sessionId,
++		async () => discovered,
++		controller.signal,
++	);
++	const start = async () => {
++		starts++;
++		connected = true;
++		return true;
++	};
++	const defer = () => host.defer(candidate, start, () => connected);
++	const context = () =>
++		JSON.stringify({
++			version: "dfsc-launch-v1",
++			mode: "follow",
++			pluginId: candidate.pluginId,
++			consumer: "example",
++			sessionId,
++		});
++	return {
++		root,
++		owner,
++		host,
++		candidate,
++		controller,
++		defer,
++		context,
++		starts: () => starts,
++		discover: (items: DesktopHostCandidate[]) => {
++			discovered = items;
++		},
++		session: (value: string) => {
++			sessionId = value;
++		},
++		disconnect: () => {
++			connected = false;
++		},
++	};
++}
++test("only an opted-in plugin consumer is deferred; malformed declarations fail closed", async () => {
++	for (const [declaration, expected, count] of [
++		[null, false, 0],
++		[{}, true, 0],
++		[{ consumer: { server: "other" } }, false, 0],
++		[{ consumer: { server: "example" } }, true, 1],
++	] as const) {
++		const f = await fixture(declaration);
++		expect(await f.defer()).toBe(expected);
++		expect(f.host.list()).toHaveLength(count);
++		expect(f.starts()).toBe(0);
++	}
++});
++test("native records permit a single matching launch, including concurrent replay rejection", async () => {
++	const f = await fixture();
++	await f.defer();
++	const record = f.host.list()[0];
++	await expect(
++		f.host.start(
++			record.requestId,
++			JSON.stringify({
++				version: "dfsc-launch-v1",
++				mode: "follow",
++				pluginId: "wrong",
++				consumer: "example",
++				sessionId: record.sessionId,
++			}),
++		),
++	).rejects.toThrow();
++	const results = await Promise.allSettled([
++		f.host.start(record.requestId, f.context()),
++		f.host.start(record.requestId, f.context()),
++	]);
++	expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
++	expect(f.starts()).toBe(1);
++	expect((await f.host.inspect(record.requestId)).phase).toBe("connected");
++	await expect(f.host.start(record.requestId, f.context())).rejects.toThrow();
++	f.disconnect();
++	await expect(f.host.inspect(record.requestId)).rejects.toThrow();
++});
++test("changed command, plugin root, conflict, removal and global replacement invalidate discovery", async () => {
++	for (const change of [
++		(f: Awaited<ReturnType<typeof fixture>>) => [{ ...f.candidate, declaration: { command: "other" } }],
++		(f: Awaited<ReturnType<typeof fixture>>) => [{ ...f.candidate, pluginRoot: path.join(f.root, "other") }],
++		(f: Awaited<ReturnType<typeof fixture>>) => [{ ...f.candidate, hostConflict: true }],
++		() => [],
++		(f: Awaited<ReturnType<typeof fixture>>) => [{ ...f.candidate, pluginId: undefined, pluginRoot: undefined }],
++		(f: Awaited<ReturnType<typeof fixture>>) => [f.candidate, f.candidate],
++		(f: Awaited<ReturnType<typeof fixture>>) => [
++			{ ...f.candidate, declaration: { ...f.candidate.declaration, disabled_tools: ["restricted"] } },
++		],
++	]) {
++		const f = await fixture();
++		await f.defer();
++		const record = f.host.list()[0];
++		f.discover(change(f));
++		await expect(f.host.start(record.requestId, f.context())).rejects.toThrow();
++		expect(f.starts()).toBe(0);
++	}
++});
++test("changed or removed host declarations invalidate a pending request", async () => {
++	for (const remove of [false, true]) {
++		const f = await fixture();
++		await f.defer();
++		const record = f.host.list()[0],
++			file = path.join(f.root, "dfsc.host.json");
++		if (remove) await rm(file);
++		else await writeFile(file, JSON.stringify({ consumer: { server: "other" } }));
++		await expect(f.host.start(record.requestId, f.context())).rejects.toThrow();
++		expect(f.starts()).toBe(0);
++	}
++});
++test("shutdown settlement waits for an in-flight deferred connection to finish cleanup", async () => {
++	const f = await fixture();
++	let release!: () => void, reached!: () => void;
++	const gate = new Promise<void>((done) => {
++		release = done;
++	});
++	const ready = new Promise<void>((done) => {
++		reached = done;
++	});
++	await f.host.defer(
++		f.candidate,
++		async () => {
++			reached();
++			await gate;
++			return false;
++		},
++		() => false,
++	);
++	const starting = f.host.start(f.host.list()[0].requestId, f.context());
++	const rejected = expect(starting).rejects.toThrow();
++	await ready;
++	f.controller.abort();
++	let settled = false;
++	const stopping = f.host.settled().then(() => {
++		settled = true;
++	});
++	await Promise.resolve();
++	expect(settled).toBe(false);
++	release();
++	await stopping;
++	await rejected;
++});
++test("session changes, abort and replacement invalidate all old private records", async () => {
++	const f = await fixture();
++	await f.defer();
++	const record = f.host.list()[0];
++	f.session("different-session");
++	await expect(f.host.inspect(record.requestId)).rejects.toThrow();
++	f.controller.abort();
++	expect(f.host.list()).toEqual([]);
++	await expect(desktopPluginHostCommand(f.owner, { action: "list" })).rejects.toThrow();
++});
++test("failed startup consumes a record without echoing private launch context", async () => {
++	const f = await fixture();
++	await f.host.defer(
++		f.candidate,
++		async (context) => {
++			throw new Error(context);
++		},
++		() => false,
++	);
++	const record = f.host.list()[0];
++	await expect(f.host.start(record.requestId, f.context())).rejects.toThrow(
++		"Desktop plugin host launch is unavailable or stale",
++	);
++	await expect(f.host.start(record.requestId, f.context())).rejects.toThrow();
++	expect(f.host.list()[0].phase).toBe("failed");
++});

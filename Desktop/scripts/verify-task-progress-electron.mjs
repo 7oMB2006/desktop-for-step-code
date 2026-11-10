@@ -12,7 +12,7 @@ const workspace = join(profile, 'workspace');
 const runtimeProfile = join(profile, 'step-runtime');
 await mkdir(workspace);
 await mkdir(join(runtimeProfile, 'sessions'), { recursive: true });
-await writeFile(join(profile, 'preferences.json'), JSON.stringify({ language: 'zh', theme: 'light', workspace, workspaces: [workspace] }));
+await writeFile(join(profile, 'preferences.json'), JSON.stringify({ language: 'zh', theme: 'light', workspace, workspaces: [workspace], completionSound: true }));
 await writeFile(join(runtimeProfile, 'config.toml'), [
   'defaultProvider = "fixture"', 'defaultModel = "fixture"', 'permissionPreset = "approve-for-me"',
   '[telemetry]', 'enabled = false', '[mcp_servers.steppage__steppage]', 'enabled = false', '',

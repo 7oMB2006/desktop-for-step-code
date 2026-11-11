@@ -6,7 +6,8 @@ import type { BackgroundAgentClient } from './background-agents';
 import type { WindowConversationBridge, WindowPresentation } from './window-conversation';
 import type { RemoteBridge } from './remote';
 import type { ExternalConnectorBridge } from './external-connectors';
-export interface Snapshot { windowPresentation?: WindowPresentation }
+import type { SpeechBridge } from './speech';
+export interface Snapshot { windowPresentation?: WindowPresentation; windowPresentationRevision?: number }
 export interface Message { desktopWorkflow?: WorkflowState; desktopToolPending?: boolean }
 export interface Message { desktopImported?: boolean }
 export interface Message { desktopInput?: { version: 1; text: string } }
@@ -30,6 +31,8 @@ export interface Model { id: string; provider: string; name: string; providerNam
 export interface Preferences { preferredModel?: Pick<Model, 'provider' | 'id' | 'name'> }
 export interface Preferences { favoriteModels?: import('./model-favorites').ModelIdentity[] }
 export interface Preferences extends Partial<import('./panel-preferences').PanelPreferences> {}
+export interface NotificationPreferences { approvalNotifications: boolean; completionNotifications: boolean; completionSound: boolean }
+export interface Preferences extends Partial<NotificationPreferences> {}
 export interface Content { type: string; text?: string; thinking?: string; id?: string; name?: string; arguments?: unknown; data?: string; mimeType?: string }
 export type ComposerAttachment = { kind: 'image'; name: string; content: Content } | { kind: 'file'; id: string; name: string; size: number };
 export interface PendingMessage { id: string; message: string; attachmentCount: number; version: number; sending?: boolean; steered?: boolean }
@@ -110,7 +113,7 @@ export interface PluginWindowSnapshot {
   plugin: import('./capabilities').CapabilityPlugin;
   preferences: Pick<Preferences, 'language' | 'theme' | 'accentColor' | 'appearance'>;
 }
-export interface DesktopBridge extends SessionImportBridge, BtwBridge, BackgroundAgentClient, WindowConversationBridge, RemoteBridge, ExternalConnectorBridge {
+export interface DesktopBridge extends SessionImportBridge, BtwBridge, BackgroundAgentClient, WindowConversationBridge, RemoteBridge, ExternalConnectorBridge, SpeechBridge {
   pluginWindowOpen(input: { ref: string }): Promise<void>;
   pluginWindowState(): Promise<PluginWindowSnapshot>;
   pluginWindowConfigure(): Promise<void>;
@@ -126,9 +129,12 @@ export interface DesktopBridge extends SessionImportBridge, BtwBridge, Backgroun
   pluginRepositoryInfo(input: { ref: string; refresh: boolean }): Promise<import('./capabilities').PluginStarSnapshot>;
   pluginConfiguration(input: { ref: string }): Promise<import('./capabilities').PluginConfiguration>;
   pluginSaveConfiguration(input: import('./capabilities').PluginConfigurationInput): Promise<import('./capabilities').PluginConfiguration>;
+  pluginHostSettings(input: { ref: string }): Promise<import('./capabilities').PluginHostSettings>;
+  pluginSaveHostSettings(input: import('./capabilities').PluginHostSettingsInput): Promise<import('./capabilities').PluginHostSettings>;
   pluginChoosePath(input: { ref: string; field: string }): Promise<string | null>;
   themeScene(id: string): Promise<import('./theme-packs').StellarScene>;
   themePoster(id: string): Promise<string | undefined>;
+  themeImage(id: string): Promise<import('./theme-packs').ThemeImage>;
   capabilityMutate(input: import('./capabilities').CapabilityMutation): Promise<import('./capabilities').CapabilityResult>;
   capabilityImportSkill(): Promise<import('./capabilities').CapabilityResult | null>;
   bvrConfiguration(): Promise<import('./bvr-settings').BvrConfiguration>;

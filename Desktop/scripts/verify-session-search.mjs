@@ -4,6 +4,7 @@ import { mkdir, mkdtemp, realpath, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { closeDesktopFixture } from './close-desktop-fixture.mjs';
+import { settleLayout } from './settle-layout.mjs';
 
 const profile = await realpath(await mkdtemp(join(tmpdir(), 'desktop-session-search-')));
 const project = join(profile, 'project');
@@ -117,9 +118,15 @@ try {
   assert.equal(await projectGroup.locator('.workspace-disclosure').getAttribute('aria-hidden'), 'true');
   phase = 'light, dark, narrow and keyboard focus bounds';
   for (const [theme, width] of [['light', 1200], ['dark', 1200], ['light', 600], ['dark', 600]]) {
+    phase = `keyboard focus bounds (${theme}, ${width}px)`;
     await page.evaluate(theme => window.desktop.preferences({ theme }), theme);
     await page.reload();
-    await app.evaluate(({ BrowserWindow }, width) => BrowserWindow.getAllWindows()[0].setSize(width, 850), width);
+    const size = await app.evaluate(({ BrowserWindow }, width) => {
+      const window = BrowserWindow.getAllWindows()[0];
+      window.setSize(width, 850);
+      return window.getContentSize();
+    }, width);
+    await page.waitForFunction(([width, height]) => innerWidth === width && innerHeight === height, size);
     await page.waitForFunction(() => !document.querySelector('.new-chat')?.disabled);
     if (width < 760) {
       await page.waitForFunction(() => document.querySelector('.app')?.classList.contains('sidebar-compact'));
@@ -129,6 +136,7 @@ try {
     await page.getByRole('button', { name: '搜索', exact: true }).click();
     await search.fill('登录');
     await search.press('ArrowRight');
+    await settleLayout(search);
     const focus = await search.evaluate(input => {
       const row = input.closest('.sidebar-utility-row');
       const style = getComputedStyle(row), rect = row.getBoundingClientRect();

@@ -168,7 +168,17 @@ const env = { ...process.env, DESKTOP_TEST_USER_DATA: profile, DESKTOP_TEST_NO_F
 delete env.ELECTRON_RUN_AS_NODE;
 let app;
 try {
-  const launch = () => electron.launch({ ...(executablePath ? { executablePath } : { args: [sourceEntry] }), env, timeout: 60000 });
+  const launch = async () => {
+    const next = await electron.launch({ ...(executablePath ? { executablePath } : { args: [sourceEntry] }), env, timeout: 60000 });
+    try {
+      // firstWindow can still refer to the document preceding loadFile.
+      await (await next.firstWindow()).waitForURL('**/renderer/index.html', { timeout: 60000 });
+      return next;
+    } catch (error) {
+      await closeDesktopFixture(next);
+      throw error;
+    }
+  };
   app = await launch();
   let page = await app.firstWindow();
   const errors = [];

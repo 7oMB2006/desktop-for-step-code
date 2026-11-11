@@ -92,6 +92,7 @@ await cp('electron/capability-failure.mjs', join(runtime, 'capability-failure.mj
 await cp('electron/marketplace-refresh.mjs', join(runtime, 'marketplace-refresh.mjs'));
 await cp('electron/capability-settings.mjs', join(runtime, 'capability-settings.mjs'));
 await cp('electron/plugin-files.mjs', join(runtime, 'plugin-files.mjs'));
+await cp('electron/theme-composition.mjs', join(runtime, 'theme-composition.mjs'));
 await cp('electron/plugin-update.mjs', join(runtime, 'plugin-update.mjs'));
 await cp('electron/plugin-configuration.mjs', join(runtime, 'plugin-configuration.mjs'));
 await cp('electron/session-import.mjs', join(runtime, 'session-import.mjs'));
@@ -101,6 +102,7 @@ await cp('electron/steppage-config.mjs', join(runtime, 'steppage-config.mjs'));
 await cp('electron/usage-overview.mjs', join(runtime, 'usage-overview.mjs'));
 await cp('electron/desktop-sessions.mjs', join(runtime, 'desktop-sessions.mjs'));
 await cp('electron/desktop-remote.mjs', join(runtime, 'desktop-remote.mjs'));
+await cp('electron/runtime-compile-cache.mjs', join(runtime, 'runtime-compile-cache.mjs'));
 await build({ entryPoints: ['electron/project-instructions-extension.ts'], outfile: join(runtime, 'project-instructions.mjs'),
   bundle: true, platform: 'node', format: 'esm', target: 'node24' });
 await cp('../LICENSE', join(runtime, 'DESKTOP-LICENSE'));
@@ -125,5 +127,5 @@ for (const name of ['jiti', '@silvia-odwyer/photon-node']) {
   const packageDirectory = await resolvePackageDirectory(name);
   await cp(packageDirectory, join(runtime, 'step/node_modules', name), { recursive: true, dereference: true });
 }
-await writeFile(join(runtime, 'manifest.json'), JSON.stringify({ commit, upstreamCommits: (integrationManifest.upstream?.commits ?? []).map(entry => entry.sha), platform: process.platform, arch: process.arch, node: process.version, nodeSha256, entry: 'step/dist/bundle/step.js', patches: ['windows-build', 'desktop-auth-exports', 'desktop-memory-auth', 'subagent-child-env', 'desktop-summary-rpc', 'desktop-plan-review', 'desktop-clarification-beta', 'desktop-cron-state', 'desktop-cron-management', 'desktop-plugin-management', 'desktop-cron-recovery', 'desktop-cron-management-beta', 'desktop-cron-recovery-guard', 'desktop-session-import', 'desktop-session-cron-scope', 'desktop-auto-resume-origin', 'desktop-background-lifecycle', 'desktop-background-control', 'desktop-btw', 'desktop-template-input', 'desktop-subagent-redaction', 'desktop-background-reply', 'desktop-completion-review', ...(platformManifest?.patchIds ?? [])], patchedSourceHashes }, null, 2));
+await writeFile(join(runtime, 'manifest.json'), JSON.stringify({ commit, upstreamCommits: (integrationManifest.upstream?.commits ?? []).map(entry => entry.sha), platform: process.platform, arch: process.arch, node: process.version, nodeSha256, entry: 'step/dist/bundle/step.js', patches: ['windows-build', 'desktop-auth-exports', 'desktop-memory-auth', 'subagent-child-env', 'desktop-summary-rpc', 'desktop-plan-review', 'desktop-clarification-beta', 'desktop-cron-state', 'desktop-cron-management', 'desktop-plugin-management', 'desktop-cron-recovery', 'desktop-cron-management-beta', 'desktop-cron-recovery-guard', 'desktop-session-import', 'desktop-session-cron-scope', 'desktop-auto-resume-origin', 'desktop-background-lifecycle', 'desktop-background-control', 'desktop-btw', 'desktop-template-input', 'desktop-subagent-redaction', 'desktop-background-reply', 'desktop-completion-review', 'desktop-mcp-credential-isolation', 'desktop-plugin-host-launch', ...(platformManifest?.patchIds ?? [])], patchedSourceHashes }, null, 2));
 console.log(`Staged Step Code ${commit} with ${process.version}`);

@@ -251,6 +251,7 @@ try {
   const returnPosition = await page.evaluate(() => {
     const bar = document.querySelector('.composer-context-bar.has-queue');
     const changes = bar.querySelector('.live-turn-context');
+    const owner = changes?.parentElement;
     const next = changes?.nextSibling;
     changes?.remove();
     const existing = bar.querySelector('.jump-to-bottom');
@@ -259,7 +260,7 @@ try {
     const bounds = bar.getBoundingClientRect();
     const rect = button.getBoundingClientRect();
     if (!existing) button.remove();
-    if (changes) bar.insertBefore(changes, next);
+    if (changes) owner.insertBefore(changes, next);
     return { right: rect.right, barRight: bounds.right };
   });
   assert.ok(Math.abs(returnPosition.right - returnPosition.barRight) < 2,

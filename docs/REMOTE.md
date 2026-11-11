@@ -80,9 +80,16 @@ authorization or other targets. At most eight runtime targets remain attached.
 Opening another target may release an older idle, noncurrent attachment, never
 a running or waiting one. Its saved conversation remains available for selection.
 Attached hosts are not reused for a new session or recycled as idle workers.
-History changes and runtime replacement require unbinding first. Ordinary
-executable-plugin and runtime-configuration mutations retain the conservative
-idle/unbind guards; Remote does not gain authority over unrelated files.
+History changes and runtime replacement still require unbinding first.
+Non-restarting executable-plugin and runtime-configuration writes may retain
+healthy, idle attached targets. Their shared runtime write barrier refuses new
+Remote input and approval responses until the operation finishes; rejected input
+is not queued or retried. Active tasks, queued messages, pending approvals, Goal,
+side questions, background work and scheduled resource use remain protected.
+Connection observations and worker/RPC/session identity are revalidated before
+writes, including when process exit automatically clears a Remote attachment.
+Remote does not gain authority over unrelated files, and saving configuration
+does not mean an existing worker has hot-applied it.
 
 Marketplace maintenance uses a separate management lease, not the runtime
 settings lock, so it does not detach targets or block Remote input/approvals.

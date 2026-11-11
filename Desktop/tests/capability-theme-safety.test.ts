@@ -70,3 +70,45 @@ test('pure theme proof refuses a linked package subtree', async t => {
   await symlink(target, join(f.root, 'linked'), process.platform === 'win32' ? 'junction' : 'dir');
   assert.equal(await dataOnlyThemeFingerprint(f.root, 'theme'), undefined);
 });
+
+test('version two reviewed composition remains data-only without requiring valid visual metadata', async t => {
+  const f = await fixture(t);
+  const raw = { schemaVersion: 2, ui: { renderer: 'standard-v1' },
+    background: { renderer: 'solid-v1', accepts: ['image-v1'] } };
+  await writeFile(join(f.root, 'dfsc.theme.json'), JSON.stringify(raw));
+  const before = await dataOnlyThemeFingerprint(f.root, 'theme');
+  assert.equal(before, await packageFingerprint(f.root));
+  await writeFile(join(f.root, 'background.png'), 'not-decoded-by-safety-proof');
+  const after = await dataOnlyThemeFingerprint(f.root, 'theme');
+  assert.equal(after, await packageFingerprint(f.root));
+  assert.notEqual(after, before);
+  for (const background of [
+    { renderer: 'stellar-v1', source: 'scene.json' },
+    { renderer: 'image-v1', source: 'background.jpg' },
+  ]) {
+    await writeFile(join(f.root, 'dfsc.theme.json'), JSON.stringify({ ...raw, ui: { renderer: 'stellar-v1' }, background }));
+    assert.equal(await dataOnlyThemeFingerprint(f.root, 'theme'), await packageFingerprint(f.root));
+  }
+});
+
+test('version two composition cannot grant unknown or executable capabilities', async t => {
+  const f = await fixture(t);
+  const raw = { schemaVersion: 2, ui: { renderer: 'standard-v1' }, background: { renderer: 'solid-v1' } };
+  for (const theme of [
+    { ...raw, entry: 'index.js' }, { ...raw, capabilities: {} },
+    { ...raw, renderer: 'stellar-v1' }, { ...raw, ui: { renderer: 'arbitrary-js' } },
+    { ...raw, background: { renderer: 'html-v1', source: 'index.html' } },
+    { ...raw, background: { renderer: 'solid-v1', accepts: ['arbitrary-js'] } },
+    { ...raw, background: { renderer: 'image-v1', source: '../background.png' } },
+    { ...raw, background: { renderer: 'image-v1', source: 'background.webp' } },
+    { ...raw, background: { renderer: 'stellar-v1', source: 'scene.json', script: 'index.js' } },
+  ]) {
+    await writeFile(join(f.root, 'dfsc.theme.json'), JSON.stringify(theme));
+    assert.equal(await dataOnlyThemeFingerprint(f.root, 'theme'), undefined);
+  }
+  await writeFile(join(f.root, 'dfsc.theme.json'), JSON.stringify(raw));
+  for (const extra of [{ entry: 'index.js' }, { skills: ['skills'] }, { mcpServers: { tools: {} } }, { futureCapability: {} }]) {
+    await f.save({ ...f.manifest, ...extra });
+    assert.equal(await dataOnlyThemeFingerprint(f.root, 'theme'), undefined);
+  }
+});

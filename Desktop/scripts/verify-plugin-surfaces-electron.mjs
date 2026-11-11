@@ -397,6 +397,14 @@ try {
   await main.getByRole('button', { name: 'Scroll to bottom', exact: true }).waitFor();
   const reading = await conversation.evaluate(element => element.scrollTop);
   assert.ok(reading > 0);
+  console.log('Retained conversation reading baseline:', reading);
+  const assertReadingRestored = async () => {
+    await main.waitForFunction(expected => {
+      const viewport = document.querySelector('#conversation-scroll');
+      return viewport && Math.abs(viewport.scrollTop - expected) < 4;
+    }, reading);
+    assert.ok(Math.abs(await conversation.evaluate(element => element.scrollTop) - reading) < 4);
+  };
   assert.equal(await main.locator('.plugin-action-group').count(), 0);
   const added = await mutate({ action: 'marketplace-add', source: pathToFileURL(market).href });
   assert.deepEqual(added.warnings, []);
@@ -450,7 +458,7 @@ try {
   await center().getByRole('button', { name: 'Back to conversation', exact: true }).click();
   await composer.waitFor();
   assert.equal(await composer.innerText(), 'KEEP THE REAL DESKTOP DRAFT');
-  assert.ok(Math.abs(await conversation.evaluate(element => element.scrollTop) - reading) < 4);
+  await assertReadingRestored();
   await main.getByRole('button', { name: 'Plugin marketplace', exact: true }).click();
   const allPlugins = center().getByRole('button', { name: 'All plugins', exact: true });
   if (await allPlugins.isVisible()) await allPlugins.click();
@@ -467,7 +475,7 @@ try {
   await mainSpace.getByRole('button', { name: 'Back to workspace', exact: true }).click();
   await composer.waitFor();
   assert.equal(await composer.innerText(), 'KEEP THE REAL DESKTOP DRAFT');
-  assert.ok(Math.abs(await conversation.evaluate(element => element.scrollTop) - reading) < 4);
+  await assertReadingRestored();
   await openAction(fixturePlugins[0]);
   assert.equal(await mainSpace.getByRole('tab', { name: 'Connection', exact: true }).getAttribute('aria-selected'), 'true');
   assert.ok(await mainSpace.getByRole('tabpanel').evaluate(element => element.scrollTop) > 400);
@@ -888,6 +896,9 @@ try {
   console.error('Full plugin surface acceptance failed:', error);
   for (const [index, page] of (app?.windows() ?? []).entries()) {
     await page.screenshot({ path: join(output, `failure-${index}.png`) }).catch(() => {});
+    console.error(`window ${index} reading geometry`, await page.locator('#conversation-scroll').evaluate(element => ({
+      scrollTop: element.scrollTop, scrollHeight: element.scrollHeight, clientHeight: element.clientHeight,
+    })).catch(() => null));
     console.error(`window ${index}`, await page.locator('body').innerText().catch(() => ''), errors);
   }
   throw error;

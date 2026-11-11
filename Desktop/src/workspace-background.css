@@ -1,0 +1,12 @@
+/* Only host-owned surfaces expose the background; text and controls stay opaque. */
+:root[data-theme-background]:not([data-theme-background=solid-v1]) .app { isolation: isolate; background: transparent; }
+.theme-workspace-background { position: fixed; inset: 0; z-index: -1; pointer-events: none; background: var(--bg); }
+.theme-workspace-image { display: block; width: 100%; height: 100%; object-fit: cover; user-select: none; }
+:root[data-theme-background]:not([data-theme-background=solid-v1]):not([data-theme-material=stellar])
+  :is(main, .main-content, .conversation-shell, .conversation) { background: transparent; }
+:root[data-theme-background]:not([data-theme-background=solid-v1]):not([data-theme-material=stellar]) .new-session {
+  background: color-mix(in srgb, var(--bg) 92%, transparent);
+}
+:root[data-theme-background]:not([data-theme-background=solid-v1]):not([data-theme-material=stellar]) .messages {
+  background: var(--bg);
+}

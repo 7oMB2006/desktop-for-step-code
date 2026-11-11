@@ -5,7 +5,7 @@ import { mkdir, writeFile, readFile, mkdtemp } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
-import { prepareSessionFixture } from './session-fixture.mjs';
+import { prepareSessionFixture, restartIdleSessionFixture } from './session-fixture.mjs';
 
 const profile = await mkdtemp(join(tmpdir(), 'step-file-preview-'));
 const chosen = join(profile, 'picked.txt');
@@ -30,10 +30,34 @@ async function waitBrowser(page, predicate) {
   assert.fail(`Browser state did not settle: ${JSON.stringify(snapshot)}`);
 }
 let app = await launch();
+let page;
+const errors = [];
+let stage = 'startup';
+async function resizeWindow(width, height) {
+  const size = await app.evaluate(({ BrowserWindow }, { width, height }) => {
+    const window = BrowserWindow.getAllWindows()[0];
+    window.setSize(width, height);
+    return window.getContentSize();
+  }, { width, height });
+  // Native setSize returns before the renderer receives its new viewport.
+  await page.waitForFunction(([width, height]) => innerWidth === width && innerHeight === height, size);
+  await settleLayout(page.locator('.app'));
+}
 try {
-  const page = await app.firstWindow();
-  const errors = [];
+  page = await app.firstWindow();
   page.on('pageerror', error => errors.push(error.message));
+  await page.addInitScript(() => {
+    window.filePreviewEvents = [];
+    const record = detail => {
+      window.filePreviewEvents.push({ time: performance.now(), width: innerWidth, height: innerHeight, ...detail });
+      if (window.filePreviewEvents.length > 40) window.filePreviewEvents.shift();
+    };
+    window.addEventListener('resize', () => record({ type: 'resize' }));
+    for (const type of ['pointerdown', 'pointerup', 'click']) document.addEventListener(type, event => {
+      const target = event.target instanceof Element ? event.target.closest('a,button') : null;
+      record({ type, target: target?.textContent, tag: target?.tagName, x: event.clientX, y: event.clientY });
+    }, true);
+  });
   await app.evaluate(({ BrowserWindow }) => {
     const window = BrowserWindow.getAllWindows()[0];
     window.setOpacity(0); window.setIgnoreMouseEvents(true); window.showInactive(); window.setSize(1680, 880);
@@ -67,6 +91,7 @@ function draw(){if(!window.paused)tick++;x.fillStyle='#85d4be';x.fillRect(0,0,40
   await app.evaluate(({ ipcMain }, { snapshot, messages }) => {
     const original = ipcMain._invokeHandlers.get('desktop');
     globalThis.fileFixture = { ...snapshot, messages };
+    globalThis.filePreviewCalls = [];
     ipcMain.removeHandler('desktop');
     ipcMain.handle('desktop', async (event, method, ...args) => {
       if (method === 'snapshot') return { ...globalThis.fileFixture, preferences: (await original(event, method, ...args)).preferences };
@@ -75,7 +100,18 @@ function draw(){if(!window.paused)tick++;x.fillStyle='#85d4be';x.fillRect(0,0,40
         globalThis.filePreviewDelayNextBrowserRead = false;
         await new Promise(resolve => setTimeout(resolve, 600));
       }
-      return original(event, method, ...args);
+      if (method !== 'fileOpen') return original(event, method, ...args);
+      const call = { time: Date.now(), method, destination: args[1] ?? 'internal', state: 'pending' };
+      globalThis.filePreviewCalls.push(call);
+      if (globalThis.filePreviewCalls.length > 30) globalThis.filePreviewCalls.shift();
+      try {
+        const result = await original(event, method, ...args);
+        call.state = 'completed'; call.result = result?.destination ?? null;
+        return result;
+      } catch (error) {
+        call.state = 'failed'; call.error = String(error.message ?? error);
+        throw error;
+      }
     });
   }, { snapshot, messages });
   await page.reload();
@@ -272,8 +308,7 @@ function draw(){if(!window.paused)tick++;x.fillStyle='#85d4be';x.fillRect(0,0,40
   await page.screenshot({ path: 'test-results/file-opening-menu-dark.png' });
   await page.keyboard.press('Escape');
   await page.screenshot({ path: 'test-results/file-preview-markdown-dark.png' });
-  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(640, 800));
-  await settleLayout(page.locator('.app'));
+  await resizeWindow(640, 800);
   const narrow = await page.locator('#file-panel').boundingBox();
   assert.ok(narrow.x >= 0 && narrow.x + narrow.width <= 640);
   await widthTrigger.click();
@@ -304,8 +339,10 @@ function draw(){if(!window.paused)tick++;x.fillStyle='#85d4be';x.fillRect(0,0,40
   await page.locator('#file-panel .right-panel-header').getByRole('button', { name: '打开文件', exact: true }).click();
   await page.waitForFunction(() => document.querySelector('.file-preview-source')?.textContent.includes('Explicitly selected'));
   await app.evaluate(({ dialog }) => { dialog.showOpenDialog = globalThis.originalFileDialog; });
-  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1322, 880));
+  stage = 'local-html-open';
+  await resizeWindow(1322, 880);
   await page.evaluate(() => document.documentElement.dataset.theme = 'light');
+  await settleLayout(page.locator('.app'));
   await page.getByRole('link', { name: '海岸骑行动画', exact: true }).click();
   const tabs = await waitBrowser(page, snapshot => snapshot.tabs.some(tab => tab.localFile && !tab.loading));
   const local = tabs.tabs.find(tab => tab.localFile);
@@ -357,6 +394,7 @@ function draw(){if(!window.paused)tick++;x.fillStyle='#85d4be';x.fillRect(0,0,40
     return canvas.toDataURL('image/png').split(',')[1];
   }, { shell: shellImage.toString('base64'), capture });
   await writeFile('test-results/file-preview-html-browser.png', Buffer.from(composite, 'base64'));
+  stage = 'browser-retention-and-refresh';
   await page.getByRole('link', { name: '海岸骑行动画', exact: true }).click();
   assert.equal((await page.evaluate(() => window.desktop.browserList())).tabs.filter(tab => tab.localFile).length, 1);
   await page.locator('#browser-panel').waitFor({ state: 'hidden' });
@@ -370,10 +408,7 @@ function draw(){if(!window.paused)tick++;x.fillStyle='#85d4be';x.fillRect(0,0,40
   await writeFile(join(cwd, 'index.html'), updatedHtml);
   assert.equal(await app.evaluate(() => globalThis.previewContents.executeJavaScript('document.getElementById("refresh-result")?.textContent ?? null')), null);
   await page.locator('#browser-panel').getByRole('button', { name: '刷新', exact: true }).click();
-  await page.waitForFunction(async () => {
-    const snapshot = await window.desktop.browserList();
-    return snapshot.tabs.some(tab => tab.localFile && !tab.loading);
-  });
+  await waitBrowser(page, snapshot => snapshot.tabs.some(tab => tab.localFile && !tab.loading));
   await app.evaluate(async () => {
     const contents = globalThis.previewContents;
     const deadline = Date.now() + 15000;
@@ -401,9 +436,11 @@ function draw(){if(!window.paused)tick++;x.fillStyle='#85d4be';x.fillRect(0,0,40
   await browserPanel.waitFor({ state: 'visible' });
   assert.equal(await browserPanel.isVisible(), true);
   assert.deepEqual(errors, []);
+  stage = 'application-reopen';
   await app.close();
   app = await launch();
   const reopened = await app.firstWindow();
+  page = reopened;
   await app.evaluate(({ BrowserWindow }) => {
     const window = BrowserWindow.getAllWindows()[0];
     window.setOpacity(0); window.setIgnoreMouseEvents(true); window.showInactive();
@@ -420,7 +457,7 @@ function draw(){if(!window.paused)tick++;x.fillStyle='#85d4be';x.fillRect(0,0,40
       .filter(handle => handle.pid && handle.spawnargs?.some(arg => /[\\/]step\.js$/.test(arg)) && handle.spawnargs.includes('rpc'))
       .map(handle => handle.pid));
     assert.ok(pids.length > 0, 'An actual fixture RPC child is running before restart');
-    const restarted = await reopened.evaluate(() => window.desktop.restart());
+    const restarted = await restartIdleSessionFixture(reopened, beforeRestart.runtimeId);
     assert.notEqual(restarted.runtimeId, beforeRestart.runtimeId);
     assert.equal(restarted.state.isStreaming, false);
     assert.equal(await app.evaluate((_electron, pids) => pids.every(pid => {
@@ -428,6 +465,33 @@ function draw(){if(!window.paused)tick++;x.fillStyle='#85d4be';x.fillRect(0,0,40
     }), pids), true, 'Session restart waits until the old RPC process is gone');
   }
   console.log('File preview, three widths, in-app menus, selection/open/reopen persistence, chooser permissions and browser integration passed');
+} catch (error) {
+  const diagnostic = {
+    stage, packaged: Boolean(executablePath), rendererErrors: errors,
+    renderer: await page?.evaluate(async () => ({
+      size: [innerWidth, innerHeight], events: window.filePreviewEvents,
+      error: document.querySelector('.app-error-banner')?.textContent,
+      tabs: await window.desktop.browserList(),
+      links: [...document.querySelectorAll('a.file-reference')].map(element => {
+        const { x, y, width, height } = element.getBoundingClientRect();
+        return { text: element.textContent, bounds: { x, y, width, height } };
+      }),
+    })).catch(() => ({ unavailable: true })),
+    native: await app.evaluate(({ BrowserWindow }) => ({
+      calls: globalThis.filePreviewCalls,
+      windows: BrowserWindow.getAllWindows().map(window => ({
+        size: window.getContentSize(), views: window.contentView.children.map(view => ({
+          destroyed: view.webContents?.isDestroyed(), visible: view.getVisible(), bounds: view.getBounds(),
+          url: view.webContents && !view.webContents.isDestroyed() ? view.webContents.getURL() : undefined,
+        })),
+      })),
+    })).catch(() => ({ unavailable: true })),
+  };
+  const name = `test-results/file-preview-failure-${executablePath ? 'package' : 'source'}`;
+  await page?.screenshot({ path: `${name}.png` }).catch(() => {});
+  await writeFile(`${name}.json`, JSON.stringify(diagnostic, null, 2) + '\n');
+  console.error('File preview diagnostic:', JSON.stringify(diagnostic));
+  throw error;
 } finally {
   await app.close();
   await new Promise(done => server.close(done));

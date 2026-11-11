@@ -31,12 +31,13 @@ async function fixture(t: test.TestContext, guardRecovery?: (id: string) => Prom
   const root = await realpath(await mkdtemp(join(tmpdir(), 'dfsc-operation-policy-')));
   t.after(() => rm(root, { recursive: true, force: true, maxRetries: 5 }));
   const calls: { type: string; args: any }[] = [];
-  let workers = 0, stops = 0;
+  let workers = 0, stops = 0, invalidations = 0;
   let catalog: any = { plugins: [], available: [], mcp: [], skills: [], marketplaces: [], warnings: [] };
   let requestHook = async (_type: string, _args: any): Promise<any> => undefined;
   let stopHook = async () => {};
   const service = new CapabilityService({
     root, node: 'never-spawn', runtime: root, environment: () => ({}), guardRecovery,
+    beforePluginMutation: () => { invalidations++; },
     createWorker: () => {
       workers++;
       return {
@@ -59,7 +60,7 @@ async function fixture(t: test.TestContext, guardRecovery?: (id: string) => Prom
     return packageFingerprint(directory);
   };
   return {
-    root, service, calls, theme, workers: () => workers, stops: () => stops,
+    root, service, calls, theme, workers: () => workers, stops: () => stops, invalidations: () => invalidations,
     setCatalog(value: any) { catalog = value; },
     setRequest(hook: typeof requestHook) { requestHook = hook; },
     setStop(hook: typeof stopHook) { stopHook = hook; },
@@ -85,6 +86,7 @@ test('discovery has no runtime guard even while its network request is pending',
   await operation;
   assert.equal(settingsLocked, false);
   assert.equal(f.calls.find(call => call.type === 'mutate')?.args.input.preserveRuntime, true);
+  assert.equal(f.invalidations(), 0, 'discovery does not revoke a live host lease');
 });
 
 test('theme removal does not consult session task state and releases its resource guard after completion', async t => {
@@ -99,6 +101,7 @@ test('theme removal does not consult session task state and releases its resourc
   });
   assert.deepEqual(events, ['resource-guard', 'commit', 'release']);
   assert.ok(f.calls.find(call => call.type === 'mutate')?.args.input.expectedFingerprint);
+  assert.equal(f.invalidations(), 0, 'data-only theme removal preserves host leases');
 });
 
 test('theme update requires frozen installed and candidate proof from the same recorded source', async t => {
@@ -123,6 +126,7 @@ test('theme update requires frozen installed and candidate proof from the same r
   assert.equal(sent.expectedOldFingerprint, oldFingerprint);
   assert.equal(sent.expectedFingerprint, fingerprint);
   assert.equal(sent.preserveRuntime, true);
+  assert.equal(f.invalidations(), 0);
 });
 
 test('unproven executable operations ignore renderer-supplied exemption flags', async t => {
@@ -139,6 +143,22 @@ test('unproven executable operations ignore renderer-supplied exemption flags', 
     }), error => error === sentinel);
   }
   assert.equal(f.workers(), 0);
+  assert.equal(f.invalidations(), 0, 'a refused guard cannot revoke a live lease');
+});
+
+test('admitted executable writes revoke host leases only after ownership checks and before mutation', async t => {
+  const f = await fixture(t);
+  await f.service.initialize();
+  f.setRequest(async type => {
+    if (type === 'mutate') assert.equal(f.invalidations(), 1);
+  });
+  await f.service.mutate({ action: 'mcp-toggle', name: 'example', enabled: false }, async policy => {
+    assert.equal(policy.scope, 'runtime');
+    assert.equal(f.invalidations(), 0);
+  });
+  assert.equal(f.invalidations(), 1);
+  await f.service.catalog();
+  assert.equal(f.invalidations(), 1, 'passive catalog reads do not revoke leases');
 });
 
 test('mutation input is frozen before queued discovery can await', async t => {

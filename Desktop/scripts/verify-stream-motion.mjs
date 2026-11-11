@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { closeDesktopFixtureAndWait } from './close-desktop-fixture.mjs';
 
 const profile = await mkdtemp(join(tmpdir(), 'step-stream-motion-'));
 await writeFile(join(profile, 'preferences.json'), JSON.stringify({ language: 'zh', theme: 'dark', workspaces: [] }));
@@ -24,6 +25,7 @@ try {
   const snapshot = await prepareSessionFixture(page);
   await app.evaluate(({ ipcMain }, snapshot) => {
     globalThis.motionSnapshot = snapshot;
+    globalThis.motionDesktopHandler = ipcMain._invokeHandlers.get('desktop');
     ipcMain.removeHandler('desktop');
     ipcMain.handle('desktop', (_event, method) => method === 'snapshot' ? globalThis.motionSnapshot : {});
   }, snapshot);
@@ -211,5 +213,10 @@ try {
   assert.deepEqual(errors, []);
   console.log('Stream motion acceptance passed: real intermediate fold heights, reversal, manual reopening, new-text-only fade, Markdown/math/code, frame-stable prose/thinking/fold, resize, history reading, reduced motion and completion.');
 } finally {
-  await app.close();
+  await app.evaluate(({ ipcMain }) => {
+    if (!globalThis.motionDesktopHandler) return;
+    ipcMain.removeHandler('desktop');
+    ipcMain.handle('desktop', globalThis.motionDesktopHandler);
+  }).catch(() => {});
+  await closeDesktopFixtureAndWait(app, 60000);
 }

@@ -1,0 +1,10 @@
+{
+  "id": "dfsc-theme-example",
+  "name": "DFSC Theme Example",
+  "description": "A standard UI theme with an original geometric background and optional personal-image replacement.",
+  "version": "0.1.0",
+  "icon": "icon.png",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

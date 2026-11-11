@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 2,
+  "name": "Theme Composition Example",
+  "author": "Desktop for Step Code contributors",
+  "scheme": "dark",
+  "colors": {
+    "bg": "#141414",
+    "side": "#0d0d0d",
+    "surface": "#1f1f1f",
+    "ink": "#e8e8e8",
+    "muted": "#a4a4a4",
+    "border": "#404040",
+    "code": "#101010",
+    "accent": "#64cbb2"
+  },
+  "ui": { "renderer": "standard-v1" },
+  "background": {
+    "renderer": "image-v1",
+    "source": "background.png",
+    "accepts": ["image-v1"]
+  }
+}

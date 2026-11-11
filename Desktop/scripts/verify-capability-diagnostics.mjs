@@ -9,6 +9,7 @@ import { createRequire } from 'node:module';
 import { pathToFileURL } from 'node:url';
 import { closeDesktopFixtureAndWait } from './close-desktop-fixture.mjs';
 import { finalizeCapabilityDiagnostics } from './capability-diagnostics-finalize.mjs';
+import { pollCapabilityDiagnostic as poll, readJsonDuringRefresh } from './capability-diagnostics-fixture.mjs';
 
 const desktop = resolve('.');
 const require = createRequire(join(desktop, 'package.json'));
@@ -26,12 +27,45 @@ await cp(resolve('../theme-marketplace'), marketSource, { recursive: true, deref
 const guideHeading = 'Offline diagnostics theme guide';
 await writeFile(join(marketSource, 'plugins/stellar-cruise/README.md'),
   `# ${guideHeading}\n\nFixture documentation for Remote-bound theme management.\n`);
+// Preserve fixture bytes independently of the machine's Git line-ending policy.
+await writeFile(join(marketSource, '.gitattributes'), '* -text\n');
 const git = (...args) => execFileSync('git', args, { cwd: marketSource, encoding: 'utf8', stdio: 'pipe' });
 git('init', '--quiet');
 git('add', '--', '.');
 const commitMarket = () => git('-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid',
   '-c', 'commit.gpgsign=false', 'commit', '--quiet', '-am', 'Offline market revision');
 commitMarket();
+const executableId = 'diagnostic-executable';
+const executableSource = join(marketSource, 'plugins', executableId);
+const executableRoot = join(root, 'plugins', executableId);
+const executableCommand = 'commands/diagnostic-never-invoke.md';
+await mkdir(join(executableSource, 'commands'), { recursive: true });
+await writeFile(join(executableSource, 'step.plugin.json'), JSON.stringify({
+  id: executableId, name: 'Offline executable fixture', version: '1.0.0',
+  skills: [], agents: [], commands: ['commands'], mcpServers: {},
+}));
+await writeFile(join(executableSource, executableCommand),
+  '---\ndescription: Offline diagnostics only; never invoke.\n---\nNo executable action is authorized.\n');
+const executableMarketPath = join(marketSource, '.step-plugin/marketplace.json');
+const executableMarket = JSON.parse(await readFile(executableMarketPath, 'utf8'));
+executableMarket.plugins.push({ name: executableId, source: `./plugins/${executableId}`,
+  description: 'Offline command-only executable fixture' });
+await writeFile(executableMarketPath, JSON.stringify(executableMarket));
+git('add', '--', '.step-plugin/marketplace.json', `plugins/${executableId}`);
+commitMarket();
+const mcpHelper = join(profile, 'mcp-fixture.mjs');
+await writeFile(mcpHelper, `
+import { createInterface } from 'node:readline';
+createInterface({ input: process.stdin }).on('line', line => {
+  const request = JSON.parse(line);
+  if (request.id === undefined) return;
+  const result = request.method === 'initialize' ? {
+    protocolVersion: request.params.protocolVersion, capabilities: { tools: {} },
+    serverInfo: { name: 'offline-diagnostics', version: '1.0.0' },
+  } : request.method === 'tools/list' ? { tools: [] } : {};
+  process.stdout.write(JSON.stringify({ jsonrpc: '2.0', id: request.id, result }) + '\\n');
+});
+`);
 const remoteHelper = join(profile, 'remote-fixture.mjs');
 await writeFile(remoteHelper, `
 import { createInterface } from 'node:readline';
@@ -46,7 +80,11 @@ createInterface({ input: process.stdin }).on('line', line => {
     bindingId = value.bindingId;
     send({ type: 'fixture_binding', bindingId });
   }
-  if (value.type === 'fixture-input') { event('input', { id: 'offline-remote-input', text: 'Offline guard check.' }); return; }
+  if (value.type === 'fixture-input') {
+    event('input', { id: value.messageId ?? 'offline-remote-input', text: value.text ?? 'Offline guard check.' }); return;
+  }
+  if (value.type === 'card') send({ type: 'fixture_card',
+    bindingId: value.bindingId, key: value.key, title: value.title, text: value.text });
   const data = value.type === 'snapshot' ? {
     identity: { botId: 'fixture-bot', credentials: { appId: 'fixture-app', appSecret: 'fixture-only', brand: 'feishu' } },
     peer: bindingId ? { actor: 'fixture-human', chat: 'fixture-chat' } : undefined,
@@ -72,24 +110,14 @@ const env = { ...process.env, DESKTOP_TEST_USER_DATA: profile, DESKTOP_TEST_NO_F
   GIT_TERMINAL_PROMPT: '0', GCM_INTERACTIVE: 'never' };
 for (const name of ['DESKTOP_DEV_URL', 'ELECTRON_RUN_AS_NODE', 'STEP_API_KEY', 'GH_TOKEN', 'GITHUB_TOKEN', 'GH_CONFIG_DIR'])
   delete env[name];
-let app, page, holder, operationError, result, remoteIdentity;
+let app, page, mainWindow, holder, operationError, result, remoteIdentity;
 const errors = [], checks = [], diagnostics = [];
 const ownedPids = new Set();
-const poll = async (read, predicate, description) => {
-  const deadline = Date.now() + 60000;
-  while (Date.now() < deadline) {
-    try {
-      const result = await read();
-      if (predicate(result)) return result;
-    } catch (error) {
-      if (!error.message.endsWith('Error: Shared settings operation in progress')) throw error;
-    }
-    await new Promise(resolve => setTimeout(resolve, 100));
-  }
-  throw new Error(`Timed out: ${description}`);
-};
+const blockedRemoteText = 'Remote input during capability management must not run.';
 const catalog = () => page.evaluate(() => window.desktop.capabilityCatalog());
 const mutate = input => page.evaluate(input => window.desktop.capabilityMutate(input), input);
+const executableReceipt = async () => JSON.parse(await readFile(
+  join(root, 'desktop-plugins/installations.json'), 'utf8')).installations.find(item => item.id === executableId);
 const confirm = () => page.getByRole('dialog').getByRole('button', { name: '确认', exact: true }).click();
 // Backend completion can precede perform's catalog refresh, selection change, and pending reset.
 const waitForUiReady = (control, description) => poll(async () =>
@@ -126,8 +154,16 @@ const expectBackendRefusal = async input => {
   let refusal;
   try { await mutate(input); }
   catch (error) { refusal = error.message; }
-  assert.ok(refusal, 'The Remote-bound runtime must refuse executable plugin removal');
-  await readDiagnostic('remote-attached', 'idle-check', refusal);
+  assert.ok(refusal, 'The streaming Remote-bound runtime must refuse executable plugin removal');
+  await readDiagnostic('session-busy', 'idle-check', refusal);
+};
+const releaseMutationHold = async () => {
+  if (!app) return;
+  await app.evaluate(() => {
+    const hold = globalThis.diagnosticMutationHold;
+    globalThis.diagnosticMutationHold = undefined;
+    hold?.release?.();
+  });
 };
 const remoteState = () => page.evaluate(() => window.desktop.remoteState());
 const assertRemoteRetained = async runtimeId => {
@@ -241,21 +277,13 @@ try {
     api: 'openai-completions', baseUrl: `http://127.0.0.1:${server.address().port}/v1`, apiKey: 'fixture-only',
     models: [{ id: 'fixture', name: 'Offline diagnostics', contextWindow: 32768, maxTokens: 1024 }],
   } } }));
-  const executableFixture = join(root, 'plugins/diagnostic-executable');
-  await mkdir(join(executableFixture, 'commands'), { recursive: true });
-  await writeFile(join(executableFixture, 'step.plugin.json'), JSON.stringify({
-    id: 'diagnostic-executable', name: 'Offline executable fixture', version: '1.0.0',
-    skills: [], agents: [], commands: ['commands'], mcpServers: {},
-  }));
-  await writeFile(join(executableFixture, 'commands/diagnostic-never-invoke.md'),
-    '---\ndescription: Offline diagnostics only; never invoke.\n---\nNo executable action is authorized.\n');
   app = await electron.launch({ executablePath: executablePath ?? require('electron'),
     args: executablePath ? [] : [desktop], cwd: desktop, env, timeout: 60000 });
   assert.equal(await app.evaluate(({ app }) => app.isPackaged), Boolean(executablePath));
   page = await app.firstWindow();
+  mainWindow = await app.browserWindow(page);
   page.on('pageerror', error => errors.push(error.message));
-  await app.evaluate(({ BrowserWindow }) => {
-    const window = BrowserWindow.getAllWindows()[0];
+  await mainWindow.evaluate(window => {
     window.setOpacity(0); window.setIgnoreMouseEvents(true); window.showInactive(); window.setSize(1440, 960);
   });
   await page.waitForURL('**/renderer/index.html');
@@ -267,6 +295,8 @@ try {
     globalThis.diagnosticNatives = [];
     globalThis.diagnosticBindingIds = [];
     globalThis.diagnosticChildren = [];
+    globalThis.diagnosticRemoteCards = [];
+    globalThis.diagnosticPromptMessages = [];
     const remember = child => { globalThis.diagnosticChildren.push(child); return child; };
     const observe = (child, receive) => {
       const decoder = new StringDecoder('utf8');
@@ -287,13 +317,42 @@ try {
         const child = globalThis.diagnosticRemote = remember(original(command, [path], options));
         observe(child, value => {
           if (value.type === 'fixture_binding') globalThis.diagnosticBindingIds.push(value.bindingId);
+          if (value.type === 'fixture_card') globalThis.diagnosticRemoteCards.push(value);
         });
         return child;
       }
       const child = remember(original(command, args, options));
+      if (entry?.endsWith('/capability-admin.mjs')) {
+        // Hold the admitted write so main keeps its real runtime barrier until release.
+        const write = child.stdin.write.bind(child.stdin);
+        child.stdin.write = (chunk, ...args) => {
+          let request;
+          try { request = JSON.parse(chunk.toString()); } catch {}
+          const hold = globalThis.diagnosticMutationHold;
+          if (request?.type === 'mutate' && hold && !hold.request
+            && request.input?.action === hold.action && request.input?.id === hold.pluginId) {
+            hold.request = { id: request.id, action: request.input.action, pluginId: request.input.id };
+            hold.release = () => {
+              if (hold.released) return;
+              hold.released = true;
+              write(chunk, ...args);
+            };
+            return true;
+          }
+          return write(chunk, ...args);
+        };
+      }
       if (entry?.endsWith('/step/dist/bundle/step.js')) {
         const record = { child, generation: globalThis.diagnosticNatives.length + 1 };
         globalThis.diagnosticNatives.push(record);
+        const write = child.stdin.write.bind(child.stdin);
+        child.stdin.write = (chunk, ...args) => {
+          let request;
+          try { request = JSON.parse(chunk.toString()); } catch {}
+          if (request?.type === 'prompt' && typeof request.message === 'string')
+            globalThis.diagnosticPromptMessages.push(request.message);
+          return write(chunk, ...args);
+        };
         observe(child, value => {
           if (value.type === 'response' && value.success && value.data?.sessionId)
             record.sessionId = value.data.sessionId;
@@ -304,14 +363,34 @@ try {
       return child;
     };
   }, remoteHelper);
-  const peer = await page.evaluate(() => window.desktop.newIndependentSession());
-  await page.evaluate(id => window.desktop.command('get_commands', undefined, id), peer.runtimeId);
+  await page.evaluate(() => window.desktop.snapshot());
   await mutate({ action: 'marketplace-add', source: pathToFileURL(marketSource).href });
   let current = await catalog();
   const market = current.marketplaces.find(item => item.kind === 'git');
   const theme = current.available.find(item => item.name === 'stellar-cruise');
   assert.ok(market && theme);
   assert.equal(theme.package?.documentation.readme, 'README.md', 'The theme fixture must expose its guide before UI acceptance');
+  const availableExecutable = current.available.find(item => item.name === executableId && item.marketplace === theme.marketplace);
+  assert.ok(availableExecutable?.package?.ref);
+  assert.deepEqual((await mutate({ action: 'plugin-install', name: executableId,
+    marketplace: availableExecutable.marketplace, ref: availableExecutable.package.ref })).warnings, []);
+  const initialExecutable = (await catalog()).plugins.find(item => item.id === executableId);
+  assert.ok(initialExecutable?.package?.ref);
+  assert.equal(initialExecutable.version, '1.0.0');
+  assert.equal(initialExecutable.package.provenance, 'recorded');
+  assert.notEqual(initialExecutable.package.dataOnlyTheme, true);
+  assert.deepEqual(initialExecutable.mcpServers, []);
+  assert.deepEqual(initialExecutable.installationSource, { status: 'recorded', marketplaces: [availableExecutable.marketplace] });
+  const installedExecutableReceipt = await executableReceipt();
+  assert.ok(installedExecutableReceipt);
+  assert.equal(installedExecutableReceipt.state, 'installed');
+  assert.equal(installedExecutableReceipt.folder, executableId);
+  assert.equal(installedExecutableReceipt.marketplace, availableExecutable.marketplace);
+  assert.match(installedExecutableReceipt.instance, /^[a-f0-9-]{36}$/u);
+  assert.match(installedExecutableReceipt.fingerprint, /^[a-f0-9]{64}$/u);
+  checks.push('command-only-executable-installed-through-native-marketplace-with-recorded-receipt-before-peer-start');
+  const peer = await page.evaluate(() => window.desktop.newIndependentSession());
+  await page.evaluate(id => window.desktop.command('get_commands', undefined, id), peer.runtimeId);
   await page.evaluate(() => window.desktop.remoteAction({ type: 'connect' }));
   await poll(remoteState, value => value.status === 'connected' && value.saved, 'offline Remote connected');
   await page.evaluate(() => window.desktop.remoteAction({ type: 'armBinding' }));
@@ -387,13 +466,17 @@ try {
     const checkUpdates = page.getByRole('button', { name: '检查插件更新', exact: true });
     await waitForUiReady(checkUpdates, 'bulk update check enabled');
     await checkUpdates.click();
-    await poll(async () => JSON.parse(await readFile(
-      join(root, 'marketplaces', healthyMarket.name, '.step-plugin/marketplace.json'), 'utf8')),
-    value => value.description === healthyManifest.description, 'healthy source refreshed after another source failed');
+    await poll(() => readJsonDuringRefresh(
+      join(root, 'marketplaces', healthyMarket.name, '.step-plugin/marketplace.json')),
+    value => value?.description === healthyManifest.description, 'healthy source refreshed after another source failed');
     const warning = page.locator('.plugin-center .cap-notes li').filter({ hasText: '诊断编号' });
     await warning.waitFor();
     await readDiagnostic('marketplace-source-unavailable', 'mutation', await warning.innerText(), expectedGitExitCode);
     await waitForUiReady(checkUpdates, 'partial update check completed');
+    // Git checkout can temporarily remove the manifest; read only after the UI operation settles.
+    assert.equal(JSON.parse(await readFile(
+      join(root, 'marketplaces', healthyMarket.name, '.step-plugin/marketplace.json'), 'utf8')).description,
+    healthyManifest.description, 'The healthy source must refresh despite another source failing');
     assert.equal(await readFile(join(root, 'plugins/stellar-cruise/step.plugin.json'), 'utf8'), installedManifest);
     await assertRemoteRetained(peer.runtimeId);
     await page.screenshot({ path: join(output, 'partial-market-refresh-diagnostic.png') });
@@ -406,15 +489,114 @@ try {
   await assertRemoteRetained(peer.runtimeId);
   await page.getByRole('button', { name: '返回会话', exact: true }).click();
   checks.push('explicit-refresh-recovers-after-source-restoration-without-restarting-remote');
-  const blocked = await page.evaluate(async () => {
-    try { await window.desktop.capabilityMutate({ action: 'mcp-toggle', name: 'invalid-not-run', enabled: false }); }
-    catch (error) { return error.message; }
+  const mcpName = 'diagnostic-managed-mcp';
+  const mcpConfig = { command: process.execPath, args: [mcpHelper], enabled: false };
+  await page.evaluate(({ name, config }) => window.desktop.saveMcp(name, config), { name: mcpName, config: mcpConfig });
+  const assertMcpSaved = async enabled => {
+    const saved = await page.evaluate(async name => (await window.desktop.settings()).mcp[name], mcpName);
+    assert.ok(saved);
+    assert.equal(saved.command, mcpConfig.command);
+    assert.deepEqual(saved.args, mcpConfig.args);
+    assert.equal(saved.enabled, enabled);
+    assert.deepEqual(saved.configuredSecrets, []);
+    assert.deepEqual((await catalog()).mcp.find(server => server.name === mcpName), {
+      name: mcpName, source: 'user', transport: 'stdio', enabled, configurable: true,
+    });
+    await assertRemoteRetained(peer.runtimeId);
+  };
+  await assertMcpSaved(false);
+  for (const enabled of [true, false]) {
+    assert.deepEqual((await mutate({ action: 'mcp-toggle', name: mcpName, enabled })).warnings, []);
+    await assertMcpSaved(enabled);
+  }
+  await page.evaluate(name => window.desktop.saveMcp(name, null), mcpName);
+  assert.equal(await page.evaluate(async name => (await window.desktop.settings()).mcp[name], mcpName), undefined);
+  assert.equal((await catalog()).mcp.some(server => server.name === mcpName), false);
+  await assertRemoteRetained(peer.runtimeId);
+  checks.push('idle-remote-preserved-through-native-mcp-save-toggle-on-off-and-removal');
+  assert.equal((await page.evaluate(() => window.desktop.snapshot())).runtimeId, peer.runtimeId);
+  await assert.rejects(page.evaluate(() => window.desktop.restart()), /Unbind Remote before changing this session runtime/u);
+  await assertRemoteRetained(peer.runtimeId);
+  checks.push('native-remote-bound-restart-still-refused-without-changing-identity');
+
+  const executableManifestPath = join(executableSource, 'step.plugin.json');
+  const nextExecutableManifest = JSON.parse(await readFile(executableManifestPath, 'utf8'));
+  nextExecutableManifest.version = '1.1.0';
+  const nextExecutableCommand = '---\ndescription: Updated offline diagnostics only; never invoke.\n---\nNo executable action is authorized.\n';
+  await writeFile(executableManifestPath, JSON.stringify(nextExecutableManifest));
+  await writeFile(join(executableSource, executableCommand), nextExecutableCommand);
+  commitMarket();
+  assert.deepEqual((await mutate({ action: 'marketplace-update', name: market.name })).warnings, []);
+  await assertRemoteRetained(peer.runtimeId);
+  const executableCandidate = (await catalog()).plugins.find(item => item.id === executableId);
+  assert.ok(executableCandidate?.package?.ref);
+  assert.equal(executableCandidate.version, '1.0.0');
+  assert.equal(executableCandidate.update?.status, 'available');
+  assert.equal(executableCandidate.update.version, '1.1.0');
+  assert.ok(executableCandidate.update.ref);
+  assert.deepEqual(await executableReceipt(), installedExecutableReceipt);
+  const executableBeforeUpdate = await readFile(join(executableRoot, 'step.plugin.json'), 'utf8');
+  const configBeforeUpdate = await readFile(join(root, 'config.toml'), 'utf8');
+  await app.evaluate((_, pluginId) => {
+    globalThis.diagnosticMutationHold = { action: 'plugin-update', pluginId, released: false };
+  }, executableId);
+  const pendingUpdate = mutate({ action: 'plugin-update', id: executableId,
+    ref: executableCandidate.package.ref, candidate: executableCandidate.update.ref })
+    .then(value => ({ value }), error => ({ error: error.message }));
+  try {
+    await poll(() => app.evaluate(() => {
+      const hold = globalThis.diagnosticMutationHold;
+      return hold?.request && { ...hold.request, released: hold.released };
+    }), value => value?.action === 'plugin-update' && value.pluginId === executableId && !value.released,
+    'native executable update reached the management write barrier');
+    assert.equal(await readFile(join(executableRoot, 'step.plugin.json'), 'utf8'), executableBeforeUpdate);
+    assert.deepEqual(await executableReceipt(), installedExecutableReceipt);
+    const requestsBeforeBlockedInput = modelRequests;
+    const cardOffset = await app.evaluate(() => globalThis.diagnosticRemoteCards.length);
+    await app.evaluate((_, text) => globalThis.diagnosticRemote.stdin.write(
+      `${JSON.stringify({ type: 'fixture-input', messageId: 'offline-management-blocked', text })}\n`), blockedRemoteText);
+    const cards = await poll(() => app.evaluate((_, start) => globalThis.diagnosticRemoteCards.slice(start), cardOffset),
+      values => values.some(card => card.key === 'receipt' && card.title === 'Not accepted / 未接收'),
+      'Remote reports that input was not accepted while management holds the write barrier');
+    const rejection = cards.find(card => card.key === 'receipt' && card.title === 'Not accepted / 未接收');
+    assert.equal(rejection.bindingId, await app.evaluate(() => globalThis.diagnosticBindingIds[0]));
+    assert.match(rejection.text, /Input was not retried/u);
+    assert.equal(modelRequests, requestsBeforeBlockedInput);
+    const blockedSnapshot = await page.evaluate(() => window.desktop.snapshot());
+    assert.equal(blockedSnapshot.runtimeId, peer.runtimeId);
+    assert.deepEqual(blockedSnapshot.pendingMessages, []);
+    assert.equal(JSON.stringify(blockedSnapshot.messages).includes(blockedRemoteText), false);
+    assert.equal(await app.evaluate(() => globalThis.diagnosticMutationHold?.released), false);
+    checks.push('runtime-management-write-barrier-refuses-real-remote-input-without-model-or-queue-admission');
+  } finally {
+    await releaseMutationHold();
+  }
+  const updateOutcome = await pendingUpdate;
+  assert.equal(updateOutcome.error, undefined, updateOutcome.error);
+  assert.deepEqual(updateOutcome.value.warnings, []);
+  const updatedExecutable = (await catalog()).plugins.find(item => item.id === executableId);
+  assert.equal(updatedExecutable?.version, '1.1.0');
+  assert.equal(updatedExecutable.package?.provenance, 'recorded');
+  assert.notEqual(updatedExecutable.package.dataOnlyTheme, true);
+  assert.notEqual(updatedExecutable.package.ref, executableCandidate.package.ref);
+  assert.equal(updatedExecutable.update?.status, 'current');
+  assert.deepEqual(updatedExecutable.mcpServers, []);
+  assert.deepEqual(updatedExecutable.installationSource, initialExecutable.installationSource);
+  assert.deepEqual(JSON.parse(await readFile(join(executableRoot, 'step.plugin.json'), 'utf8')), nextExecutableManifest);
+  assert.equal(await readFile(join(executableRoot, executableCommand), 'utf8'), nextExecutableCommand);
+  const updatedExecutableReceipt = await executableReceipt();
+  assert.ok(updatedExecutableReceipt);
+  assert.match(updatedExecutableReceipt.fingerprint, /^[a-f0-9]{64}$/u);
+  assert.notEqual(updatedExecutableReceipt.fingerprint, installedExecutableReceipt.fingerprint);
+  assert.deepEqual(updatedExecutableReceipt, {
+    ...installedExecutableReceipt, fingerprint: updatedExecutableReceipt.fingerprint,
   });
-  assert.ok(blocked);
-  await readDiagnostic('remote-attached', 'idle-check', blocked);
-  checks.push('native-remote-binding-retains-ownership-and-still-refuses-unrelated-runtime-resource-mutations');
+  assert.equal(await readFile(join(root, 'config.toml'), 'utf8'), configBeforeUpdate);
+  await assertRemoteRetained(peer.runtimeId);
+  checks.push('idle-remote-preserved-through-native-command-only-update-with-same-installation-instance-and-new-fingerprint');
+  const requestsBeforeStreaming = modelRequests;
   await page.evaluate(id => { void window.desktop.command('prompt', { message: 'Offline guard check.' }, id).catch(() => {}); }, peer.runtimeId);
-  await poll(async () => modelRequests, value => value > 0, 'loopback task started');
+  await poll(async () => modelRequests, value => value > requestsBeforeStreaming, 'loopback task started');
   await assertBusyRemoteRetained(peer.runtimeId);
   await page.evaluate(() => window.desktop.newIndependentSession());
   await page.getByRole('button', { name: /^(插件|插件市场)$/u }).click();
@@ -430,10 +612,13 @@ try {
     'market maintenance enabled after the plugin catalog loads');
   assert.equal(await page.getByRole('button', { name: `更新市场 ${market.name}`, exact: true }).isDisabled(), false);
   await page.getByRole('button', { name: `更新市场 ${market.name}`, exact: true }).click();
-  await poll(async () => JSON.parse(await readFile(join(root, 'marketplaces', market.name, '.step-plugin/marketplace.json'), 'utf8')),
-    value => value.description === busyManifest.description, 'market refreshed while peer streams');
+  await poll(() => readJsonDuringRefresh(join(root, 'marketplaces', market.name, '.step-plugin/marketplace.json')),
+    value => value?.description === busyManifest.description, 'market refreshed while peer streams');
   await waitForUiReady(page.getByRole('button', { name: `更新市场 ${market.name}`, exact: true }),
     'market refresh UI settled while peer streams');
+  assert.equal(JSON.parse(await readFile(
+    join(root, 'marketplaces', market.name, '.step-plugin/marketplace.json'), 'utf8')).description,
+  busyManifest.description, 'The market must refresh while its Remote peer keeps streaming');
   await assertBusyRemoteRetained(peer.runtimeId);
   await page.getByRole('tab', { name: /^已安装/u }).click();
   await page.getByRole('button', { name: '查看 星辰巡航 使用说明', exact: true }).click();
@@ -476,10 +661,14 @@ try {
   const executable = (await catalog()).plugins.find(item => item.id === 'diagnostic-executable');
   assert.ok(executable);
   assert.notEqual(executable.package?.dataOnlyTheme, true);
+  assert.equal(executable.version, '1.1.0');
+  assert.equal(executable.package?.provenance, 'recorded');
   assert.equal(await page.getByRole('button', { name: '卸载插件', exact: true }).isDisabled(), true);
-  await expectBackendRefusal({ action: 'plugin-remove', id: 'diagnostic-executable' });
+  await expectBackendRefusal({ action: 'plugin-remove', id: executableId });
+  assert.deepEqual(await executableReceipt(), updatedExecutableReceipt);
+  assert.deepEqual(JSON.parse(await readFile(join(executableRoot, 'step.plugin.json'), 'utf8')), nextExecutableManifest);
   await assertBusyRemoteRetained(peer.runtimeId);
-  checks.push('streaming-peer-still-disables-and-refuses-executable-plugin-removal');
+  checks.push('streaming-peer-disables-executable-removal-and-backend-refuses-session-busy-with-receipt-intact');
   await page.getByRole('button', { name: '全部插件', exact: true }).click();
   await page.getByRole('tab', { name: '市场来源', exact: true }).click();
   await page.getByRole('button', { name: '添加市场', exact: true }).click();
@@ -497,6 +686,14 @@ try {
   await poll(() => page.evaluate(() => window.desktop.snapshot()),
     value => Array.isArray(value.runtimes) && value.runtimes.some(runtime => runtime.runtimeId === peer.runtimeId)
       && !value.runtimes.some(runtime => runtime.status === 'running' || runtime.status === 'waiting'), 'peer task ended');
+  assert.deepEqual((await mutate({ action: 'plugin-remove', id: executableId })).warnings, []);
+  assert.equal((await catalog()).plugins.some(item => item.id === executableId), false);
+  assert.equal((await readdir(join(root, 'plugins'))).includes(executableId), false);
+  assert.equal(await executableReceipt(), undefined);
+  assert.deepEqual(JSON.parse(await readFile(join(root, 'desktop-plugins/bindings', `${executableId}.json`), 'utf8')),
+    { version: 1, instance: updatedExecutableReceipt.instance, id: executableId, revoked: true });
+  await assertRemoteRetained(peer.runtimeId);
+  checks.push('idle-remote-preserved-through-receipt-backed-executable-removal-and-revocation');
   if (process.platform === 'win32') {
     await holdDirectory(join(root, 'marketplaces', market.name));
     await page.getByRole('button', { name: `移除市场 ${market.name}`, exact: true }).click();
@@ -504,7 +701,7 @@ try {
     await readDiagnostic('(?:operation-denied|file-in-use|directory-not-empty)', 'mutation');
     await waitForUiReady(page.getByRole('button', { name: `移除市场 ${market.name}`, exact: true }),
       'failed market removal UI settled before retry');
-    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(560, 780));
+    await mainWindow.evaluate(window => window.setSize(560, 780));
     await page.waitForFunction(() => innerWidth <= 740);
     await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
     const alertLayout = await page.getByRole('alert').evaluate(element => {
@@ -520,7 +717,7 @@ try {
       JSON.stringify(alertLayout));
     await page.screenshot({ path: join(output, 'locked-directory-narrow.png') });
     await releaseDirectory();
-    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1440, 960));
+    await mainWindow.evaluate(window => window.setSize(1440, 960));
     checks.push('windows-directory-lock-reports-filesystem-reason-without-raw-paths');
   }
   await page.getByRole('button', { name: `移除市场 ${market.name}`, exact: true }).click();
@@ -555,6 +752,14 @@ try {
   await page.evaluate(id => window.desktop.command('abort', {}, id), peer.runtimeId);
   for (const stream of streams) stream.end();
   checks.push('remote-preserved-through-both-removals-and-submits-a-new-loopback-task-afterward');
+  const promptEvidence = await app.evaluate((_, text) => ({
+    blocked: globalThis.diagnosticPromptMessages.some(message => message.includes(text)),
+    accepted: globalThis.diagnosticPromptMessages.some(message => message.includes('Offline guard check.')),
+  }), blockedRemoteText);
+  assert.equal(promptEvidence.accepted, true, 'The native prompt observer must have seen the allowed loopback input');
+  assert.equal(promptEvidence.blocked, false,
+    'Rejected Remote input must never reach a native prompt, including after the management barrier releases');
+  checks.push('rejected-management-remote-input-never-replayed-after-release-and-remote-accepts-fresh-input');
   assert.deepEqual(errors, []);
   result = { packaged: Boolean(executablePath), checks, diagnostics, modelRequests, rendererErrors: errors,
     realProfileModified: false, realAccountTested: false, profile };
@@ -565,6 +770,7 @@ try {
 } finally {
   await finalizeCapabilityDiagnostics(operationError, [
     ['directory-holder', releaseDirectory],
+    ['management-mutation-hold', releaseMutationHold],
     ['model-streams', async () => { for (const stream of streams) stream.end(); }],
     ['desktop-fixture', async () => {
       if (!app) return;

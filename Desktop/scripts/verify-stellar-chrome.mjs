@@ -37,7 +37,7 @@ try {
         return [selector, [rect.width, rect.height]];
       })));
   const theme = async name => {
-    await page.locator('.sidebar-bottom > button').click();
+    await page.locator('.sidebar-settings').click();
     await page.getByRole('button', { name: '外观', exact: true }).click();
     await page.getByRole('button', { name, exact: true }).click();
     await page.getByRole('button', { name: 'Close', exact: true }).click();
@@ -45,6 +45,8 @@ try {
   };
   await open('chat');
   await activity('idle');
+  assert.equal(await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--stellar-signal')), '',
+    'Composer activity colors must not be inherited across the entire transcript');
   const original = await dimensions();
   const route = page.getByRole('group', { name: '任务路线', exact: true });
   await route.getByRole('button', { name: /核对欢迎页/ }).click();

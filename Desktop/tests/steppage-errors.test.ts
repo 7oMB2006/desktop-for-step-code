@@ -16,7 +16,7 @@ test('StepPage messages distinguish a protected Cron restart from installation o
 test('preparation and capability edits retain idle checks without stopping Cron hosts; polling keeps feedback', async () => {
   const main = await readFile(new URL('../electron/main.ts', import.meta.url), 'utf8');
   const prepare = main.slice(main.indexOf("case 'prepareStepPage':"), main.indexOf("case 'settings':"));
-  assert.match(prepare, /guardIdle\(\{ stopHost: false \}\)/);
+  assert.match(prepare, /guardIdle\(\{ stopHost: false, allowWaitingCron: true \}\)/);
   for (const method of ['capabilityImportSkill']) {
     const start = main.indexOf(`case '${method}':`);
     assert.match(main.slice(start, main.indexOf("\n    case ", start + 1)), /guardIdle\(\{ stopHost: false \}\)/);
@@ -27,7 +27,7 @@ test('preparation and capability edits retain idle checks without stopping Cron 
   assert.match(mutation, /assertIdle: \(\) => guardIdle\(\{ stopHost: false, resources: true \}\)/);
   assert.match(mutation, /assertResource: async id/);
   const bvr = main.slice(main.indexOf("case 'bvrConfiguration':"), main.indexOf("case 'bvrChoosePath':"));
-  assert.match(bvr, /if \(method === 'bvrSaveConfiguration'\) \{\s+await guardIdle\(\{ stopHost: false \}\)/);
+  assert.match(bvr, /if \(method === 'bvrSaveConfiguration'\) await guardIdle\(\{ stopHost: false \}\);\s+try \{/);
   assert.match(main, /const capabilityMutation = \[[^\]]*'bvrSaveConfiguration'/);
   const app = await readFile(new URL('../src/main.tsx', import.meta.url), 'utf8');
   const entry = app.slice(app.indexOf('<CapabilitySettings'), app.indexOf('/> : null}', app.indexOf('<CapabilitySettings')));

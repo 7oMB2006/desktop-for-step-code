@@ -47,6 +47,8 @@ const env = { ...process.env, DESKTOP_TEST_USER_DATA: profile, DESKTOP_TEST_NO_F
 delete env.ELECTRON_RUN_AS_NODE;
 const executablePath = process.env.DESKTOP_VERIFY_EXE;
 let app;
+let phase = 'open isolated application';
+let failure;
 const errors = [];
 const open = async () => {
   app = await electron.launch({ ...(executablePath ? { executablePath } : { args: [resolve('.')] }), env, timeout: 60000 });
@@ -61,8 +63,8 @@ const open = async () => {
   return page;
 };
 const close = async () => {
-  await app.evaluate(({ dialog }) => { dialog.showMessageBox = async () => ({ response: 1, checkboxChecked: false }); });
   await closeDesktopFixtureAndWait(app);
+  app = undefined;
 };
 try {
   let page = await open();
@@ -97,11 +99,38 @@ try {
   await page.getByRole('menuitemradio', { name: /^完全访问/ }).click();
   assert.equal((await snapshot()).runtimeId, undefined);
   assert.equal((await snapshot()).sessions.length, before.sessions.length, 'Draft selection creates no history');
+  // IPC replies and published events may reach the renderer in either order.
+  await page.evaluate(() => {
+    window.__permissionPromotionSeen = 0;
+    window.desktop.onEvent(event => {
+      if (event.type === 'desktop_draft_created') window.__permissionPromotionSeen++;
+    });
+  });
+  await app.evaluate(({ BrowserWindow }) => {
+    const contents = BrowserWindow.getAllWindows()[0].webContents;
+    const send = contents.send.bind(contents);
+    globalThis.permissionPromotionGate = { contents, send, events: [] };
+    contents.send = (channel, ...args) => {
+      if (channel === 'runtime-event' && args[0]?.type === 'desktop_draft_created')
+        globalThis.permissionPromotionGate.events.push(args);
+      else send(channel, ...args);
+    };
+  });
+  phase = 'create draft session before its promotion event';
   await send('VERIFY-WRITE-CANCELLED');
   await risk().waitFor();
+  assert.equal(await app.evaluate(() => {
+    const { contents, send, events } = globalThis.permissionPromotionGate;
+    contents.send = send;
+    for (const args of events) send('runtime-event', ...args);
+    delete globalThis.permissionPromotionGate;
+    return events.length;
+  }), 1, 'The real draft promotion event follows the session creation reply');
+  await page.waitForFunction(() => window.__permissionPromotionSeen === 1);
   assert.equal(modelCalls, 0, 'First task must wait for native acknowledgment');
   assert.equal((await snapshot()).permissionPreset, 'ask');
   await page.screenshot({ path: 'test-results/permission-tiers-risk-dark.png' });
+  phase = 'cancel draft full-access consent and restore input';
   await risk().getByRole('button', { name: '取消，保持当前权限', exact: true }).click();
   await page.waitForFunction(() => document.querySelector('.composer > .composer-input')?.value === 'VERIFY-WRITE-CANCELLED');
   assert.equal(modelCalls, 0, 'Cancellation must not submit the task');
@@ -152,14 +181,19 @@ try {
   assert.equal(await readFile(join(canonical, 'permission-proof.txt'), 'utf8'), 'VERIFY-WRITE-AUTO');
   assert.equal(await page.getByRole('dialog').count(), 0, 'Routine writes need no approval in Approve for Me');
   await mkdir(join(canonical, 'permission-fixture-empty'));
+  phase = 'request hazardous command approval';
   await send('VERIFY-RISK-REJECTED');
   const approval = page.locator('.permission-approval');
   await approval.waitFor();
+  phase = 'inspect hazardous command approval';
   assert.match(await approval.textContent(), /高风险/);
+  phase = 'deny hazardous command';
   await approval.getByRole('button', { name: '拒绝本次操作', exact: true }).click();
+  phase = 'wait for denied command to settle';
   await settled('VERIFY-RISK-REJECTED');
   assert.equal((await stat(join(canonical, 'permission-fixture-empty'))).isDirectory(), true, 'Denied dangerous call does not execute');
 
+  phase = 'grant session-only full access';
   await choose('完全访问');
   await risk().waitFor();
   await risk().getByRole('button', { name: '仅本会话启用', exact: true }).click();
@@ -179,6 +213,7 @@ try {
   await waitForSessionFixtureSnapshot(page, snapshot => snapshot.permissionPreset === 'full-access', 'Full Access after reload');
   await close();
 
+  phase = 'verify session-only grant is not persisted';
   page = await open();
   await page.evaluate(id => window.desktop.switchSession(id), sessionId);
   await page.reload();
@@ -200,6 +235,7 @@ try {
   await english.getByRole('button', { name: 'Enable and remember', exact: true }).click();
   await waitForSessionFixtureSnapshot(page, snapshot => snapshot.permissionPreset === 'full-access', 'remembered Full Access');
   await close();
+  phase = 'verify remembered full access';
   page = await open();
   await page.evaluate(id => window.desktop.switchSession(id), sessionId);
   await page.reload();
@@ -208,13 +244,34 @@ try {
   assert.deepEqual(errors, []);
   console.log('Permission tiers passed: native RPC/SSE, legacy reset, three-entry menu, draft consent before sending, cancel restores input, routine writes, hazardous deny/full access, session-only/remembered grants, reload, Chinese/English and narrow layouts.');
 } catch (error) {
+  failure = error;
+  console.error(`Permission fixture failed during ${phase}:`, error);
   const page = await app?.firstWindow().catch(() => undefined);
   if (page) {
     await page.screenshot({ path: 'test-results/permission-tiers-failure.png' }).catch(() => {});
-    console.error('Permission fixture state:', JSON.stringify(await page.evaluate(() => window.desktop.snapshot()).catch(() => undefined)));
+    const diagnostic = await page.evaluate(async () => {
+      const state = await window.desktop.snapshot();
+      const input = document.querySelector('.composer > .composer-input');
+      const owner = state.state?.sessionId ? { sessionId: state.state.sessionId }
+        : state.draftId ? { draftId: state.draftId } : undefined;
+      const shared = owner ? await window.desktop.composerRead(owner).catch(() => undefined) : undefined;
+      const summary = text => ({ length: text?.length ?? 0, restored: text === 'VERIFY-WRITE-CANCELLED' });
+      return { status: state.status, permissionPreset: state.permissionPreset, hasSession: Boolean(state.state?.sessionId),
+        requests: state.requests.length, messages: state.messages.length, streaming: Boolean(state.state?.isStreaming),
+        editor: summary(input?.value), shared: summary(shared?.value.text),
+        disabled: input?.disabled, busy: document.querySelector('.composer-wrap')?.getAttribute('aria-busy') };
+    }).catch(() => ({ unavailable: true }));
+    console.error('Permission fixture diagnostic:', JSON.stringify(diagnostic));
   }
   throw error;
 } finally {
-  if (app) await close().catch(() => {});
-  await new Promise(resolve => server.close(resolve));
+  try {
+    if (app) await close();
+  } catch (error) {
+    if (!failure) throw error;
+    console.error('Permission fixture shutdown failed:', error);
+  } finally {
+    server.closeAllConnections();
+    await new Promise(resolve => server.close(resolve));
+  }
 }

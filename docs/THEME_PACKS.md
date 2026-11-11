@@ -1,5 +1,14 @@
 # DFSC Theme Packs: First Local Version
 
+新主题作者请从 [中文快速入门](THEME_AUTHORING.zh-CN.md) 与
+[独立 v2 起步包](../examples/plugins/theme-starter/README.md) 开始。
+本页主要是旧星辰主题的工程与历史验收记录，不是新主题模板。
+
+For the versioned UI/background composition contract, including version 1
+compatibility and opt-in static-background replacement, see
+[Theme Composition](THEME_COMPOSITION.md). The historical verification below
+does not establish acceptance of that newer framework.
+
 ## PR #210 审查与 CI 修复（2026-11-07）
 
 - Windows 三组与 macOS 准备任务均在主题市场安装测试报

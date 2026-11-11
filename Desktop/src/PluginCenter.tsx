@@ -8,6 +8,7 @@ import { capabilityWarningText } from './capability-errors';
 import { CapabilityDisclosure, CapabilityPluginIconView, capabilityErrorText, type CapabilityBridge } from './CapabilitySettings';
 import { BvrConfigurationForm, type BvrSettingsBridge } from './BvrConfigurationForm';
 import { PluginConfigurationForm } from './PluginConfigurationForm';
+import { PluginHostSettingsForm } from './PluginHostSettingsForm';
 import { ScrollThumb } from './ConversationScrollThumb';
 import { StepPageSettings } from './StepPageSettings';
 import { PluginDocumentation, PluginDocumentReader, PluginStars } from './PluginDocumentation';
@@ -19,7 +20,8 @@ import './capability-settings.css';
 import './plugin-center.css';
 
 export type PluginCenterBridge = CapabilityBridge & BvrSettingsBridge & Pick<import('./contracts').DesktopBridge,
-  'pluginDocument' | 'pluginRepositoryInfo' | 'pluginConfiguration' | 'pluginSaveConfiguration' | 'pluginChoosePath'>;
+  'pluginDocument' | 'pluginRepositoryInfo' | 'pluginConfiguration' | 'pluginSaveConfiguration' | 'pluginChoosePath'
+  | 'pluginHostSettings' | 'pluginSaveHostSettings'>;
 type Entry = { key: string; name: string; description?: string; version?: string; repository?: string;
   icon?: CapabilityPlugin['icon']; source?: string; installed?: CapabilityPlugin; available?: MarketplacePlugin; package?: PluginPackage };
 function PluginCategoryTags({ pkg, language, compact = false }: { pkg?: PluginPackage; language: string; compact?: boolean }) {
@@ -60,6 +62,7 @@ export function PluginCenter({ bridge, language, busy, active, runtimeId, curren
   const [selected, setSelected] = useState<string>();
   const [detailTab, setDetailTab] = useState('config');
   const [changed, setChanged] = useState(false);
+  const [observationRevision, setObservationRevision] = useState(0);
   const [repositoryPending, setRepositoryPending] = useState(false);
   const [repositoryRevision, setRepositoryRevision] = useState(0);
   const [bvrState, setBvrState] = useState({ dirty: false, pending: false, ready: false });
@@ -187,7 +190,7 @@ export function PluginCenter({ bridge, language, busy, active, runtimeId, curren
     action: 'plugin-update', id: plugin.id, ref: plugin.package?.ref ?? '', candidate: plugin.update?.ref ?? '',
   });
   const configurationPackage = entry?.installed?.package;
-  const hasConfigurationForm = Boolean(isBvr || configurationPackage?.configurationAvailable);
+  const hasConfigurationForm = Boolean(isBvr || configurationPackage?.configurationAvailable || configurationPackage?.hostSettingsAvailable);
   const canEditBvr = Boolean(hasConfigurationForm && bvrState.ready);
   const refresh = async (refreshRepositories = false) => {
     if (operation.current) return;
@@ -256,6 +259,7 @@ export function PluginCenter({ bridge, language, busy, active, runtimeId, curren
   const perform = async (input: CapabilityMutation) => {
     if (operation.current || mutationLocked(input)) return;
     operation.current = true; setPending(true); setError(''); setWarnings([]);
+    setObservationRevision(value => value + 1);
     try {
       const result = await bridge.capabilityMutate(input);
       if (!alive.current) return;
@@ -278,13 +282,14 @@ export function PluginCenter({ bridge, language, busy, active, runtimeId, curren
       // Even a failed worker mutation can retire document references.
       try { const next = await bridge.capabilityCatalog(); if (alive.current) acceptCatalog(next); } catch {}
     }
-    finally { operation.current = false; if (alive.current) setPending(false); }
+    finally { operation.current = false; if (alive.current) { setPending(false); setObservationRevision(value => value + 1); } }
   };
   const restart = async () => {
     if (operation.current || locked || !runtimeId) throw new Error('Session restart unavailable');
     operation.current = true; setPending(true); setError('');
+    setObservationRevision(value => value + 1);
     try { await onRestart(); if (alive.current) { setChanged(false); setLive(undefined); setUpdateStates({}); } }
-    finally { operation.current = false; if (alive.current) setPending(false); }
+    finally { operation.current = false; if (alive.current) { setPending(false); setObservationRevision(value => value + 1); } }
   };
   const stepPagePrepared = async () => {
     setChanged(true); await onChanged();
@@ -475,7 +480,10 @@ export function PluginCenter({ bridge, language, busy, active, runtimeId, curren
         </div>
         <div className="pc-detail-content" key={entry.key}>
           <div id={`${id}-config-panel`} role="tabpanel" aria-labelledby={`${id}-detail-config`} hidden={detailTab !== 'config'}>
-            {isBvr ? <BvrConfigurationForm bridge={bridge} language={language} busy={locked} formId={formId} visible={active && detailTab === 'config'}
+            {configurationPackage?.hostSettingsAvailable ? <PluginHostSettingsForm key={configurationPackage.ref} bridge={bridge} pkg={configurationPackage}
+              language={language} busy={locked} formId={formId} runtimeKey={`${runtimeId ?? ''}:${observationRevision}`} visible={active && detailTab === 'config'}
+              onState={setBvrState} onSaved={async () => { setChanged(true); await onChanged(); }}/>
+              : isBvr ? <BvrConfigurationForm bridge={bridge} language={language} busy={locked} formId={formId} visible={active && detailTab === 'config'}
               onState={setBvrState} onSaved={async () => { setChanged(true); await onChanged(); }}/>
               : isStepPage ? <StepPageSettings bridge={bridge} language={language} config={settings?.mcp.steppage__steppage} busy={locked}
                 onPrepared={stepPagePrepared} onRestart={restart}/>

@@ -114,6 +114,38 @@ try {
       assert.ok(Math.abs(restored.at(-1).center - restored[0].center) > 10, 'quadratic visual movement must remain');
     }
   }
+  if (!process.env.DESKTOP_RESIZE_BASELINE) {
+    await page.locator('.right-tool-rail [aria-controls="context-panel"]').click();
+    const handle = page.locator('.right-panel-handle');
+    await handle.waitFor();
+    await page.waitForTimeout(400);
+    const box = await handle.boundingBox();
+    const inherited = await page.locator('.app').evaluate(element => ({
+      cursor: getComputedStyle(element).cursor, userSelect: getComputedStyle(element).userSelect,
+    }));
+    await handle.evaluate(element => element.addEventListener('pointerdown', event => {
+      window.resizePointer = event.pointerId;
+    }, { once: true }));
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(box.x - 40, box.y + 140, { steps: 8 });
+    const gesture = await handle.evaluate(element => ({
+      captured: element.hasPointerCapture(window.resizePointer),
+      cursor: getComputedStyle(element).cursor, hover: element.matches(':hover'),
+      selection: getSelection().toString(),
+      cursorRoot: getComputedStyle(document.querySelector('.app')).cursor,
+      userSelectRoot: getComputedStyle(document.querySelector('.app')).userSelect,
+    }));
+    assert.deepEqual(gesture, { captured: true, cursor: 'ew-resize', hover: true, selection: '',
+      cursorRoot: inherited.cursor, userSelectRoot: inherited.userSelect });
+    await page.mouse.up();
+    await page.waitForFunction(() => !document.querySelector('.app[data-panel-drag], [data-layout-window], [data-layout-locked]'));
+    assert.equal(await page.locator('.response-text').count(), 60);
+    console.log('Native captured panel gesture:', gesture);
+    await page.locator('.right-tool-rail').getByRole('button', { name: '摘要', exact: true }).click();
+    await page.getByRole('complementary', { name: '摘要', exact: true }).waitFor();
+    await page.waitForTimeout(400);
+  }
   // A history reader must not be pulled to the bottom by the resize correction.
   await page.evaluate(() => { document.querySelector('#conversation-scroll').scrollTop = 3000; });
   await page.waitForTimeout(100);

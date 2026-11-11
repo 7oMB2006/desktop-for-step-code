@@ -603,7 +603,10 @@ try {
       }
       if (probe.returning && event.sender.id === mainContentsId) {
         probe.mainEvent = event;
-        if (probe.transferred && method === 'snapshot') { arrived(); await gate; }
+        if (probe.transferred && method === 'snapshot') {
+          arrived(); await gate;
+          await new Promise(resolve => setTimeout(resolve, 500));
+        }
       }
       const result = await handler(event, method, ...args);
       if (probe.returning && event.sender.id === mainContentsId && method === 'windowPresentation') {

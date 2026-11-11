@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import type { SessionRuntime, SessionRuntimes } from './session-runtimes';
 import type { RuntimeState } from '../src/contracts';
 import { stepModelAccount as bvrSelection, StepModelAccountError, type StepModelAccount as Selection } from './step-model-account';
+import { STEP_ASR_MODEL, StepAsrError, transcribeStepAudio } from './step-asr';
 export { stepModelAccount as bvrSelection } from './step-model-account';
 
 const MAX_BODY = 32 * 1024 * 1024;
@@ -31,22 +32,6 @@ async function boundedResponse(response: Response) {
   } finally { await reader.cancel(); }
   return Buffer.concat(chunks).toString('utf8');
 }
-function transcript(text: string) {
-  const deltas: string[] = [], completed: string[] = [];
-  for (const block of text.split(/\r?\n\r?\n/)) {
-    const line = block.split(/\r?\n/).find(value => value.startsWith('data:'));
-    if (!line) continue;
-    let event;
-    try { event = JSON.parse(line.slice(5)); } catch { continue; }
-    if (event.type === 'error') throw new Error('Step ASR failed');
-    if (event.type === 'transcript.text.delta' && typeof event.delta === 'string') deltas.push(event.delta);
-    if (event.type === 'transcript.text.done' && typeof event.text === 'string') completed.push(event.text);
-  }
-  const result = completed.join('') || deltas.join('');
-  if (!result.trim()) throw new Error('Step ASR returned no transcript');
-  return result;
-}
-
 // Installation does not grant access. The separate local opt-in and native
 // per-session/account/model confirmation are required; no API keys leave main.
 export class BvrBridge {
@@ -170,22 +155,31 @@ export class BvrBridge {
       combined.throwIfAborted();
       const requestSignal = AbortSignal.any([combined, AbortSignal.timeout(120000)]);
       const asr = data.kind === 'asr';
+      if (asr) {
+        const text = await transcribeStepAudio(selection, data.media, requestSignal, this.request, STEP_ASR_MODEL).catch(error => {
+          if (error instanceof StepAsrError && error.status)
+            throw new BridgeError(`Step ${selection.channel} request failed (HTTP ${error.status}); no fallback was used`);
+          throw error;
+        });
+        await this.assertCurrent(lease);
+        requestSignal.throwIfAborted();
+        if (!await this.enabled()) throw new BridgeError('BVR host access was revoked');
+        return { text };
+      }
       const content = data.kind === 'video'
         ? [{ type: 'video_url', video_url: { url: `data:${data.media.mimeType};base64,${data.media.data}` } }, { type: 'text', text: data.prompt }]
         : data.prompt;
-      const response = await this.request(`${selection.endpoint}${asr ? '/audio/asr/sse' : '/chat/completions'}`, {
+      const response = await this.request(`${selection.endpoint}/chat/completions`, {
         method: 'POST', redirect: 'error', signal: requestSignal,
-        headers: { Authorization: `Bearer ${selection.key}`, 'Content-Type': 'application/json', Accept: asr ? 'text/event-stream' : 'application/json' },
-        body: JSON.stringify(asr
-          ? { audio: { data: data.media.data, input: { transcription: { model: 'stepaudio-2.5-asr', language: 'zh', enable_itn: true }, format: { type: 'wav' } } } }
-          : { model: selection.model, messages: [{ role: 'user', content }] }),
+        headers: { Authorization: `Bearer ${selection.key}`, 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify({ model: selection.model, messages: [{ role: 'user', content }] }),
       });
       if (!response.ok) { await response.body?.cancel(); throw new BridgeError(`Step ${selection.channel} request failed (HTTP ${response.status}); no fallback was used`); }
       const body = await boundedResponse(response);
       await this.assertCurrent(lease);
       requestSignal.throwIfAborted();
       if (!await this.enabled()) throw new BridgeError('BVR host access was revoked');
-      const text = asr ? transcript(body) : JSON.parse(body)?.choices?.[0]?.message?.content;
+      const text = JSON.parse(body)?.choices?.[0]?.message?.content;
       if (typeof text !== 'string' || !text.trim()) throw new BridgeError('Step returned no research text');
       return { text };
     } finally { lease.active.delete(controller); }

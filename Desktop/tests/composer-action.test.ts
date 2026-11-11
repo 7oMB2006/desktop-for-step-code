@@ -14,3 +14,10 @@ test('running switches stop to send for queued content and back on clear', () =>
   assert.equal(composerAction(true, '', 1).mode, 'send');
   assert.equal(composerAction(true, ' \n ', 0).mode, 'stop');
 });
+
+test('dictation keeps task Stop available without discarding queued draft content', () => {
+  assert.deepEqual(composerAction(true, 'recognized text', 2, true), { mode: 'stop', hasContent: true });
+  assert.deepEqual(composerAction(true, '', 1, true), { mode: 'stop', hasContent: true });
+  assert.deepEqual(composerAction(false, 'recognized text', 2, true), { mode: 'send', hasContent: true });
+  assert.equal(composerAction(true, 'recognized text', 2, false).mode, 'send');
+});

@@ -112,7 +112,8 @@ test('the actual renderer installer rejects late pre-transfer snapshots and rest
     setDetails: () => {}, errorsBySession: { current: new Map() }, stoppingRef: { current: false }, setStopping: () => {},
     follow: { current: true }, scrollIntent: { current: undefined }, touchY: { current: undefined },
     setAwayFromBottom: () => {}, readingRestore: { current: undefined }, restoreWindowPresentation: () => { restored++; },
-    viewId: { current: 'worker' }, setUnavailableWorkspace: () => {}, readingCache: { current: { retain: () => {} } },
+    viewId: { current: 'worker' }, setPreparedMarkdown: () => {},
+    setUnavailableWorkspace: () => {}, readingCache: { current: { retain: () => {} } },
     setData: () => { installed++; }, setBusy: () => {}, setRequests: () => {}, setRunMetrics: () => {},
     metricsBySession: { current: new Map() },
   };

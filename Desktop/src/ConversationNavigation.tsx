@@ -3,6 +3,7 @@ import { X } from 'lucide-react';
 import type { Message } from './contracts';
 import { isUserMessage } from './user-message';
 import { scrollOverlayWheel } from './conversation-scroll';
+import { afterConversationLayout } from './conversation-layout';
 
 export type ConversationTurn = { index: number; preview: string; timestamp?: number };
 
@@ -26,11 +27,26 @@ export function conversationTurns(messages: Message[], language: 'zh' | 'en'): C
   });
 }
 
+export function createConversationTurnsReader() {
+  let previous: ConversationTurn[] = [];
+  return (messages: Message[], language: 'zh' | 'en') => {
+    const next = conversationTurns(messages, language);
+    if (next.length === previous.length && next.every((turn, index) => {
+      const saved = previous[index];
+      return turn.index === saved.index && turn.preview === saved.preview && turn.timestamp === saved.timestamp;
+    })) return previous;
+    previous = next;
+    return previous;
+  };
+}
+
 export function scrollToTurn(scroll: HTMLDivElement | null, index: number) {
-  const message = scroll?.querySelector<HTMLElement>(`[data-message-index="${index}"]`);
-  if (!scroll || !message) return;
-  const top = message.getBoundingClientRect().top - scroll.getBoundingClientRect().top + scroll.scrollTop;
-  scroll.scrollTo({ top, behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth' });
+  afterConversationLayout(scroll, () => {
+    const message = scroll?.querySelector<HTMLElement>(`[data-message-index="${index}"]`);
+    if (!scroll || !message) return;
+    const top = message.getBoundingClientRect().top - scroll.getBoundingClientRect().top + scroll.scrollTop;
+    scroll.scrollTo({ top, behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth' });
+  });
 }
 
 export function ConversationNavigationPanel({ open, replaced, overlay, turns, scrollRef, language, onClose, onSelect }: {
@@ -44,24 +60,18 @@ export function ConversationNavigationPanel({ open, replaced, overlay, turns, sc
     const scroll = scrollRef.current;
     if (!open || !scroll || !turns.length) { setReadingIndex(null); return; }
     let frame = 0;
-    let positions: { index: number; top: number }[] = [];
-    const update = () => setReadingIndex(readingTurn(positions, scroll.scrollTop + 48));
+    const elements = turns.map(turn => scroll.querySelector<HTMLElement>(`article[data-message-index="${turn.index}"]`));
     const measure = () => {
-      const top = scroll.getBoundingClientRect().top;
-      positions = turns.flatMap(turn => {
-        const element = scroll.querySelector<HTMLElement>(`[data-message-index="${turn.index}"]`);
-        return element ? [{ index: turn.index, top: element.getBoundingClientRect().top - top + scroll.scrollTop }] : [];
-      });
-      update();
+      setReadingIndex(turns[Math.floor(measureTurnCursor(scroll, elements))]?.index ?? null);
     };
     const schedule = () => { cancelAnimationFrame(frame); frame = requestAnimationFrame(measure); };
     const observer = new ResizeObserver(schedule);
     observer.observe(scroll);
     const content = scroll.querySelector('.messages');
     if (content) observer.observe(content);
-    scroll.addEventListener('scroll', update, { passive: true });
+    scroll.addEventListener('scroll', schedule, { passive: true });
     schedule();
-    return () => { cancelAnimationFrame(frame); observer.disconnect(); scroll.removeEventListener('scroll', update); };
+    return () => { cancelAnimationFrame(frame); observer.disconnect(); scroll.removeEventListener('scroll', schedule); };
   }, [open, scrollRef, turns]);
   if (open && !present) setPresent(true);
   useLayoutEffect(() => {
@@ -111,13 +121,31 @@ export function rulerOpacity(distance: number): number {
 }
 
 export function turnCursor(offsets: number[], position: number): number {
-  if (offsets.length < 2 || position <= offsets[0]) return 0;
-  for (let index = 1; index < offsets.length; index++) {
-    if (position < offsets[index]) {
-      return index - 1 + (position - offsets[index - 1]) / Math.max(1, offsets[index] - offsets[index - 1]);
-    }
+  return turnCursorFrom(offsets.length, index => offsets[index], position);
+}
+
+export function turnCursorFrom(count: number, offset: (index: number) => number, position: number): number {
+  if (count < 2 || position <= offset(0)) return 0;
+  let low = 0, high = count - 1;
+  while (low < high) {
+    const middle = Math.ceil((low + high) / 2);
+    if (offset(middle) <= position) low = middle;
+    else high = middle - 1;
   }
-  return offsets.length - 1;
+  if (low === count - 1) return low;
+  const start = offset(low);
+  return low + (position - start) / Math.max(1, offset(low + 1) - start);
+}
+
+function measureTurnCursor(scroll: HTMLElement, elements: (HTMLElement | null)[]): number {
+  const top = scroll.getBoundingClientRect().top;
+  const scrollTop = scroll.scrollTop;
+  const offsets = new Map<number, number>();
+  // Only the turns around the reading position need geometry, even after reflow.
+  return turnCursorFrom(elements.length, index => {
+    if (!offsets.has(index)) offsets.set(index, elements[index] ? elements[index]!.getBoundingClientRect().top - top + scrollTop : 0);
+    return offsets.get(index)!;
+  }, scrollTop + 48);
 }
 
 export function ConversationMarkers({ scrollRef, turns, language, onNavigate }: {
@@ -140,19 +168,14 @@ export function ConversationMarkers({ scrollRef, turns, language, onNavigate }: 
     const scroll = scrollRef.current;
     if (!scroll || !turns.length) { setRuler({ cursor: 0, height: 0 }); return; }
     let frame = 0;
-    let offsets: number[] = [];
+    const elements = turns.map(turn => scroll.querySelector<HTMLElement>(`article[data-message-index="${turn.index}"]`));
     const update = () => {
-      const position = scroll.scrollTop + 48;
-      setRuler({ cursor: turnCursor(offsets, position), height: scroll.clientHeight });
+      const cursor = measureTurnCursor(scroll, elements), height = scroll.clientHeight;
+      setRuler(previous => previous.cursor === cursor && previous.height === height ? previous : { cursor, height });
     };
     const measure = () => {
       cancelAnimationFrame(frame);
       frame = requestAnimationFrame(() => {
-        const container = scroll.getBoundingClientRect();
-        offsets = turns.map(turn => {
-          const element = scroll.querySelector<HTMLElement>(`[data-message-index="${turn.index}"]`);
-          return element ? element.getBoundingClientRect().top - container.top + scroll.scrollTop : 0;
-        });
         update();
       });
     };
@@ -160,7 +183,7 @@ export function ConversationMarkers({ scrollRef, turns, language, onNavigate }: 
     observer.observe(scroll);
     const content = scroll.querySelector('.messages');
     if (content) observer.observe(content);
-    const onScroll = () => { setHovered(null); update(); };
+    const onScroll = () => { setHovered(null); measure(); };
     scroll.addEventListener('scroll', onScroll, { passive: true });
     measure();
     return () => { cancelAnimationFrame(frame); observer.disconnect(); scroll.removeEventListener('scroll', onScroll); };

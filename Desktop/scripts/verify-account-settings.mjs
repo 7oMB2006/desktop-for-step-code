@@ -219,7 +219,7 @@ try {
   assert.equal(signedOut.state.model.thinkingLevels, undefined, 'Signed-out proposal does not retain the authenticated catalog');
   assert.equal(signedOut.runtimeId, undefined);
   await page.getByRole('button', { name: '通用', exact: true }).click();
-  await page.getByRole('dialog').getByLabel(/语言|Language/).selectOption('en');
+  await page.getByRole('dialog').getByLabel(/^(语言|Language)$/).selectOption('en');
   await page.getByRole('button', { name: 'Account', exact: true }).click();
   await page.getByText('Not signed in', { exact: true }).waitFor();
   await page.emulateMedia({ reducedMotion: 'reduce' });

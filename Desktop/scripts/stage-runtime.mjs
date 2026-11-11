@@ -102,6 +102,7 @@ await cp('electron/steppage-config.mjs', join(runtime, 'steppage-config.mjs'));
 await cp('electron/usage-overview.mjs', join(runtime, 'usage-overview.mjs'));
 await cp('electron/desktop-sessions.mjs', join(runtime, 'desktop-sessions.mjs'));
 await cp('electron/desktop-remote.mjs', join(runtime, 'desktop-remote.mjs'));
+await cp('electron/runtime-compile-cache.mjs', join(runtime, 'runtime-compile-cache.mjs'));
 await build({ entryPoints: ['electron/project-instructions-extension.ts'], outfile: join(runtime, 'project-instructions.mjs'),
   bundle: true, platform: 'node', format: 'esm', target: 'node24' });
 await cp('../LICENSE', join(runtime, 'DESKTOP-LICENSE'));

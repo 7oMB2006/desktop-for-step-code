@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
-import type { CSSProperties, ReactNode } from 'react';
+import { memo, useEffect, useMemo, useState } from 'react';
+import type { CSSProperties, Dispatch, ReactNode, SetStateAction } from 'react';
 import { ArrowUpRight, Check, ChevronRight, Copy, RefreshCw, X } from 'lucide-react';
 import type { Message, RuntimeState, SessionStats } from './contracts';
 import { contextCapacityColors, contextMessageCounts, contextMessageJson, contextMessagePreview, finiteAmount, type MessageFilter } from './context-inspector';
@@ -49,6 +49,30 @@ function MessageJson({ message, language, onError }: { message: Message; languag
   </div>;
 }
 
+function messageRole(value: string, language: 'zh' | 'en') {
+  const labels: Record<string, [string, string]> = { user: ['用户', 'User'], assistant: ['助手', 'Assistant'], toolResult: ['工具', 'Tool'],
+    compactionSummary: ['压缩', 'Compaction'], branchSummary: ['分支摘要', 'Branch summary'], custom: ['扩展', 'Custom'], bashExecution: ['命令', 'Command'] };
+  return labels[value]?.[language === 'zh' ? 0 : 1] ?? value;
+}
+
+function messageTime(stamp: number | undefined, format: Intl.DateTimeFormat) {
+  return stamp && Number.isFinite(stamp) && !Number.isNaN(new Date(stamp).getTime()) ? format.format(stamp) : '--';
+}
+
+const ContextMessage = memo(function ContextMessage({ message, index, rowKey, expanded, language, timeFormat, setExpanded, onError }: {
+  message: Message; index: number; rowKey: string; expanded: boolean; language: 'zh' | 'en'; timeFormat: Intl.DateTimeFormat;
+  setExpanded: Dispatch<SetStateAction<string | null>>; onError: (error: string) => void;
+}) {
+  const role = isUserMessage(message) ? 'user' : message.role;
+  return <details className={`context-message context-role-${role}`}
+    open={expanded} onToggle={event => { if (event.currentTarget.open) setExpanded(rowKey); else setExpanded(previous => previous === rowKey ? null : previous); }}>
+    <summary><span className="context-message-number">{String(index + 1).padStart(2, '0')}</span>
+      <span className="context-message-caption"><span><b>{messageRole(role, language)}</b><time>{messageTime(message.timestamp, timeFormat)}</time></span>
+        <span className="context-message-preview">{contextMessagePreview(message)}</span></span><ChevronRight className="context-message-chevron" size={13}/></summary>
+    {expanded && <MessageJson message={message} language={language} onError={onError}/>}
+  </details>;
+});
+
 export function ContextPanel({ messages, stats, state, estimate, title, language, busy, connected, expanded: fullView, onToggleExpanded, onClose, onRefresh, onError, snapshot, view = 'context', onView, runtimeRevision = 0, width = 'standard', onWidthChange }: {
   snapshot?: Snapshot; view?: 'status' | 'context' | 'clm'; onView?: (view: 'status' | 'context' | 'clm') => void;
   runtimeRevision?: number;
@@ -64,6 +88,8 @@ export function ContextPanel({ messages, stats, state, estimate, title, language
   const [statusRevision, setStatusRevision] = useState(0);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [unit, setUnit] = useState<UsageUnit>('default');
+  const timeFormat = useMemo(() => new Intl.DateTimeFormat(language === 'zh' ? 'zh-CN' : 'en-GB',
+    { hour: '2-digit', minute: '2-digit', hour12: false }), [language]);
   const counts = useMemo(() => contextMessageCounts(messages), [messages]);
   const rows = useMemo(() => messages.map((message, index) => ({ message, index, key: message.entryId ?? `${index}:${message.timestamp ?? ''}:${message.role}` }))
     .filter(({ message }) => filter === 'all' || (filter === 'user' ? isUserMessage(message) : message.role === filter)).reverse(), [messages, filter]);
@@ -80,10 +106,8 @@ export function ContextPanel({ messages, stats, state, estimate, title, language
   const usage = last?.usage;
   const prompt = usage ? usage.input + usage.cacheRead + usage.cacheWrite : 0;
   const hit = usage && prompt > 0 && usage.cacheRead + usage.cacheWrite > 0 ? usage.cacheRead / prompt * 100 : undefined;
-  const role = (value: string) => ({ user: t('用户', 'User'), assistant: t('助手', 'Assistant'), toolResult: t('工具', 'Tool'),
-    compactionSummary: t('压缩', 'Compaction'), branchSummary: t('分支摘要', 'Branch summary'), custom: t('扩展', 'Custom'), bashExecution: t('命令', 'Command') })[value] ?? value;
-  const time = (stamp?: number) => stamp && Number.isFinite(stamp) && !Number.isNaN(new Date(stamp).getTime()) ?
-    new Date(stamp).toLocaleTimeString(language === 'zh' ? 'zh-CN' : 'en-GB', { hour: '2-digit', minute: '2-digit', hour12: false }) : '--';
+  const role = (value: string) => messageRole(value, language);
+  const time = (stamp?: number) => messageTime(stamp, timeFormat);
   const refresh = async () => {
     setRefreshing(true);
     try { await onRefresh(); setStatusRevision(value => value + 1); } catch (error) { onError(String(error)); } finally { setRefreshing(false); }
@@ -159,14 +183,9 @@ export function ContextPanel({ messages, stats, state, estimate, title, language
               setFilter(target); document.getElementById(`context-tab-${target}`)?.focus();
             }}>{value === 'all' ? t('全部', 'All') : role(value)}<small>{counts[value]}</small></button>)}
         </div>
-        <div id="context-message-list" role="tabpanel" aria-labelledby={`context-tab-${filter}`}>
-          {rows.map(({ message, index, key }) => <details className={`context-message context-role-${isUserMessage(message) ? 'user' : message.role}`} key={key}
-            open={expanded === key} onToggle={event => { if (event.currentTarget.open) setExpanded(key); else setExpanded(previous => previous === key ? null : previous); }}>
-            <summary><span className="context-message-number">{String(index + 1).padStart(2, '0')}</span>
-              <span className="context-message-caption"><span><b>{role(isUserMessage(message) ? 'user' : message.role)}</b><time>{time(message.timestamp)}</time></span>
-                <span className="context-message-preview">{contextMessagePreview(message)}</span></span><ChevronRight className="context-message-chevron" size={13}/></summary>
-            {expanded === key && <MessageJson message={message} language={language} onError={onError}/>}
-          </details>)}
+        <div id="context-message-list" className={rows.length > 80 ? 'context-message-list-long' : undefined} role="tabpanel" aria-labelledby={`context-tab-${filter}`}>
+          {rows.map(({ message, index, key }) => <ContextMessage key={key} message={message} index={index} rowKey={key}
+            expanded={expanded === key} setExpanded={setExpanded} language={language} timeFormat={timeFormat} onError={onError}/>)}
           {!rows.length && <p className="context-message-empty">{t('暂无消息', 'No messages')}</p>}
         </div>
       </section>

@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState } from 'react';
+import { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import { ArrowUpRight, Copy, File, FileText, FolderOpen, Globe, Image, MoreHorizontal, Music, Presentation, Table2, Video, X } from 'lucide-react';
 import { artifactKind, localReference, turnArtifacts } from './turn-artifacts';
@@ -31,7 +31,9 @@ export function TurnArtifacts({ text, outputPaths = [], language }: { text: stri
   const [present, setPresent] = useState(false);
   const [showAll, setShowAll] = useState(false);
   const zh = language === 'zh';
-  const candidates = turnArtifacts(text, outputPaths, window.desktop?.platform ?? 'win32');
+  const platform = window.desktop?.platform ?? 'win32';
+  const pathsKey = JSON.stringify(outputPaths);
+  const candidates = useMemo(() => turnArtifacts(text, outputPaths, platform), [text, pathsKey, platform]);
   const key = JSON.stringify(candidates.map(item => item.path));
   const files = checked?.key === key && checked.runtimeId === runtimeId ? checked.files : [];
   const fileCandidates = candidates.filter(item => !item.url);

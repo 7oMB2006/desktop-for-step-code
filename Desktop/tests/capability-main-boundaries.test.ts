@@ -113,6 +113,7 @@ function ipcFixture(handler: (method: string, args: unknown[], surface: 'main' |
   const create = new Function('window', 'miniContents', 'state', 'applyProviderSettings', 'handle', 'capabilityFailureDetails', javascript(`
     let settingsMutation = false;
     const providerApplication = undefined, providerSettingsPending = true, undoBusy = false, transition = false;
+    const speechSaving = false, speech = { cancel() {} };
     const updateInstalling = false, quitting = false, quitPending = false;
     const capabilityGate = { active: false }, capabilityService = { available: true, runtimeAvailable: true };
     const pluginHosts = { async resumeDeferred() { state.resumes++; } };
@@ -151,6 +152,15 @@ test('actual main passive capability reads never trigger pending provider applic
   assert.equal(f.state.applications, 0);
   await f.read('beginSession');
   assert.equal(f.state.applications, 1);
+});
+
+test('actual dictation IPC never applies pending providers and MiniChat has no speech access', async () => {
+  const f = ipcFixture();
+  for (const method of ['speechSettings', 'saveSpeech', 'acknowledgeSpeech', 'beginSpeech', 'transcribeSpeech', 'finishSpeech', 'cancelSpeech']) {
+    assert.equal(await f.read(method), method);
+    await assert.rejects(f.miniRead(method), /main window/);
+  }
+  assert.equal(f.state.applications, 0);
 });
 
 test('merged IPC preserves MiniChat theme reads and refuses management or untrusted frames before dispatch', async () => {
@@ -370,6 +380,7 @@ for (const exitConfirmed of [true, false]) {
     const create = new Function('capabilityService', 'settle', javascript(`
       let quitting = false, quitPending = false;
       const sessionEnding = false, transition = false, window = undefined;
+      const speech = { cancel() {} };
       const state = { quits: 0, errors: 0, prevented: 0 };
       const stop = { async stopAll() {}, async stop() {}, async close() {}, async shutdown() {}, async flush() {} };
       const runtimes = stop, terminals = stop, sessionImports = stop, remote = stop, admin = stop;

@@ -3,6 +3,9 @@
 先阅读 [开发与界面约定](../../docs/PLUGIN_AUTHORING.md)。
 这里包含可安装资源、可安装配置示例和不可动态加载的宿主字段模板。
 
+主题作者从 [v2 主题起步包](theme-starter/README.md) 开始；
+它独立演示 UI、默认图片和显式背景替换，不依赖星辰主题或 MCP。
+
 新增 [官方 MCP SDK 打包示例](sdk-host-starter/README.md) 与
 [候选 host client](host-client/README.md)：演示作者侧打包依赖、
 许可随包交付和无独立 Key 的离线跟随调用。候选源码已接通原生启动绑定，

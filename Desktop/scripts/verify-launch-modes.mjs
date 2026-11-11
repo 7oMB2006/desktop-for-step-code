@@ -76,6 +76,12 @@ try {
   assert.ok(initial.draftId);
   const permissions = page.getByRole('button', { name: '访问权限', exact: true });
   const mode = name => page.getByRole('menuitemcheckbox', { name, exact: true });
+  const assertComposerStatus = async icons => {
+    await page.waitForFunction(icons => document.querySelector('.launch-status-composer')?.querySelectorAll('svg').length === icons, icons);
+    assert.equal(await page.locator('.composer-tools .launch-status-composer').count(), 1,
+      'Mode changes and rerenders must not leave stale task controls beside dictation');
+    assert.equal(await page.locator('.composer-tools .speech-input').count(), 1);
+  };
   await permissions.click();
   assert.equal(await page.getByRole('menuitemcheckbox').count(), 4);
   assert.equal(await page.getByRole('menuitemradio').count(), 3);
@@ -84,13 +90,16 @@ try {
   await page.screenshot({ path: 'test-results/launch-permissions-dark.png' });
   await mode('计划模式').click();
   assert.equal((await page.evaluate(() => window.desktop.snapshot())).launch.plan, true);
+  await assertComposerStatus(1);
   await permissions.click(); await mode('目标模式').click();
   let snapshot = await page.evaluate(() => window.desktop.snapshot());
   assert.equal(snapshot.launch.plan, false); assert.equal(snapshot.launch.goalArmed, true);
   assert.equal(snapshot.sessions.length, initial.sessions.length);
   assert.equal(snapshot.runtimeId, undefined, 'Arming must not create a worker');
+  await assertComposerStatus(1);
   await permissions.click(); await mode('Ultracode').click();
   await page.waitForFunction(() => document.querySelector('.launch-status-composer')?.querySelectorAll('svg').length === 2);
+  await assertComposerStatus(2);
   await page.screenshot({ path: 'test-results/launch-goal-ultracode-armed.png' });
   // Switching projects/draft pages preserves the choices but creates no history.
   await page.evaluate(() => window.desktop.beginSession());
@@ -98,8 +107,10 @@ try {
   assert.equal(snapshot.launch.goalArmed, true); assert.equal(snapshot.launch.ultracodeArmed, true);
   assert.equal(snapshot.launch.ultracode, false);
   assert.equal(snapshot.sessions.length, initial.sessions.length);
+  await assertComposerStatus(2);
   await page.reload();
   await page.waitForFunction(() => !document.querySelector('.composer-wrap[aria-busy="true"]') && !document.querySelector('.composer > .composer-input')?.disabled);
+  await assertComposerStatus(2);
   const png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl6ZQAAAABJRU5ErkJggg==';
   await page.evaluate(data => {
     const bytes = Uint8Array.from(atob(data), char => char.charCodeAt(0));

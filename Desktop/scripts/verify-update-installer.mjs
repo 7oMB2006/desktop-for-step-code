@@ -17,9 +17,13 @@ const app = await electron.launch({ ...(process.env.DESKTOP_VERIFY_EXE ? { execu
 const child = app.process();
 const errors = [];
 try {
-  // Do not race orderly shutdown against creation of the real application window.
+  // Do not let the native renderer's first load race the harness window or shutdown.
   const mainPage = await app.firstWindow();
-  await mainPage.waitForFunction(() => Boolean(window.desktop?.onEvent && window.desktop?.quitRespond));
+  await mainPage.waitForFunction(() => Boolean(window.desktop?.onEvent && window.desktop?.quitRespond
+    && document.querySelector('.first-run-production')),
+    undefined, { timeout: 60000 });
+  await mainPage.evaluate(() => window.desktop.snapshot());
+  console.log('Update UI fixture: native startup ready.');
   const windowPromise = app.waitForEvent('window');
   await app.evaluate(async ({ BrowserWindow }) => {
     const window = new BrowserWindow({ width: 780, height: 660, show: false, focusable: false,
@@ -66,6 +70,7 @@ try {
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
   await page.screenshot({ path: 'test-results/updater-download-narrow.png' });
   assert.deepEqual(errors, []);
+  console.log('Update UI fixture: assertions complete; closing Electron.');
 } finally {
   try {
     await closeDesktopFixtureAndWait(app);

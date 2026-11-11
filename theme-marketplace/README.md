@@ -6,6 +6,11 @@ Older clients can install their files without supporting their appearance
 features. Neither package is an upstream terminal theme, MCP service, or
 executable frontend plugin.
 
+For a new theme, use the [Chinese author quick start](../docs/THEME_AUTHORING.zh-CN.md)
+and [independent v2 starter](../examples/plugins/theme-starter/README.md).
+The version 1 Stellar package below is a legacy compatibility sample, not the
+recommended template for new packages.
+
 ## Try It
 
 Use a DFSC build containing this change. In Plugins > Marketplaces, add the

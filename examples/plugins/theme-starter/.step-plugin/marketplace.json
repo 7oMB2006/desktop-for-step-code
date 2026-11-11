@@ -1,0 +1,10 @@
+{
+  "name": "dfsc-theme-example-local",
+  "plugins": [
+    {
+      "name": "dfsc-theme-example",
+      "source": "./plugins/dfsc-theme-example",
+      "description": "A version 2 theme with a static background and an explicit personal-image slot."
+    }
+  ]
+}

@@ -25,6 +25,7 @@ test('every acceptance script is assigned exactly once or explicitly remains out
   validateInventory(files);
   assert.equal(Object.values(acceptanceGroups).flat().length, files.length - localOnly.length - Object.values(platformOnly).flat().length);
   assert.deepEqual(windowsGroups, ['interface', 'sessions', 'runtime']);
+  assert.ok(acceptanceGroups.interface.includes('verify-selection-inheritance.mjs'));
   assert.ok(acceptanceGroups.interface.includes('verify-notice-toast.mjs'),
     'Notice component timing needs the interface job that provisions Playwright Chromium');
   for (const [script, timeout] of Object.entries(acceptanceTimeouts)) {

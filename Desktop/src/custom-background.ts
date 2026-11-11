@@ -7,6 +7,11 @@ export interface BackgroundOptions {
   brightness: number;
   blur: number;
   parallax: number;
+  contentTransparency: number;
+  sidebarTransparency: number;
+  panelTransparency: number;
+  composerTransparency: number;
+  surfaceBlur: number;
 }
 
 export interface BackgroundImageDescriptor {
@@ -35,6 +40,11 @@ export const DEFAULT_BACKGROUND_OPTIONS: Readonly<BackgroundOptions> = Object.fr
   brightness: 90,
   blur: 0,
   parallax: 0,
+  contentTransparency: 30,
+  sidebarTransparency: 20,
+  panelTransparency: 20,
+  composerTransparency: 10,
+  surfaceBlur: 8,
 });
 
 const ranges = {
@@ -44,6 +54,11 @@ const ranges = {
   brightness: [40, 120],
   blur: [0, 24],
   parallax: [0, 12],
+  contentTransparency: [0, 100],
+  sidebarTransparency: [0, 100],
+  panelTransparency: [0, 100],
+  composerTransparency: [0, 100],
+  surfaceBlur: [0, 24],
 } as const;
 
 const record = (value: unknown): value is Record<string, unknown> => {

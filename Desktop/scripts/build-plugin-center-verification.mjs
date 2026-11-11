@@ -25,7 +25,7 @@ for (const name of await readdir(runtime, { withFileTypes: true })) {
     await copyFile(await access(current).then(() => current).catch(() => source), target);
   }
 }
-for (const name of ['plugin-files.mjs', 'theme-composition.mjs', 'marketplace-refresh.mjs'])
+for (const name of ['plugin-files.mjs', 'theme-composition.mjs', 'marketplace-refresh.mjs', 'runtime-compile-cache.mjs'])
   await copyFile(resolve('electron', name), join(output, 'runtime', name));
 await mkdir(join(output, 'build'));
 for (const name of ['icon.ico', 'icon.png', 'tray.png'])
@@ -33,5 +33,6 @@ for (const name of ['icon.ico', 'icon.png', 'tray.png'])
 const define = { DESKTOP_USAGE_OVERVIEW_PREVIEW: 'false' };
 await build({ entryPoints: ['electron/main.ts', 'electron/preload.ts', 'electron/tray-preload.ts', 'electron/keyless-fetch.ts'],
   outdir: output, outExtension: { '.js': '.cjs' }, bundle: true, platform: 'node', format: 'cjs', external: ['electron'], define });
-await viteBuild({ base: './', define, build: { outDir: join(output, 'renderer'), emptyOutDir: false } });
+await viteBuild({ base: './', define, build: { outDir: join(output, 'renderer'), emptyOutDir: false,
+  rolldownOptions: { input: ['index.html', 'tray-menu.html'] } } });
 console.log(output);

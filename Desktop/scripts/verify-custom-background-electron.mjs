@@ -4,6 +4,8 @@ import { cp, mkdir, mkdtemp, readFile, realpath, writeFile } from 'node:fs/promi
 import { join, resolve } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { closeDesktopFixtureAndWait } from './close-desktop-fixture.mjs';
+import { settleLayout } from './settle-layout.mjs';
+import { checkWorkspaceCoverage } from './workspace-surface-checks.mjs';
 
 if (!process.argv[2] || !process.argv[3]) throw new Error('Pass the isolated build and evidence directories');
 const build = resolve(process.argv[2]);
@@ -116,11 +118,9 @@ async function configure() {
     await center.getByRole('button', { name: 'Configure \u81ea\u5b9a\u4e49\u80cc\u666f', exact: true }).click();
   }
   await settings().waitFor();
-  await settings().getByRole('button', { name: 'Import background image', exact: true }).waitFor();
-  await page.waitForFunction(() => {
-    const section = document.querySelector('.custom-background-settings:not([hidden])');
-    return section && !section.querySelector('button[aria-label="Import background image"]')?.disabled;
-  });
+  const importButton = settings().getByRole('button', { name: 'Import background image', exact: true });
+  await importButton.waitFor();
+  await poll(() => importButton.isEnabled(), 'Visible background configuration controls');
 }
 async function conversation() {
   const center = page.getByRole('region', { name: 'Plugin center', exact: true });
@@ -227,11 +227,15 @@ try {
     { width: image.width, height: image.height });
   const normalized = await page.evaluate(revision => window.desktop.customBackgroundImage(revision), jpegState.image.revision);
   assert.match(normalized.dataUrl, /^data:image\/png;base64,/);
-  const adjustments = { positionX: 25, positionY: 70, zoom: 120, brightness: 75, blur: 3, parallax: 8 };
+  const adjustments = { positionX: 25, positionY: 70, zoom: 120, brightness: 75, blur: 3, parallax: 8,
+    contentTransparency: 55, sidebarTransparency: 45, panelTransparency: 60, composerTransparency: 35, surfaceBlur: 12 };
   for (const [label, value] of [
     ['Horizontal position', adjustments.positionX], ['Vertical position', adjustments.positionY],
     ['Zoom', adjustments.zoom], ['Brightness', adjustments.brightness], ['Background blur', adjustments.blur],
     ['Mouse parallax', adjustments.parallax],
+    ['Conversation transparency', adjustments.contentTransparency], ['Left sidebar transparency', adjustments.sidebarTransparency],
+    ['Right panel transparency', adjustments.panelTransparency], ['Composer transparency', adjustments.composerTransparency],
+    ['Interface blur', adjustments.surfaceBlur],
   ]) {
     const slider = settings().getByRole('slider', { name: label, exact: true });
     await slider.fill(String(value));
@@ -251,12 +255,39 @@ try {
   await conversation();
   await imageReady();
   await assertIdentity(before, 'Importing and adjusting a background must retain the active draft and composer');
+  await page.waitForFunction(() => document.documentElement.dataset.customBackgroundSurfaces === 'true');
+  const summaryToggle = page.locator('.right-tool-rail button[aria-controls="summary-board"]');
+  if (await summaryToggle.getAttribute('aria-pressed') !== 'true') await summaryToggle.click();
+  await page.locator('.summary-board').waitFor();
+  await settleLayout(page.locator('.summary-board'));
+  const materials = await page.evaluate(() => ({
+    regions: ['main:not([hidden])', '.sidebar', '.summary-track', '.summary-board', '.composer'].map(selector => {
+      const element = document.querySelector(selector), style = getComputedStyle(element), plane = getComputedStyle(element, '::before');
+      return { selector, opacity: style.opacity, filter: style.filter, blur: plane.backdropFilter,
+        background: plane.backgroundColor, fill: style.backgroundColor };
+    }),
+    veil: getComputedStyle(document.querySelector('.composer-wrap'), '::before').backgroundImage,
+    values: ['content', 'sidebar', 'panel', 'composer'].map(name =>
+      document.documentElement.style.getPropertyValue(`--background-${name}-opacity`)),
+  }));
+  assert.deepEqual(materials.values, ['45%', '55%', '40%', '65%']);
+  assert.equal(materials.veil, 'none');
+  for (const [index, region] of materials.regions.entries()) {
+    assert.equal(region.opacity, '1'); assert.equal(region.filter, 'none');
+    assert.equal(region.blur, index < 3 ? 'blur(12px)' : 'none');
+    assert.equal(region.fill, 'rgba(0, 0, 0, 0)');
+  }
+  await writeFile(join(output, 'surface-materials.json'), JSON.stringify(materials, null, 2));
+  const mainCoverage = await checkWorkspaceCoverage(page, output, 'native-main-continuous-workspace');
+  await writeFile(join(output, 'workspace-coverage.json'), JSON.stringify({ main: mainCoverage }, null, 2));
+  checks.push('Actual workspace covers composer gutters, footer and unused summary space without dimming foregrounds');
   await page.screenshot({ path: join(output, 'builtin-custom-background.png') });
 
   await selectTheme('plugin:stellar-cruise');
   await page.locator('.stellar-workspace-scene canvas[data-ready=true]').waitFor({ timeout: 60000 });
   assert.equal(await page.locator('.custom-background-plane').count(), 0);
   assert.equal(await page.evaluate(() => document.documentElement.dataset.themeMaterial), 'stellar');
+  assert.equal(await page.evaluate(() => document.documentElement.dataset.customBackgroundSurfaces), undefined);
   assert.equal((await state()).options.enabled, true);
   assert.deepEqual((await state()).image, jpegState.image);
   await configure();
@@ -275,6 +306,7 @@ try {
     'Disabling custom background follows the theme and retains the local image');
   assert.deepEqual((await state()).image, jpegState.image);
   await page.waitForFunction(() => !document.querySelector('.custom-background-plane'));
+  assert.equal(await page.evaluate(() => document.documentElement.dataset.customBackgroundSurfaces), undefined);
   await settings().getByRole('checkbox', { name: 'Enable background', exact: true }).click();
   await saved();
   await imageReady();
@@ -296,7 +328,12 @@ try {
   mini = await miniOpened;
   mini.on('pageerror', error => errors.push(error.message));
   await mini.waitForFunction(() => window.desktop?.surface === 'mini');
+  await app.evaluate(({ BrowserWindow }) => {
+    const window = BrowserWindow.getAllWindows().find(window => window.getTitle() === 'MiniChat');
+    window.setOpacity(0); window.setIgnoreMouseEvents(true); window.showInactive();
+  });
   await imageReady(mini);
+  await mini.waitForFunction(() => document.documentElement.dataset.customBackgroundSurfaces === 'true');
   assert.deepEqual(await identity(mini), afterRestart);
   assert.deepEqual(await mini.evaluate(() => window.desktop.customBackgroundState()), restored);
   assert.deepEqual(await mini.evaluate(async () => {
@@ -312,6 +349,8 @@ try {
     return results;
   }), [true, true, true]);
   await mini.screenshot({ path: join(output, 'mini-custom-background.png') });
+  const miniCoverage = await checkWorkspaceCoverage(mini, output, 'native-mini-continuous-workspace');
+  await writeFile(join(output, 'workspace-coverage.json'), JSON.stringify({ main: mainCoverage, mini: miniCoverage }, null, 2));
   await mini.evaluate(() => window.desktop.windowControl('close')); mini = undefined;
   checks.push('MiniChat displays the shared background but cannot import, change, or remove it');
   await assertIdentity(afterRestart, 'MiniChat appearance reads must not create or replace a runtime');

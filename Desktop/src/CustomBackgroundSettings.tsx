@@ -2,7 +2,7 @@ import { useEffect, useId, useRef, useState } from 'react';
 import { Check, ImageOff, ImagePlus, LoaderCircle, RotateCcw, Trash2 } from 'lucide-react';
 import type { DesktopBridge } from './contracts';
 import { DEFAULT_BACKGROUND_OPTIONS, type BackgroundOptions, type CustomBackgroundState } from './custom-background';
-import { resolveThemeBackground, type ThemeImage, type ThemePack } from './theme-packs';
+import { hasStellarUi, resolveThemeBackground, type ThemeImage, type ThemePack } from './theme-packs';
 import './custom-background-settings.css';
 
 export interface CustomBackgroundBridge {
@@ -130,7 +130,7 @@ export function CustomBackgroundSettings({ bridge, packageRef, language, visible
   const locked = busy || pending || !state?.available;
   const blocked = Boolean(options.enabled && state?.image && themePack && resolveThemeBackground(themePack, 'image-v1').blocked);
   const hasImage = Boolean(state?.image);
-  const slider = (key: 'positionX' | 'positionY' | 'zoom' | 'brightness' | 'blur' | 'parallax', label: string, min: number, max: number, unit: string) =>
+  const slider = (key: Exclude<keyof BackgroundOptions, 'enabled' | 'fit'>, label: string, min: number, max: number, unit: string) =>
     <label className="custom-background-slider" key={key} htmlFor={`${id}-${key}`}>
       <span><span>{label}</span><output>{options[key]}{unit}</output></span>
       <input id={`${id}-${key}`} type="range" min={min} max={max} step={1} value={options[key]} aria-valuetext={`${options[key]}${unit}`}
@@ -188,6 +188,18 @@ export function CustomBackgroundSettings({ bridge, packageRef, language, visible
           {slider('blur', t('背景模糊', 'Background blur'), 0, 24, 'px')}
           {slider('parallax', t('鼠标视差', 'Mouse parallax'), 0, 12, 'px')}
         </div>
+        <fieldset className="custom-background-surfaces" disabled={blocked || hasStellarUi(themePack)}>
+          <div className="custom-background-section-heading"><h3>{t('界面材质', 'Interface material')}</h3>
+            {hasStellarUi(themePack) && <span className="custom-background-material-status" role="status">{t('由主题管理', 'Managed by theme')}</span>}
+          </div>
+          <div className="custom-background-grid">
+            {slider('contentTransparency', t('对话区透明度', 'Conversation transparency'), 0, 100, '%')}
+            {slider('composerTransparency', t('输入框透明度', 'Composer transparency'), 0, 100, '%')}
+            {slider('sidebarTransparency', t('左栏透明度', 'Left sidebar transparency'), 0, 100, '%')}
+            {slider('panelTransparency', t('右栏透明度', 'Right panel transparency'), 0, 100, '%')}
+            {slider('surfaceBlur', t('界面毛玻璃', 'Interface blur'), 0, 24, 'px')}
+          </div>
+        </fieldset>
         <div className="custom-background-actions">
           <button type="button" onClick={() => commit({ enabled: false })} disabled={!options.enabled}><RotateCcw size={14}/>{t('跟随主题', 'Follow theme')}</button>
           <button type="button" className="icon-button" aria-label={t('重置背景调节', 'Reset background adjustments')}

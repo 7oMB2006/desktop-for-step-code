@@ -2874,6 +2874,7 @@ app.on('before-quit', event => {
   if (quitPending) return;
   quitPending = true;
   void (async () => {
+    let quitStage = 'review';
     try {
       const reasons = quitReasons(runtimes, transition);
       if (!sessionEnding && needsQuitReview(reasons) && window && !window.isDestroyed()) {
@@ -2889,13 +2890,20 @@ app.on('before-quit', event => {
           if (result.response !== 1) { quitPending = false; return; }
         } else if (!await quitReview.ask(reasons)) { quitPending = false; return; }
       }
+      quitStage = 'capability-writer';
       await capabilityGate.whenIdle();
+      quitStage = 'terminals';
       await terminals.stopAll();
+      quitStage = 'windows';
       await miniChat?.dispose();
       pluginWindows?.dispose();
+      quitStage = 'session-imports';
       await sessionImports.close();
+      quitStage = 'remote';
       await remote.shutdown();
+      quitStage = 'services';
       await Promise.all([runtimes.stopAll(), admin.stop(), capabilityService.stop(), collaboration.stop(), bvrBridge.stop(), pluginHosts.close()]);
+      quitStage = 'persistence';
       await conversationTiming.flush();
       await modelSelections.flush();
       await usageEstimates.flush();
@@ -2903,11 +2911,15 @@ app.on('before-quit', event => {
       browser?.dispose();
       quitting = true;
       app.quit();
-    } catch {
+    } catch (error) {
       quitPending = false;
       quitReview.reset();
       if (!sessionEnding) showMainWindow();
-      emit({ type: 'desktop_error', message: preferences.language === 'zh' ? '无法结束终端，请关闭终端后重试退出。' : 'Could not stop terminals. Close them and try exiting again.' });
+      void crashLog.record('quit-failure', error, { stage: quitStage });
+      emit({ type: 'desktop_error', message: quitStage === 'terminals'
+        ? preferences.language === 'zh' ? '无法结束终端，请关闭终端后重试退出。' : 'Could not stop terminals. Close them and try exiting again.'
+        : preferences.language === 'zh' ? '退出未完成，窗口已保留。请重试退出；若仍失败，可查看诊断日志。'
+          : 'Quit did not complete. This window remains open. Retry quitting; check diagnostic logs if it fails again.' });
     }
   })();
 });

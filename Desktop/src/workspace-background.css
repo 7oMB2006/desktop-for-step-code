@@ -11,3 +11,45 @@
 :root[data-theme-background]:not([data-theme-background=solid-v1]):not([data-theme-material=stellar]) .messages {
   background: var(--bg);
 }
+
+/* Separate backing planes avoid blurring text or containing fixed-position menus. */
+:root[data-custom-background-surfaces=true] :is(.sidebar, main, .summary-track, .composer, .right-tool-rail,
+  .summary-board, .context-panel, .conversation-nav-panel, .btw-panel, .file-preview-panel, .browser-panel,
+  .terminal-panel, .review-panel, .subagent-panel, .plugin-side-surface) {
+  isolation: isolate;
+  background: transparent;
+  --background-surface-color: var(--bg);
+  --background-surface-opacity: var(--background-panel-opacity);
+}
+:root[data-custom-background-surfaces=true] :is(.summary-board, .composer, .context-panel) { position: relative; }
+:root[data-custom-background-surfaces=true] .sidebar {
+  --background-surface-color: var(--side);
+  --background-surface-opacity: var(--background-sidebar-opacity);
+}
+/* The reading surface includes composer gutters, footer and unused inspector space. */
+:root[data-custom-background-surfaces=true] :is(main, .summary-track) {
+  --background-surface-opacity: var(--background-content-opacity);
+}
+:root[data-custom-background-surfaces=true] .composer {
+  --background-surface-color: var(--side);
+  --background-surface-opacity: var(--background-composer-opacity);
+}
+:root[data-custom-background-surfaces=true] :is(.sidebar, main, .summary-track, .composer, .right-tool-rail,
+  .summary-board, .context-panel, .conversation-nav-panel, .btw-panel, .file-preview-panel, .browser-panel,
+  .terminal-panel, .review-panel, .subagent-panel, .plugin-side-surface)::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  pointer-events: none;
+  background: color-mix(in srgb, var(--background-surface-color) var(--background-surface-opacity), transparent);
+  backdrop-filter: blur(var(--background-surface-blur));
+}
+/* Floating controls tint the shared glass without filtering it a second time. */
+:root[data-custom-background-surfaces=true] :is(main .composer, .summary-track .summary-board)::before {
+  backdrop-filter: none;
+}
+:root[data-custom-background-surfaces=true][data-theme-background=image-v1]:not([data-theme-material=stellar])
+  :is(.messages, .new-session) { background: transparent; }
+:root[data-custom-background-surfaces=true] :is(.composer-wrap, .btw-compose)::before { background: none; }

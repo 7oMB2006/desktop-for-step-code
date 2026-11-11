@@ -1,9 +1,14 @@
 .background-rendering-fixture { display: flex; flex-direction: column; height: 100dvh; overflow: hidden; --sidebar-track: 0px; --window-bar-height: 0px; }
 .background-rendering-fixture > header { padding: 18px 24px; border-bottom: 1px solid var(--border); background: var(--side); font-size: 12px; }
-.background-rendering-fixture .main-content { padding: 24px; }
-.background-rendering-document { width: min(560px,100%); padding: 20px; margin: 0 auto; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; }
-.background-rendering-document h2 { font-size: 17px; }
-.background-rendering-document p { color: var(--muted); font-size: 13px; line-height: 1.8; }
-.background-rendering-document textarea { min-height: 90px; }
-.background-rendering-document output { margin-left: 12px; color: var(--muted); font-size: 12px; }
-@media(max-width:640px) { .background-rendering-fixture .main-content { padding: 20px; } }
+.background-rendering-body { display: flex; flex: 1; min-height: 0; }
+.background-rendering-body .sidebar { position: relative; width: 200px; transform: none; }
+.background-rendering-body .main-content { min-width: 0; }
+.background-rendering-body .summary-board { position: relative; width: 260px; align-self: flex-start; flex-shrink: 0; margin: 16px; }
+.background-rendering-document { width: 100%; }
+.background-rendering-body .composer-tools output { margin-left: 12px; color: var(--muted); font-size: 12px; }
+.background-rendering-dialog { background: var(--bg); color: var(--ink); }
+@media(max-width:900px) {
+  .background-rendering-body .sidebar { width: 160px; }
+  .background-rendering-body .summary-board { display: none; }
+}
+@media(max-width:640px) { .background-rendering-body .sidebar { display: none; } }

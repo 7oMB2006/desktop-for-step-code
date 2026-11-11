@@ -35,7 +35,8 @@ async function fixture(run: (value: { root: string; source: string; store: Custo
 
 test('background patches are strict, bounded and copied; startup normalization is forgiving', () => {
   const valid = { enabled: true, fit: 'contain', positionX: 0, positionY: 100, zoom: 200,
-    brightness: 40, blur: 24, parallax: 12 };
+    brightness: 40, blur: 24, parallax: 12, contentTransparency: 100, sidebarTransparency: 0,
+    panelTransparency: 58.5, composerTransparency: 100, surfaceBlur: 24 };
   assert.deepEqual(validateBackgroundPatch(valid), valid);
   assert.notEqual(validateBackgroundPatch(valid), valid);
   assert.deepEqual(validateBackgroundPatch({ positionX: 25.5, parallax: 1.25 }), { positionX: 25.5, parallax: 1.25 });
@@ -45,6 +46,11 @@ test('background patches are strict, bounded and copied; startup normalization i
     { zoom: NaN }, { blur: Infinity }, { enabled: true, path: 'C:\\private.png' },
     JSON.parse('{"__proto__":{"enabled":true}}')])
     assert.throws(() => validateBackgroundPatch(value), /invalid-input/);
+  for (const key of ['contentTransparency', 'sidebarTransparency', 'panelTransparency', 'composerTransparency', 'surfaceBlur']) {
+    for (const value of [-1, key === 'surfaceBlur' ? 25 : 101, NaN, Infinity, '50', null])
+      assert.throws(() => validateBackgroundPatch({ [key]: value }), /invalid-input/);
+    assert.deepEqual(validateBackgroundPatch({ [key]: 0 }), { [key]: 0 });
+  }
   assert.deepEqual(normalizeBackgroundOptions({ enabled: true, fit: 'contain', brightness: 0, zoom: Infinity, extra: 1 }),
     { ...DEFAULT_BACKGROUND_OPTIONS, enabled: true, fit: 'contain' });
   const defaults = normalizeBackgroundOptions(undefined);
@@ -59,7 +65,8 @@ test('imports persist normalized private PNG and options across restart without 
   assert.match(imported.image!.revision, /^[a-f0-9]{64}$/);
   assert.deepEqual([imported.image!.width, imported.image!.height], [1, 1]);
   assert.equal((await store.image(imported.image!.revision)).dataUrl, `data:image/png;base64,${pixel.toString('base64')}`);
-  await store.save({ zoom: 132, blur: 3.5, positionY: 25 });
+  await store.save({ zoom: 132, blur: 3.5, positionY: 25, contentTransparency: 65,
+    sidebarTransparency: 40, panelTransparency: 55, composerTransparency: 25, surfaceBlur: 12 });
   const next = new CustomBackgroundStore(root, decode);
   assert.equal(next.isBoundTo(instance), false, 'Uninitialized storage cannot prove its binding');
   assert.equal(next.isBoundTo(), false);
@@ -74,6 +81,21 @@ test('imports persist normalized private PNG and options across restart without 
   imported.image!.revision = 'mutated';
   assert.equal(store.state().options.enabled, true);
   assert.notEqual(store.state().image!.revision, 'mutated');
+}));
+
+test('older persisted options gain surface defaults without losing image adjustments', async () => fixture(async ({ root, source, store }) => {
+  await store.importFile(source);
+  const path = join(root, 'custom-background/state.json');
+  const persisted = JSON.parse(await readFile(path, 'utf8'));
+  persisted.options = { enabled: true, fit: 'contain', zoom: 140, brightness: 75, blur: 4, parallax: 3, positionX: 22, positionY: 68 };
+  await writeFile(path, JSON.stringify(persisted));
+  const restarted = new CustomBackgroundStore(root, decode);
+  const state = await restarted.initialize();
+  assert.deepEqual(state.options, { ...DEFAULT_BACKGROUND_OPTIONS, ...persisted.options });
+  assert.deepEqual(state.image, store.state().image);
+  await restarted.save({ sidebarTransparency: 100, surfaceBlur: 0 });
+  const again = new CustomBackgroundStore(root, decode);
+  assert.deepEqual((await again.initialize()).options, { ...state.options, sidebarTransparency: 100, surfaceBlur: 0 });
 }));
 
 test('disable retains the asset and remove deletes only that owned asset', async () => fixture(async ({ root, source, store }) => {

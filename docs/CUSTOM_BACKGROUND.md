@@ -15,8 +15,10 @@ pending provider settings.
   retain their own background. The personal image and adjustments remain saved.
 - An accepted replacement unmounts the theme's original scene. Restoring the
   theme background mounts it again; the two renderers never run together.
-- UI material, accent color, typography and panel opacity remain theme-owned.
-  Background blur is not a glass-material or UI-opacity control.
+- Accent color, typography and the selected UI skin remain theme-owned.
+- Built-in themes and `standard-v1` support host-owned backing materials while
+  a decoded personal image is active. The `stellar-v1` skin retains its own
+  materials, even when its background slot accepts personal images.
 
 ## First-Version Scope
 
@@ -27,6 +29,21 @@ remote URLs and video are not supported.
 
 The editor supports fill/fit, horizontal and vertical position, 100-200% zoom,
 40-120% brightness, 0-24 px background blur and 0-12 px mouse parallax.
+Standard UI materials additionally support independent conversation, composer,
+left-sidebar and right-panel transparency (0-100%) and 0-24 px backing-plane blur.
+These controls never fade or blur foreground text, controls or focus indicators.
+Code, menus and approval dialogs retain their reading surfaces; embedded web
+pages and file content are not forced transparent. Terminal backgrounds support
+transparency and return to the theme's solid background when it is disabled.
+
+Conversation material covers the complete main workspace and summary track,
+including composer gutters and the status footer. Composer and summary controls
+adjust an additional tint: 100% removes that tint, not the reading plane beneath
+it. Nested controls do not blur that plane twice. Disabling, removing or losing
+the image, uninstalling the plugin or switching to an incompatible theme removes
+the personal material overrides. Arbitrary images and transparency settings are
+not guaranteed to retain sufficient contrast.
+
 Reduced motion, hidden documents, paused workspaces and touch input do not
 drive parallax. Animation stops when settled and releases its listeners when
 the image is replaced, removed or fails.

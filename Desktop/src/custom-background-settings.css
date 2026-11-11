@@ -12,6 +12,9 @@
 .custom-background-status { display: flex; align-items: center; gap: 6px; min-height: 28px; color: var(--muted); font-size: 11px; line-height: 1.7; margin-bottom: 18px; }
 .custom-background-status > svg { color: var(--green); }
 .custom-background-fields { min-width: 0; border: 0; border-top: 1px solid var(--border); padding: 22px 4px 4px; margin: 0 -4px; }
+.custom-background-surfaces { min-width: 0; border: 0; border-top: 1px solid var(--border); padding: 22px 4px 4px; margin: 22px -4px 0; }
+.custom-background-material-status { color: var(--muted); font-size: 11px; }
+.custom-background-surfaces:disabled .custom-background-slider { opacity: .55; }
 .custom-background-fit { display: flex; padding: 3px; gap: 3px; border: 1px solid var(--border); border-radius: 6px; background: var(--side); }
 .custom-background-fit > button { min-height: 28px; min-width: 52px; border: 1px solid transparent; border-radius: 3px; padding: 4px 10px; background: transparent; font-size: 11px; }
 .custom-background-fit > button[aria-pressed=true] { border-color: var(--border); background: var(--bg); color: var(--primary); }

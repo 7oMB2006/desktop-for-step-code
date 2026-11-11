@@ -165,12 +165,22 @@ const mcpFailureName = (message: string) => /^MCP server '([^']+)' could not sta
 function IconButton({ title, tooltip = true, children, ...props }: React.ButtonHTMLAttributes<HTMLButtonElement> & { title: string; tooltip?: boolean }) { return <button type="button" className="icon-button" data-tooltip={tooltip ? title : undefined} aria-label={title} {...props}>{children}</button>; }
 function FirstRunShell({ snapshot, onSnapshot }: { snapshot: Snapshot; onSnapshot: (value: Snapshot) => void }) {
   const [systemDark, setSystemDark] = useState(() => window.desktopTheme?.systemDark ?? false);
+  const [quitReview, setQuitReview] = useState<QuitReviewState>(snapshot.quitReview ?? { revision: -1 });
+  const [notice, setNotice] = useState<NoticeToastItem | null>(null);
+  const acceptQuitReview = (next: QuitReviewState | undefined) => {
+    if (next) setQuitReview(previous => next.revision >= previous.revision ? next : previous);
+  };
+  useEffect(() => { acceptQuitReview(snapshot.quitReview); }, [snapshot.quitReview]);
   useEffect(() => {
     const unsubscribe = bridge!.onEvent(event => {
       if (event.type === 'desktop_system_theme') setSystemDark(Boolean(event.dark));
+      if (event.type === 'desktop_quit_review') acceptQuitReview(event.state);
+      if (event.type === 'desktop_error') setNotice({ id: Date.now(), type: 'warning', message: event.message });
     });
     let mounted = true;
     void bridge!.systemTheme().then(value => { if (mounted) setSystemDark(value.systemDark); }).catch(() => {});
+    // Recover a quit request published between Bootstrap's snapshot and this subscription.
+    void bridge!.snapshot().then(value => { if (mounted) acceptQuitReview(value.quitReview); }).catch(() => {});
     window.dispatchEvent(new Event('desktop-shell-ready'));
     return () => { mounted = false; unsubscribe(); };
   }, []);
@@ -182,6 +192,13 @@ function FirstRunShell({ snapshot, onSnapshot }: { snapshot: Snapshot; onSnapsho
   return <div className={`first-run-shell${bridge!.platform === 'darwin' ? ' platform-macos' : ''}`}>
     <WindowBar language={snapshot.preferences.language} sidebarVisible={false} toggleSidebar={() => {}} menus={[]}/>
     <FirstRun bridge={bridge!} snapshot={snapshot} onSnapshot={onSnapshot}/>
+    {quitReview.request && <QuitConfirmation key={quitReview.request.id}
+      reasons={quitReview.request.reasons} language={snapshot.preferences.language}
+      stopping={quitReview.request.phase === 'stopping'}
+      onCancel={() => bridge!.quitRespond(quitReview.request!.id, false)}
+      onConfirm={() => bridge!.quitRespond(quitReview.request!.id, true)}/>}
+    <NoticeToast notice={notice} language={snapshot.preferences.language}
+      onDismiss={() => setNotice(null)} onDetails={() => {}}/>
     <AppTooltip/>
   </div>;
 }

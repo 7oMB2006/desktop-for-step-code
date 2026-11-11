@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { DesktopBridge } from './contracts';
 import type { BackgroundOptions, CustomBackgroundState } from './custom-background';
-import { resolveThemeBackground, type ThemeImage, type ThemePack } from './theme-packs';
+import { hasStellarUi, resolveThemeBackground, type ThemeImage, type ThemePack } from './theme-packs';
 import { ThemeWelcome } from './ThemeWelcome';
 import './workspace-background.css';
 
@@ -120,6 +120,24 @@ export function WorkspaceBackground({ pack, bridge, reading, motion, brightness,
     document.documentElement.dataset.themeBackground = background;
     return () => { delete document.documentElement.dataset.themeBackground; };
   }, [background]);
+  const surfaces = resolved.overridden && personalImage && !hasStellarUi(pack) ? customBackground?.options : undefined;
+  useLayoutEffect(() => {
+    if (!surfaces) return;
+    const root = document.documentElement;
+    const values = {
+      '--background-content-opacity': `${100 - surfaces.contentTransparency}%`,
+      '--background-sidebar-opacity': `${100 - surfaces.sidebarTransparency}%`,
+      '--background-panel-opacity': `${100 - surfaces.panelTransparency}%`,
+      '--background-composer-opacity': `${100 - surfaces.composerTransparency}%`,
+      '--background-surface-blur': `${surfaces.surfaceBlur}px`,
+    };
+    for (const [key, value] of Object.entries(values)) root.style.setProperty(key, value);
+    root.dataset.customBackgroundSurfaces = 'true';
+    return () => {
+      delete root.dataset.customBackgroundSurfaces;
+      for (const key of Object.keys(values)) root.style.removeProperty(key);
+    };
+  }, [surfaces]);
   const resourceKey = pack ? `${pack.id}:${pack.revision ?? pack.version}` : 'builtin';
   if (renderer === 'solid-v1') return null;
   if (renderer === 'stellar-v1' && pack) return <div className="stellar-workspace-scene" data-reading={reading} aria-hidden="true">

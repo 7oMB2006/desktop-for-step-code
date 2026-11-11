@@ -96,13 +96,28 @@ try {
   const beforeBlocked = await state();
   await page.evaluate(() => window.backgroundFixture.blocked(true));
   await page.getByRole('status').filter({ hasText: '当前主题不接受替换' }).waitFor();
+  await page.getByRole('status').filter({ hasText: '由主题管理' }).waitFor();
+  for (const control of await panel().locator('.custom-background-surfaces input').all())
+    assert.equal(await control.isDisabled(), true, 'Theme-owned materials cannot be overridden');
   assert.deepEqual(await state(), beforeBlocked);
   await page.evaluate(() => window.backgroundFixture.blocked(false));
   await page.getByRole('button', { name: '跟随主题', exact: true }).click(); await saved();
   const disabled = await state();
   assert.equal(disabled.options.enabled, false); assert.deepEqual(disabled.image, beforeBlocked.image);
   await page.getByRole('button', { name: '重置背景调节', exact: true }).click(); await saved();
-  assert.deepEqual((await state()).options, { enabled: false, fit: 'cover', positionX: 50, positionY: 50, zoom: 100, brightness: 90, blur: 0, parallax: 0 });
+  assert.deepEqual((await state()).options, { enabled: false, fit: 'cover', positionX: 50, positionY: 50, zoom: 100, brightness: 90, blur: 0, parallax: 0,
+    contentTransparency: 30, sidebarTransparency: 20, panelTransparency: 20, composerTransparency: 10, surfaceBlur: 8 });
+  for (const [label, key, maximum] of [
+    ['对话区透明度', 'contentTransparency', 100], ['左栏透明度', 'sidebarTransparency', 100],
+    ['右栏透明度', 'panelTransparency', 100], ['输入框透明度', 'composerTransparency', 100], ['界面毛玻璃', 'surfaceBlur', 24],
+  ]) {
+    const control = page.getByRole('slider', { name: label, exact: true });
+    await control.focus(); await control.press('End'); await saved();
+    assert.equal((await state()).options[key], maximum);
+    await control.press('Home'); await saved();
+    assert.equal((await state()).options[key], 0);
+  }
+  results.surfaceControlsPersistAtBothEndpoints = true;
   await page.getByRole('checkbox', { name: '启用背景', exact: true }).check(); await saved();
   await page.getByRole('button', { name: '适应', exact: true }).click(); await saved();
   assert.equal((await state()).options.fit, 'contain');
@@ -139,6 +154,10 @@ try {
     }
     await page.locator('.pc-detail-scroll').evaluate(element => { element.scrollTop = 0; });
     await capture(`background-settings-${width}-${theme}-${language}`);
+    if (width === 1440) {
+      await panel().locator('.custom-background-surfaces').scrollIntoViewIfNeeded();
+      await capture('background-settings-materials-light');
+    }
     assert.equal(await page.locator('.pc-detail-footer').isVisible(), false);
   }
   results.lightDarkNarrowFocus = true;
@@ -169,7 +188,7 @@ try {
   await capture('background-status-390-dark-not-installed');
   results.appearanceEntryStatusAndActions = true;
   await page.goto(`${base}?lifecycle=1&defer=1`);
-  await page.waitForFunction(() => window.backgroundFixture.readCount() === 1);
+  await page.waitForFunction(() => window.backgroundFixture?.readCount() === 1);
   await page.evaluate(() => window.backgroundFixture.packageRef('replacement-background'));
   await page.waitForFunction(() => window.backgroundFixture.readCount() === 2);
   assert.equal(await page.evaluate(() => window.backgroundFixture.pendingStates().at(-1)), true);

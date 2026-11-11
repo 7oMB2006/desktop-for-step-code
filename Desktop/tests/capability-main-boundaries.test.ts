@@ -381,7 +381,7 @@ for (const exitConfirmed of [true, false]) {
       let quitting = false, quitPending = false;
       const sessionEnding = false, transition = false, window = undefined;
       const speech = { cancel() {} };
-      const state = { quits: 0, errors: 0, prevented: 0 };
+      const state = { quits: 0, errors: 0, prevented: 0, diagnostics: [], messages: [] };
       const stop = { async stopAll() {}, async stop() {}, async close() {}, async shutdown() {}, async flush() {} };
       const runtimes = stop, terminals = stop, sessionImports = stop, remote = stop, admin = stop;
       const collaboration = stop, bvrBridge = stop, pluginHosts = stop, conversationTiming = stop, modelSelections = stop;
@@ -389,7 +389,8 @@ for (const exitConfirmed of [true, false]) {
       const capabilityGate = { async whenIdle() {} };
       const quitReasons = () => ({}), needsQuitReview = () => false, showMainWindow = () => {};
       const preferences = { language: 'zh' }, quitReview = { reset() {} };
-      const emit = () => { state.errors++; settle(); };
+      const crashLog = { async record(kind, error, details) { state.diagnostics.push({ kind, stage: details.stage }); } };
+      const emit = event => { state.errors++; state.messages.push(event.message); settle(); };
       const app = { quit() { state.quits++; settle(); } };
       const handler = ${beforeQuit.arguments[1].getText(file)};
       return {
@@ -403,6 +404,8 @@ for (const exitConfirmed of [true, false]) {
     assert.equal(f.state.prevented, 1);
     assert.equal(f.state.quits, exitConfirmed ? 1 : 0);
     assert.equal(f.state.errors, exitConfirmed ? 0 : 1);
+    assert.deepEqual(f.state.diagnostics, exitConfirmed ? [] : [{ kind: 'quit-failure', stage: 'services' }]);
+    if (!exitConfirmed) assert.match(f.state.messages[0], /退出未完成/);
     assert.equal(f.quitting(), exitConfirmed);
     assert.equal(f.pending(), exitConfirmed);
     assert.equal(service.available, false);
@@ -419,13 +422,14 @@ test('actual before-quit waits for the capability writer before stopping service
   const create = new Function('capabilityGate', 'events', 'finished', javascript(`
     let quitting = false, quitPending = false;
     const sessionEnding = false, transition = false, window = undefined;
+    const speech = { cancel() {} };
     const stop = { async stopAll() {}, async stop() {}, async close() {}, async shutdown() {}, async flush() {} };
     const runtimes = stop, terminals = stop, sessionImports = stop, remote = stop, admin = stop;
     const collaboration = stop, bvrBridge = stop, pluginHosts = stop, conversationTiming = stop, modelSelections = stop;
     const usageEstimates = stop, workflowBindings = stop, miniChat = undefined, pluginWindows = undefined, browser = undefined;
     const capabilityService = { async stop() { events.push('service-stopped'); } };
     const quitReasons = () => ({}), needsQuitReview = () => false, showMainWindow = () => {};
-    const preferences = { language: 'zh' }, quitReview = { reset() {} };
+    const preferences = { language: 'zh' }, quitReview = { reset() {} }, crashLog = { async record() {} };
     const emit = () => { events.push('error'); finished(); };
     const app = { quit() { events.push('quit'); finished(); } };
     const handler = ${beforeQuit.arguments[1].getText(file)};

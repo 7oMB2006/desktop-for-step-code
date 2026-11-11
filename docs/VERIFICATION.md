@@ -13632,3 +13632,36 @@ It is not evidence for the new titlebar group, side panel or native plugin
 window. No installer, public release, cloud CI, native macOS, real-account or
 Hermes/Feishu business-flow acceptance is claimed by this local source record.
 No live-model inference or active-model-task continuity was exercised.
+
+## Ultracode Role Icons (2026-11-11)
+
+Ultracode overview rows and agent details now share the background-task role
+icons. Role identity comes from the workflow's explicit `agentType`, not its
+task label or prompt. New runtime progress includes the default `general`
+role; legacy records without role metadata keep a generic icon with an
+unknown-role description. Custom roles retain their name and generic icon.
+State icons remain separate.
+
+The transcript follow-up also replaces the generic icon on ordinary subagent
+rows with the shared role icon. Inline Ultracode summaries show up to six role
+groups with counts and an overflow entry, all opening the existing overview.
+They do not infer roles from task labels. The production transcript fixture
+checks grouping, role/state coexistence and navigation into overview and
+ordinary subagent detail in the same 12 viewport/theme/language combinations.
+The follow-up passed typecheck, build and 43 conversation/workflow tests.
+
+Local verification on the `ed018f1` baseline:
+
+- Desktop typecheck and production build passed.
+- Workflow projection, background-agent and staging tests passed: 50 tests.
+- Pinned runtime workflow tests passed: 63 tests, using injected runners.
+- The complete v0.1.7 integration patch sequence replayed successfully with
+  the new role patch and matching source hashes.
+- `node scripts/verify-workflow-roles.mjs` passed 12 light/dark, zh/en and
+  1280/520/360-pixel combinations for overview/detail icons and row layout.
+  Screenshots are in `Desktop/test-results/workflow-role*.png`.
+
+The existing Electron workflow and real-RPC acceptance scripts now assert
+role icons and role propagation, respectively, but have not been rerun for
+this change. No installer, running-app replacement, cloud CI, native macOS
+or real-model acceptance is claimed.

@@ -6,6 +6,11 @@
 .workflow-brand { color: var(--accent); font-size: 11px; }
 .workflow-count { margin-left: auto; color: var(--muted); white-space: nowrap; font-size: 12px; font-variant-numeric: tabular-nums; }
 .workflow-inline-meta { display: flex; flex-wrap: wrap; gap: 12px; padding: 3px 4px 4px; color: var(--muted); font-size: 11px; }
+.workflow-inline-roles { display: flex; flex-wrap: wrap; gap: 2px 12px; padding: 2px 4px; }
+.workflow-inline-roles > button { display: inline-flex; align-items: center; gap: 4px; max-width: 100%; min-height: 28px; padding: 2px 0; border: 0; border-radius: 0; background: transparent; color: var(--muted); font-size: 11px; text-align: left; cursor: pointer; }
+.workflow-inline-roles > button:hover { color: var(--ink); }
+.workflow-inline-roles > button > span:not(.agent-role-icon) { min-width: 0; overflow-wrap: anywhere; }
+.workflow-role-count { font-variant-numeric: tabular-nums; }
 .workflow-elapsed { color: var(--muted); white-space: nowrap; font-size: 11px; font-variant-numeric: tabular-nums; }
 .working { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
 .workflow-trigger { color: var(--muted); padding: 3px 7px; border-radius: 4px; font-size: 12px; }
@@ -36,6 +41,8 @@
 .workflow-agent.is-selected { background: color-mix(in srgb, var(--accent) 7%, var(--bg)); box-shadow: inset 2px 0 var(--accent); }
 .workflow-agent-copy { flex: 1; min-width: 0; display: grid; gap: 3px; }
 .workflow-agent-copy strong { font-size: 12px; font-weight: 500; overflow-wrap: anywhere; }
+.workflow-agent-identity { display: flex; align-items: center; gap: 5px; min-width: 0; }
+.workflow-agent-identity > span:last-child { min-width: 0; overflow-wrap: anywhere; }
 .workflow-agent-copy > span { font-size: 11px; color: var(--muted); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
 .workflow-detail-phase, .workflow-cached { color: var(--muted); font-size: 11px; overflow-wrap: anywhere; }
 .workflow-warning { color: var(--danger); font-size: 12px; }

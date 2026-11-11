@@ -38,6 +38,7 @@ export const acceptanceGroups = {
     'verify-mini-chat-preview.mjs',
     'verify-btw.mjs',
     'verify-workflow-catalog.mjs',
+    'verify-workflow-roles.mjs',
     'verify-composer-editing.mjs',
     'verify-terminal-panel.mjs',
     'verify-terminal-scopes.mjs',

@@ -25,7 +25,8 @@
     "step-code-desktop-completion-review.patch": "760a44aa097f5777587243e4b8eb22d15485f987",
     "step-code-desktop-v017.patch": "8ea430ad9a01b20a98af88ad98b7100f2213f56f",
     "step-code-desktop-mcp-credentials.patch": "1fbd6267db3d54e4c109c633f6ab832d94880106",
-    "step-code-desktop-plugin-host.patch": "b075e7b79a718b37fb8d6e52012b9565ee7e47cb"
+    "step-code-desktop-plugin-host.patch": "b075e7b79a718b37fb8d6e52012b9565ee7e47cb",
+    "step-code-desktop-workflow-role.patch": "e5df93cafbabbad797a8663e8468a1da294a5660"
   },
   "sources": {
     "packages/coding-agent/src/step/mcp-environment.ts": "d46ee0c3e07fbcd2432b43bd355080e52e3aca50",
@@ -69,7 +70,9 @@
     "packages/coding-agent/test/workflow-extension.test.ts": "e191d4f6ff5e3c9a0dcdd27025dfec6983fe429e",
     "packages/coding-agent/test/workflow-runtime.test.ts": "851eaec8b6c610927cd926346f4f1a8ceaf1f50d",
     "scripts/build-coding-agent-bundle.mjs": "7f6ba4da2a4caac0b7a5939e5aeb7c7de2b23524",
-    "packages/coding-agent/test/suite/plan-storage.test.ts": "7bcae1c63e37190a30c925daf39ecd881524005f"
+    "packages/coding-agent/test/suite/plan-storage.test.ts": "7bcae1c63e37190a30c925daf39ecd881524005f",
+    "packages/coding-agent/src/features/workflow/runtime.ts": "4c8a5b3a8ba4180ae2767fd4cd39ba42c2b0f9d0",
+    "packages/coding-agent/src/features/workflow/types.ts": "c12bdec0bb091b54885c62c27632ea0d7eff83e8"
   },
   "patchedSources": {
     "packages/coding-agent/src/step/mcp-environment.ts": "322aae08a9223421d936ac50e420f8599a3a796c",
@@ -124,7 +127,10 @@
     "scripts/build-coding-agent-bundle.mjs": "fac2aeda34008d81d0a01b1fa4d8a0af2ab4b476",
     "packages/coding-agent/test/suite/plan-storage.test.ts": "e1f28ca03e6ed8e91f8a13b137af622933259591",
     "packages/coding-agent/src/step/desktop-plugin-host.ts": "82149ab7ca422968425c3b2e81fae678e195c405",
-    "packages/coding-agent/test/desktop-plugin-host.test.ts": "dd61a808d4fef580264589426227753f3d59923c"
+    "packages/coding-agent/test/desktop-plugin-host.test.ts": "dd61a808d4fef580264589426227753f3d59923c",
+    "packages/coding-agent/src/features/workflow/runtime.ts": "c530f62c93a339b65f482af48ab8c03a3e1ca145",
+    "packages/coding-agent/src/features/workflow/types.ts": "e07822d501ad403f6d2dc2aa312059021f2756c7",
+    "packages/coding-agent/test/workflow-agent-role.test.ts": "9f4f9cc0ed84306a4a1d69332ad4e8b39f27c779"
   },
   "platforms": {
     "darwin": {

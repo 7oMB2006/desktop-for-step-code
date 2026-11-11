@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef, useState } from 'react';
-import { ArrowLeft, ArrowRight, ArrowUpRight, Check, CircleAlert, Copy, Globe2, Info, Link2, LockKeyhole, Monitor, Radio, RefreshCw, Server, ShieldCheck, Smartphone, Square, Unlink } from 'lucide-react';
+import { ArrowLeft, ArrowRight, ArrowUpRight, Bot, Check, CircleAlert, Copy, Globe2, Info, Link2, LockKeyhole, Monitor, Radio, RefreshCw, Server, ShieldCheck, Smartphone, Square, Unlink } from 'lucide-react';
+import { ExternalConnectorPanel } from './ExternalConnectorPanel';
 import type { DesktopBridge } from './contracts';
 import { remoteCommands, remoteWorkspaceLimit, type RemoteAction, type RemoteSnapshot } from './remote';
 import { ScheduledTaskSelect } from './ScheduledTasks';
@@ -13,7 +14,7 @@ export function RemoteAccessPanel({ bridge, language, onBack }: { bridge: Deskto
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [page, setPage] = useState<'channels' | 'connections' | 'runtime'>('channels');
-  const [channel, setChannel] = useState<'feishu' | 'web'>();
+  const [channel, setChannel] = useState<'feishu' | 'web' | 'external'>();
   const [step, setStep] = useState(0);
   const [target, setTarget] = useState('');
   const [workspaces, setWorkspaces] = useState<string[]>([]);
@@ -94,17 +95,24 @@ export function RemoteAccessPanel({ bridge, language, onBack }: { bridge: Deskto
       </nav>
       <div role="tabpanel" id={`${id}-panel`} aria-labelledby={`${id}-${page}`} className="remote-tab-content">
         {page === 'channels' && !channel && <section className="remote-channel-overview">
-          <div className="remote-section-heading"><h2>{t('接入渠道', 'Channels')}</h2><span className="remote-section-subtitle">{t('1 个可用 · 1 个规划中', '1 available · 1 planned')}</span></div>
+          <div className="remote-section-heading"><h2>{t('接入渠道', 'Channels')}</h2><span className="remote-section-subtitle">{t('2 个可用 · 1 个规划中', '2 available · 1 planned')}</span></div>
           <div className="remote-channel-options">
             <button className="remote-channel-option" onClick={() => { setChannel('feishu'); setStep(0); }}>{feishu(34)}
               <span className="remote-option-info"><strong>{t('飞书', 'Feishu')}</strong><span>{t('私聊远程访问 · 多会话 Beta', 'Private-chat access · Multi-session Beta')}</span>
                 <span className={`remote-status ${connected ? 'is-online' : ''}`}><i/>{status}</span></span>
               <span className="remote-option-action">{t('管理配置', 'Manage')}<ArrowRight size={15}/></span></button>
+            <button className="remote-channel-option" onClick={() => setChannel('external')}><Bot size={32}/>
+              <span className="remote-option-info"><strong>{t('外部 Agent', 'External agents')}</strong><span>{t('本机委托 · 独立授权', 'Local delegation · Explicit access')}</span></span>
+              <span className="remote-option-action">{t('管理连接', 'Manage')}<ArrowRight size={15}/></span></button>
             <button className="remote-channel-option is-planned" onClick={() => setChannel('web')}><Globe2 size={32}/>
               <span className="remote-option-info"><strong>{t('浏览器访问', 'Browser access')}</strong><span>{t('手机或电脑通过 URL 访问', 'Access from a phone or computer via URL')}</span><span>{t('规划中', 'Planned')}</span></span><ArrowRight size={15}/></button>
           </div>
         </section>}
-        {page === 'channels' && channel && <div className="remote-channel-flow">
+        {page === 'channels' && channel === 'external' && <div className="remote-channel-flow">
+          <button className="remote-text-action remote-channel-back" onClick={() => setChannel(undefined)}><ArrowLeft size={14}/>{t('返回接入渠道', 'Back to channels')}</button>
+          <ExternalConnectorPanel bridge={bridge} language={language}/>
+        </div>}
+        {page === 'channels' && channel && channel !== 'external' && <div className="remote-channel-flow">
           <button className="remote-text-action remote-channel-back" onClick={() => { setChannel(undefined); setConfirmation(undefined); }}><ArrowLeft size={14}/>{t('返回接入渠道', 'Back to channels')}</button>
           <div className="remote-channel-detail"><div className="remote-detail-heading"><div className="remote-channel-name">
             {channel === 'feishu' ? feishu(23) : <Globe2 size={23}/>}<div><h2>{channel === 'feishu' ? t('飞书', 'Feishu') : t('浏览器访问', 'Browser access')}</h2><p>{t('远程渠道', 'Remote channel')}</p></div>

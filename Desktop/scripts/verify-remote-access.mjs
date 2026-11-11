@@ -14,7 +14,7 @@ import { settleLayout } from './settle-layout.mjs';
 const executablePath = process.env.DESKTOP_VERIFY_EXE;
 const resources = executablePath ? (process.platform === 'darwin' ? resolve(dirname(executablePath), '../Resources') : join(dirname(executablePath), 'resources')) : resolve('.');
 const runtime = join(resources, 'runtime');
-const output = resolve('test-results/remote-access');
+const output = resolve(process.env.DESKTOP_VERIFY_OUTPUT || 'test-results/remote-access');
 await mkdir(output, { recursive: true });
 const adapter = createRequire(import.meta.url)(join(runtime, 'remote/lark-adapter.cjs'));
 for (const name of ['Client', 'LarkRegistration', 'LarkApi', 'LarkInboundGate', 'WSClient', 'EventDispatcher'])
@@ -610,7 +610,7 @@ try {
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1400, 950));
   await page.reload();
   await button('Remote access').click();
-  await panel.getByRole('button', { name: /Manage/ }).click();
+  await panel.getByRole('button', { name: /^Feishu\b.*Manage/ }).click();
   await page.getByRole('heading', { name: 'Remote access', exact: true }).waitFor();
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(420, 850));
   for (const theme of ['light', 'dark']) {

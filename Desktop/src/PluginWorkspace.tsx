@@ -3,23 +3,26 @@ import { ArrowLeft, Settings, X } from 'lucide-react';
 import type { DesktopBridge } from './contracts';
 import { PluginDocumentReader } from './PluginDocumentation';
 import { PluginDesktopIcon } from './PluginActionGroup';
+import { PluginConnectionPanel, type PluginConnectionBridge } from './PluginConnectionPanel';
 import { pluginDesktopDefaultPage, type PluginDesktopEntry } from './plugin-desktop';
 import './plugin-center.css';
 import './plugin-workspace.css';
 
 export function PluginWorkspace({ entry, bridge, language, onBack, onClose, closeLabel, onConfigure, active = true }: {
-  entry: PluginDesktopEntry; bridge: Pick<DesktopBridge, 'pluginDocument'>; language: 'zh' | 'en';
+  entry: PluginDesktopEntry; bridge: Pick<DesktopBridge, 'pluginDocument'> & PluginConnectionBridge; language: 'zh' | 'en';
   onBack?: () => void; onClose?: () => void; closeLabel?: string; onConfigure?: () => void; active?: boolean;
 }) {
-  const initialPage = pluginDesktopDefaultPage(entry.desktop).id;
+  const connected = entry.desktop.connection?.protocol === 'agent-bridge-v1';
+  const initialPage = connected ? 'connection' : pluginDesktopDefaultPage(entry.desktop).id;
   const [selected, setSelected] = useState(initialPage);
   const [visited, setVisited] = useState(() => new Set([initialPage]));
   const tabs = useRef<HTMLElement>(null);
   const workspace = useRef<HTMLElement>(null);
   const lastFocused = useRef<HTMLElement | null>(null);
   const id = useId();
-  const page = entry.desktop.pages.find(item => item.id === selected) ?? pluginDesktopDefaultPage(entry.desktop);
   const zh = language === 'zh';
+  const pages = [...(connected ? [{ id: 'connection', title: zh ? '连接' : 'Connection', document: '' }] : []), ...entry.desktop.pages];
+  const page = pages.find(item => item.id === selected) ?? pages[0];
   useEffect(() => {
     setVisited(value => value.has(page.id) ? value : new Set([...value, page.id]));
   }, [page.id]);
@@ -65,27 +68,38 @@ export function PluginWorkspace({ entry, bridge, language, onBack, onClose, clos
       onKeyDown={event => {
         if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
         event.preventDefault();
-        const index = entry.desktop.pages.findIndex(item => item.id === page.id);
-        const next = event.key === 'Home' ? 0 : event.key === 'End' ? entry.desktop.pages.length - 1
-          : (index + (event.key === 'ArrowRight' ? 1 : -1) + entry.desktop.pages.length) % entry.desktop.pages.length;
-        const target = entry.desktop.pages[next];
+        const index = pages.findIndex(item => item.id === page.id);
+        const next = event.key === 'Home' ? 0 : event.key === 'End' ? pages.length - 1
+          : (index + (event.key === 'ArrowRight' ? 1 : -1) + pages.length) % pages.length;
+        const target = pages[next];
         selectPage(target.id);
         tabs.current?.querySelectorAll<HTMLButtonElement>('[role="tab"]')[next]?.focus();
       }}>
-      {entry.desktop.pages.map(item => <button type="button" role="tab" key={item.id}
+      {pages.map(item => <button type="button" role="tab" key={item.id}
         id={`${id}-tab-${item.id}`} aria-controls={`${id}-page-${item.id}`} aria-selected={item.id === page.id}
         tabIndex={item.id === page.id ? 0 : -1} data-tooltip={item.title} onClick={() => selectPage(item.id)}>
         <span>{item.title}</span>
       </button>)}
     </nav>
     <div className="plugin-workspace-pages">
-      {entry.desktop.pages.filter(item => visited.has(item.id) || item.id === page.id).map(item => <section key={item.id}
+      {pages.filter(item => visited.has(item.id) || item.id === page.id).map(item => <section key={item.id}
         className="plugin-workspace-page" role="tabpanel" id={`${id}-page-${item.id}`}
         aria-labelledby={`${id}-tab-${item.id}`} hidden={item.id !== page.id} inert={item.id !== page.id} tabIndex={0}>
-        <div className="plugin-workspace-document">
+        {connected && item.id === 'connection' ? <PluginConnectionPanel bridge={bridge} packageRef={entry.plugin.package!.ref}
+          language={language} active={active && page.id === 'connection'}
+          hasFirstTask={Boolean(entry.desktop.connection?.guides?.firstTask)} onGuide={guide => {
+            const target = guide && entry.desktop.connection?.guides?.[guide];
+            selectPage(target && entry.desktop.pages.some(item => item.id === target)
+              ? target : pluginDesktopDefaultPage(entry.desktop).id);
+            requestAnimationFrame(() => {
+              if (!workspace.current?.closest('[hidden], [inert]'))
+                tabs.current?.querySelector<HTMLButtonElement>('[aria-selected="true"]')?.focus({ preventScroll: true });
+            });
+          }}/>
+          : <div className="plugin-workspace-document">
           <PluginDocumentReader bridge={bridge} language={language} kind="readme"
             pkg={{ ...entry.plugin.package!, documentation: { readme: item.document } }}/>
-        </div>
+        </div>}
       </section>)}
     </div>
   </section>;

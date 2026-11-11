@@ -10,6 +10,7 @@
 | 可安装资源 | 插件自己的仓库 | `step.plugin.json`、技能、提示命令、MCP 声明和许可证 |
 | 标准说明 | 插件自己的仓库 | 可选 `dfsc.plugin.json`、包内 Markdown、PNG/JPEG/WebP、教程与署名 |
 | 插件工作区 | 插件自己的仓库声明，宿主绘制 | 可选 `desktop`、包内 Markdown 页面与受限图标，需包含此功能的新宿主构建 |
+| 只读连接 | 宿主固定协议适配，插件声明 | 可选 `desktop.connection` / `agent-bridge-v1`，需用户主动选择本机 profile |
 | 基础配置 | 插件自己的仓库 | 可选 `dfsc.settings.json` 与 `json-file-v1` 原生 stdio 消费者 |
 | 特殊宿主适配 | DFSC 宿主 | BVR 账户桥、StepPage 准备等，不是可自报的通用能力 |
 
@@ -120,6 +121,64 @@ ASR 使用专用模型，不借聊天模型；当前宿主 TTS 明确不可用�
 | 页面 `document` | 实际存在的同包 Markdown 相对路径，每份最多 256 KiB |
 | `defaultPage` | 可选，必须对应已声明的页面 ID；省略时使用第一页 |
 | `icon` | 可选，`{"light":"assets/light.png","dark":"assets/dark.png"}`，`light` 必填 |
+| `connection` | 可选，`{"protocol":"agent-bridge-v1"}`，仅限 `main-view`，保留页面 ID `connection` |
+
+### 只读 Agent Bridge 连接页
+
+声明 `connection` 后，宿主在 Markdown 页签之前添加默认选中的「连接」页。
+标题栏入口先从原按钮下方展开轻量 Agent 状态面板，不切换当前聊天或插件主视图。
+小面板只显示连接诊断、身份和首批最多 5 项任务摘要，标明本次检查时间；
+打开和手动刷新才重新查询，不将任务摘要当作实时在线状态。
+再次点击入口、Escape 或点击外部收起，键盘关闭回到原入口（含溢出菜单按钮）。
+「打开完整工作台」才进入主视图，目录选择、更换、忘记选择和安装指南保留在完整页。
+此行为按固定连接协议提供，不按插件名称或 ID 特判，不改变其他插件的 surface 行为。
+`defaultPage` 仍指定安装指南文档，不可设置为保留的 `connection`。
+这是固定协议适配，不是可自定义 RPC、URL、脚本或文件路径的前端 SDK。
+旧宿主可能忽略整个可选 `desktop`，保留包内 README 作为降级入口。
+
+`connection.guides` 可选声明准备检查卡片及首次任务入口对应的文档页：
+
+```json
+{
+  "protocol": "agent-bridge-v1",
+  "guides": {
+    "setup": "setup",
+    "firstTask": "first-task",
+    "troubleshooting": "troubleshooting"
+  }
+}
+```
+
+三个字段都可省略；值必须是本插件已声明的页面 ID，不能是 `connection`、
+URL、文件路径或命令。省略时沿用 `defaultPage`，不新增文档读取权限。
+指南按钮只切换同一插件的文档页，不执行命令、不安装或配对，也不代表组件已运行。
+
+宿主通过原生目录选择器取得用户明确选择的本机 Agent profile，
+仅检查 `config.yaml` 文件标记，不打开其内容；读取该 profile 的
+`dfsc-bridge/config.json` 及其显式 `bridgeRoot` 中对应身份的 `model.json`。
+不会读取 `human.json`、`.env`、个人默认 profile 或其他身份凭据。
+描述文件只允许回环 TCP，非 Windows 也可使用本机 Unix socket。
+令牌留在主进程，渲染器仅收到脱敏后的身份、授权目录与任务摘要。
+
+只调用 `system.capabilities` 和首批 `task.list`，核验身份后按真实目录交集
+过滤任务，最多展示 20 项，不读取日志、对话或工具输出。
+「忘记此选择」只删除宿主保存的目录绑定，不是解除配对或撤销授权。
+绑定随安装实例或包内容改变而失效，重启同一安装可保留选择。
+
+「只读连接已核验」不证明 companion 已被 Hermes 加载，不证明可派工。
+`desktop.connection.protocol` 的 `agent-bridge-v1` 是只读展示声明，
+不表示只能连接旧版服务；实际模式由所选 profile 的连接配置决定：
+
+- 本机通用模式在 `dfsc-bridge/config.json` 中显式声明 `protocol: "dfsc-external-v1"`。
+  包含该功能的 DFSC 构建提供「远程访问 → 接入渠道 → 外部 Agent」入口，
+  由用户开启接入、选择授权项目并创建连接，再按适配器指南显式导入配置。
+  入口默认关闭，安装市场插件或打开此连接页不会自动开启、配对或授权。
+  协议与生命周期边界见 [通用外部委托接入](EXTERNAL_CONNECTORS.md)。
+- 未声明该 `protocol` 的旧版模式仍需配套的专版 Agent Bridge 宿主；
+  通用入口不提供完整旧协议，也不会自动转换或降级使用另一套凭据。
+
+配对、授权和任务控制在配置对应的 DFSC 或专版宿主中完成。
+MiniChat 和独立插件窗口不能调用这些连接接口。
 
 三种 surface 都由宿主绘制相同的受限 Markdown 页面，不是三种脚本入口：
 
@@ -127,7 +186,7 @@ ASR 使用专用模型，不借聊天模型；当前宿主 TTS 明确不可用�
 - `side-panel`：在主窗口的独立插件侧面板打开，不把页面当作官方工具。
 - `window`：打开宿主管理的独立插件窗口，只拥有其包内页面所需的窄接口。
 
-再次点击已打开的主视图或侧面板入口会收起该工作区；独立窗口入口则打开或聚焦
+未声明只读连接的插件，再次点击已打开的主视图或侧面板入口会收起该工作区；独立窗口入口则打开或聚焦
 原窗口，不以同一次点击关闭窗口。主视图用返回按钮，侧面板和独立窗口用关闭按钮。
 打开时键盘焦点进入选中页签，重新打开时恢复仍可见的页内焦点；返回后聚焦原入口，
 从「更多插件」进入时返回该菜单按钮。切换不清空页面选择、阅读位置或聊天草稿。

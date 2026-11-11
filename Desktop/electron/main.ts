@@ -25,6 +25,7 @@ import { SessionNavigation } from './session-navigation';
 import { ComposerStore, parseComposerOwner } from './composer-store';
 import { MiniChatWindow } from './mini-chat-window';
 import { PluginWindows } from './plugin-windows';
+import { PluginConnections } from './plugin-connection';
 import { pluginWindowMethodAllowed } from './plugin-window-policy';
 import { parseWindowPresentation } from './window-presentation';
 import { composerKey, type ComposerOwner, type WindowPresentation } from '../src/window-conversation';
@@ -76,6 +77,9 @@ import { submittedInputContent } from '../src/template-input';
 import { clmSnapshot } from './clm';
 import { BackgroundAgents } from './background-agents';
 import { RemoteManager, parseRemoteAction } from './remote-manager';
+import { ExternalConnectorTasks } from './external-connector-tasks';
+import { ConnectorJsonStore, ExternalConnectorGateway } from './external-connector-gateway';
+import { externalSessionCommandAllowed, parseExternalConnectorAction } from './external-connector-policy';
 import { receiveRemoteImages, sendRemoteImage } from './remote-images';
 import { hydrateWorkflowHistory, WorkflowBindings } from './workflow-history';
 import { readWorkflowCatalog } from './workflow-catalog';
@@ -178,6 +182,7 @@ function showMainWindow() {
   if (!backgroundAcceptance) window.focus();
 }
 let startup: Promise<void> = Promise.resolve();
+let externalReady: Promise<void> = Promise.resolve();
 let startupError: string | undefined;
 let sessionDraft: { id: string; workspace?: string; model?: Model; models?: Model[]; thinkingLevel?: string;
   permissionPreset?: PermissionPreset; launch?: LaunchState; modelChanged?: boolean; permissionChanged?: boolean; thinkingChanged?: boolean } | undefined = { id: randomUUID() };
@@ -245,6 +250,10 @@ async function importAttachment(path: string) {
 }
 const runtimeRoot = app.isPackaged ? join(process.resourcesPath, 'runtime') : resolve('runtime');
 const dataRoot = join(app.getPath('userData'), 'step-runtime');
+const pluginConnections = new PluginConnections(dataRoot);
+const externalPreparing = new Set<SessionRuntime>();
+let preparingExternal = false;
+let externalBootError = false;
 const globalInstructions = new GlobalInstructionsStore(join(dataRoot, 'agent'));
 const outdatedInstructions = new WeakSet<SessionRuntime>();
 const independentRoot = join(app.getPath('userData'), 'workspaces', 'independent');
@@ -310,6 +319,7 @@ const capabilityService: CapabilityService = new CapabilityService({ root: dataR
     const alreadyMutating = settingsMutation;
     settingsMutation = true;
     try {
+      if ([...runtimes.workers.values()].some(externallyOwned)) throw new Error('Stop external tasks before reloading plugins');
       await runtimes.assertAllIdle({ stopHost: false, resources: true, allowRemote: true });
       await assertPluginUnused(id, runtimes.workers.values());
       await runtimes.assertAllIdle({ stopHost: false, resources: true, allowRemote: true });
@@ -453,7 +463,10 @@ const runtimes: SessionRuntimes = new SessionRuntimes(event => {
     if (queueWorker) btw.event(queueWorker, event);
     return;
   }
-  if (queueWorker) remote.runtimeEvent(queueWorker, event);
+  if (queueWorker) {
+    remote.runtimeEvent(queueWorker, event);
+    externalTasks.event(queueWorker, event);
+  }
   const modelChanged = queueWorker && event.type === 'message_start' && event.message?.role === 'user'
     && modelSelections.delivered(queueWorker, submittedInputContent(event.message), event.message.timestamp);
   const consumed = queueWorker && event.type === 'message_start' && event.message?.role === 'user'
@@ -488,7 +501,7 @@ const runtimes: SessionRuntimes = new SessionRuntimes(event => {
 }, undefined, {
   backgroundAvailable: () => runtimeManifest.patches?.includes('desktop-subagent-redaction') === true,
   retain: worker => worker.id === miniView.runtimeId || openingSessions.has(worker.state?.sessionId ?? '')
-    || miniNavigation.pending(worker.state?.sessionId),
+    || miniNavigation.pending(worker.state?.sessionId) || externalPreparing.has(worker) || externalTasks.retains(worker),
   event: (worker, event) => {
     try {
       cronHistory.event(worker, event);
@@ -533,6 +546,7 @@ const runtimes: SessionRuntimes = new SessionRuntimes(event => {
     await restoreSelectedModel(worker, expected, preferences.language);
   },
   launch: worker => {
+    if (preparingExternal) externalPreparing.add(worker);
     usageEstimates.attach(worker);
     const launch = collaboration.attach(worker);
     return { ...launch, env: { ...launch.env,
@@ -541,6 +555,8 @@ const runtimes: SessionRuntimes = new SessionRuntimes(event => {
         '--extension', join(runtimeRoot, 'runtime-compile-cache.mjs')] };
   },
   dispose: worker => {
+    externalPreparing.delete(worker);
+    externalTasks.dispose(worker);
     remote.dispose(worker);
     bvrBridge.detach(worker);
     pluginHosts.invalidate(worker);
@@ -597,11 +613,15 @@ const pendingMessages = new PendingMessages(worker => {
   runtimes.publish();
 }, (worker, error) => {
   remote.queueFailed(worker);
+  externalTasks.queueFailed(worker);
   emit({ type: 'desktop_error', runtimeId: worker.id, message: String(error instanceof Error ? error.message : error) });
 },
   (message, files) => files.length ? fileReferenceMessage(message, files, preferences.language) : message,
   (worker, message) => runtimes.preparePrompt(worker, message),
-  (worker, id, event) => remote.queueEvent(worker, id, event));
+  (worker, id, event) => {
+    remote.queueEvent(worker, id, event);
+    externalTasks.queueEvent(worker, id, event);
+  });
 const remote = new RemoteManager({
   language: () => preferences.language,
   sessions: remoteSessions,
@@ -618,10 +638,12 @@ const remote = new RemoteManager({
   createSession: workspace => prepareRemoteSession(undefined, workspace),
   worker: (runtimeId, sessionId) => {
     const worker = runtimes.require(runtimeId);
+    if (externallyOwned(worker)) throw new Error('This session belongs to an external task');
     if (worker.state?.sessionId !== sessionId) throw new Error('Remote session identity changed');
     return worker;
   },
   submit: async (worker, message, accepted, images) => {
+    if (externalTasks.retains(worker)) throw new Error('This session belongs to an external task');
     if (transition || sessionNavigation.busy || settingsMutation || undoBusy || quitting || quitPending || updateInstalling
       || providerSettingsPending || worker.mutating || worker.stopping || worker.pendingUI.size
       || worker.failed || worker.interrupted || worker.launch?.goalArmed || worker.launch?.goal?.status === 'active')
@@ -638,6 +660,7 @@ const remote = new RemoteManager({
     sendRemoteImage(channel, bindingId, sessionId, worker.cwd, path, valid, signal),
   stop: async worker => { await handle('command', ['abort', {}, worker.id]); },
   respond: (worker, answer) => {
+    if (externalTasks.retains(worker)) throw new Error('Review external task approvals locally');
     if (quitting || quitPending || updateInstalling || settingsMutation) throw new Error('Desktop is unavailable');
     runtimes.respondToRequest(worker, answer);
     remote.runtimeEvent(worker, { type: 'desktop_ui_expired' });
@@ -652,6 +675,50 @@ const remote = new RemoteManager({
   channel.start(nodePath, join(runtimeRoot, 'remote-channel.mjs'), dataRoot, env);
   return channel;
 }, state => emit({ type: 'desktop_remote', state }), Date.now, new RemoteStore(join(app.getPath('userData'), 'remote')));
+const externalRoot = join(app.getPath('userData'), 'external-connectors');
+const externalTasks: ExternalConnectorTasks = new ExternalConnectorTasks({
+  validate: (cwd, roots) => externalConnectors.validate(cwd, roots),
+  create: async (cwd, valid) => {
+    if (!valid() || preparingExternal) throw new Error('connector:unavailable');
+    preparingExternal = true;
+    let worker: SessionRuntime | undefined;
+    try {
+      worker = await prepareRemoteSession(undefined, cwd);
+      if (!valid()) { await runtimes.remove(worker); throw new Error('connector:revoked'); }
+      return worker;
+    } finally {
+      preparingExternal = false;
+      // Core attaches ownership in the resolved create continuation.
+      if (worker) { const created = worker; setImmediate(() => externalPreparing.delete(created)); }
+    }
+  },
+  submit: async (worker, message, accepted, valid) => {
+    if (!valid() || runtimes.workers.get(worker.id) !== worker || worker.status !== 'connected'
+      || worker.permissionPreset !== 'ask' || transition || sessionNavigation.busy || settingsMutation || undoBusy
+      || quitting || quitPending || updateInstalling || providerSettingsPending || worker.mutating || worker.stopping
+      || worker.pendingUI.size || worker.failed || worker.interrupted || worker.busy || worker.submissions
+      || worker.launch?.goalArmed || worker.launch?.goal?.status === 'active')
+      throw new Error('connector:unavailable');
+    const id = pendingMessages.enqueue(worker, message, { message });
+    accepted(id);
+    pendingMessages.resumed(worker);
+    void pendingMessages.drain(worker);
+  },
+  withdraw: (worker, id) => pendingMessages.withdraw(worker, id),
+  discard: async worker => {
+    if (runtimes.workers.get(worker.id) === worker && worker.status === 'connected' && !worker.messages.length
+      && !worker.busy && !worker.operations && !worker.btwActive && !worker.submissions && !worker.runActive && !worker.pendingUI.size)
+      await runtimes.remove(worker);
+  },
+  stop: async worker => { await handle('command', ['abort', {}, worker.id]); },
+}, new ConnectorJsonStore(externalRoot, 'tasks.json'));
+const externalConnectors = new ExternalConnectorGateway(externalRoot, {
+  dispatch: async (grant, method, params, valid) => { await startup; return externalTasks.call(grant, method, params, valid); },
+  invalidated: agentId => externalTasks.invalidate(agentId),
+});
+function externallyOwned(worker: SessionRuntime) {
+  return externalPreparing.has(worker) || externalTasks.retains(worker);
+}
 const runtimeManifest = JSON.parse(readFileSync(join(runtimeRoot, 'manifest.json'), 'utf8'));
 const backgroundAgents = new BackgroundAgents(runtimes.workers,
   () => transition || sessionNavigation.busy || settingsMutation || providerSettingsPending || undoBusy || quitting || quitPending,
@@ -854,14 +921,18 @@ function remoteProjects() {
       || sessions.find(session => session.workspace === workspace)?.workspaceName || basename(workspace),
   }));
 }
-async function prepareRemoteSession(sessionId?: string, workspace?: string) {
+async function prepareRemoteSession(sessionId?: string, workspace?: string): Promise<SessionRuntime> {
   if (transition || sessionNavigation.busy || settingsMutation || undoBusy || deletingArchived || quitting || quitPending
     || updateInstalling || providerSettingsPending) throw new Error('Desktop operation in progress');
   transition = true;
   try {
     const target = sessionId ? remoteSessions().find(session => session.sessionId === sessionId) : undefined;
     if (sessionId && !target) throw new Error('Session is unavailable');
-    if (target?.runtimeId) return runtimes.require(target.runtimeId);
+    if (target?.runtimeId) {
+      const worker = runtimes.require(target.runtimeId);
+      if (externalTasks.retains(worker)) throw new Error('This session belongs to an external task');
+      return worker;
+    }
     if (sessionId && [...runtimes.workers.values()].some(worker => worker.state?.sessionId === sessionId && worker.status === 'connecting'))
       throw new Error('Session is opening');
     const saved = sessionId ? cachedSessions().find(session => session.id === sessionId) : undefined;
@@ -921,6 +992,7 @@ async function snapshot(worker = runtimes.active, refresh = true, ignoreDraft = 
 }
 async function guardIdle(options: { stopHost?: boolean; resources?: boolean; allowWaitingCron?: boolean } = {}) {
   if (transition) throw new Error('Workspace operation in progress');
+  if ([...runtimes.workers.values()].some(externallyOwned)) throw new Error('Stop external tasks before changing shared settings');
   // Saving resources keeps session ownership, but resident Cron can still use them.
   await runtimes.assertAllIdle({ ...options,
     ...(options.stopHost === false ? { allowRemote: true, resources: true } : {}) });
@@ -928,7 +1000,7 @@ async function guardIdle(options: { stopHost?: boolean; resources?: boolean; all
 function canApplyProviders() {
   return !speechSaving && capabilityService.available && !capabilityGate.active && !providerApplyFailed && !transition && !undoBusy && !runtimes.running && !admin.hasPendingRequests
     && [...runtimes.workers.values()].every(worker => worker.status !== 'connecting'
-      && !worker.operations && !worker.mutating && !worker.stopping && !worker.remoteAttached);
+      && !worker.operations && !worker.mutating && !worker.stopping && !worker.remoteAttached && !externallyOwned(worker));
 }
 function applyProviderSettings(): Promise<void> {
   if (providerApplication) return providerApplication;
@@ -1173,6 +1245,27 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
     && (!args[0] || Object.keys(args[0]).some(key => key !== 'modelFavorite')))
     throw new Error('Shared preferences are edited in the main window');
   if (method === 'remoteState') { await listSessions(); return remote.snapshot(); }
+  if (method === 'externalConnectorState' || method === 'externalConnectorAction') {
+    if (surface !== 'main') throw new Error('connector:unavailable');
+    await externalReady;
+    if (method === 'externalConnectorAction') {
+      const action = parseExternalConnectorAction(args[0]);
+      if (!['disable', 'revoke'].includes(action.type)
+        && (transition || settingsMutation || undoBusy || quitting || quitPending || updateInstalling || providerSettingsPending))
+        throw new Error('connector:unavailable');
+      if (action.type === 'enable') await externalConnectors.enable();
+      else if (action.type === 'disable') await externalConnectors.disable();
+      else if (action.type === 'revoke') await externalConnectors.revoke(action.agentId);
+      else if (action.type === 'pair') {
+        await listSessions();
+        if (action.roots.some(root => !remoteProjects().some(project => project.workspace === root)))
+          throw new Error('connector:invalid-input');
+        await externalConnectors.pair(action.displayName, action.roots);
+      }
+    }
+    await listSessions();
+    return { ...externalConnectors.snapshot(), ...(externalBootError ? { error: 'connector:storage' } : {}), projects: remoteProjects() };
+  }
   if (method === 'remoteAction') {
     const action = parseRemoteAction(args[0]);
     if (!['disconnect', 'unbind'].includes(action.type)
@@ -1307,6 +1400,11 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
     case 'cronUpdate':
     case 'cronDelete': {
       if (transition || settingsMutation || providerSettingsPending || undoBusy) throw new Error('Wait for account and workspace changes to finish');
+      const runtimeId = method === 'cronDelete' ? args[0] : args[0]?.runtimeId;
+      if (typeof runtimeId === 'string') {
+        const worker = runtimes.workers.get(runtimeId);
+        if (worker && externallyOwned(worker)) throw new Error('Stop the external task before changing scheduled work');
+      }
       if (method === 'cronUpdate') {
         const manifest = JSON.parse(await readFile(join(runtimeRoot, 'manifest.json'), 'utf8'));
         if (!manifest.patches?.includes('desktop-cron-management-beta')) throw new Error('This runtime does not support task editing');
@@ -1358,7 +1456,9 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
           await terminals.stopAll();
           await sessionImports.close();
           await remote.shutdown();
+          await externalConnectors.shutdown();
           await Promise.all([runtimes.stopAll(), admin.stop(), capabilityService.stop(), collaboration.stop(), pluginHosts.close()]);
+          await externalTasks.flush().catch(() => crashLog.record('external-connectors', new Error('External task state could not be saved')));
         });
         success = true;
       } finally { if (!success) updateInstalling = false; }
@@ -1609,6 +1709,7 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
       if (transition || sessionNavigation.busy || settingsMutation || providerSettingsPending || undoBusy || quitting || quitPending)
         throw new Error('Wait for account and workspace changes to finish');
       const worker = runtimes.require(text(args[0], 80));
+      if (externallyOwned(worker)) throw new Error('Stop the external task before changing context');
       const sessionId = text(args[1], 200), action = text(args[2], 20);
       if (!['on', 'off', 'compact'].includes(action) || worker.state?.sessionId !== sessionId) throw new Error('Invalid CLM action or session changed');
       if (runtimes.isBusy(worker) || hasBackgroundWork(worker) || worker.mutating || worker.queued || worker.launch?.goal?.status === 'active')
@@ -1633,6 +1734,7 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
     case 'replyBackgroundAgent': {
       if (args[0]?.runtimeId !== runtimes.activeId) throw new Error('Session is not selected');
       const worker = runtimes.require(text(args[0]?.runtimeId, 80));
+      if (externallyOwned(worker)) throw new Error('Stop the external task before sending a local reply');
       return runtimes.withBackgroundAction(worker, () => backgroundAgents.reply(args[0]));
     }
     case 'summary': {
@@ -1678,7 +1780,7 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
         // Prevent Desktop workers sharing this directory from racing the write.
         for (const peer of runtimes.workers.values()) {
           if (!(await samePath(peer.cwd, worker.cwd))) continue;
-          if (peer.mutating || runtimes.isBusy(peer)) throw new Error('Stop tasks using this workspace before undo');
+          if (peer.mutating || runtimes.isBusy(peer) || externallyOwned(peer)) throw new Error('Stop tasks using this workspace before undo');
           peer.mutating = true;
           lockedPeers.push(peer);
           await runtimes.assertIdle(peer);
@@ -1762,6 +1864,7 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
       transition = true;
       try {
         for (const worker of peers()) {
+          if (externallyOwned(worker)) throw new Error('Stop external tasks before relocating this project');
           if (worker.operations || worker.mutating || worker.submissions || worker.stopping) throw new Error('Session operation in progress');
           await runtimes.assertIdle(worker, { stopHost: true });
         }
@@ -1775,6 +1878,7 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
         const recoverStartup = !sessionDraft && !runtimes.active && preferences.workspace &&
           pathKey(preferences.workspace) === pathKey(path);
         for (const worker of peers()) {
+          if (externallyOwned(worker)) throw new Error('Stop external tasks before relocating this project');
           if (worker.operations || worker.mutating || worker.submissions || worker.stopping) throw new Error('Session operation in progress');
           await runtimes.assertIdle(worker, { stopHost: true });
         }
@@ -1811,6 +1915,7 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
       if (transition) throw new Error('Workspace operation in progress');
       const worker = runtimes.active;
       if (!worker) return snapshot();
+      if (externallyOwned(worker)) throw new Error('Stop the external task before restarting');
       if (worker.mutating || worker.operations || worker.stopping) throw new Error('Session operation in progress');
       const { cwd, state } = worker;
       transition = true;
@@ -1834,6 +1939,7 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
       try {
         if (preferences.archivedSessionIds?.includes(id)) throw new Error('Restore this conversation before moving it');
         for (const worker of sources) {
+          if (externallyOwned(worker)) throw new Error('Stop the external task before moving its session');
           if (worker.operations || worker.mutating || worker.submissions || worker.stopping || worker.pendingModel)
             throw new Error('Session operation in progress');
         }
@@ -1943,6 +2049,7 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
         const target = (await listSessions()).find(session => session.id === sessionId);
         if (!target?.path || !target.messageCount) throw new Error('Only saved, nonempty sessions can be branched');
         source = [...runtimes.workers.values()].find(worker => worker.state?.sessionId === sessionId);
+        if (source && externallyOwned(source)) throw new Error('Stop the external task before copying its session');
         if (source) {
           if (source.mutating || source.operations) throw new Error('Session operation in progress');
           source.mutating = true;
@@ -1979,6 +2086,7 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
       if (kind !== 'clone' && kind !== 'fork') throw new Error('Unsupported branch operation');
       if (transition) throw new Error('Workspace operation in progress');
       const source = runtimes.require(text(args[2], 80));
+      if (externalTasks.retains(source)) throw new Error('Stop the external task before branching');
       if (source.id !== selectedRuntime(surface) || source.mutating || source.operations) throw new Error('Session operation in progress');
       const entryId = text(args[1], 80);
       transition = true; source.mutating = true;
@@ -2008,6 +2116,7 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
     case 'retryMessage': {
       if (transition) throw new Error('Workspace operation in progress');
       const worker = runtimes.require(text(args[2], 80));
+      if (externalTasks.retains(worker)) throw new Error('Stop the external task before retrying');
       if (worker.id !== selectedRuntime(surface) || worker.mutating || worker.operations) throw new Error('Session operation in progress');
       const entryId = text(args[0], 80);
       const message = text(args[1]);
@@ -2028,7 +2137,7 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
             if (target.id === runtimes.active?.state?.sessionId || target.id === miniView.worker?.state?.sessionId)
               throw new Error(preferences.language === 'zh' ? '请先在主窗口和小窗切换到其他会话，再删除当前会话' : 'Open a different session in both windows before deleting this one');
             const worker = [...runtimes.workers.values()].find(worker => worker.state?.sessionId === target.id);
-            if (worker && (runtimes.isBusy(worker) || worker.operations || worker.mutating && !locked.includes(worker))) {
+            if (worker && (externallyOwned(worker) || runtimes.isBusy(worker) || worker.operations || worker.mutating && !locked.includes(worker))) {
               throw new Error(preferences.language === 'zh' ? '请先停止要删除的会话任务' : 'Stop the selected session tasks first');
             }
           }
@@ -2078,6 +2187,7 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
       if (target.id === runtimes.active?.state?.sessionId || target.id === miniView.worker?.state?.sessionId)
         throw new Error(preferences.language === 'zh' ? '请先在主窗口和小窗切换到其他会话，再删除当前会话' : 'Open a different session in both windows before deleting this one');
       const worker = [...runtimes.workers.values()].find(worker => worker.state?.sessionId === target.id);
+      if (worker && externallyOwned(worker)) throw new Error('Stop the external task before deleting its session');
       if (worker) await runtimes.assertIdle(worker, { stopHost: true });
       const response = await dialog.showMessageBox(window, { type: 'question', message: preferences.language === 'zh' ? '将此会话移到回收站？' : 'Move this session to the Recycle Bin?', buttons: ['Cancel', 'Move to Recycle Bin'], defaultId: 0, cancelId: 0 });
       if (response.response !== 1) return false;
@@ -2158,6 +2268,10 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
       if (surface === 'mini' && runtimeId !== miniView.runtimeId) throw new Error('MiniChat conversation changed');
       const worker = ['queue_edit', 'queue_remove'].includes(type) ? runtimes.workers.get(runtimeId!) : runtimes.require(runtimeId);
       if (!worker) throw new Error('This session runtime is unavailable');
+      if (externalTasks.retains(worker) && !externalSessionCommandAllowed(type))
+        throw new Error(preferences.language === 'zh'
+          ? '此会话正在处理外部委托，请先停止委托再接管。审批仍可在本机完成。'
+          : 'This session has an external task. Stop it before taking over; local approvals remain available.');
       const projectRules = type === 'prompt' && typeof data.message === 'string'
         && isProjectInstructionsCommand(data.message, (data.files?.length ?? 0) + (data.images?.length ?? 0));
       if (worker.stopping && ['prompt', 'queue_steer', 'queue_steer_first', 'abort'].includes(type))
@@ -2225,6 +2339,7 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
           }
           runtimes.respondToRequest(worker, answer);
           remote.runtimeEvent(worker, { type: 'desktop_ui_expired' });
+          externalTasks.event(worker, { type: 'desktop_ui_expired', runtimeId: worker.id });
           return null;
         }
         const allowed = ['prompt', 'abort', 'clear_queue', 'new_session', 'set_model', 'set_thinking_level', 'set_session_name', 'set_permission_preset', 'get_commands', 'get_available_thinking_levels', 'get_session_stats', 'compact'];
@@ -2350,6 +2465,7 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
             // Abort waits for idle; clear accepted steers before making them editable.
             await rpc.request('clear_queue');
             pendingMessages.recover(worker);
+            externalTasks.locallyStopped(worker);
           }
           if (type === 'prompt' && Array.isArray(data.files)) for (const id of data.files) attachedFiles.delete(id);
           return response;
@@ -2368,10 +2484,13 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
         if (type === 'set_model' || type === 'set_thinking_level') void pendingMessages.drain(worker);
       }
     }
-    case 'btwAsk':
+    case 'btwAsk': {
       if (transition || sessionNavigation.busy || settingsMutation || providerSettingsPending || undoBusy || quitting || quitPending)
         throw new Error('Wait for account and workspace changes to finish');
+      const worker = runtimes.workers.get(args[0]?.runtimeId);
+      if (worker && externallyOwned(worker)) throw new Error('Stop the external task before asking a local side question');
       return btw.ask(args[0]);
+    }
     case 'btwCancel': return btw.cancel(args[0]);
     case 'btwClear': return btw.clear(args[0]);
     case 'accountAllowance':
@@ -2524,6 +2643,33 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
       if (settingsMutation) throw new Error('capability:busy');
       try { return await capabilityService.document(args[0]); }
       catch (error) { throw new Error(error instanceof Error && /^capability:[a-z-]+$/u.test(error.message) ? error.message : 'capability:operation-failed'); }
+    }
+    case 'pluginConnectionState':
+    case 'pluginConnectionChooseProfile':
+    case 'pluginConnectionForgetProfile': {
+      if (settingsMutation || quitting || quitPending) throw new Error('capability:busy');
+      const ref = args[0]?.ref;
+      try {
+        const key = await capabilityService.connection(ref);
+        if (method === 'pluginConnectionChooseProfile') {
+          const selected = await dialog.showOpenDialog(window, {
+            title: preferences.language === 'zh' ? '选择 Agent profile 目录' : 'Choose an agent profile directory',
+            properties: ['openDirectory'],
+          });
+          if (selected.canceled || !selected.filePaths[0]) return null;
+          if (settingsMutation || quitting || quitPending) throw new Error('capability:busy');
+          if (await capabilityService.connection(ref) !== key) throw new Error('capability:stale');
+          await pluginConnections.choose(key, selected.filePaths[0]);
+        } else if (method === 'pluginConnectionForgetProfile') {
+          await pluginConnections.choose(key, null);
+        }
+        const state = await pluginConnections.snapshot(key);
+        if (await capabilityService.connection(ref) !== key) throw new Error('capability:stale');
+        return state;
+      } catch (error) {
+        throw new Error(error instanceof Error && /^capability:[a-z-]+$/u.test(error.message)
+          ? error.message : 'capability:operation-failed');
+      }
     }
     case 'pluginRepositoryInfo': {
       if (settingsMutation) throw new Error('capability:busy');
@@ -2798,7 +2944,9 @@ app.on('before-quit', event => {
       pluginWindows?.dispose();
       await sessionImports.close();
       await remote.shutdown();
+      await externalConnectors.shutdown();
       await Promise.all([runtimes.stopAll(), admin.stop(), capabilityService.stop(), collaboration.stop(), bvrBridge.stop(), pluginHosts.close()]);
+      await externalTasks.flush().catch(() => crashLog.record('external-connectors', new Error('External task state could not be saved')));
       await conversationTiming.flush();
       await modelSelections.flush();
       await usageEstimates.flush();
@@ -2856,6 +3004,12 @@ else app.whenReady().then(async () => {
   updates.setChannel(preferences.updateChannel);
   try { await writeFile(join(dataRoot, 'config.toml'), 'permissionPreset = "ask"\n[telemetry]\nenabled = false\n', { flag: 'wx' }); } catch (e: any) { if (e.code !== 'EEXIST') throw e; }
   admin.start(nodePath, join(runtimeRoot, 'admin.mjs'), dataRoot, authEnvironment());
+  try {
+    await externalTasks.initialize();
+  } catch {
+    externalBootError = true;
+    await crashLog.record('external-connectors', new Error('External connector storage unavailable'));
+  }
   crashLog.setPhase('admin started');
   // Reconcile full TOML declarations inside the admin settings lock. The qualified
   // plugin identity prevents duplicate discovery; relocation must retain explicit disable.
@@ -3014,6 +3168,7 @@ else app.whenReady().then(async () => {
       if (providerApplication) await providerApplication;
       const capabilityMutation = ['capabilityMutate', 'capabilityImportSkill', 'bvrSaveConfiguration', 'pluginSaveConfiguration', 'pluginSaveHostSettings', 'saveCompactionSettings'].includes(method);
       const capabilityRead = ['capabilityCatalog', 'pluginDocument', 'pluginRepositoryInfo', 'pluginConfiguration', 'pluginHostSettings', 'pluginWindowOpen',
+        'pluginConnectionState', 'pluginConnectionChooseProfile', 'pluginConnectionForgetProfile',
         'pluginChoosePath', 'themeScene', 'themePoster', 'themeImage', 'bvrConfiguration', 'bvrCheckEnvironment', 'bvrChoosePath'].includes(method);
       // CapabilityService selects its trusted scope after freezing the package.
       // Discovery network work and data-only themes must not block Remote I/O.
@@ -3071,6 +3226,14 @@ else app.whenReady().then(async () => {
       }
     })();
   }
+  externalReady = startup.then(async () => {
+    if (externalBootError || quitting || quitPending || updateInstalling) return;
+    try { await externalConnectors.initialize(); }
+    catch {
+      externalBootError = true;
+      await crashLog.record('external-connectors', new Error('External connector storage unavailable'));
+    }
+  });
   void startup.then(async () => {
     if (!quitting && !quitPending && !updateInstalling) { await listSessions(); await remote.resume(); }
   }).catch(() => {});
@@ -3097,5 +3260,5 @@ else app.whenReady().then(async () => {
   startupWindow?.destroy();
   await crashLog.record('startup-failure', error, (error as { details?: Record<string, unknown> }).details ?? {});
   if (!backgroundAcceptance) dialog.showErrorBox('Desktop for Step Code', String(error));
-  quitting = true; void Promise.all([remote.shutdown(), sessionImports.close(), runtimes.stopAll(), admin.stop(), capabilityService.stop(), collaboration.stop(), terminals.stopAll(), pluginHosts.close()]).finally(() => app.quit());
+  quitting = true; void Promise.all([remote.shutdown(), externalConnectors.shutdown(), sessionImports.close(), runtimes.stopAll(), admin.stop(), capabilityService.stop(), collaboration.stop(), terminals.stopAll(), pluginHosts.close()]).finally(() => app.quit());
 });

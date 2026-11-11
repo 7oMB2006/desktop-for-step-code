@@ -106,6 +106,9 @@ import { FirstRun } from './FirstRun';
 import { AppUpdates, useAppUpdates } from './AppUpdates';
 import { AppearanceSettings } from './AppearanceSettings';
 import { CompactionSettings } from './CompactionSettings';
+import { SpeechInput } from './SpeechInput';
+import { SpeechSettings } from './SpeechSettings';
+import { appendSpeechText } from './speech-segments';
 import { NotificationSettings } from './NotificationSettings';
 import { GlobalInstructionsSettings, useGlobalInstructionsEditor } from './GlobalInstructionsSettings';
 import { InterfaceSettings } from './InterfaceSettings';
@@ -227,6 +230,9 @@ function App() {
   const composer = useWindowComposer(bridge, message => setError(composerErrorText(message, data.preferences.language)));
   const { text: draft, quotes, attachments } = composer.value;
   const { setDraft, setQuotes, setAttachments } = composer;
+  const [speechActive, setSpeechActive] = useState(false);
+  const [speechStatusTarget, setSpeechStatusTarget] = useState<HTMLDivElement | null>(null);
+  const [speechConsentOpen, setSpeechConsentOpen] = useState(false);
   const [miniState, setMiniState] = useState({ open: false, pinned: false });
   const savePresentationRef = useRef<() => void>(() => {});
   const disclosuresByOwner = useRef(new Map<string, ConversationDisclosureState>());
@@ -738,7 +744,7 @@ function App() {
   const connected = data.status === 'connected' || data.status === 'ready';
   const anyBusy = data.runtimes?.some(runtime => runtime.status === 'running' || runtime.status === 'waiting') ?? busy;
   const composerBusy = busy || Boolean(data.state?.isCompacting);
-  const action = composerAction(composerBusy, draft, attachments.length + quotes.length);
+  const action = composerAction(composerBusy, draft, attachments.length + quotes.length, speechActive);
   const current = data.sessions.find(s => s.id === data.state?.sessionId);
   const queuedMessages = useMemo(() => data.pendingMessages?.filter(item => !item.sending) ?? [], [data.pendingMessages]);
   const hasPendingReceipt = data.pendingMessages?.some(item => item.sending);
@@ -1425,6 +1431,7 @@ function App() {
     });
   };
   const send = async () => {
+    if (speechActive) return;
     const capability = capabilityCommand(draft, attachments.length, quotes.length);
     if (!navigationPending.current && !loading && capability) {
       setDraft(value => value === draft ? '' : value);
@@ -2218,8 +2225,10 @@ function App() {
         <QueuePreview key={`queue-${data.runtimeId}`} messages={queuedMessages} language={data.preferences.language}
           onOpenChange={setQueuePreviewOpen}
           connected={connected} disabled={loading || stopping || settingsOpen || Boolean(preview) || requests.length > 0} onAction={queueAction}/>
-        <LiveTurnChanges key={`changes-${data.runtimeId}`} messages={data.messages} busy={busy} language={data.preferences.language}
-          docked={queuedMessages.length > 0} onOpenChange={setLiveChangesOpen}/>
+        <div ref={setSpeechStatusTarget} className="composer-context-center">
+          <LiveTurnChanges key={`changes-${data.runtimeId}`} messages={data.messages} busy={busy} language={data.preferences.language}
+            docked={queuedMessages.length > 0} onOpenChange={setLiveChangesOpen}/>
+        </div>
         {awayFromBottom && <ScrollToBottomButton language={data.preferences.language} onClick={returnToBottom}/>}
         </ComposerContextBar>}
         <ComposerMenu key={navigationTarget?.session.id ?? data.state?.sessionId ?? data.draftId ?? ''} draft={navigationTarget ? navigationDraft : draft} setDraft={changeComposerDraft} commands={commands} language={data.preferences.language}
@@ -2258,7 +2267,7 @@ function App() {
           <ComposerInput key={navigationTarget?.session.id ?? data.state?.sessionId ?? data.draftId ?? 'empty'} label={t('消息', 'Message')} language={data.preferences.language} placeholder={navigationTarget || connected ? t('你想做什么？', 'What would you like to work on?') : t('打开项目以开始', 'Open a project to begin')} value={navigationTarget ? navigationDraft : draft} disabled={!navigationTarget && (!connected || loading)} onChange={changeComposerDraft} onPaste={e => { const files = Array.from(e.clipboardData.files); if (files.length) { e.preventDefault(); e.stopPropagation(); if (!navigationPending.current) void importFiles(files); } }} onKeyDown={e => {
             if (e.key !== 'Enter' || e.shiftKey || e.nativeEvent.isComposing || e.nativeEvent.keyCode === 229 || e.repeat) return;
             e.preventDefault();
-            if (navigationPending.current) return;
+            if (navigationPending.current || speechActive) return;
             if (!draft.trim() && !attachments.length && !quotes.length && !loading && connected && !stopping) {
               void shortcutSteer();
             } else void send();
@@ -2283,13 +2292,22 @@ function App() {
               onAction={(action, value) => rawCommand('goal_action', { action, value })}/>
             <div className="spacer"/>
             <ContextRing usage={data.stats?.contextUsage} language={data.preferences.language}/>
+            {!isMini && bridge && <SpeechInput key={`speech-${data.draftId ?? data.state?.sessionId ?? data.runtimeId ?? 'none'}`} bridge={bridge}
+              statusTarget={speechStatusTarget}
+              language={data.preferences.language} disabled={!connected || loading || composer.conflict || Boolean(navigationTarget) || settingsOpen || pluginsOpen || projectPickerOpen || Boolean(quitReview.request)}
+              onActiveChange={setSpeechActive} onConsentChange={setSpeechConsentOpen} onText={(text, continuation) => {
+                const latest = latestData.current;
+                if (navigationPending.current || (latest.draftId ?? latest.state?.sessionId ?? latest.runtimeId) !== (data.draftId ?? data.state?.sessionId ?? data.runtimeId)) return;
+                setDraft(value => appendSpeechText(value, text, continuation));
+              }}
+              onConfigure={() => { setTab('general'); void openSettings(); }}/>}
             <ModelEffortPicker model={data.modelSelection?.model ?? data.state?.model} models={data.models} favoriteModels={data.preferences.favoriteModels} onFavorite={changeModelFavorite} level={data.modelSelection?.thinkingLevel ?? data.state?.thinkingLevel} levels={levels} pending={Boolean(data.modelSelection)} language={data.preferences.language} disabled={!connected || loading} onModel={m => command('set_model', { provider: m.provider, modelId: m.id })} onEffort={level => command('set_thinking_level', { level })} onConfigure={() => {
               if (isMini) void run(() => handoff('settings', 'providers'));
               else { setTab('providers'); void openSettings(); }
             }}/>
             <IconButton title={action.mode === 'stop' ? stopping ? t('正在停止此轮', 'Stopping response') : t('停止此轮', 'Stop response') : composerBusy ? t('加入队列', 'Queue message') : t('发送', 'Send')}
               className="composer-action-button" data-action={action.mode}
-              disabled={!connected || loading || composer.conflict && action.mode !== 'stop' || (action.mode === 'stop' ? stopping : !action.hasContent)}
+              disabled={!connected || loading || composer.conflict && action.mode !== 'stop' || (action.mode === 'stop' ? stopping : speechActive || !action.hasContent)}
               onClick={() => void (action.mode === 'stop' ? stop() : send())}><ComposerActionIcon stop={action.mode === 'stop'}/></IconButton>
           </div>
         </div></ComposerMenu>{!isMini && interfaceSettings.performanceVisible && <PerformanceBar run={runMetrics} stats={data.stats} connected={connected} language={data.preferences.language} now={clock}/>}
@@ -2376,7 +2394,7 @@ function App() {
       width={browserWidth} onWidthChange={setBrowserWidth}
       replaced={desktopSideOpen || inspectionOpen || visibleRightPanel === 'turns' || visibleRightPanel === 'review' || visibleRightPanel === 'terminal' || visibleRightPanel === 'file' || visibleRightPanel === 'subagent' || visibleRightPanel === 'btw' || Boolean(details)}
       expanded={inspectorExpanded && visibleRightPanel === 'browser'} onToggleExpanded={() => setExpandedRightPanel(inspectorExpanded ? null : 'browser')}
-      blocked={Boolean(quitReview.request) || handleBlocked || projectPickerOpen || queuePreviewOpen || liveChangesOpen || windowMenuOpen || pluginMenuOpen || settingsOpen || Boolean(removeProject) || Boolean(sessionMove) || Boolean(preview) || renaming || Boolean(contextMenu) || Boolean(imageMenu) || (approvalOpen && requests.length > 0) || (compactSidebar && compactSidebarOpen)}
+      blocked={speechConsentOpen || Boolean(quitReview.request) || handleBlocked || projectPickerOpen || queuePreviewOpen || liveChangesOpen || windowMenuOpen || pluginMenuOpen || settingsOpen || Boolean(removeProject) || Boolean(sessionMove) || Boolean(preview) || renaming || Boolean(contextMenu) || Boolean(imageMenu) || (approvalOpen && requests.length > 0) || (compactSidebar && compactSidebarOpen)}
       overlay={!summarySpace} language={data.preferences.language} onClose={closeRightPanel}/>
     <FilePreviewPanel file={previewFile} open={visibleRightPanel === 'file' && !details}
       replaced={Boolean(details) || (visibleRightPanel !== null && visibleRightPanel !== 'file')}
@@ -2561,7 +2579,7 @@ function App() {
       </>}
       {tab === 'import' && bridge ? <SessionImportSettings bridge={bridge} language={data.preferences.language}
         onOpen={async id => { const session = (await bridge.sessions()).find(item => item.id === id); if (!session) throw new Error('Imported session is unavailable'); finishSettingsClose(); await navigateSession(session); }}/>
-      : tab === 'updates' ? <><h3>{t('版本更新', 'Updates')}</h3><AppUpdates bridge={bridge} state={appUpdate} preferences={data.preferences} onPreferences={setPreference}/></> : tab === 'general' ? <>{bridge && <CompactionSettings bridge={bridge} language={data.preferences.language} models={data.models} model={data.state?.model}/>}<h3>{t('语言', 'Language')}</h3><label>{t('语言', 'Language')}<select value={data.preferences.language} onChange={e => void setPreference({ language: e.target.value })}><option value="zh">简体中文</option><option value="en">English</option></select></label><h3>{t('诊断', 'Diagnostics')}</h3><button onClick={() => void run(() => bridge!.diagnostics())}><Download size={15}/>{t('导出脱敏诊断', 'Export diagnostics')}</button></> : !settings ? <p>{t('加载中…', 'Loading…')}</p> : tab === 'providers' ? <ProviderSettings language={data.preferences.language} providers={settings.providers ?? []} pending={data.providerSettingsPending}
+      : tab === 'updates' ? <><h3>{t('版本更新', 'Updates')}</h3><AppUpdates bridge={bridge} state={appUpdate} preferences={data.preferences} onPreferences={setPreference}/></> : tab === 'general' ? <>{bridge && <><CompactionSettings bridge={bridge} language={data.preferences.language} models={data.models} model={data.state?.model}/><SpeechSettings bridge={bridge} language={data.preferences.language}/></>}<h3>{t('语言', 'Language')}</h3><label>{t('语言', 'Language')}<select aria-label={t('语言', 'Language')} value={data.preferences.language} onChange={e => void setPreference({ language: e.target.value })}><option value="zh">简体中文</option><option value="en">English</option></select></label><h3>{t('诊断', 'Diagnostics')}</h3><button onClick={() => void run(() => bridge!.diagnostics())}><Download size={15}/>{t('导出脱敏诊断', 'Export diagnostics')}</button></> : !settings ? <p>{t('加载中…', 'Loading…')}</p> : tab === 'providers' ? <ProviderSettings language={data.preferences.language} providers={settings.providers ?? []} pending={data.providerSettingsPending}
         onDiscover={(provider, key) => bridge!.discoverProviderModels(provider, key)}
         onTest={(provider, modelId, key) => bridge!.testProvider(provider, modelId, key)}
         onCancelTest={() => bridge!.cancelProviderTest()}

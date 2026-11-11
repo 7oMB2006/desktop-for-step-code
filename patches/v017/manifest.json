@@ -25,7 +25,8 @@
     "step-code-desktop-completion-review.patch": "760a44aa097f5777587243e4b8eb22d15485f987",
     "step-code-desktop-v017.patch": "8ea430ad9a01b20a98af88ad98b7100f2213f56f",
     "step-code-desktop-mcp-credentials.patch": "1fbd6267db3d54e4c109c633f6ab832d94880106",
-    "step-code-desktop-plugin-host.patch": "b075e7b79a718b37fb8d6e52012b9565ee7e47cb"
+    "step-code-desktop-plugin-host.patch": "b075e7b79a718b37fb8d6e52012b9565ee7e47cb",
+    "step-code-desktop-ultra.patch": "9f21a1d3bbb492c44c81387ec2e5898829407b47"
   },
   "sources": {
     "packages/coding-agent/src/step/mcp-environment.ts": "d46ee0c3e07fbcd2432b43bd355080e52e3aca50",
@@ -69,7 +70,25 @@
     "packages/coding-agent/test/workflow-extension.test.ts": "e191d4f6ff5e3c9a0dcdd27025dfec6983fe429e",
     "packages/coding-agent/test/workflow-runtime.test.ts": "851eaec8b6c610927cd926346f4f1a8ceaf1f50d",
     "scripts/build-coding-agent-bundle.mjs": "7f6ba4da2a4caac0b7a5939e5aeb7c7de2b23524",
-    "packages/coding-agent/test/suite/plan-storage.test.ts": "7bcae1c63e37190a30c925daf39ecd881524005f"
+    "packages/coding-agent/test/suite/plan-storage.test.ts": "7bcae1c63e37190a30c925daf39ecd881524005f",
+    "packages/agent-core/src/types.ts": "6cb6ed69779c40168c9737e017b9b8fd238bd730",
+    "packages/providers/src/types.ts": "c16534c3e7bbd246dda890361c0bc217146210b7",
+    "packages/providers/src/models.ts": "dfc5202c03e37d06b624eb390a53ec3ebb91b94c",
+    "packages/providers/src/api/simple-options.ts": "4e3359f51431f7b0f901ea86444858b58f63ad6e",
+    "packages/providers/src/api/openai-completions.ts": "1be20727029a7d0c2a17cbb99619c750adefcca5",
+    "packages/providers/src/api/openai-responses.ts": "ff8af1498876fc64575cc8a48ef673befb251fff",
+    "packages/coding-agent/src/core/model-config.ts": "d0e0db396e505d21d8ee62058eef2e785ed1d374",
+    "packages/coding-agent/src/cli/args.ts": "d6e2ef6ed9b589b81b370c6d303a28e7d5de6d49",
+    "packages/coding-agent/src/step/stepcode-config.ts": "639bbbbdedbffe55d31bafd65f8ca5c448f8b034",
+    "apps/cli/src/ui/view/dialogs/settings-selector.ts": "a573544e1ca59cb4963e8e902e7fc4e53f23fc3d",
+    "apps/cli/src/ui/view/dialogs/thinking-selector.ts": "e44d8c53ae1080bf0368cfe0accd6156caf8f0c6",
+    "packages/coding-agent/src/theme/theme.ts": "24ec0510d415f6926d0cec9f87b28f940bbc88fd",
+    "packages/coding-agent/src/core/defaults.ts": "37f56bc1659362742cfcbdd38726d103b63cdeb0",
+    "packages/coding-agent/src/main.ts": "864475e17a3d439670853f1b70f60b60b4fe8b6b",
+    "packages/coding-agent/src/step/defaults.ts": "4f4fcd623e232df9c7a4949bde1ce0d11f7c4ffa",
+    "packages/providers/src/step-provider/index.ts": "8f76a894146661063eb97e45a4b40770713cc9f8",
+    "packages/providers/scripts/models-dev-reasoning-options.ts": "9d07113956ccce62e1bc401e785f95ea87bbb307",
+    "packages/coding-agent/examples/extensions/preset.ts": "39f55642cd7e9af6d759512c29ee4c209e6adf6f"
   },
   "patchedSources": {
     "packages/coding-agent/src/step/mcp-environment.ts": "322aae08a9223421d936ac50e420f8599a3a796c",
@@ -124,7 +143,26 @@
     "scripts/build-coding-agent-bundle.mjs": "fac2aeda34008d81d0a01b1fa4d8a0af2ab4b476",
     "packages/coding-agent/test/suite/plan-storage.test.ts": "e1f28ca03e6ed8e91f8a13b137af622933259591",
     "packages/coding-agent/src/step/desktop-plugin-host.ts": "82149ab7ca422968425c3b2e81fae678e195c405",
-    "packages/coding-agent/test/desktop-plugin-host.test.ts": "dd61a808d4fef580264589426227753f3d59923c"
+    "packages/coding-agent/test/desktop-plugin-host.test.ts": "dd61a808d4fef580264589426227753f3d59923c",
+    "packages/agent-core/src/types.ts": "4b19a7ec950f4dad112d66e7b0cfa00c4ac3a13f",
+    "packages/providers/src/types.ts": "33e62b841c6a09949721241da30204af9af248be",
+    "packages/providers/src/models.ts": "c4db1a5eb063c4b2e8ce98a5133bb14ed1c0cf24",
+    "packages/providers/src/api/simple-options.ts": "8c4528f82bc9919a18588f6447c7b3cd0c132d55",
+    "packages/providers/src/api/openai-completions.ts": "3684608b2ae679d54b0cbc44f1feff3f25a070f7",
+    "packages/providers/src/api/openai-responses.ts": "93ae6abf906bdeac32d334ee4e8e1fe57447b33d",
+    "packages/coding-agent/src/core/model-config.ts": "0c26f05362ed47c2cb7f6bbb4fff3303cab99942",
+    "packages/coding-agent/src/cli/args.ts": "ff28fcbdd49af670fe1a67f3536ba7eb78cc3d7c",
+    "packages/coding-agent/src/step/stepcode-config.ts": "498f5aeec2aec7e336e020add951a1fa4eaed485",
+    "packages/coding-agent/test/desktop-ultra.test.ts": "3ab5941b97aa0ee6be3c16edc78bdfb933fb6c1f",
+    "apps/cli/src/ui/view/dialogs/settings-selector.ts": "14b2c00901ddef1215df803984ecbdebc333d7ee",
+    "apps/cli/src/ui/view/dialogs/thinking-selector.ts": "6b58ce5eb26559af7bf4880c69535f18d232dc35",
+    "packages/coding-agent/src/theme/theme.ts": "264b8ec8a7fc8f007fe1eab6791d8f5f024c52fc",
+    "packages/coding-agent/src/core/defaults.ts": "cdbb508cb0ba5947cf1b87684953e20b3b4cddcd",
+    "packages/coding-agent/src/main.ts": "6702bbfc9889a6113b6d3b0bc114db4105ab3d7d",
+    "packages/coding-agent/src/step/defaults.ts": "785c27a392bad5cd468840e7f3e3a468c5cfb00d",
+    "packages/providers/src/step-provider/index.ts": "4f33c543024023a870b87804e7fc68ffe3b0399e",
+    "packages/providers/scripts/models-dev-reasoning-options.ts": "45f15650e41606b453d144aeb558e15a6b1ced28",
+    "packages/coding-agent/examples/extensions/preset.ts": "7b3bf705d7910818a3b6a93cbd52698e42837303"
   },
   "platforms": {
     "darwin": {

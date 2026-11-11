@@ -478,6 +478,85 @@ try {
   await page.keyboard.press('Escape');
   assert.equal(await page.getByRole('dialog', { name: 'Model and thinking level' }).count(), 0);
   assert.equal(await page.getByRole('button', { name: 'Model and thinking level', exact: true }).evaluate(element => element === document.activeElement), true);
+  await page.setViewportSize({ width: 640, height: 600 });
+  await page.evaluate(() => window.modelPickerFixture.configure({ language: 'zh', models: [
+    { id: 'ultra', name: 'Ultra Preview', provider: 'desktop-custom-fixture', input: ['text', 'image'], contextWindow: 200000,
+      thinkingLevels: ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra'] },
+    { id: 'ordinary', name: 'Ordinary Model', provider: 'fixture' },
+  ] }));
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+  await page.getByRole('button', { name: '模型与思考强度' }).click();
+  await dialog.getByRole('button', { name: '选择模型', exact: true }).click();
+  await dialog.locator('.model-picker-select').filter({ hasText: 'Ultra Preview' }).click();
+  await settleLayout(dialog);
+  assert.equal(await slider.getAttribute('aria-valuemax'), '7');
+  await slider.press('End');
+  await page.waitForTimeout(420);
+  assert.equal(await page.evaluate(() => window.effortCalls.at(-1)), 'ultra', 'Ultra keeps an independent raw identity');
+  assert.equal(await slider.getAttribute('aria-valuetext'), 'Ultra');
+  assert.equal(await dialog.locator('.model-effort-fader-tick').count(), 8);
+  assert.equal(await dialog.locator('.model-effort-heading-level-current').evaluate(e => e.style.getPropertyValue('--effort-color')), '#9E72FB');
+  const ultraText = dialog.locator('.model-effort-heading-level-current .model-effort-ultra-text');
+  const triggerText = page.locator('.model-effort-trigger .model-effort-ultra-text');
+  for (const text of [ultraText, triggerText]) {
+    assert.equal(await text.textContent(), 'Ultra');
+    assert.equal(await text.evaluate(e => getComputedStyle(e).fontStyle), 'italic');
+    assert.equal(await text.evaluate(e => getComputedStyle(e).animationName), 'model-effort-ultra-flow');
+    assert.equal(await text.evaluate(e => getComputedStyle(e).animationDuration), '1.8s');
+  }
+  const ultraFrame = await ultraText.screenshot();
+  await page.waitForTimeout(600);
+  assert.ok(!ultraFrame.equals(await ultraText.screenshot()), 'Ultra gradient visibly flows');
+  for (const theme of ['dark', 'light']) {
+    await page.evaluate(value => { document.documentElement.dataset.theme = value; }, theme);
+    await page.waitForTimeout(250);
+    await recordFaderMotion(() => slider.press('Home'), `${theme}: Ultra full-range down`);
+    await recordFaderMotion(() => slider.press('End'), `${theme}: Ultra full-range up`);
+    await page.waitForTimeout(420);
+    const minContrast = await ultraText.evaluate(element => {
+      const context = document.createElement('canvas').getContext('2d');
+      const luminance = color => {
+        context.fillStyle = color;
+        context.fillRect(0, 0, 1, 1);
+        const channels = [...context.getImageData(0, 0, 1, 1).data].slice(0, 3).map(channel => {
+          const value = channel / 255;
+          return value <= .04045 ? value / 12.92 : ((value + .055) / 1.055) ** 2.4;
+        });
+        return channels[0] * .2126 + channels[1] * .7152 + channels[2] * .0722;
+      };
+      const background = luminance(getComputedStyle(element.closest('button')).backgroundColor);
+      return Math.min(...['--ultra-ink', '--ultra-shine', '--ultra-core'].map(variable => {
+        const foreground = luminance(getComputedStyle(element).getPropertyValue(variable));
+        return (Math.max(foreground, background) + .05) / (Math.min(foreground, background) + .05);
+      }));
+    });
+    assert.ok(minContrast >= 4.5, `${theme}: Ultra text contrast ${minContrast}`);
+    await page.screenshot({ path: `test-results/model-effort-ultra-${theme}.png` });
+  }
+  await page.setViewportSize({ width: 390, height: 600 });
+  const narrowUltra = await dialog.boundingBox();
+  assert.ok(narrowUltra.x >= 0 && narrowUltra.y >= 0 && narrowUltra.x + narrowUltra.width <= 390);
+  await page.screenshot({ path: 'test-results/model-effort-ultra-narrow.png' });
+  for (const media of [{ reducedMotion: 'reduce' }, { reducedMotion: 'no-preference', forcedColors: 'active' }]) {
+    await page.emulateMedia(media);
+    for (const text of [ultraText, triggerText]) {
+      assert.equal(await text.evaluate(e => getComputedStyle(e).animationName), 'none');
+      assert.equal(await text.evaluate(e => getComputedStyle(e).backgroundImage), 'none');
+      assert.notEqual(await text.evaluate(e => getComputedStyle(e).webkitTextFillColor), 'rgba(0, 0, 0, 0)');
+    }
+  }
+  await page.emulateMedia({ reducedMotion: 'no-preference', forcedColors: 'none' });
+  await slider.press('ArrowDown');
+  await page.waitForTimeout(420);
+  assert.equal(await slider.getAttribute('aria-valuetext'), '最高');
+  assert.equal(await dialog.locator('.model-effort-ultra-text').count(), 0);
+  await slider.press('End');
+  await dialog.getByRole('button', { name: '选择模型', exact: true }).click();
+  await dialog.locator('.model-picker-select').filter({ hasText: 'Ordinary Model' }).click();
+  await page.waitForTimeout(420);
+  assert.equal(await slider.getAttribute('aria-valuemax'), '6', 'Ordinary models retain seven stops');
+  assert.equal(await page.locator('.model-effort-ultra-text').count(), 0);
+  console.log('Ultra passed: independent identity, purple endpoint, italic flow, contrast, themes, narrow layout, shared fader motion and accessibility fallbacks.');
   console.log('Fader acceptance passed: no click jump, resisted drag, release commit, wheel and keyboard.');
   console.log('Model picker passed: explicit favorites, no automatic collection or model selection, search, failed save and retry, provider identity, availability, keyboard focus, IME guards, focus bounds, narrow themes and English.');
 } finally {

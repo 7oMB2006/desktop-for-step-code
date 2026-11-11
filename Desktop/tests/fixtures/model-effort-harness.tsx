@@ -75,14 +75,19 @@ function Harness() {
     requestAnimationFrame(() => document.querySelector<HTMLButtonElement>('.model-effort-heading')?.click());
   }, []);
   return <div className="test-composer">
-    <ModelEffortPicker model={model} models={models} favoriteModels={favorites} level={level} levels={['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']} language={language} disabled={false}
+    <ModelEffortPicker model={model} models={models} favoriteModels={favorites} level={level} levels={model.thinkingLevels ?? ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']} language={language} disabled={false}
       onFavorite={async (model, favorite) => {
         if (favoriteFailure) throw new Error('fixture storage unavailable');
         const next = changeFavoriteModel(favorites, { ...model, favorite });
         if (preview) localStorage.setItem(storageKey, JSON.stringify(next));
         setFavorites(next);
       }}
-      onModel={async next => { window.modelCalls.push(`${next.provider}/${next.id}`); setModel(next); }}
+      onModel={async next => {
+        window.modelCalls.push(`${next.provider}/${next.id}`);
+        const levels = next.thinkingLevels ?? ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
+        if (!levels.includes(level)) setLevel(levels.at(-1) ?? 'off');
+        setModel(next);
+      }}
       onEffort={async next => { window.effortCalls.push(next); setLevel(next); }}/>
     <AppTooltip/>
   </div>;

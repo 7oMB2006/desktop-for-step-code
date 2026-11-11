@@ -27,7 +27,7 @@ const server = createServer(async (req, res) => {
     if (req.method === 'GET' && req.url === '/v1/models') {
       if (!expectNoAuth) assert.equal(req.headers.authorization, `Bearer ${expectedKey}`);
       res.writeHead(200, { 'content-type': 'application/json' });
-      res.end(JSON.stringify({ data: [{ id: 'fixture-custom', name: 'Fixture Custom', input_modalities: ['text', 'image', 'audio'], output_modalities: ['text'], effort: { supported_levels: ['off', 'low', 'high'], default_level: 'high' }, context_window: 200000, max_output_tokens: 30000 }, { id: 'fixture-second' }] }));
+      res.end(JSON.stringify({ data: [{ id: 'fixture-custom', name: 'Fixture Custom', input_modalities: ['text', 'image', 'audio'], output_modalities: ['text'], effort: { supported_levels: ['off', 'low', 'high', 'ultra', 'future-effort'], default_level: 'ultra' }, context_window: 200000, max_output_tokens: 30000 }, { id: 'fixture-second' }] }));
       return;
     }
     let raw = '';
@@ -135,7 +135,7 @@ try {
   assert.equal(await page.getByLabel('模型 ID 1', { exact: true }).evaluate(element => element.value), 'fixture-custom');
   assert.equal(await page.getByLabel('显示名 1', { exact: true }).evaluate(element => element.value), 'Fixture Custom');
   assert.equal(await page.locator('.provider-model-advanced').first().getAttribute('open'), null);
-  assert.match(await page.locator('.provider-thinking-summary').first().textContent(), /上游声明.*3 档/);
+  assert.match(await page.locator('.provider-thinking-summary').first().textContent(), /上游声明.*4 档/);
   await page.getByRole('button', { name: '从上游获取', exact: true }).click();
   const refreshChoice = page.locator('.provider-discovery label').filter({ hasText: 'fixture-custom' }).getByRole('checkbox');
   assert.equal(await refreshChoice.isEnabled(), true, 'existing models can refresh their declarations');
@@ -175,9 +175,9 @@ try {
   let state = await snapshot();
   const provider = await page.evaluate(async () => (await window.desktop.settings()).providers[0]);
   assert.ok(provider.hasKey);
-  assert.equal(provider.models[0].thinkingControl.defaultLevel, 'high');
+  assert.equal(provider.models[0].thinkingControl.defaultLevel, 'ultra');
   assert.equal(state.models.find(m => m.id === 'fixture-custom')?.providerName, '我的测试供应商');
-  assert.deepEqual(state.models.find(m => m.id === 'fixture-custom')?.thinkingLevels, ['off', 'low', 'high']);
+  assert.deepEqual(state.models.find(m => m.id === 'fixture-custom')?.thinkingLevels, ['off', 'low', 'high', 'ultra']);
   assert.deepEqual(state.models.find(m => m.id === 'fixture-custom')?.input, ['text', 'image']);
   assert.deepEqual(state.models.find(m => m.id === 'fixture-custom')?.declaredInput, ['text', 'image', 'audio']);
   assert.equal(state.models.find(m => m.id === 'fixture-custom')?.contextWindow, 200000);
@@ -234,11 +234,16 @@ try {
   await page.screenshot({ path: 'test-results/custom-model-parameters.png' });
   await page.keyboard.press('Escape');
   state = await snapshot();
-  await page.evaluate(runtimeId => window.desktop.command('set_thinking_level', { level: 'high' }, runtimeId), state.runtimeId);
+  await page.getByRole('button', { name: '模型与思考强度' }).click();
+  await page.getByRole('slider', { name: '思考强度' }).press('End');
+  await page.waitForFunction(async () => (await window.desktop.snapshot()).state?.thinkingLevel === 'ultra');
+  assert.equal(await page.getByRole('slider', { name: '思考强度' }).getAttribute('aria-valuetext'), 'Ultra');
+  await page.keyboard.press('Escape');
   const invalidLevel = await page.evaluate(async runtimeId => {
     try { await window.desktop.command('set_thinking_level', { level: 'xhigh' }, runtimeId); return false; } catch { return true; }
   }, state.runtimeId);
   assert.equal(invalidLevel, true, 'undeclared thinking level is rejected');
+  assert.equal((await snapshot()).state.thinkingLevel, 'ultra', 'draft keeps Ultra before its first message');
   await page.getByRole('textbox', { name: '消息', exact: true }).fill('Test custom provider');
   await page.getByRole('textbox', { name: '消息', exact: true }).press('Enter');
   state = await waitFor(s => s.messages.some(m => m.role === 'assistant' && m.stopReason === 'stop'));
@@ -246,7 +251,8 @@ try {
   assert.equal(requests.at(-1).path, '/v1/chat/completions');
   assert.equal(requests.at(-1).keyMatches, true);
   assert.equal(requests.at(-1).body.model, 'fixture-custom');
-  assert.equal(requests.at(-1).body.reasoning_effort, 'high');
+  assert.equal(state.state.thinkingLevel, 'ultra', 'draft promotion preserves the selected effort');
+  assert.equal(requests.at(-1).body.reasoning_effort, 'ultra');
   assert.ok(state.messages.some(m => m.role === 'toolResult' && m.toolCallId === 'provider-task-list' && !m.isError), 'real tool call completes through the custom provider');
   const sessionId = state.state.sessionId;
   await page.locator('.right-tool-rail').getByRole('button', { name: '上下文', exact: true }).click();
@@ -274,6 +280,7 @@ try {
   await page.getByRole('button', { name: '保存', exact: true }).click();
   await page.getByText('已保存', { exact: true }).waitFor();
   assert.equal((await snapshot()).state.sessionId, sessionId);
+  assert.equal((await snapshot()).state.thinkingLevel, 'ultra', 'provider refresh keeps the active session effort');
   assert.equal((await snapshot()).permissionPreset, 'approve-for-me');
   await page.evaluate(async () => {
     await window.desktop.logout();
@@ -289,6 +296,9 @@ try {
   assert.equal(restored.hasKey, true);
   await page.getByRole('button', { name: 'Close', exact: true }).click();
   await page.locator('.settings-backdrop').waitFor({ state: 'detached' });
+  await page.locator(`.session-row[data-reorder-id="${sessionId}"] > button:first-child`).click();
+  state = await waitFor(s => s.state?.sessionId === sessionId && s.status === 'connected');
+  assert.equal(state.state.thinkingLevel, 'ultra', 'Ultra survives relaunch and explicit session restore');
   hold = true;
   const prompt = page.getByRole('textbox', { name: '消息', exact: true });
   await prompt.fill('Hold this response');
@@ -476,20 +486,31 @@ try {
   await page.locator('.provider-thinking-override > summary').first().click();
   await page.getByRole('button', { name: '添加档位 1 high', exact: true }).click();
   await page.getByLabel('发送值 1 high', { exact: true }).fill('medium');
+  await page.getByRole('button', { name: '添加档位 1 ultra', exact: true }).click();
+  assert.equal(await page.getByLabel('发送值 1 ultra', { exact: true }).inputValue(), 'ultra');
   await page.getByRole('checkbox', { name: '接口支持 adaptive 思考与 effort 参数', exact: true }).check();
   await page.screenshot({ path: 'test-results/provider-thinking-manual.png' });
   await page.getByRole('button', { name: '保存', exact: true }).click();
   await page.getByText('已保存', { exact: true }).waitFor();
-  assert.equal((await page.evaluate(async () => (await window.desktop.settings()).providers[0])).models[0].thinkingControl.mapping.high, 'medium');
+  const manualControl = (await page.evaluate(async () => (await window.desktop.settings()).providers[0])).models[0].thinkingControl;
+  assert.equal(manualControl.mapping.high, 'medium');
+  assert.equal(manualControl.mapping.ultra, 'ultra');
+  assert.deepEqual(manualControl.levels, ['high', 'ultra']);
   await page.getByRole('button', { name: 'Close', exact: true }).click();
   await page.locator('.settings-backdrop').waitFor({ state: 'detached' });
   for (const api of ['openai-completions', 'openai-responses', 'anthropic-messages']) {
-    await page.evaluate(p => window.desktop.saveProvider(p), { ...configured, api, models: [{ ...configured.models[0], reasoning: true, thinkingLevels: ['high'], thinkingControl: { source: 'manual', levels: ['high'], ...(api === 'anthropic-messages' ? { adaptive: true } : {}), mapping: { high: 'medium' } } }] });
+    await page.evaluate(p => window.desktop.saveProvider(p), { ...configured, api, models: [{ ...configured.models[0], reasoning: true, thinkingLevels: ['high', 'ultra'], thinkingControl: { source: 'manual', levels: ['high', 'ultra'], ...(api === 'anthropic-messages' ? { adaptive: true } : {}), mapping: { high: 'medium', ultra: 'ultra' } } }] });
     state = await snapshot();
     await page.evaluate(id => window.desktop.command('set_thinking_level', { level: 'high' }, id), state.runtimeId);
     const body = await generate('Mapped thinking fixture');
     assert.equal(api === 'openai-completions' ? body.reasoning_effort : api === 'openai-responses' ? body.reasoning?.effort : body.output_config?.effort, 'medium', `${api}: custom mapping reaches the request`);
+    await page.evaluate(id => window.desktop.command('set_thinking_level', { level: 'ultra' }, id), state.runtimeId);
+    assert.equal((await snapshot()).state.thinkingLevel, 'ultra');
+    const ultraBody = await generate('Ultra thinking fixture');
+    assert.equal(api === 'openai-completions' ? ultraBody.reasoning_effort : api === 'openai-responses' ? ultraBody.reasoning?.effort : ultraBody.output_config?.effort, 'ultra', `${api}: Ultra reaches the wire unchanged`);
+    assert.equal(ultraBody.thinking?.type, api === 'anthropic-messages' ? 'adaptive' : undefined);
   }
+  console.log('Ultra discovery, UI selection, relaunch persistence and three real runtime wire formats passed. Local fixtures only.');
   await page.evaluate(p => window.desktop.saveProvider(p), configured);
   await settings();
   await page.getByRole('button', { name: '外观', exact: true }).click();

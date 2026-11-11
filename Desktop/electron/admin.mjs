@@ -104,15 +104,15 @@ async function dispatch(message) {
       try {
         await runtime.refresh({ allowNetwork: true, signal: AbortSignal.timeout(5000) });
       } catch { /* Keep the provider's local catalog when discovery is unavailable. */ }
-      // Project only the runtime model's declared levels; never guess xhigh/max support.
+      // Extended levels require explicit runtime model declarations.
       const available = registry.getAvailable();
       // Custom-provider availability must not suppress the official offline fallback.
       const catalog = available.some(model => model.provider === upstream.STEP_PROVIDER_ID) ? available
         : [...available, ...registry.getAll().filter(model => model.provider === upstream.STEP_PROVIDER_ID)];
       const models = catalog.map(({ id, provider, name, reasoning, thinkingLevelMap, input, contextWindow, maxTokens }) => ({
         id, provider, name, reasoning, input, contextWindow, maxTokens,
-        thinkingLevels: reasoning ? ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'].filter(level =>
-          thinkingLevelMap?.[level] !== null && (!['xhigh', 'max'].includes(level) || thinkingLevelMap?.[level] !== undefined)) : ['off'],
+        thinkingLevels: reasoning ? ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra'].filter(level =>
+          thinkingLevelMap?.[level] !== null && (!['xhigh', 'max', 'ultra'].includes(level) || thinkingLevelMap?.[level] !== undefined)) : ['off'],
       }));
       const provider = settings.getDefaultProvider() ?? upstream.STEP_DEFAULT_PROVIDER;
       const id = settings.getDefaultModel() ?? upstream.STEP_DEFAULT_MODEL;

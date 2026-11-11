@@ -21,6 +21,48 @@ test('discovery only accepts explicit bounded metadata, never infers capabilitie
   assert.throws(() => validateProvider({ ...fixture(), models: [{ ...fixture().models[0], thinkingLevels: ['high'] }] }));
   assert.throws(() => validateProvider({ ...fixture(), models: [{ ...fixture().models[0], declaredInput: ['invented'] }] }));
 });
+test('discovery retains Ultra and recognized levels from mixed declarations without relaxing saved validation', () => {
+  const mixed = ['ultra', 'future-effort', 'high', 'low', 'max', 'ultra'];
+  for (const declaration of [{ thinking_levels: mixed }, { supported_reasoning_efforts: mixed },
+    { effort: { supported_levels: mixed, default_level: 'ultra' } }]) {
+    const metadata = discoverModelMetadata({ ...declaration, context_window: 272000 });
+    assert.deepEqual(metadata.thinkingLevels, ['low', 'high', 'max', 'ultra']);
+    assert.equal(metadata.contextWindow, 272000, 'effort parsing does not interfere with context metadata');
+    const imported = importProviderModel({ id: 'ultra', name: 'Ultra fixture', ...metadata });
+    assert.deepEqual(validateProvider({ ...fixture(), models: [imported] }).models[0].thinkingLevels, ['low', 'high', 'max', 'ultra']);
+  }
+  for (const raw of [['low', 3], ['low', null], ['invented']])
+    assert.equal(discoverModelMetadata({ thinking_levels: raw }).thinkingLevels, undefined);
+  assert.equal(discoverModelMetadata({ effort: { supported_levels: ['low'], default_level: 'unknown' } }).thinkingDefaultLevel, undefined);
+  const base = { ...fixture().models[0], reasoning: true };
+  for (const patch of [{ thinkingLevels: ['ultra', 'unknown'] }, { declaredThinkingLevels: ['unknown'] },
+    { thinkingLevels: ['ultra'], thinkingControl: { source: 'manual', levels: ['ultra', 'unknown'] } }])
+    assert.throws(() => validateProvider({ ...fixture(), models: [{ ...base, ...patch }] }));
+});
+test('Ultra survives discovery, save, runtime projection, refresh and independent request mapping', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'provider-ultra-'));
+  try {
+    const imported = importProviderModel({ id: 'ultra', name: 'Ultra fixture', ...discoverModelMetadata({
+      effort: { supported_levels: ['low', 'max', 'ultra'], default_level: 'ultra' },
+    }) });
+    const auth = saveProviderAuth({}, { ...fixture(), models: [imported] }, 'fixture');
+    const saved = providerInfos(auth)[0];
+    assert.equal(saved.models[0].thinkingControl?.defaultLevel, 'ultra');
+    await projectProviders(root, auth);
+    const projected = JSON.parse(await readFile(join(root, 'models.json'), 'utf8')).providers[saved.id].models[0];
+    assert.equal(projected.thinkingLevelMap.ultra, 'ultra');
+    assert.equal(projected.thinkingLevelMap.max, 'max');
+    assert.equal(projected.thinkingLevelMap.xhigh, null);
+    assert.deepEqual(modelThinkingLevels(providerModelNames([{ ...projected, provider: saved.id }], auth)[0]), ['low', 'max', 'ultra']);
+    const manual = { ...imported, thinkingLevels: ['max', 'ultra'], thinkingControl: {
+      source: 'manual' as const, levels: ['max', 'ultra'], mapping: { max: 'max', ultra: 'vendor-ultra' },
+    } };
+    const refreshed = importProviderModel({ id: imported.id, name: 'Changed' }, manual);
+    assert.deepEqual(refreshed.thinkingLevels, ['max', 'ultra']);
+    await projectProviders(root, saveProviderAuth(auth, { ...saved, models: [refreshed] }));
+    assert.equal(JSON.parse(await readFile(join(root, 'models.json'), 'utf8')).providers[saved.id].models[0].thinkingLevelMap.ultra, 'vendor-ultra');
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
 test('model discovery uses draft or saved literal keys, validates responses and rejects redirects', async () => {
   let mode = 'list';
   let headers: Record<string, string | string[] | undefined> = {};
@@ -210,7 +252,7 @@ test('runtime projection preserves unrelated models and removes disabled/deleted
     assert.equal(config.providers.external.baseUrl, 'https://other.test');
     assert.deepEqual(config.providers[p.id].models[0].input, ['text', 'image']);
     await projectProviders(root, saveProviderAuth(auth, { ...p, models: [{ ...p.models[0], reasoning: true, thinkingLevels: ['low', 'high'] }] }));
-    assert.deepEqual(JSON.parse(await readFile(path, 'utf8')).providers[p.id].models[0].thinkingLevelMap, { off: null, minimal: null, low: 'low', medium: null, high: 'high', xhigh: null, max: null });
+    assert.deepEqual(JSON.parse(await readFile(path, 'utf8')).providers[p.id].models[0].thinkingLevelMap, { off: null, minimal: null, low: 'low', medium: null, high: 'high', xhigh: null, max: null, ultra: null });
     await projectProviders(root, saveProviderAuth(auth, { ...p, enabled: false }));
     assert.equal(JSON.parse(await readFile(path, 'utf8')).providers[p.id], undefined);
     await projectProviders(root, deleteProviderAuth(auth, p.id));

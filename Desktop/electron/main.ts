@@ -310,9 +310,9 @@ const capabilityService: CapabilityService = new CapabilityService({ root: dataR
     const alreadyMutating = settingsMutation;
     settingsMutation = true;
     try {
-      await runtimes.assertAllIdle({ stopHost: false, resources: true });
+      await runtimes.assertAllIdle({ stopHost: false, resources: true, allowRemote: true });
       await assertPluginUnused(id, runtimes.workers.values());
-      await runtimes.assertAllIdle({ stopHost: false, resources: true });
+      await runtimes.assertAllIdle({ stopHost: false, resources: true, allowRemote: true });
       return () => { settingsMutation = alreadyMutating || !capabilityService.runtimeAvailable; };
     } catch (error) { settingsMutation = alreadyMutating || !capabilityService.runtimeAvailable; throw error; }
   },
@@ -919,9 +919,11 @@ async function snapshot(worker = runtimes.active, refresh = true, ignoreDraft = 
     sessions, independent: draft ? !draft.workspace : !worker || !(await sessionWorkspacePath(worker.cwd)),
   };
 }
-async function guardIdle(options: { stopHost?: boolean; allowRemote?: boolean; resources?: boolean } = {}) {
+async function guardIdle(options: { stopHost?: boolean; resources?: boolean; allowWaitingCron?: boolean } = {}) {
   if (transition) throw new Error('Workspace operation in progress');
-  await runtimes.assertAllIdle(options);
+  // Saving resources keeps session ownership, but resident Cron can still use them.
+  await runtimes.assertAllIdle({ ...options,
+    ...(options.stopHost === false ? { allowRemote: true, resources: true } : {}) });
 }
 function canApplyProviders() {
   return !speechSaving && capabilityService.available && !capabilityGate.active && !providerApplyFailed && !transition && !undoBusy && !runtimes.running && !admin.hasPendingRequests
@@ -2407,8 +2409,8 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
       return stepPage.snapshot();
     }
     case 'prepareStepPage': {
-      // Preparation only writes files/config; existing workers and Cron hosts stay alive.
-      await guardIdle({ stopHost: false });
+      // Pinned preparation does not replace resident MCP clients; known waiting Cron stays safe.
+      await guardIdle({ stopHost: false, allowWaitingCron: true });
       return stepPage.prepare((bundlePath, homePath) => admin.request('prepare_steppage', { bundlePath, homePath }));
     }
     case 'compactionSettings': return admin.request('compaction_settings');
@@ -2561,9 +2563,9 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
       if (method !== 'bvrSaveConfiguration' && settingsMutation) throw new Error('bvr:busy');
       if (!(await capabilityService.catalog()).plugins.some(plugin => plugin.id === 'bilibili-video-research'))
         throw new Error('bvr:not-installed');
+      if (method === 'bvrSaveConfiguration') await guardIdle({ stopHost: false });
       try {
         if (method === 'bvrSaveConfiguration') {
-          await guardIdle({ stopHost: false });
           return await bvrSettings.save(args[0]);
         }
         return method === 'bvrCheckEnvironment' ? await bvrSettings.check(args[0]) : await bvrSettings.read();
@@ -2630,7 +2632,7 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
       return capabilityService.importSkill(selected.filePaths[0]);
     }
     case 'saveMcp': {
-      await guardIdle(); const name = text(args[0], 80);
+      await guardIdle({ stopHost: false }); const name = text(args[0], 80);
       if (!/^[a-zA-Z0-9_-]+$/.test(name)) throw new Error('Use letters, numbers, underscores or hyphens for the server name');
       const raw = args[1]; let config: Record<string, unknown> | null = null;
       if (raw !== null) {

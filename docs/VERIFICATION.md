@@ -382,6 +382,36 @@ Step-Code 或固定 runtime pin。
 12.09 MiB、`Desktop/terminal-runtime` 62.96 MiB，验收证据及五个
 fixture profile 共 67.74 MiB，手动预览 profile 首次启动约 12.32 MiB。
 当前预览使用构建产物；没有删除证据、profile 或共享 junction 目标。
+## Remote 非重启管理门控（2026-11-10）
+
+本分支将“Remote 已绑定”与“会话正在执行”分开：不重启的插件安装、更新、
+卸载、开关、MCP/技能与插件配置管理可以保留空闲 Remote；默认门控、
+登录/退出、provider 应用、历史修改和会话重启不因此放宽。
+写入期间仍阻止远端新增输入和审批，不排队、不重放被拒收消息。
+任务、审批、队列、Goal、后台工作、实际插件占用与 Cron 资源保护继续生效。
+
+子代理先审计划，再复审实现。修复自动解绑清除标志后可能漏掉断连的竞态，
+最终复核保留起始连接要求及 worker/RPC/session 身份。保留既有 StepPage
+固定指纹准备的已知就绪 Cron 待命例外，未知/畸形状态和重启仍拒绝，
+而不是通过修改旧原生验收预期来收紧已支持行为。
+
+本轮五组定向测试 797 项通过、4 项平台跳过、零失败；类型检查、
+生产构建和差异空白检查通过。Windows 源码 Electron 管理验收 18 项通过，
+包括实际市场可执行命令插件更新/卸载及 receipt/撤销记录、MCP 保存/开关、
+写入期间 Remote 拒收且不重放、忙碌保护、Windows 文件占用及确认清理。
+未修改的 StepPage 原生验收通过，Cron 宿主/任务保持，MCP 握手为
+13 个工具，停用并重启后为 0，重启保护及修复后的禁用仍在。
+
+证据位于 `Desktop/test-results/remote-management-*`，管理最终结果为
+`remote-management-native-final/results.json`，详细范围见
+[治理计划](REMOTE-MANAGEMENT-PLAN.md)。前两次原生夹具的市场名称和
+Git 换行问题已修正且保留失败记录，没有降低产品门禁或验收断言。
+
+使用隔离 profile、离线 Remote channel 和 loopback 模型；未验证真实飞书、
+付费账户、macOS、云端 CI 或安装包升级。StepPage 下载期间恰好 Cron 到期
+未单独原生自动化，不能宣称管理写屏障暂停了 native Cron。
+BVR 旧版配置/服务声明迁移仍是独立门禁，本轮不自动迁移。
+未打包、提 PR、发布市场、更新快捷方式、重启日用应用或变更真实 profile。
 
 ## 主题组合对齐新 CI 主线（2026-11-10）
 

@@ -1346,7 +1346,7 @@ function App() {
     setCapabilityTarget(target); setPluginsVisited(true); setPluginsOpen(true);
     void bridge.settings().then(setSettings).catch(() => setError(t('无法读取插件设置', 'Could not read plugin settings')));
   };
-  const openPluginDesktop = (entry: PluginDesktopEntry) => {
+  const openPluginDesktop = (entry: PluginDesktopEntry, toggle = true) => {
     if (!bridge) return;
     pluginOpener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     openedPluginId.current = entry.id;
@@ -1355,7 +1355,9 @@ function App() {
       return;
     }
     if (entry.desktop.surface === 'main-view' && pluginsOpen && desktopMainId === entry.id) {
-      closePluginMain();
+      if (toggle) closePluginMain();
+      else requestAnimationFrame(() => document.querySelector<HTMLButtonElement>(
+        `[data-plugin-workspace="${CSS.escape(entry.id)}"] [role="tab"][aria-selected="true"]`)?.focus({ preventScroll: true }));
       return;
     }
     setDesktopVisited(ids => new Set([...ids, entry.id]));
@@ -1936,6 +1938,7 @@ function App() {
       : <WindowBar language={data.preferences.language} sidebarVisible={sidebarVisible} toggleSidebar={toggleSidebar} menus={menus} sessionTitle={activeTitle} onMenuOpenChange={setWindowMenuOpen} inert={settingsOpen || Boolean(removeProject)}
         pluginActions={<PluginActionGroup entries={pluginEntries} language={data.preferences.language}
           activeId={pluginsOpen ? desktopMainId : desktopSideOpen ? desktopSideId : undefined}
+          bridge={bridge ?? undefined} disabled={settingsOpen || Boolean(removeProject)}
           onOpen={openPluginDesktop} onMenuOpenChange={setPluginMenuOpen}/>}
         miniChat={{ open: miniState.open, disabled: loading || Boolean(navigationTarget), onOpen: () => void run(async () => {
           if (navigationPending.current || switching.current) return;

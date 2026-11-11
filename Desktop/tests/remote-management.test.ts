@@ -23,6 +23,7 @@ const javascript = (source: string) => ts.transpileModule(source, {
   compilerOptions: { target: ts.ScriptTarget.ES2022 },
 }).outputText;
 const idle = find(node => ts.isFunctionDeclaration(node) && node.name?.text === 'guardIdle');
+const externalOwnership = find(node => ts.isFunctionDeclaration(node) && node.name?.text === 'externallyOwned');
 const ipc = find(node => ts.isCallExpression(node) && node.expression.getText(file) === 'ipcMain.handle'
   && node.arguments[0]?.getText(file) === "'desktop'") as ts.CallExpression;
 const remote = find(node => ts.isNewExpression(node) && node.expression.getText(file) === 'RemoteManager') as ts.NewExpression;
@@ -69,6 +70,8 @@ class Transport implements WorkerTransport {
 
 async function fixture() {
   const transport = new Transport(), pool = new SessionRuntimes(() => {}, () => transport);
+  const externalPreparing = new Set<SessionRuntime>(), externalWorkers = new Set<SessionRuntime>();
+  const externalTasks = { retains: (worker: SessionRuntime) => externalWorkers.has(worker) };
   const worker = await pool.open('never-spawn', 'step', 'fixture', {});
   worker.remoteAttached = true;
   const identity = { rpc: worker.rpc, sessionId: worker.state!.sessionId, id: worker.id };
@@ -91,6 +94,7 @@ async function fixture() {
   };
   // Execute the production IPC, cases and Remote callbacks in one shared closure.
   const create = new Function('runtimes', 'capabilityService', 'capabilityGate', 'assertPluginUnused', 'state', 'write',
+    'externalPreparing', 'externalTasks',
     javascript(`
       let settingsMutation = false;
       const transition = false, undoBusy = false, updateInstalling = false, quitting = false, quitPending = false;
@@ -117,6 +121,7 @@ async function fixture() {
         resumed() {}, async drain() {},
       };
       const remote = { runtimeEvent() {} };
+      ${externalOwnership.getText(file)}
       ${idle.getText(file)}
       async function handle(method, args, _surface, markCapabilityPhase) { switch (method) {
         ${clauses.join('\n')}
@@ -126,17 +131,19 @@ async function fixture() {
       return {
         locked: () => settingsMutation,
         invoke: (method, ...args) => invoke({ sender: window.webContents, senderFrame: window.webContents.mainFrame }, method, ...args),
-        guardIdle, submit: ${callback('submit')}, respond: ${callback('respond')},
+        guardIdle, externallyOwned, submit: ${callback('submit')}, respond: ${callback('respond')},
       };
     `));
-  const host = create(pool, service, new CapabilityGate(), assertPluginUnused, state, write) as {
+  const host = create(pool, service, new CapabilityGate(), assertPluginUnused, state, write,
+    externalPreparing, externalTasks) as {
     locked(): boolean;
     invoke(method: string, ...args: unknown[]): Promise<unknown>;
     guardIdle(options?: { stopHost?: boolean; resources?: boolean }): Promise<void>;
+    externallyOwned(worker: SessionRuntime): boolean;
     submit(worker: SessionRuntime, message: string, accepted: (id: string) => void): Promise<void>;
     respond(worker: SessionRuntime, answer: object): void;
   };
-  return { host, state, worker, pool, transport, retained() {
+  return { host, state, worker, pool, transport, externalPreparing, externalWorkers, retained() {
     assert.equal(worker.remoteAttached, true);
     assert.equal(pool.workers.get(identity.id), worker);
     assert.equal(worker.rpc, identity.rpc);
@@ -165,6 +172,36 @@ const actions: CapabilityMutation[] = [
 ];
 const operations: [string, ...unknown[]][] = [...saves, ...actions.map(action =>
   ['capabilityMutate', action] as [string, ...unknown[]])];
+
+for (const ownership of ['preparing', 'retained'] as const) {
+  test(`actual main preserves Remote while ${ownership} external ownership blocks shared settings`, async () => {
+    const f = await fixture();
+    const owners = ownership === 'preparing' ? f.externalPreparing : f.externalWorkers;
+    owners.add(f.worker);
+    for (const [method, ...args] of saves)
+      await assert.rejects(f.host.invoke(method, ...args), /Stop external tasks before changing shared settings/);
+    assert.deepEqual(f.state.writes, []);
+    assert.equal(f.host.locked(), false);
+    f.retained();
+    owners.delete(f.worker);
+    await f.host.invoke(...saves[0]);
+    assert.equal(f.state.writes.length, 1);
+    f.retained();
+  });
+}
+
+test('actual main Remote cannot submit or answer approvals for an external-owned task', async () => {
+  const f = await fixture();
+  f.externalWorkers.add(f.worker);
+  await assert.rejects(f.host.submit(f.worker, 'not accepted', () => { f.state.answers++; }),
+    /This session belongs to an external task/);
+  assert.throws(() => f.host.respond(f.worker, { id: 'approval', confirmed: true }),
+    /Review external task approvals locally/);
+  assert.deepEqual(f.state.queued, []);
+  assert.equal(f.state.answers, 0);
+  f.retained();
+});
+
 for (const [method, ...args] of operations) {
   test(`actual main ${method}/${(args[0] as CapabilityMutation)?.action ?? 'save'} retains an idle Remote`, async () => {
     const f = await fixture();
@@ -412,12 +449,19 @@ test('actual recovery callback retains idle Remote and does not reject its ownin
   const constructor = find(node => ts.isNewExpression(node) && node.expression.getText(file) === 'CapabilityService') as ts.NewExpression;
   const property = (constructor.arguments![0] as ts.ObjectLiteralExpression).properties.find(node =>
     ts.isPropertyAssignment(node) && node.name.getText(file) === 'guardRecovery') as ts.PropertyAssignment;
-  const create = new Function('runtimes', 'assertPluginUnused', javascript(`
+  const create = new Function('runtimes', 'assertPluginUnused', 'externallyOwned', javascript(`
     let settingsMutation = false;
     const transition = true, capabilityService = { runtimeAvailable: true };
     return { guard: ${property.initializer.getText(file)}, locked: () => settingsMutation };
   `));
-  const recovery = create(f.pool, assertPluginUnused);
+  const recovery = create(f.pool, assertPluginUnused, f.host.externallyOwned);
+  for (const owners of [f.externalPreparing, f.externalWorkers]) {
+    owners.add(f.worker);
+    await assert.rejects(recovery.guard('example'), /Stop external tasks before reloading plugins/);
+    assert.equal(recovery.locked(), false);
+    f.retained();
+    owners.delete(f.worker);
+  }
   const release = await recovery.guard('example');
   assert.equal(recovery.locked(), true);
   f.retained();

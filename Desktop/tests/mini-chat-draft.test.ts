@@ -6,6 +6,7 @@ import { runInNewContext } from 'node:vm';
 import ts from 'typescript';
 import { ComposerStore } from '../electron/composer-store';
 import { modelPreference, preferredModel } from '../electron/model-preference';
+import { externalSessionCommandAllowed } from '../electron/external-connector-policy';
 import type { SessionRuntime } from '../electron/session-runtimes';
 import type { Model, Preferences, Snapshot } from '../src/contracts';
 import { draftLaunchChanges, emptyLaunch } from '../src/launch-state';
@@ -48,6 +49,7 @@ async function fixture() {
   const miniView: { draft?: Draft; runtimeId?: string; worker?: SessionRuntime } = { draft };
   const preferences: Preferences = { language: 'en', theme: 'system', workspaces: [projectA, projectB] };
   const workers = new Map<string, SessionRuntime>();
+  const externalWorkers = new Set<SessionRuntime>();
   const creatingDrafts = new Set<string>();
   const createdDrafts = new Map<string, string>();
   const composers = new ComposerStore(() => {});
@@ -132,6 +134,8 @@ async function fixture() {
     },
     rememberModel: async () => {}, promptNeedsQueue: () => false, isProjectTrustInput: () => false,
     pendingMessages: { drain() {} },
+    externalTasks: { retains: (value: SessionRuntime) => externalWorkers.has(value) },
+    externalSessionCommandAllowed,
   };
   api = runInNewContext(javascript + '\n({ handle, selectedDraft, selectedRuntime, selectRuntime, performProviderSettings })', context);
   const start = async (surface: Surface) => {
@@ -151,7 +155,7 @@ async function fixture() {
     pauseRemoval = true;
     return { started: removalStarted.promise, release: removal.resolve };
   };
-  return { api, draft, worker, miniView, runtimes, setup, composers, creatingDrafts, createdDrafts,
+  return { api, draft, worker, miniView, runtimes, setup, composers, creatingDrafts, createdDrafts, externalWorkers,
     observedMainDrafts, sessionOptions, removed, start, navigateAway, holdRemoval,
     setModels: (models: Model[]) => { availableModels = models; } };
 }
@@ -247,6 +251,19 @@ test('promotion preserves independent navigation away from the shared draft', as
   assert.equal(f.api.selectedRuntime('main'), newer.id);
   assert.equal(f.api.selectedRuntime('mini'), f.worker.id);
   assert.equal(f.creatingDrafts.size, 0);
+});
+
+test('promoted MiniChat cannot change the model of an externally owned session', async () => {
+  const f = await fixture();
+  const { creation } = await f.start('mini');
+  f.setup.resolve(); await creation;
+  f.externalWorkers.add(f.worker);
+  const model = f.worker.state!.model;
+  await assert.rejects(f.api.handle('command', ['set_model', {
+    provider: 'fixture', modelId: 'selected-model',
+  }], 'mini'), /external task/);
+  assert.equal(f.worker.state!.model, model);
+  assert.equal(f.worker.pendingModel, undefined);
 });
 
 for (const surface of ['main', 'mini'] as const) {

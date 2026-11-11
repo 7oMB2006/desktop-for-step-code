@@ -11,7 +11,7 @@ import { verifyTooltipLayer } from './tooltip-layer-probe.mjs';
 const profile = await realpath(await mkdtemp(join(tmpdir(), 'desktop-mini-chat-')));
 const root = join(profile, 'step-runtime'), workspace = join(profile, 'project');
 const webLocal = join(profile, 'local', 'web-app'), webClient = join(profile, 'client', 'web-app'), scratch = join(profile, 'scratch');
-const output = resolve('test-results/mini-chat-native');
+const output = resolve(process.env.DESKTOP_VERIFY_OUTPUT || 'test-results/mini-chat-native');
 await mkdir(join(root, 'sessions'), { recursive: true }); await mkdir(workspace); await mkdir(output, { recursive: true });
 for (const path of [webLocal, webClient, scratch]) await mkdir(path, { recursive: true });
 await cp(resolve('../theme-marketplace/plugins/stellar-cruise'), join(root, 'plugins/stellar-cruise'), { recursive: true });

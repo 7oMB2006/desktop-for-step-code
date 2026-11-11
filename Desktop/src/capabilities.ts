@@ -10,7 +10,19 @@ export interface PluginDesktop {
   symbol?: PluginDesktopSymbol;
   icon?: { light: string; dark?: string };
   defaultPage?: string;
+  connection?: {
+    protocol: 'agent-bridge-v1';
+    guides?: { setup?: string; firstTask?: string; troubleshooting?: string };
+  };
   pages: { id: string; title: string; document: string }[];
+}
+export interface PluginConnection {
+  status: 'unselected' | 'profile-missing' | 'companion-missing' | 'configuration-invalid'
+    | 'pairing-required' | 'connection-unavailable' | 'identity-mismatch' | 'ready';
+  profile?: string; agentId?: string; displayName?: string;
+  roots: string[];
+  tasks: { id: string; title: string; phase: string; cwd: string }[];
+  checkedAt?: number;
 }
 export interface PluginRequirements {
   dfsc?: string;

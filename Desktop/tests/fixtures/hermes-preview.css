@@ -1,0 +1,43 @@
+:root { --preview-control-height: 64px; }
+.hermes-preview-controls {
+  position: fixed; inset: 0 0 auto; height: var(--preview-control-height); z-index: 51;
+  display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  padding: 8px 20px; border-bottom: 1px solid var(--border); background: var(--bg);
+}
+.hermes-preview-label, .hermes-preview-options { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.hermes-preview-label { font-size: 13px; }
+.hermes-preview-label span { color: var(--muted); font-size: 12px; }
+.hermes-preview-options label { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 12px; }
+.hermes-preview-options label > span { flex-shrink: 0; white-space: nowrap; }
+.hermes-preview-options select { width: 210px; padding: 6px 28px 6px 10px; font-size: 12px; }
+.hermes-preview-options > button { font-size: 12px; white-space: nowrap; }
+.hermes-preview-themes { display: flex; gap: 4px; padding: 4px; }
+.hermes-preview-themes [aria-pressed=true] { background: var(--surface); }
+.hermes-preview { --sidebar-track: 0px; padding-top: calc(var(--preview-control-height) + var(--window-bar-height)); }
+.hermes-preview::before { display: none; }
+.hermes-preview .window-bar { top: var(--preview-control-height); }
+.hermes-preview-context[hidden], .hermes-preview-workspace[hidden] { display: none; }
+.hermes-preview-context { overflow: auto; padding: 36px 28px 24px; }
+.hermes-preview-thread, .hermes-preview-draft { width: min(100%, 760px); margin-inline: auto; }
+.hermes-preview-thread h1 { font-size: 19px; margin-bottom: 44px; }
+.hermes-preview-thread article { margin-bottom: 30px; }
+.hermes-preview-thread h2 { font-size: 12px; margin-bottom: 10px; }
+.hermes-preview-thread p { font-size: 14px; line-height: 1.8; max-width: 65ch; }
+.hermes-preview-draft { margin-top: auto; padding: 24px 4px 4px; }
+.hermes-preview-draft label { margin-bottom: 10px; color: var(--muted); }
+.hermes-preview-draft textarea { display: block; width: 100%; min-height: 92px; line-height: 1.7; font-size: 13px; }
+.hermes-preview-workspace { display: flex; flex: 1; min-width: 0; min-height: 0; }
+@media (max-width: 900px) {
+  :root { --preview-control-height: 108px; }
+  .hermes-preview-controls { flex-direction: column; align-items: stretch; justify-content: center; gap: 8px; padding: 8px 12px; }
+  .hermes-preview-label { gap: 8px; }
+  .hermes-preview-options { justify-content: space-between; gap: 6px; }
+}
+@media (max-width: 480px) {
+  .hermes-preview-label span { font-size: 11px; margin-left: auto; }
+  .hermes-preview-options label { gap: 6px; flex: 1; min-width: 0; }
+  .hermes-preview-options select { width: 100%; min-width: 0; }
+  .hermes-preview-options > button { width: 32px; min-width: 32px; padding: 0; font-size: 0; gap: 0; }
+  .hermes-preview-context { padding: 28px 16px 16px; }
+  .hermes-preview-thread h1 { margin-bottom: 28px; }
+}

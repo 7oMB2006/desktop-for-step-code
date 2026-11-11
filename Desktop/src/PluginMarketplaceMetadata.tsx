@@ -106,7 +106,9 @@ export function PluginExternalRequirementSummary({ pkg, language, active = true 
     place();
     const observer = new ResizeObserver(place);
     observer.observe(element); observer.observe(trigger);
-    const dismiss = (event: Event) => { if (!(event.target instanceof Node) || !element.contains(event.target)) setOpen(false); };
+    const dismiss = (event: Event) => {
+      if (event.target instanceof Node && event.target.contains(trigger)) setOpen(false);
+    };
     document.addEventListener('scroll', dismiss, true);
     window.addEventListener('resize', place);
     const focus = requestAnimationFrame(() => element.focus({ preventScroll: true }));

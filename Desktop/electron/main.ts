@@ -35,6 +35,7 @@ import { BvrBridge } from './bvr-bridge';
 import { BvrSettings } from './bvr-settings';
 import { PluginHostLauncher } from './plugin-host-launcher';
 import { StepPluginHostProvider } from './plugin-host-step';
+import { SpeechService, SPEECH_FIELD, speechSettings, saveSpeech, acknowledgeSpeech } from './speech';
 import { isProjectTrustInput, trustProject } from './project-trust';
 import { CronManagement, cronJobs } from './cron-management';
 import { hasScheduledCron } from './cron-state';
@@ -160,6 +161,8 @@ function publishUpdate() {
 let status = 'disconnected';
 let transition = false;
 let settingsMutation = false;
+let speechSaving = false;
+const speech = new SpeechService((input, init) => net.fetch(input instanceof URL ? input.href : String(input), init));
 const capabilityGate = new CapabilityGate();
 let deletingArchived = false;
 let quitting = false;
@@ -349,7 +352,7 @@ const accountAllowance = new AccountAllowanceService(() => appliedAuthData,
   Date.now, () => performance.now(), 12000, async signal => {
     const credential = appliedAuthData.step;
     const next = await admin.request('refresh_allowance_credential', { credential }, 11000);
-    if (signal.aborted || settingsMutation || capabilityGate.active || !capabilityService.available
+    if (signal.aborted || speechSaving || settingsMutation || capabilityGate.active || !capabilityService.available
       || appliedAuthData.step !== credential || authData.step !== credential)
       throw new Error('Allowance credential changed');
     if (!next || next.type !== 'oauth' || typeof next.access !== 'string' || !next.access.trim()
@@ -381,6 +384,7 @@ const movedSessionEnvironment = () => ({
   DESKTOP_CRON_SCOPE_DIR: join(app.getPath('userData'), 'cron-bindings'),
 });
 async function persistAuth(next: Record<string, unknown>) {
+  speech.cancel();
   bvrBridge.invalidate();
   pluginHosts.invalidate();
   try { await vault.save(next); }
@@ -402,6 +406,7 @@ function watchComposerWindow(view: BrowserWindow) {
   const contents = view.webContents, id = contents.id;
   rendererGenerations.set(id, 0);
   const reset = () => {
+    if (view === window) speech.cancel();
     rendererGenerations.set(id, (rendererGenerations.get(id) ?? 0) + 1);
     composers.recover(id);
   };
@@ -919,7 +924,7 @@ async function guardIdle(options: { stopHost?: boolean; allowRemote?: boolean; r
   await runtimes.assertAllIdle(options);
 }
 function canApplyProviders() {
-  return capabilityService.available && !capabilityGate.active && !providerApplyFailed && !transition && !undoBusy && !runtimes.running && !admin.hasPendingRequests
+  return !speechSaving && capabilityService.available && !capabilityGate.active && !providerApplyFailed && !transition && !undoBusy && !runtimes.running && !admin.hasPendingRequests
     && [...runtimes.workers.values()].every(worker => worker.status !== 'connecting'
       && !worker.operations && !worker.mutating && !worker.stopping && !worker.remoteAttached);
 }
@@ -2408,6 +2413,38 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
     }
     case 'compactionSettings': return admin.request('compaction_settings');
     case 'saveCompactionSettings': return admin.request('save_compaction_settings', { update: args[0] });
+    case 'speechSettings':
+      return speechSettings(authData, appliedAuthData, settingsMutation || providerSettingsPending || providerApplyFailed);
+    case 'saveSpeech':
+    case 'acknowledgeSpeech': {
+      if (speechSaving || settingsMutation || capabilityGate.active || transition || undoBusy || quitting || quitPending || updateInstalling)
+        throw new Error('Settings operation in progress');
+      speechSaving = true;
+      try {
+        speech.cancel();
+        const next = method === 'saveSpeech' ? saveSpeech(authData, args[0], args[1], args[2]) : acknowledgeSpeech(authData, args[0]);
+        await vault.save(next);
+        authData = next;
+        return speechSettings(authData, appliedAuthData, providerSettingsPending || providerApplyFailed);
+      } finally { speechSaving = false; }
+    }
+    case 'beginSpeech': {
+      const currentScope = () => sessionDraft ? `draft:${sessionDraft.id}`
+        : runtimes.active?.state?.sessionId ? `runtime:${runtimes.active.id}:${runtimes.active.state.sessionId}` : undefined;
+      const scope = currentScope();
+      const configuration = authData[SPEECH_FIELD], credential = appliedAuthData.step;
+      const generation = rendererGenerations.get(window.webContents.id);
+      const current = () => Boolean(scope && scope === currentScope()
+        && configuration === authData[SPEECH_FIELD] && credential === appliedAuthData.step
+        && rendererGenerations.get(window.webContents.id) === generation && window.isVisible()
+        && !speechSaving && !settingsMutation && !capabilityGate.active && !transition && !providerSettingsPending
+        && !providerApplyFailed && !quitting && !quitPending && !updateInstalling);
+      return speech.begin(authData, appliedAuthData, current);
+    }
+    case 'transcribeSpeech': return speech.transcribe(args[0], args[1], args[2]);
+    case 'finishSpeech': return speech.finish(args[0]);
+    case 'cancelSpeech':
+      speech.cancel(text(args[0], 80)); return;
     case 'globalInstructions': return globalInstructions.read();
     case 'saveGlobalInstructions': {
       const saved = await globalInstructions.save(args[0], args[1]);
@@ -2733,6 +2770,7 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
 }
 app.on('will-quit', () => { notifications.dispose(); startupWindow?.destroy(); tray?.dispose(); tray = undefined; localPages.dispose(); updates.dispose(); installer.dispose(); });
 app.on('before-quit', event => {
+  speech.cancel();
   if (quitting) return;
   event.preventDefault();
   if (quitPending) return;
@@ -2829,7 +2867,11 @@ else app.whenReady().then(async () => {
   } catch {
     // Registration failure must not prevent launching the rest of Desktop.
   }
-  session.defaultSession.setPermissionRequestHandler((_webContents, _permission, callback) => callback(false));
+  session.defaultSession.setPermissionCheckHandler((contents, permission, _origin, details) =>
+    Boolean(window && contents === window.webContents && permission === 'media' && details.mediaType === 'audio' && speech.allowMicrophone()));
+  session.defaultSession.setPermissionRequestHandler((contents, permission, callback, details) =>
+    callback(Boolean(window && contents === window.webContents && details.isMainFrame && permission === 'media'
+      && 'mediaTypes' in details && details.mediaTypes?.length === 1 && details.mediaTypes[0] === 'audio' && speech.allowMicrophone())));
   // The renderer cannot read the Windows dark mode reliably: prefers-color-scheme
   // stays light inside this packaged renderer even on a dark system, so the main
   // process owns the resolved theme. The preload asks for it synchronously before
@@ -2910,6 +2952,7 @@ else app.whenReady().then(async () => {
   window.on('focus', windowState);
   window.on('focus', () => notifications.sync());
   window.on('blur', windowState);
+  window.on('hide', () => speech.cancel());
   window.webContents.setWindowOpenHandler(({ url }) => { try { const u = new URL(url); if (['https:', 'http:'].includes(u.protocol)) void shell.openExternal(u.href); } catch {} return { action: 'deny' }; });
   window.webContents.on('will-navigate', event => event.preventDefault());
   try {
@@ -2974,6 +3017,7 @@ else app.whenReady().then(async () => {
       // Discovery network work and data-only themes must not block Remote I/O.
       const shared = capabilityMutation && method !== 'capabilityMutate'
         || ['login', 'logout', 'saveMcp', 'saveProvider', 'deleteProvider', 'prepareStepPage', 'finishFirstRun'].includes(method);
+      if ((shared || method === 'capabilityMutate') && speechSaving) throw new Error('Speech settings operation in progress');
       if ((shared || method === 'capabilityMutate') && capabilityGate.active)
         throw new Error('Shared settings operation in progress');
       if ((shared || method === 'capabilityMutate') && !capabilityService.available)
@@ -2984,10 +3028,14 @@ else app.whenReady().then(async () => {
         'switchSession', 'navigateSession', 'newIndependentSession', 'deleteSession', 'deleteArchivedSessions', 'login', 'logout', 'saveMcp', 'saveProvider', 'deleteProvider'].includes(method))
         throw new Error('Undo in progress');
       if (settingsMutation && ['moveSessionToProject', 'prepareStepPage', 'removeWorkspace', 'relocateWorkspace', 'beginSession', 'chooseSessionProject', 'createDraftSession', 'command', 'branchSession', 'cloneSession', 'retryMessage', 'restart', 'workspace', 'chooseWorkspace', 'switchSession', 'navigateSession', 'newIndependentSession', 'login', 'logout', 'saveMcp', 'saveProvider', 'deleteProvider', 'finishFirstRun'].includes(method)) throw new Error('Shared settings operation in progress');
-      if (!capabilityRead && method !== 'capabilityMutate' && !updateInstalling && providerSettingsPending && !settingsMutation && canApplyProviders()) {
+      const speechOperation = ['speechSettings', 'saveSpeech', 'acknowledgeSpeech', 'beginSpeech', 'transcribeSpeech', 'finishSpeech', 'cancelSpeech'].includes(method);
+      if (!capabilityRead && !speechOperation && method !== 'capabilityMutate' && !updateInstalling && providerSettingsPending && !settingsMutation && canApplyProviders()) {
         await applyProviderSettings();
       }
       if (rendererGenerations.get(senderId) !== generation) throw new Error('Window reloaded; retry the current action');
+      if (surface === 'main' && (shared || ['settings', 'beginSession', 'chooseSessionProject', 'createDraftSession',
+        'navigateSession', 'switchSession', 'newIndependentSession', 'workspace', 'chooseWorkspace', 'restart',
+        'miniChatOpen', 'miniChatReturn'].includes(method))) speech.cancel();
       if (shared && miniNavigation.busy) throw new Error('MiniChat conversation is opening');
       if (shared) settingsMutation = true;
       try { return await handle(method, args, surface, markCapabilityPhase); }

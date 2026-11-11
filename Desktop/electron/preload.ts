@@ -33,6 +33,13 @@ new MutationObserver(() => {
 
 const invoke = (method: string, ...args: unknown[]) => ipcRenderer.invoke('desktop', method, ...args);
 const bridge: DesktopBridge = {
+  speechSettings: () => invoke('speechSettings'),
+  saveSpeech: (config, revision, key) => invoke('saveSpeech', config, revision, key),
+  acknowledgeSpeech: revision => invoke('acknowledgeSpeech', revision),
+  beginSpeech: () => invoke('beginSpeech'),
+  transcribeSpeech: (id, audio, sequence) => invoke('transcribeSpeech', id, audio, sequence),
+  finishSpeech: id => invoke('finishSpeech', id),
+  cancelSpeech: id => invoke('cancelSpeech', id),
   surface: process.argv.includes('--desktop-plugin-window') ? 'plugin' : process.argv.includes('--desktop-mini-chat') ? 'mini' : 'main',
   pluginWindowOpen: input => invoke('pluginWindowOpen', input),
   pluginWindowState: () => invoke('pluginWindowState'),

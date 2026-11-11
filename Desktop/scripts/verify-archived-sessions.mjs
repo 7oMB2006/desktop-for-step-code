@@ -165,7 +165,7 @@ try {
   });
   assert.equal(layout, true, 'long titles must not overlap delete controls');
   await page.getByRole('button', { name: '通用', exact: true }).click();
-  await page.getByLabel('语言').selectOption('en');
+  await page.getByRole('dialog').getByLabel(/^(语言|Language)$/).selectOption('en');
   await page.getByRole('button', { name: 'Archived', exact: true }).click();
   await page.getByRole('button', { name: 'Unarchive', exact: true }).first().waitFor();
   await page.getByRole('button', { name: 'Close', exact: true }).click();

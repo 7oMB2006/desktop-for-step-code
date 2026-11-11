@@ -84,6 +84,18 @@ function workspaceKey(cwd: string) {
   const path = resolve(cwd);
   return process.platform === 'win32' ? path.toLowerCase() : path;
 }
+interface RuntimeIdleOptions {
+  stopHost?: boolean;
+  allowRemote?: boolean;
+  resources?: boolean;
+  allowWaitingCron?: boolean;
+}
+function cronBlocksResourceWrite(state: CronState | undefined, options: RuntimeIdleOptions) {
+  if (!options.resources) return false;
+  return options.allowWaitingCron && state
+    ? cronState(JSON.stringify(state))?.status !== 'ready'
+    : hasScheduledCron(state);
+}
 
 // A worker owns one session identity until disposal; edits move its history leaf.
 export class SessionRuntimes {
@@ -664,17 +676,20 @@ export class SessionRuntimes {
     this.launchReads.set(worker, read);
     return read;
   }
-  async assertIdle(worker: SessionRuntime, options: { stopHost?: boolean; allowRemote?: boolean; resources?: boolean } = {}) {
+  async assertIdle(worker: SessionRuntime, options: RuntimeIdleOptions = {}) {
     const rpc = worker.rpc, sessionId = worker.state?.sessionId;
+    const requireConnected = options.allowRemote && worker.remoteAttached;
     const assertHost = () => {
       if (this.workers.get(worker.id) !== worker || worker.rpc !== rpc || worker.state?.sessionId !== sessionId)
         throw new Error('Session operation in progress');
       if (worker.remoteAttached && !(options.stopHost === false && options.allowRemote))
         throw new Error('Unbind Remote before changing this session runtime');
+      if ((requireConnected || worker.remoteAttached && options.allowRemote) && worker.status !== 'connected')
+        throw new Error('Runtime is not connected');
       if (worker.btwActive) throw new Error('Finish or cancel the side question first');
       if (hasBackgroundWork(worker)) throw new Error('Stop background agents before changing this session runtime');
       if (options.stopHost && hasScheduledCron(worker.cron)) throw new Error('Delete scheduled Cron jobs before restarting or changing this runtime; Cron state must be available');
-      if (options.resources && hasScheduledCron(worker.cron)) throw new Error('capability:scheduled-work');
+      if (cronBlocksResourceWrite(worker.cron, options)) throw new Error('capability:scheduled-work');
       if (worker.launch?.goal?.status === 'active') throw new Error('Pause the active goal first');
       if (worker.queued) throw new Error('Send or withdraw the pending messages first');
       if (worker.stopping) throw new Error('Session operation in progress');
@@ -684,6 +699,9 @@ export class SessionRuntimes {
     if (worker.status === 'connected') {
       const state = await worker.rpc.request('get_state');
       assertHost();
+      if ((requireConnected || worker.remoteAttached && options.allowRemote)
+        && (state?.sessionId !== sessionId || typeof state?.isStreaming !== 'boolean'))
+        throw new Error('Runtime is not connected');
       if (state.isStreaming || state.isCompacting || state.pendingMessageCount) throw new Error('Stop this session task first');
     }
   }
@@ -732,17 +750,22 @@ export class SessionRuntimes {
       throw error;
     } finally { worker.submissions--; this.publish(); }
   }
-  async assertAllIdle(options: { stopHost?: boolean; allowRemote?: boolean; resources?: boolean } = {}) {
+  async assertAllIdle(options: RuntimeIdleOptions = {}) {
     const workers = [...this.workers.values()];
+    const owners = workers.map(worker => ({ worker, rpc: worker.rpc, sessionId: worker.state?.sessionId,
+      requireConnected: options.allowRemote && worker.remoteAttached }));
     for (const worker of workers) {
       if (worker.mutating) throw new Error('Session operation in progress');
       await this.assertIdle(worker, { ...options, stopHost: options.stopHost !== false });
     }
-    if (workers.length !== this.workers.size || workers.some(worker => this.workers.get(worker.id) !== worker
+    if (workers.length !== this.workers.size || owners.some(({ worker, rpc, sessionId, requireConnected }) => this.workers.get(worker.id) !== worker
+      || worker.rpc !== rpc || worker.state?.sessionId !== sessionId
       || worker.mutating || worker.stopping || worker.queued || this.isBusy(worker)
       || worker.btwActive || hasBackgroundWork(worker) || worker.launch?.goal?.status === 'active'
       || worker.remoteAttached && !(options.stopHost === false && options.allowRemote)
-      || (options.stopHost !== false || options.resources) && hasScheduledCron(worker.cron)))
+      || (requireConnected || worker.remoteAttached && options.allowRemote) && worker.status !== 'connected'
+      || options.stopHost !== false && hasScheduledCron(worker.cron)
+      || cronBlocksResourceWrite(worker.cron, options)))
       throw new Error('Session operation in progress');
   }
   async refresh(worker: SessionRuntime, node: string, entry: string, env: NodeJS.ProcessEnv,

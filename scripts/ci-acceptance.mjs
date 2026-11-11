@@ -29,6 +29,7 @@ export const acceptanceGroups = {
     'verify-plugin-workspace.mjs',
     'verify-plugin-shell.mjs',
     'verify-plugin-surfaces-electron.mjs',
+    'verify-external-connectors.mjs',
     'verify-plugin-input-mcp.mjs',
     'verify-desktop-tray.mjs',
     'verify-notifications.mjs',
@@ -136,6 +137,11 @@ export const localOnly = [
   'verify-plugin-starter.mjs',
   'verify-plugin-center-package.mjs',
   'verify-plugin-center-manual.mjs',
+  // Requires the actual companion source in an explicitly prepared separate checkout.
+  'verify-external-connectors-electron.mjs',
+  'verify-hermes-fresh-install-electron.mjs',
+  // Design-only Hermes onboarding fixture; installed resource coverage is checked separately.
+  'verify-hermes-preview.mjs',
   // Standalone manager harness writes compiled native fixtures to an explicit local D: evidence root.
   // Actual installed main/side/window routing runs in verify-plugin-surfaces-electron above.
   'verify-plugin-windows.mjs',

@@ -13,6 +13,7 @@ import { runInNewContext } from 'node:vm';
 import { PendingMessages, promptNeedsQueue } from '../electron/pending-messages';
 import { SessionRuntimes, type SessionRuntime } from '../electron/session-runtimes';
 import { reviewPayload, reserveReview } from '../electron/completion-review';
+import { externalSessionCommandAllowed } from '../electron/external-connector-policy';
 import { emptyLaunch } from '../src/launch-state';
 
 async function fixture(run: (cwd: string) => Promise<void>) {
@@ -144,6 +145,7 @@ async function submissionFixture(cwd: string) {
   const javascript = ts.transpileModule(declaration.getText(source), { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
   const sent: string[] = [];
   const sentPayloads: Record<string, unknown>[] = [];
+  const externalWorkers = new Set<SessionRuntime>();
   let hold: (() => Promise<unknown>) | undefined;
   const worker = { id: 'worker', cwd, status: 'connected', state: { sessionId: 'session' },
     busy: false, submissions: 0, operations: 0, mutating: false, pendingUI: new Map(),
@@ -166,8 +168,10 @@ async function submissionFixture(cwd: string) {
     text: (value: string) => value, isProjectInstructionsCommand, projectInstructionsMessage, promptNeedsQueue,
     isProjectTrustInput: () => false, preferences: { language: 'zh' }, pendingMessages, emptyLaunch, reviewPayload, reserveReview,
     launchControls: { consume() {}, input: (_worker: unknown, payload: unknown) => payload },
+    externalTasks: { retains: (value: SessionRuntime) => externalWorkers.has(value) },
+    externalSessionCommandAllowed,
   });
-  return { worker, sent, sentPayloads, pendingMessages, hold: (read: typeof hold) => { hold = read; },
+  return { worker, sent, sentPayloads, pendingMessages, externalWorkers, hold: (read: typeof hold) => { hold = read; },
     edit: (id: string, message: string) => handle('command', ['queue_edit', { id, version: 0, message }, worker.id]),
     send: (message: string) => handle('command', ['prompt', { message }, worker.id]) };
 }
@@ -185,6 +189,25 @@ test('actual IPC init preserves a preselected completion review for the next ord
   assert.equal(f.worker.launch.reviewArmed, false);
   assert.equal(f.worker.submissions, 0);
   assert.equal(f.worker.operations, 0);
+}));
+
+test('actual IPC rejects project rules and local inputs while an external task owns the session', () => fixture(async cwd => {
+  const f = await submissionFixture(cwd);
+  const queued = f.pendingMessages.enqueue(f.worker, 'Existing input', { message: 'Existing input' });
+  f.externalWorkers.add(f.worker);
+  await assert.rejects(f.send('/init'), /外部委托/);
+  await assert.rejects(f.send('ordinary local task'), /外部委托/);
+  await assert.rejects(f.edit(queued, '/init'), /外部委托/);
+  assert.deepEqual(f.sent, []);
+  assert.equal(f.pendingMessages.list(f.worker).find(entry => entry.id === queued)?.message, 'Existing input');
+  assert.equal(f.worker.submissions, 0);
+  assert.equal(f.worker.operations, 0);
+  assert.equal(f.worker.mutating, false);
+  f.externalWorkers.delete(f.worker);
+  assert.equal(f.pendingMessages.withdraw(f.worker, queued), true);
+  await f.send('/init');
+  assert.equal(f.sent.length, 1);
+  assert.match(f.sent[0], /Mode: create/);
 }));
 
 test('actual IPC queue editing rejects bare init but preserves image and file attachment routing', () => fixture(async cwd => {

@@ -163,6 +163,24 @@ export async function verifyPluginMarketInfo({ browser, base, output }) {
     await search.fill('');
     checks.push('search includes author and declared dependencies');
 
+    await search.fill('RequiredRuntimeWithAnIntentionallyLongUnbrokenDependencyNameForNarrowLayoutVerification');
+    const searchDisclosure = await openDependencies(card('新版本工程工具'), 'zh');
+    await search.evaluate(element => new Promise((resolve, reject) => {
+      const max = element.scrollWidth - element.clientWidth;
+      if (max <= 0) return reject(new Error('Long dependency search must overflow the input'));
+      const timeout = setTimeout(() => reject(new Error('Search input did not scroll')), 2000);
+      element.addEventListener('scroll', () => { clearTimeout(timeout); resolve(); }, { once: true });
+      element.scrollLeft = element.scrollLeft > max / 2 ? 0 : max;
+    }));
+    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    assert.equal(await searchDisclosure.trigger.getAttribute('aria-expanded'), 'true',
+      'scrolling the unrelated search input keeps the dependency dialog open');
+    assert.equal(await searchDisclosure.panel.evaluate(element => element.matches(':popover-open')), true);
+    await page.keyboard.press('Escape');
+    await assertClosed(searchDisclosure.trigger);
+    await search.fill('');
+    checks.push('long dependency search can open its dialog directly; real input scrolling does not dismiss an unrelated anchor');
+
     await page.getByRole('tab', { name: '发现', exact: true }).click();
     assert.match(await card('资源工具包').locator('.pc-card-version').innerText(), /^v2.0.0[\s\S]*已安装 v1.0.0/u);
     await assertAuthor(card('资源工具包'), '市场新版作者');

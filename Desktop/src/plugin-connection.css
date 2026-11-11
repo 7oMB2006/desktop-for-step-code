@@ -1,0 +1,71 @@
+.plugin-connection { max-width: 960px; margin-inline: auto; padding: 4px 8px 12px; font-size: 13px; }
+.plugin-connection-heading { display: flex; align-items: center; gap: 10px; min-height: 36px; margin-bottom: 18px; }
+.plugin-connection-heading h2 { margin: 0; font-size: 16px; font-weight: 600; }
+.plugin-connection-mode { color: var(--muted); font-size: 11px; }
+.plugin-connection-heading > .icon-button { margin-left: auto; }
+.plugin-connection .icon-button { flex: 0 0 32px; width: 32px; height: 32px; min-height: 32px; }
+.plugin-connection-status { display: flex; align-items: flex-start; gap: 12px; min-height: 68px; }
+.plugin-connection-status > svg { flex-shrink: 0; margin-top: 2px; color: var(--muted); }
+.plugin-connection-status.is-verified > svg, .plugin-connection-status.is-verified h3 { color: var(--green); }
+.plugin-connection-status.is-attention > svg, .plugin-connection-status.is-attention h3 { color: var(--danger); }
+.plugin-connection-status > div { min-width: 0; }
+.plugin-connection-status h3 { margin: 0; font-size: 14px; font-weight: 600; line-height: 1.6; overflow-wrap: anywhere; }
+.plugin-connection-status p { margin: 6px 0 0; max-width: 720px; color: var(--muted); line-height: 1.8; overflow-wrap: anywhere; }
+.plugin-connection-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 14px 0 22px; }
+.plugin-connection-actions > button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 32px; font-size: 12px; }
+.plugin-connection-details { margin: 0; padding-bottom: 20px; }
+.plugin-connection-details > div { display: grid; grid-template-columns: 120px minmax(0, 1fr); gap: 12px; padding: 6px 0; line-height: 1.7; }
+.plugin-connection-details dt { color: var(--muted); }
+.plugin-connection-details dd { margin: 0; overflow-wrap: anywhere; white-space: pre-wrap; }
+.plugin-connection-profile { display: flex; align-items: center; gap: 12px; padding: 4px; }
+.plugin-connection-profile > span { flex: 1; min-width: 0; }
+.plugin-connection-section { border-top: 1px solid var(--border); padding: 20px 0; }
+.plugin-connection-section h3 { display: flex; flex-wrap: wrap; gap: 10px; align-items: baseline; margin: 0 0 12px; font-size: 13px; font-weight: 600; }
+.plugin-connection-section h3 > span { color: var(--muted); font-size: 11px; font-weight: 400; }
+.plugin-connection-empty { margin: 0; padding: 12px 0; line-height: 1.8; color: var(--muted); }
+.plugin-connection-roots, .plugin-connection-tasks { list-style: none; padding: 0; margin: 0; }
+.plugin-connection-roots > li { display: flex; align-items: flex-start; gap: 10px; padding: 7px 0; line-height: 1.7; }
+.plugin-connection-roots svg { flex-shrink: 0; margin-top: 3px; color: var(--muted); }
+.plugin-connection-roots span { overflow-wrap: anywhere; min-width: 0; }
+.plugin-connection-tasks > li { padding: 12px 0; border-bottom: 1px solid var(--border); }
+.plugin-connection-tasks > li:last-child { border-bottom: 0; }
+.plugin-connection-tasks > li > div { display: flex; gap: 16px; align-items: baseline; }
+.plugin-connection-tasks strong { font-size: 13px; font-weight: 500; flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.plugin-connection-phase { font-size: 11px; color: var(--muted); flex-shrink: 0; }
+.plugin-connection-tasks p { display: flex; flex-wrap: wrap; gap: 6px 16px; color: var(--muted); margin: 6px 0 0; font-size: 11px; line-height: 1.8; overflow-wrap: anywhere; }
+.plugin-connection-tasks p > span { min-width: 0; }
+.plugin-connection-checked { margin: 0; color: var(--muted); font-size: 11px; }
+.plugin-preparation { padding: 0 4px 24px; }
+.plugin-preparation-scope { margin: 0 0 14px; color: var(--muted); font-size: 12px; line-height: 1.8; }
+.plugin-preparation-steps { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin: 0; padding: 0; list-style: none; }
+.plugin-preparation-step { display: flex; flex-direction: column; align-items: flex-start; min-width: 0; border: 1px solid var(--border); border-radius: 8px; padding: 16px; }
+.plugin-preparation-step-heading { display: flex; align-items: center; gap: 9px; width: 100%; min-width: 0; }
+.plugin-preparation-step-heading > svg { flex-shrink: 0; color: var(--muted); }
+.plugin-preparation-step h3, .plugin-preparation-first h3 { margin: 0; font-size: 13px; font-weight: 600; line-height: 1.7; overflow-wrap: anywhere; }
+.plugin-preparation-result { display: inline-flex; align-items: center; gap: 5px; min-height: 24px; max-width: 100%; margin-top: 10px; padding: 2px 7px; border-radius: 4px; color: var(--muted); background: color-mix(in oklab, var(--muted) 9%, var(--bg)); font-size: 12px; font-weight: 600; line-height: 1.5; overflow-wrap: anywhere; }
+.plugin-preparation-result > svg { flex-shrink: 0; }
+.plugin-preparation-result.is-verified { color: var(--green); background: color-mix(in oklab, var(--green) 10%, var(--bg)); }
+.plugin-preparation-result.is-attention { color: var(--danger); background: color-mix(in oklab, var(--danger) 10%, var(--bg)); }
+.plugin-preparation-step > p, .plugin-preparation-first p { margin: 8px 0 14px; color: var(--muted); font-size: 12px; line-height: 1.8; overflow-wrap: anywhere; }
+.plugin-preparation-step > button, .plugin-preparation-first > button { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; gap: 7px; min-height: 32px; max-width: 100%; margin-top: auto; padding: 5px 10px; font-size: 12px; white-space: normal; overflow-wrap: anywhere; }
+.plugin-preparation-step > button > svg, .plugin-preparation-first > button > svg { flex-shrink: 0; }
+.plugin-preparation-first { display: flex; align-items: center; gap: 20px; padding-top: 22px; }
+.plugin-preparation-first > div { flex: 1; min-width: 0; }
+.plugin-preparation-first p { margin-bottom: 0; }
+.plugin-preparation-first > button { margin-top: 0; }
+.plugin-connection.is-compact { padding: 4px 4px 8px; }
+.plugin-connection.is-compact .plugin-connection-heading { margin-bottom: 10px; }
+.plugin-connection.is-compact .plugin-connection-heading h2 { font-size: 12px; }
+.plugin-connection.is-compact .plugin-connection-status { gap: 10px; min-height: 0; }
+.plugin-connection.is-compact .plugin-connection-status h3 { font-size: 13px; }
+.plugin-connection.is-compact .plugin-connection-status p { font-size: 12px; line-height: 1.7; }
+.plugin-connection.is-compact .plugin-connection-details { padding: 12px 0 0; }
+.plugin-connection.is-compact .plugin-connection-details > div { grid-template-columns: minmax(0, 1fr); gap: 2px; font-size: 12px; }
+.plugin-connection.is-compact .plugin-connection-section { margin-top: 16px; padding: 14px 0; }
+.plugin-connection.is-compact .plugin-connection-tasks > li { padding: 9px 0; }
+@media (max-width: 700px) {
+  .plugin-preparation-steps { grid-template-columns: minmax(0, 1fr); }
+  .plugin-preparation-first { flex-direction: column; align-items: flex-start; gap: 12px; }
+  .plugin-connection-details > div { grid-template-columns: minmax(0, 1fr); gap: 2px; padding-block: 8px; }
+  .plugin-connection-tasks > li > div { gap: 8px; }
+}

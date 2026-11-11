@@ -121,11 +121,61 @@ test('actual main passive capability reads never trigger pending provider applic
   const f = ipcFixture();
   for (const method of [
     'capabilityCatalog', 'pluginDocument', 'pluginRepositoryInfo', 'pluginConfiguration', 'pluginHostSettings', 'pluginChoosePath', 'pluginWindowOpen',
+    'pluginConnectionState', 'pluginConnectionChooseProfile', 'pluginConnectionForgetProfile',
     'themeScene', 'themePoster', 'themeImage', 'bvrConfiguration', 'bvrCheckEnvironment', 'bvrChoosePath', 'capabilityMutate',
   ]) assert.equal(await f.read(method), method);
   assert.equal(f.state.applications, 0);
   await f.read('beginSession');
   assert.equal(f.state.applications, 1);
+});
+test('actual connection IPC accepts only the native profile choice and rechecks package identity after asynchronous work', async () => {
+  const clause = find(node => ts.isCaseClause(node) && ts.isStringLiteral(node.expression)
+    && node.expression.text === 'pluginConnectionForgetProfile') as ts.CaseClause;
+  const state = { key: 'original', canceled: false, changed: false, busy: false, fail: false,
+    writes: [] as unknown[], picks: 0, probes: 0 };
+  const create = new Function('state', javascript(`
+    let settingsMutation = false;
+    const quitting = false, quitPending = false, preferences = { language: 'en' }, window = {};
+    const capabilityService = { async connection(ref) {
+      if (ref !== 'installed-ref') throw new Error('capability:stale');
+      return state.key;
+    } };
+    const dialog = { async showOpenDialog() {
+      state.picks++;
+      if (state.changed) state.key = 'updated';
+      settingsMutation = state.busy;
+      return { canceled: state.canceled, filePaths: ['/native/selected-profile'] };
+    } };
+    const pluginConnections = {
+      async choose(...args) { state.writes.push(args); },
+      async snapshot() {
+        state.probes++;
+        if (state.fail) throw new Error('PRIVATE transport error');
+        return { status: 'unselected', roots: [], tasks: [] };
+      },
+    };
+    return async (method, ...args) => { ${clause.statements.map(node => node.getText(file)).join('\n')} };
+  `));
+  let invoke = create(state);
+  assert.equal((await invoke('pluginConnectionState', { ref: 'installed-ref' })).status, 'unselected');
+  assert.equal(state.picks, 0);
+  state.canceled = true;
+  assert.equal(await invoke('pluginConnectionChooseProfile', { ref: 'installed-ref', path: '/renderer/private' }), null);
+  assert.deepEqual(state.writes, []);
+  state.canceled = false;
+  await invoke('pluginConnectionChooseProfile', { ref: 'installed-ref', path: '/renderer/private' });
+  assert.deepEqual(state.writes, [['original', '/native/selected-profile']]);
+  await invoke('pluginConnectionForgetProfile', { ref: 'installed-ref' });
+  assert.deepEqual(state.writes.at(-1), ['original', null]);
+  state.changed = true;
+  await assert.rejects(invoke('pluginConnectionChooseProfile', { ref: 'installed-ref' }), /capability:stale/);
+  assert.equal(state.writes.length, 2, 'package changed during picker: no binding written');
+  state.changed = false; state.busy = true;
+  await assert.rejects(invoke('pluginConnectionChooseProfile', { ref: 'installed-ref' }), /capability:busy/);
+  assert.equal(state.writes.length, 2);
+  state.busy = false; state.fail = true;
+  invoke = create(state);
+  await assert.rejects(invoke('pluginConnectionState', { ref: 'installed-ref' }), /capability:operation-failed/);
 });
 
 test('actual dictation IPC never applies pending providers and MiniChat has no speech access', async () => {
@@ -147,7 +197,8 @@ test('merged IPC preserves MiniChat theme reads and refuses management or untrus
   for (const method of ['themeScene', 'themePoster', 'themeImage'])
     assert.equal(await f.miniRead(method), method);
   assert.equal(f.state.applications, 0);
-  for (const method of ['capabilityMutate', 'saveMcp', 'pluginSaveConfiguration', 'pluginHostSettings', 'pluginSaveHostSettings', 'pluginWindowOpen'])
+  for (const method of ['capabilityMutate', 'saveMcp', 'pluginSaveConfiguration', 'pluginHostSettings', 'pluginSaveHostSettings', 'pluginWindowOpen',
+    'pluginConnectionState', 'pluginConnectionChooseProfile', 'pluginConnectionForgetProfile'])
     await assert.rejects(f.miniRead(method), /Return to the main window/);
   for (const method of ['themeScene', 'themePoster', 'themeImage'])
     await assert.rejects(f.untrustedRead(method), /Untrusted sender/);
@@ -254,6 +305,7 @@ test('actual plugin-window IPC is scoped, revalidates stale refs and never dispa
   assert.doesNotMatch(JSON.stringify(snapshot), /private-path|never-project/);
   assert.deepEqual(await read('pluginDocument', { ref: 'own-package', path: 'start.md' }), { text: 'start.md' });
   for (const method of ['snapshot', 'command', 'preferences', 'pluginWindowOpen', 'capabilityMutate',
+    'pluginConnectionState', 'pluginConnectionChooseProfile', 'pluginConnectionForgetProfile',
     'themeScene', 'themePoster', 'themeImage'])
     await assert.rejects(read(method), /capability:invalid-input/);
   await assert.rejects(read('pluginDocument', { ref: 'foreign', path: 'start.md' }), /capability:invalid-input/);
@@ -281,22 +333,33 @@ test('actual main recovery rechecks idle after asynchronous resource observation
   const options = constructor.arguments![0] as ts.ObjectLiteralExpression;
   const guard = options.properties.find(node => ts.isPropertyAssignment(node) && node.name.getText(file) === 'guardRecovery') as ts.PropertyAssignment;
   let observations = 0, changed = false;
-  const create = new Function('runtimes', 'assertPluginUnused', javascript(`
+  const create = new Function('runtimes', 'assertPluginUnused', 'externallyOwned', javascript(`
     let settingsMutation = false;
     const capabilityService = { runtimeAvailable: true };
     const guard = ${guard.initializer.getText(file)};
     return { guard, locked: () => settingsMutation };
   `));
+  const workers = new Map<string, object>(), externalWorkers = new Set<object>();
   const value = create({
-    workers: new Map(),
+    workers,
     async assertAllIdle(options: unknown) {
       assert.deepEqual(options, { stopHost: false, resources: true, allowRemote: true });
       observations++;
       if (changed) throw new Error('late task');
     },
-  }, async (id: string) => { assert.equal(id, 'journal-owner'); changed = true; });
+  }, async (id: string) => { assert.equal(id, 'journal-owner'); changed = true; },
+  (worker: object) => externalWorkers.has(worker));
   await assert.rejects(value.guard('journal-owner'), /late task/);
   assert.equal(observations, 2);
+  assert.equal(value.locked(), false);
+  observations = 0;
+  changed = false;
+  const external = {};
+  workers.set('external', external);
+  externalWorkers.add(external);
+  await assert.rejects(value.guard('journal-owner'), /Stop external tasks before reloading plugins/);
+  assert.equal(observations, 0, 'An external-owned task blocks recovery before idle or resource observation');
+  assert.equal(changed, false);
   assert.equal(value.locked(), false);
 });
 
@@ -343,11 +406,13 @@ for (const exitConfirmed of [true, false]) {
       let quitting = false, quitPending = false;
       const sessionEnding = false, transition = false, window = undefined;
       const speech = { cancel() {} };
-      const state = { quits: 0, errors: 0, prevented: 0 };
+      const state = { quits: 0, errors: 0, prevented: 0, externalShutdowns: 0, externalFlushes: 0 };
       const stop = { async stopAll() {}, async stop() {}, async close() {}, async shutdown() {}, async flush() {} };
       const runtimes = stop, terminals = stop, sessionImports = stop, remote = stop, admin = stop;
       const collaboration = stop, bvrBridge = stop, pluginHosts = stop, conversationTiming = stop, modelSelections = stop;
       const usageEstimates = stop, workflowBindings = stop, miniChat = undefined, pluginWindows = undefined, browser = undefined;
+      const externalConnectors = { async shutdown() { state.externalShutdowns++; } };
+      const externalTasks = { async flush() { state.externalFlushes++; } };
       const quitReasons = () => ({}), needsQuitReview = () => false, showMainWindow = () => {};
       const preferences = { language: 'zh' }, quitReview = { reset() {} };
       const emit = () => { state.errors++; settle(); };
@@ -364,6 +429,8 @@ for (const exitConfirmed of [true, false]) {
     assert.equal(f.state.prevented, 1);
     assert.equal(f.state.quits, exitConfirmed ? 1 : 0);
     assert.equal(f.state.errors, exitConfirmed ? 0 : 1);
+    assert.equal(f.state.externalShutdowns, 1);
+    assert.equal(f.state.externalFlushes, exitConfirmed ? 1 : 0);
     assert.equal(f.quitting(), exitConfirmed);
     assert.equal(f.pending(), exitConfirmed);
     assert.equal(service.available, false);

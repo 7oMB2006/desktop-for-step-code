@@ -166,8 +166,19 @@ URL、文件路径或命令。省略时沿用 `defaultPage`，不新增文档读
 绑定随安装实例或包内容改变而失效，重启同一安装可保留选择。
 
 「只读连接已核验」不证明 companion 已被 Hermes 加载，不证明可派工。
-当前桌面主线不内置配套 Agent Bridge 服务，配对、授权与任务控制仍由
-该配套宿主处理。MiniChat 和独立插件窗口不能调用这些连接接口。
+`desktop.connection.protocol` 的 `agent-bridge-v1` 是只读展示声明，
+不表示只能连接旧版服务；实际模式由所选 profile 的连接配置决定：
+
+- 本机通用模式在 `dfsc-bridge/config.json` 中显式声明 `protocol: "dfsc-external-v1"`。
+  包含该功能的 DFSC 构建提供「远程访问 → 接入渠道 → 外部 Agent」入口，
+  由用户开启接入、选择授权项目并创建连接，再按适配器指南显式导入配置。
+  入口默认关闭，安装市场插件或打开此连接页不会自动开启、配对或授权。
+  协议与生命周期边界见 [通用外部委托接入](EXTERNAL_CONNECTORS.md)。
+- 未声明该 `protocol` 的旧版模式仍需配套的专版 Agent Bridge 宿主；
+  通用入口不提供完整旧协议，也不会自动转换或降级使用另一套凭据。
+
+配对、授权和任务控制在配置对应的 DFSC 或专版宿主中完成。
+MiniChat 和独立插件窗口不能调用这些连接接口。
 
 三种 surface 都由宿主绘制相同的受限 Markdown 页面，不是三种脚本入口：
 

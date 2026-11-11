@@ -4,6 +4,8 @@ import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSy
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { spawnSync } from 'node:child_process';
+import { channel } from 'node:diagnostics_channel';
+import { once } from 'node:events';
 import { fileURLToPath } from 'node:url';
 import { acceptanceGroups, macosAcceptanceGroups, macosExclusions, macosGroupScripts, validateMacosInventory } from './ci-acceptance.mjs';
 import { runGroup } from './ci-windows.mjs';
@@ -191,7 +193,12 @@ test('Windows cancellation never targets an exited leader with inherited pipes',
     }
   };
   const controller = new AbortController();
-  let terminationCalls = 0, pids;
+  let terminationCalls = 0, pids, leader;
+  const childProcessEvents = channel('child_process');
+  const observeChild = ({ process: child }) => child.once('spawn', () => {
+    if (child.spawnargs[1] === probe.script) leader = child;
+  });
+  childProcessEvents.subscribe(observeChild);
   const pending = executeWithLog(probe.script, { ...probe.options, signal: controller.signal,
     terminate() { terminationCalls++; },
   });
@@ -200,6 +207,11 @@ test('Windows cancellation never targets an exited leader with inherited pipes',
     await waitFor(() => {
       try { pids = JSON.parse(Buffer.concat(probe.stdout).toString()); return true; } catch { return false; }
     });
+    await waitFor(() => leader?.pid === pids.leader);
+    // OS PID disappearance can precede Node's exit event on Windows.
+    if (leader.exitCode === null && leader.signalCode === null) {
+      await once(leader, 'exit', { signal: AbortSignal.timeout(3000) });
+    }
     await waitFor(() => !alive(pids.leader));
     assert.equal(alive(pids.descendant), true, 'the exited leader leaves a live child holding its output pipes');
     const started = Date.now();
@@ -209,6 +221,7 @@ test('Windows cancellation never targets an exited leader with inherited pipes',
     assert.equal(terminationCalls, 0, 'an exited leader PID must never be passed to taskkill');
     assert.match(probe.log(), /cleanup-unconfirmed/);
   } finally {
+    childProcessEvents.unsubscribe(observeChild);
     controller.abort();
     if (pids && alive(pids.descendant)) {
       process.kill(pids.descendant);

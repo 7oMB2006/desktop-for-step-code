@@ -1,5 +1,8 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import test from 'node:test';
+import { runInNewContext } from 'node:vm';
+import ts from 'typescript';
 import type { PluginConnection } from '../src/capabilities';
 import { pluginConnectionPreparation, type PreparationStep } from '../src/plugin-connection-preparation';
 
@@ -68,6 +71,25 @@ test('pairing prerequisites report configuration evidence rather than a running 
   assert.equal(result[1].action, 'setup');
   assert.equal(result[2].action, 'setup');
   assert.ok(result.every(step => !['installed', 'loaded', 'running', 'task-ready'].includes(step.result)));
+});
+
+test('connection copy distinguishes local DFSC pairing from the dedicated legacy host without claiming readiness', () => {
+  const source = ts.createSourceFile('PluginConnectionPanel.tsx',
+    readFileSync(new URL('../src/PluginConnectionPanel.tsx', import.meta.url), 'utf8'),
+    ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  const declaration = source.statements.flatMap(node => ts.isVariableStatement(node)
+    ? [...node.declarationList.declarations] : []).find(node => node.name.getText(source) === 'copy');
+  assert.ok(declaration?.initializer);
+  const copy = runInNewContext(ts.transpileModule(`(${declaration.initializer.getText(source)})`, {
+    compilerOptions: { target: ts.ScriptTarget.ES2022 },
+  }).outputText) as Record<'zh' | 'en', { status: Record<string, [string, string]> }>;
+  assert.match(copy.zh.status['pairing-required'][1], /DFSC.*外部 Agent.*旧版.*专版宿主/u);
+  assert.match(copy.en.status['pairing-required'][1], /DFSC Remote access > External agents.*legacy.*dedicated host/u);
+  assert.match(copy.zh.status.ready[1], /不代表.*已加载.*不代表.*可以派工/u);
+  assert.match(copy.en.status.ready[1], /does not establish companion loading or dispatch readiness/u);
+  for (const language of ['zh', 'en'] as const) {
+    assert.doesNotMatch(JSON.stringify(copy[language].status), /当前桌面主线不内置|mainline does not include|separate host/u);
+  }
 });
 
 test('a verified read-only connection with no intersected roots still requires directory preparation', () => {

@@ -5,7 +5,7 @@ import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'nod
 import { dataOnlyThemeFingerprint, installationReceipt, object, optionalFile, packageFingerprint, plainFile, readReceipts, scanInstalled,
   sourceIdentity, writePrivateData, writePrivateJson, writeReceipts } from './plugin-files.mjs';
 import { applyPluginUpdate, inspectPluginUpdate, updateBinding } from './plugin-update.mjs';
-import { PluginConfigurationStore } from './plugin-configuration.mjs';
+import { parseConfigurationSchema, PluginConfigurationStore } from './plugin-configuration.mjs';
 import { capabilityFailureCode, capabilityFailureDetails, marketplaceFailureCode } from './capability-failure.mjs';
 
 const NAME = /^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,79}$/;
@@ -490,8 +490,7 @@ export function createCapabilitySettings(upstream, options) {
             || fingerprint === previous.fingerprint) throw new CapabilityError('stale');
           const schema = await optionalFile(target, 'dfsc.settings.json', 65536);
           const nextSchema = await optionalFile(snapshot, 'dfsc.settings.json', 65536);
-          if ((schema?.toString('base64') ?? null) !== (nextSchema?.toString('base64') ?? null))
-            throw new CapabilityError('configuration-schema-changed');
+          const binding = await updateBinding(root, previous);
           const services = async (directory, manifest) => {
             let servers = manifest.mcpServers;
             if (typeof servers === 'string') {
@@ -502,9 +501,22 @@ export function createCapabilitySettings(upstream, options) {
               [key, server.url ? 'http' : 'stdio', server.enabled !== false,
                 server.env?.STEPFUN_API_KEY === 'DFSC_INDEPENDENT_PLUGIN']);
           };
-          if (JSON.stringify(await services(target, old.manifest)) !== JSON.stringify(await services(snapshot, checked.manifest)))
+          const oldServices = await services(target, old.manifest), nextServices = await services(snapshot, checked.manifest);
+          let addedConsumer;
+          if ((schema?.toString('base64') ?? null) !== (nextSchema?.toString('base64') ?? null)) {
+            if (schema || !nextSchema || binding !== null) throw new CapabilityError('configuration-schema-changed');
+            try { addedConsumer = parseConfigurationSchema(JSON.parse(nextSchema.toString('utf8'))).consumer.server; }
+            catch { throw new CapabilityError('configuration-schema-changed'); }
+            const before = oldServices.find(([key]) => key === addedConsumer);
+            const after = nextServices.find(([key]) => key === addedConsumer);
+            if (!before || before[1] !== 'stdio' || !after || after[1] !== 'stdio' || !after[3])
+              throw new CapabilityError('configuration-schema-changed');
+          }
+          // First-time configuration may strengthen only its existing stdio consumer's isolation.
+          const compatibleServices = oldServices.map(([key, transport, enabled, isolated]) =>
+            [key, transport, enabled, isolated || key === addedConsumer]);
+          if (JSON.stringify(compatibleServices) !== JSON.stringify(nextServices))
             throw new CapabilityError('update-capabilities-changed');
-          const binding = await updateBinding(root, previous);
           if (binding && !binding.revoked) await new PluginConfigurationStore(root).context({
             kind: 'installed', provenance: 'recorded', instance: previous.instance, id, name: requested,
             root: target, fingerprint: previous.fingerprint,

@@ -1,5 +1,8 @@
 # Theme Composition Contract
 
+New authors: start with the [Chinese quick start](THEME_AUTHORING.zh-CN.md)
+and the [installable v2 starter](../examples/plugins/theme-starter/README.md).
+
 This source contract requires a DFSC host containing the composition support.
 It does not make previously released clients understand new theme formats.
 This phase provides a bounded theme/background framework, not the complete
@@ -77,6 +80,10 @@ primary and secondary text must pass the existing surface contrast checks.
 The optional cover retains the existing bounded `cover.png` rules.
 
 Static backgrounds are packaged PNG or JPEG assets, limited to 12 MiB.
+The community marketplace has a stricter 8 MiB per-file and 32 MiB per-package
+sync limit. A valid local theme is not automatically eligible for that market.
+Both the source image and its native-decoded PNG must fit the host's 12 MiB limit;
+passing the market's encoded-file limit does not prove native decoding will pass.
 Each decoded edge is at most 8192 pixels and the image has at most 33,554,432
 pixels. Header bounds are checked before native decoding; APNG is rejected.
 WebP is excluded until host-native decoding is supported and verified.

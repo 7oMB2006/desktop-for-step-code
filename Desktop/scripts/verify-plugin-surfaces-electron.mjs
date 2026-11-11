@@ -777,12 +777,16 @@ try {
   assert.ok(Math.abs(await conversation.evaluate(element => element.scrollTop) - readingBeforeStatus) < 4);
   assert.equal(await bridgeSpace.isVisible(), false);
   await main.screenshot({ path: join(output, 'connection-status-overflow.png') });
+  const directBridgeAnchor = await action(bridgePlugin).isVisible();
   await main.keyboard.press('Escape');
   await quickStatus.waitFor({ state: 'hidden' });
-  await main.waitForFunction(() => document.activeElement?.getAttribute('aria-label') === 'More plugins');
+  await main.waitForFunction(({ direct, id }) => direct
+    ? document.activeElement?.getAttribute('data-plugin-action') === id
+    : document.activeElement?.getAttribute('aria-label') === 'More plugins',
+  { direct: directBridgeAnchor, id: bridgePlugin.id });
   await openFullAction(bridgePlugin);
   await panel.getByRole('heading', { name: 'Read-only connection verified', exact: true }).waitFor();
-  checks.push('production titlebar status reads the real isolated Bridge without changing main navigation, draft or transcript position; Escape restores its overflow anchor and full page opens explicitly');
+  checks.push('production titlebar status reads the real isolated Bridge without changing main navigation, draft or transcript position; Escape restores its actual direct/overflow anchor and full page opens explicitly');
 
   await writePlugin(bridgePlugin, '0.3.0', true);
   commit('Update the read-only connection package');

@@ -1,5 +1,87 @@
 # Verification
 
+## Hermes 最小工程委托闭环（2026-11-11）
+
+沿用独立 Windows 预览包、独立 `userData` 和唯一授权的测试项目，
+完成一次真实 `step/step-5-preview` 工程任务及同进程结果回读。
+原有 DFSC profile 和主桌面快捷方式未修改，没有新建发行安装包。
+
+- 首次文本验收退出码 1 的原因已有原始会话和日志证据：
+  三轮工具发现、三次业务调用用完脚本指定的六轮额度，
+  Hermes 记录 `max_iterations_reached(6/6)`，不是未提交任务的证明。
+  原失败记录保留。本次新工程任务使用独立幂等 key、12 轮上限与临时
+  120 秒预算，正常在第 7 轮回答，CLI 及协议退出码均为 0。
+- 上次旧任务回读没有摘要，是因为 DFSC 已退出并重新启动。
+  摘要仅当前宿主进程保存的契约不变，不新增回答持久化或任意会话历史读取。
+  companion 增补搜索元数据、`task.create.id` 参数说明及缺少摘要时的处理指引。
+  搜索仍可能需要补充查询，不声称一次搜索即可发现工具。
+- Hermes 仅创建并提交一个新任务。DFSC 保持 Ask，原生确认消息的完整
+  Call ID 与同一 runtime 的唯一工具调用绑定，批准前严格核对完整命令、
+  工作目录和执行参数。审批由本机 QA 通过原生 preload 执行，不是把
+  人工审批能力开放给 Hermes，也不是一次真人手动审批验收。
+- 原生会话只有一次 `run_command` 调用，工具结果与调用 ID 对应且无错误。
+  命令以独占创建方式生成 `README.md`；独立核对项目仅有该文件，
+  内容逐字为 `Hermes x DFSC engineering acceptance` 加换行。
+  最终原生摘要为 `README.md 已创建。`，`resultAvailable:true`，未截断。
+- DFSC 保持同一进程时，原 Hermes 会话仅执行一次 `task.get`，
+  实际工具返回和 Hermes 最终回答都包含上述原生摘要，退出码均为 0。
+  任务仍只新增一项，原提交记录未改变，没有重建或重派。
+- 无真实模型的原生 Electron 9 组验收通过，包含本机拒绝审批后命令标记
+  文件不存在、原生拒绝工具结果、同 key 不重派，以及 completed 任务重启后
+  保留回执但没有摘要、不重新挂接原生历史。工具被拒绝后模型可以正常解释
+  拒绝，因此没有把该轮 `completed` 误称为工具执行成功。
+- 类型检查通过；完整协议回归 1,920 项中 1,907 通过、13 项既有跳过，
+  无失败。初轮 18 项失败均因四份 VM/Function 夹具未注入新增的外部委托
+  守卫依赖，已补齐并新增三项外部占用拒绝断言，没有移除产品守卫或放宽
+  原有断言。companion 70 项中 69 通过、1 项既有跳过，资源测试 9 项通过。
+- 临时预算已恢复，网关在归属和空闲核对后正常退出，DFSC 退出码 0、
+  零剩余窗口。最后仅重新打开保存会话并经真实侧栏导航截图，
+  未提交新提示、未再次调用模型；截图已实看。
+
+证据位于 `D:\DFSC-Preview-QA\hermes-real-setup-20261111\engineering`：
+`verification.json` 记录真实派工、精确审批和同进程结果回读，
+`capture-verification.json` 与 `*-visible.png` 记录真实界面复核。
+最初直接调用会话 IPC 后的两张截图未完成渲染器导航，不用作可见状态证据。
+受控 Electron 最终证据位于相邻的 `engineering-fixture-r2`；
+首轮 `engineering-fixture` 的能力字段投影断言失败保留，不计为通过。
+相邻的 `protocol-followup.log` 保留全量失败基线，
+`protocol-followup-final.log` 记录修复后的全量通过。
+
+本轮证明最小文件写入、原生本机审批和结果回读，不代表复杂工程、
+真实聊天渠道、无人值守、云端 CI、macOS 或公开市场安装验收。
+未提交、推送、合并或发布。
+
+## Hermes 通用连接真实 Plan 验收（2026-11-11）
+
+使用本轮源码生成的独立 Windows 预览包和全新 `userData`，
+仅授权空白测试工程。原有 DFSC 凭据、会话和主桌面快捷方式未修改；
+原 profile 的凭据解锁失败仍是独立未解决问题，不计入本次通过项。
+
+- 新 profile 经原生凭据导入、`AuthVault` 首启迁移和再次启动验证；
+  临时 `auth.json` 已删除，账户识别为中国区 Step Plan。
+- 原生 main/preload 配对仅含测试目录。Hermes companion 实际安装并由
+  原生插件加载器注册，真实 capabilities 握手通过；底层工具目录仅含
+  `dfsc_engineering`，模型入口的 Tool Search 重组另行核对。
+- Hermes 通过既有中国区 Plan 路由创建并提交唯一任务。DFSC 保存的
+  原生会话包含逐字匹配的测试输入和 `DFSC 连接成功`，实际回复模型为
+  `step/step-5-preview`、权限为 Ask，无工具调用，空白工程未改变。
+- 首次 Hermes CLI 退出码为 1，不算一次干净完成的聊天。随后核对原任务
+  和原生会话，在同一 Hermes 会话中仅执行一次 `task.get`，退出码 0；
+  任务仍只有一项，提交记录未改变，没有重建或重派。
+- 实际 Hermes x DFSC 前端资源已装入独立 profile。原生目录绑定、
+  顶栏锚定状态面板及已完成任务展示通过，中文页面截图已实看。
+- companion 安装暴露了 `--hermes-source` 导入整个 CLI bootstrap 后
+  重启丢失脚本导入路径的问题；改为只激活原生依赖环境，新增独立进程
+  安装回归。companion 测试 68 项：67 通过、1 项既有跳过。
+- 临时 120 秒预算已精确恢复；本次网关经 PID、出生时间、实例身份及
+  空闲状态核验后正常退出。DFSC 验收进程退出码 0，窗口全部关闭。
+
+证据位于 `D:\DFSC-Preview-QA\hermes-real-setup-20261111\real-chain`：
+`verification.json` 保留首次聊天失败，`final-verification.json` 记录原生
+回复和后续只读查询，`capture-verification.json` 记录真实界面截图验收。
+这是本机最小文本委托验证，不是工程工具审批、文件修改、飞书、
+多渠道、公开市场、云端 CI、macOS 或发布验收。未提交、推送或发布。
+
 ## Hermes 顶栏轻量状态入口（2026-11-09）
 
 按交互修正，声明 `agent-bridge-v1` 的插件顶栏按钮先展开原处锚定的
@@ -10709,3 +10791,149 @@ It is not evidence for the new titlebar group, side panel or native plugin
 window. No installer, public release, cloud CI, native macOS, real-account or
 Hermes/Feishu business-flow acceptance is claimed by this local source record.
 No live-model inference or active-model-task continuity was exercised.
+
+## Hermes x DFSC First-Run Guidance (2026-11-10, Local Source Verification)
+
+The Agent Bridge connection page now separates four preparation checkpoints:
+profile marker, companion configuration, read-only pairing/identity, and
+visible authorized directories. Package-declared setup, first-task and
+troubleshooting page IDs provide bounded navigation without additional IPC,
+document access, installation, pairing, authorization or task mutation.
+The titlebar remains the existing compact status popover.
+
+Completed local evidence:
+
+- Desktop typecheck and production build passed. The build retained existing
+  chunk-size and module-directive warnings. The focused metadata, preparation,
+  library, requirements and market-metadata run passed 58 tests, with no skips.
+- The final generic workspace browser run passed 24 check groups, including all
+  preparation states, missing roots, failed/loading evidence reset, declared
+  guide navigation, light/dark/narrow focus bounds, and forgetting a profile.
+  Held forget results do not steal guide or conversation focus after navigation;
+  reopening reads the updated unselected state. No page errors were recorded.
+- The Hermes preview passed 25 groups against the real packaged guides and
+  production components with simulated state. It covers first installation,
+  missing configuration, unavailable/mismatched connections, visible roots,
+  first-task navigation and preserved drafts. Desktop/narrow light and dark
+  screenshots were inspected. These fixtures do not establish a real service.
+- The final production Electron run passed 17 groups through the real main,
+  preload, renderer, capability service and staged runtime using an isolated
+  profile, local Git marketplace and controlled loopback Bridge. The actual
+  Hermes package displays its new brand, four guide pages and approved icons.
+  The run recorded zero inference requests, zero renderer errors, launcher
+  exit code zero and zero remaining fixture windows after orderly shutdown.
+- The initial Electron attempt failed because uninstall changed the number of
+  shortcuts and the verifier still expected an overflow anchor. The verifier
+  now asserts focus against the actual direct or overflow entry. That failed
+  attempt also timed out during shutdown and required removal of its verified
+  isolated fixture process tree; it is not passing evidence. The separate final
+  run completed without forced process cleanup.
+- The complete serial Desktop run finished 1,860 tests: 1,846 passed, one failed
+  and 13 platform skips. The original background Plan fixture failed during
+  Windows process-tree termination; its verified leftover fixture was stopped
+  so the suite could finish. An unchanged, isolated rerun of that exact Plan
+  case passed. This does not turn the complete run into an all-green result.
+  The test, runtime implementation and staged runtime were not changed to
+  accommodate that failure.
+- The companion source is unchanged. Its 49 tests completed with 48 passing and
+  one platform skip when run with `python -X utf8`; the initial default-codepage
+  invocation failed on a GBK read of UTF-8 fixture data. The resource package's
+  eight tests and both repositories' `git diff --check` passed. Confirmed icon
+  bytes and companion implementation have no diff.
+
+Evidence is under `D:\DFSC-Preview-QA\hermes-first-run-20261110`:
+`focused-tests.log`, `full-tests.log`, `background-plan-rerun.log`,
+`browser-final/browser-run.log`, `preview/verification.json`, and
+`electron-final/verification.json`. The earlier failed Electron record remains
+in `electron/verification.json`. The fixture-only preview server is intentionally
+kept available for UI review. No installer was produced, existing package
+deleted, desktop shortcut redirected, or owner application restarted.
+The current `Desktop/dist` is approximately 12 MiB; the existing runtime junction
+still points to the isolated `plugin-workspaces-runtime` staging directory.
+
+The Hermes resource continues to use version 0.3.0 and companion 0.2.0.
+New engineering grants in that companion still require a verified Feishu owner;
+resource installation and read-only viewing do not. Matching the declared DFSC
+version range does not prove that an older build implements the new protocol.
+No real Hermes/model/Feishu workflow, clean-machine installation, native macOS,
+current cloud CI, public marketplace update or release is accepted by this record.
+
+## Generic Local External Delegation (2026-11-10, Local Source Verification)
+
+The reviewed plan is `docs/EXTERNAL_CONNECTORS_PLAN.md`; operator and protocol
+details are in `docs/EXTERNAL_CONNECTORS.md`. Ordinary DFSC source now supplies
+the default-off `dfsc-external-v1` loopback entry, managed under
+Remote access -> Channels -> External agents. This is not a release record.
+Hermes companion has a new explicitly selected adapter, independent of its
+unchanged-default legacy mode. This supersedes the preceding record's statement
+that companion implementation was unchanged, not that earlier record's results.
+
+Completed evidence on the final implementation:
+
+- The 18-file serial unit regression passed 576/576 tests, with no failures or
+  skips. It covers the connector core/policy/gateway, plugin connection and
+  preparation, native queue/runtime, Remote stores/managers/channels/media,
+  desktop Remote and capability removal. The core has 32 tests; the gateway has
+  19, including real sockets, directory replacement while a read is queued,
+  bounded outstanding handlers, revocation and persistence failures.
+  This is a targeted regression, not a claim that the entire Desktop suite ran.
+- Desktop typecheck and production build passed. Existing theme-bootstrap,
+  module-directive and chunk-size warnings remain.
+- Companion tests completed 67 cases: 66 passed and one Unix-only case skipped.
+  Resource tests passed 9/9. Both used `python -X utf8 -B`; neither used real
+  account credentials, messages or engineering tasks. Versions and approved
+  icon bytes were not changed.
+- The browser verifier passed six groups with production components and an
+  injected bridge: pairing, explicit scopes, nonsecret path copy, revoke,
+  empty project list, held failed authorization, keyboard focus restoration
+  and shared focus bounds. It covers 1360px/390px, Chinese/English,
+  light/dark and reduced motion. Screenshots were manually inspected.
+- The final isolated Electron verifier passed seven groups through the actual
+  main, typed preload, renderer, staged runtime and Python companion CLI.
+  Local UI pairing creates an independent native Ask session without changing
+  the selected draft or its unsent text. Identical submissions run only once,
+  conflicting keys fail, frozen summaries exclude later local conversations,
+  and an old stop cannot stop a later local turn. External approval and policy
+  changes fail; local approval works. External stop, local takeover of a
+  waiting task, relocation/BTW guards, restart without replay, credential
+  revocation and disable all pass. Seven inference requests reached only the
+  controlled local model endpoint. There were no renderer errors, launcher
+  exit code was zero, and zero fixture windows remained after orderly exit.
+- The existing `scripts/verify-remote-access.mjs` passed its complete native
+  acceptance, including image delivery, questions, Plan approval, queued input,
+  deduplication, encrypted grants, local drafts, focus, narrow layouts and
+  quit/relaunch recovery. Its English Feishu selector was made channel-specific
+  because the new external channel also has a Manage button; assertions and
+  production Feishu behavior were not weakened.
+- Independent architecture, security and Hermes reviews completed. They led to
+  fixes for listener startup readiness, local abort ownership release, project
+  relocation and BTW protection, final directory identity revalidation, and
+  failed-operation focus restoration. Both repositories' `git diff --check`
+  passed.
+
+Earlier attempts are not counted as passing evidence: the initial browser run
+found the focus-restoration bug, which was fixed; native harness attempts used
+an asynchronous switch as a synchronous checkbox, read `app.process()` after
+Playwright disposal, or used `inputValue()` on the contenteditable composer.
+Those verifier errors were corrected, followed by separate successful runs.
+The initial Remote rerun failed only at the now-ambiguous English selector;
+the complete rerun passed.
+
+Final connector evidence is under
+`D:\DFSC-Preview-QA\external-connectors-20261110`:
+`browser-final/verification.json` and `electron-current/verification.json`.
+Earlier failed records and the preceding successful native run are retained
+separately. Remote screenshots are in `Desktop/test-results/remote-access/`.
+The current `Desktop/dist` is approximately 12.2 MiB. No installer or new
+runtime package was created, existing packages deleted, primary shortcut
+redirected, owner application restarted, or real profile/configuration edited.
+The existing fixture preview server remains available; no native fixture
+process is intentionally retained.
+
+This interface assumes a trusted single-user machine. It is not a filesystem
+sandbox or a mutually authenticated cross-user transport; Windows ACLs,
+mapped-network-drive detection and token rotation are not accepted by these
+tests. The descriptor contains a plaintext bearer in the isolated userData,
+never in renderer IPC. Actual Hermes gateway loading, real models/Feishu,
+clean-machine installation, macOS, cloud CI, public marketplace publication,
+release packaging and user engineering acceptance remain unverified.

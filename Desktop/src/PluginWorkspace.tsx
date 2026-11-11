@@ -86,8 +86,11 @@ export function PluginWorkspace({ entry, bridge, language, onBack, onClose, clos
         className="plugin-workspace-page" role="tabpanel" id={`${id}-page-${item.id}`}
         aria-labelledby={`${id}-tab-${item.id}`} hidden={item.id !== page.id} inert={item.id !== page.id} tabIndex={0}>
         {connected && item.id === 'connection' ? <PluginConnectionPanel bridge={bridge} packageRef={entry.plugin.package!.ref}
-          language={language} active={active && page.id === 'connection'} onGuide={() => {
-            selectPage(pluginDesktopDefaultPage(entry.desktop).id);
+          language={language} active={active && page.id === 'connection'}
+          hasFirstTask={Boolean(entry.desktop.connection?.guides?.firstTask)} onGuide={guide => {
+            const target = guide && entry.desktop.connection?.guides?.[guide];
+            selectPage(target && entry.desktop.pages.some(item => item.id === target)
+              ? target : pluginDesktopDefaultPage(entry.desktop).id);
             requestAnimationFrame(() => {
               if (!workspace.current?.closest('[hidden], [inert]'))
                 tabs.current?.querySelector<HTMLButtonElement>('[aria-selected="true"]')?.focus({ preventScroll: true });

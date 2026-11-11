@@ -304,18 +304,29 @@ test('actual main recovery rechecks idle after asynchronous resource observation
   const options = constructor.arguments![0] as ts.ObjectLiteralExpression;
   const guard = options.properties.find(node => ts.isPropertyAssignment(node) && node.name.getText(file) === 'guardRecovery') as ts.PropertyAssignment;
   let observations = 0, changed = false;
-  const create = new Function('runtimes', 'assertPluginUnused', javascript(`
+  const create = new Function('runtimes', 'assertPluginUnused', 'externallyOwned', javascript(`
     let settingsMutation = false;
     const capabilityService = { runtimeAvailable: true };
     const guard = ${guard.initializer.getText(file)};
     return { guard, locked: () => settingsMutation };
   `));
+  const workers = new Map<string, object>(), externalWorkers = new Set<object>();
   const value = create({
-    workers: new Map(),
+    workers,
     async assertAllIdle() { observations++; if (changed) throw new Error('late task'); },
-  }, async (id: string) => { assert.equal(id, 'journal-owner'); changed = true; });
+  }, async (id: string) => { assert.equal(id, 'journal-owner'); changed = true; },
+  (worker: object) => externalWorkers.has(worker));
   await assert.rejects(value.guard('journal-owner'), /late task/);
   assert.equal(observations, 2);
+  assert.equal(value.locked(), false);
+  observations = 0;
+  changed = false;
+  const external = {};
+  workers.set('external', external);
+  externalWorkers.add(external);
+  await assert.rejects(value.guard('journal-owner'), /Stop external tasks before reloading plugins/);
+  assert.equal(observations, 0, 'An external-owned task blocks recovery before idle or resource observation');
+  assert.equal(changed, false);
   assert.equal(value.locked(), false);
 });
 
@@ -340,11 +351,13 @@ for (const exitConfirmed of [true, false]) {
     const create = new Function('capabilityService', 'settle', javascript(`
       let quitting = false, quitPending = false;
       const sessionEnding = false, transition = false, window = undefined;
-      const state = { quits: 0, errors: 0, prevented: 0 };
+      const state = { quits: 0, errors: 0, prevented: 0, externalShutdowns: 0, externalFlushes: 0 };
       const stop = { async stopAll() {}, async stop() {}, async close() {}, async shutdown() {}, async flush() {} };
       const runtimes = stop, terminals = stop, sessionImports = stop, remote = stop, admin = stop;
       const collaboration = stop, bvrBridge = stop, conversationTiming = stop, modelSelections = stop;
       const usageEstimates = stop, workflowBindings = stop, miniChat = undefined, pluginWindows = undefined, browser = undefined;
+      const externalConnectors = { async shutdown() { state.externalShutdowns++; } };
+      const externalTasks = { async flush() { state.externalFlushes++; } };
       const quitReasons = () => ({}), needsQuitReview = () => false, showMainWindow = () => {};
       const preferences = { language: 'zh' }, quitReview = { reset() {} };
       const emit = () => { state.errors++; settle(); };
@@ -361,6 +374,8 @@ for (const exitConfirmed of [true, false]) {
     assert.equal(f.state.prevented, 1);
     assert.equal(f.state.quits, exitConfirmed ? 1 : 0);
     assert.equal(f.state.errors, exitConfirmed ? 0 : 1);
+    assert.equal(f.state.externalShutdowns, 1);
+    assert.equal(f.state.externalFlushes, exitConfirmed ? 1 : 0);
     assert.equal(f.quitting(), exitConfirmed);
     assert.equal(f.pending(), exitConfirmed);
     assert.equal(service.available, false);

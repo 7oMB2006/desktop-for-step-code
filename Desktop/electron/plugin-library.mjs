@@ -56,11 +56,20 @@ function parseDesktop(value) {
   const defaultPage = value.defaultPage === undefined ? undefined : desktopId(value.defaultPage);
   if (defaultPage !== undefined && !pages.some(page => page.id === defaultPage))
     throw new PluginFileError('invalid-presentation');
+  let connection;
   if (value.connection !== undefined) {
-    onlyKeys(value.connection, ['protocol']);
+    onlyKeys(value.connection, ['protocol', 'guides']);
     if (value.connection.protocol !== 'agent-bridge-v1' || value.surface !== 'main-view'
       || pages.some(page => page.id === 'connection'))
       throw new PluginFileError('invalid-presentation');
+    const guides = value.connection.guides;
+    if (guides !== undefined) {
+      onlyKeys(guides, ['setup', 'firstTask', 'troubleshooting']);
+      for (const id of Object.values(guides))
+        if (!pages.some(page => page.id === desktopId(id)))
+          throw new PluginFileError('invalid-presentation');
+    }
+    connection = { protocol: 'agent-bridge-v1', ...(guides !== undefined ? { guides: { ...guides } } : {}) };
   }
   let icon;
   if (value.icon !== undefined) {
@@ -74,7 +83,7 @@ function parseDesktop(value) {
       ...(value.icon.dark !== undefined ? { dark: imagePath(value.icon.dark) } : {}) };
   }
   return { title: bounded(value.title), surface: value.surface, pages,
-    ...(value.connection ? { connection: { protocol: 'agent-bridge-v1' } } : {}),
+    ...(connection ? { connection } : {}),
     ...(value.symbol !== undefined ? { symbol: value.symbol } : {}),
     ...(icon ? { icon } : {}), ...(defaultPage !== undefined ? { defaultPage } : {}) };
 }

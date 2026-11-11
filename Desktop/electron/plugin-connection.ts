@@ -22,7 +22,7 @@ async function profileExists(profile: string) {
   // The marker may contain API keys. Check its identity without opening its contents.
   return info.isFile() && !info.isSymbolicLink() && resolve(await realpath(marker)) === marker;
 }
-type Descriptor = { token: string; agentId: string; transport: 'tcp'; host: '127.0.0.1'; port: number }
+type Descriptor = { token: string; agentId: string; transport: 'tcp'; host: '127.0.0.1'; port: number; protocol?: 'dfsc-external-v1' }
   | { token: string; agentId: string; transport: 'unix'; socket: string };
 
 // Only two fixed read methods exist here. Neither callers nor package metadata supply RPC methods.
@@ -43,6 +43,7 @@ export function readAgentBridge(descriptor: Descriptor, method: 'system.capabili
     socket.on('error', () => finish(new Error('connection-unavailable')));
     socket.on('end', () => finish(new Error('connection-unavailable')));
     socket.on('connect', () => socket.write(JSON.stringify({ version: 1, token: descriptor.token,
+      ...('protocol' in descriptor && descriptor.protocol ? { protocol: descriptor.protocol } : {}),
       method, params: method === 'task.list' ? { offset: 0 } : {} }) + '\n'));
     socket.on('data', chunk => {
       if (bytes.length + chunk.length > 2 * 1024 * 1024) return finish(new Error('connection-unavailable'));
@@ -73,6 +74,7 @@ export async function inspectAgentProfile(profile: string, timeout?: number): Pr
       || typeof config.displayName !== 'string' || !config.displayName.trim() || config.displayName.length > 100
       || config.workspaceRoots !== undefined && (!Array.isArray(config.workspaceRoots)
         || config.workspaceRoots.length > 32 || !config.workspaceRoots.every(localPath))) return result;
+    if (config.protocol !== undefined && config.protocol !== 'dfsc-external-v1') return result;
     result.agentId = config.agentId;
     // Omission deliberately does not guess a personal or another application's Bridge profile.
     if (!localPath(config.bridgeRoot)) return result;
@@ -84,12 +86,15 @@ export async function inspectAgentProfile(profile: string, timeout?: number): Pr
     result.status = 'identity-mismatch';
     const value = JSON.parse(descriptorBytes.toString('utf8'));
     if (!object(value) || value.version !== 1 || value.role !== 'model' || value.agentId !== config.agentId) return result;
+    if (config.protocol !== value.protocol
+      || value.protocol !== undefined && value.protocol !== 'dfsc-external-v1') return result;
     result.status = 'configuration-invalid';
     if (typeof value.token !== 'string' || !value.token || value.token.length > 4096) return result;
     let descriptor: Descriptor;
     if (value.transport === 'tcp' && value.host === '127.0.0.1'
       && typeof value.port === 'number' && Number.isInteger(value.port) && value.port >= 1 && value.port <= 65535)
-      descriptor = { token: value.token, agentId: config.agentId, transport: 'tcp', host: '127.0.0.1', port: value.port };
+      descriptor = { token: value.token, agentId: config.agentId, transport: 'tcp', host: '127.0.0.1', port: value.port,
+        ...(value.protocol === 'dfsc-external-v1' ? { protocol: value.protocol } : {}) };
     else if ((value.transport === 'unix' || value.transport === undefined) && process.platform !== 'win32' && localPath(value.socket))
       descriptor = { token: value.token, agentId: config.agentId, transport: 'unix', socket: value.socket };
     else return result;
@@ -101,6 +106,9 @@ export async function inspectAgentProfile(profile: string, timeout?: number): Pr
     result.status = 'connection-unavailable';
     const capabilities = await readAgentBridge(descriptor, 'system.capabilities', timeout);
     if (!object(capabilities) || capabilities.agentId !== config.agentId) {
+      result.status = 'identity-mismatch'; return result;
+    }
+    if (config.protocol === 'dfsc-external-v1' && capabilities.protocol !== config.protocol) {
       result.status = 'identity-mismatch'; return result;
     }
     if (!Array.isArray(capabilities.roots) || capabilities.roots.length > 32 || !capabilities.roots.every(localPath)) return result;
@@ -118,7 +126,7 @@ export async function inspectAgentProfile(profile: string, timeout?: number): Pr
       const cwd = await realpath(task.cwd).catch(() => undefined);
       if (!cwd || !roots.some(root => within(root, cwd))) continue;
       projected.push({ id: safe(task.id, 128), title: safe(task.title), cwd: safe(cwd, 4096),
-        phase: typeof task.phase === 'string' && ['running', 'waiting', 'review', 'paused', 'completed', 'accepted', 'stopped', 'failed'].includes(task.phase)
+        phase: typeof task.phase === 'string' && ['creating', 'queued', 'running', 'waiting', 'review', 'paused', 'completed', 'accepted', 'stopped', 'failed', 'interrupted'].includes(task.phase)
           ? task.phase : 'unknown' });
       if (projected.length === 20) break;
     }

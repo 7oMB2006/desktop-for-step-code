@@ -115,6 +115,20 @@ explicit Close action with the correct accessible name.
 This optional author contract requires a new host build, not a package-name
 exception or an implied capability in all published 0.6.0 clients.
 
+Agent Bridge workspaces keep their titlebar entry as a lightweight status
+popover. The full connection page shows four preparation checkpoints: profile
+marker, companion configuration, read-only identity/connection, and visible
+authorized roots. Each checkpoint names its limited evidence, missing state and
+next action. A found profile is not an installed or working Agent; valid
+configuration is not a loaded companion; a successful read does not establish
+dispatch readiness. Missing roots remain actionable even after connection
+verification. Loading and failed checks clear old checkpoint evidence.
+Profile selection belongs to its checkpoint, with forgetting beside the selected
+path rather than a detached icon row. Setup, troubleshooting and first-task
+actions only navigate explicitly declared package pages and preserve the
+connection instance. No installer, pairing, authorization or task mutation is
+implied, and task summaries never certify a successful first-run workflow.
+
 For an `agent-bridge-v1` connection contribution, the titlebar shortcut instead
 toggles a compact native status popover anchored below the same entry (or its
 overflow trigger). It leaves the conversation and selected workspace untouched.

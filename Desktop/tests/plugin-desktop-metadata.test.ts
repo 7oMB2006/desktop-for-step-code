@@ -95,6 +95,39 @@ test('read-only bridge declarations accept only the fixed main-view protocol wit
     { connection, defaultPage: 'connection', pages: [{ id: 'connection', title: 'Conflict', document: 'docs/start.md' }] },
   ]) assert.throws(() => parsePresentation({ schemaVersion: 1, desktop: { ...desktop(), ...patch } }));
 });
+test('connection guides only reference declared package pages and preserve optional defaults', () => {
+  const protocol = 'agent-bridge-v1' as const;
+  const pages = [...desktop().pages, { id: 'first-task', title: 'First task', document: 'docs/first-task.md' }];
+  for (const guides of [undefined, {}, { setup: 'connections' },
+    { setup: 'connections', firstTask: 'first-task', troubleshooting: 'start' }]) {
+    const connection = { protocol, ...(guides !== undefined ? { guides } : {}) };
+    assert.deepEqual(parsePresentation({ schemaVersion: 1,
+      desktop: desktop({ pages, connection }) }).desktop?.connection, connection);
+  }
+  for (const guides of [null, [], 'start', 1, { setup: 'missing' }, { setup: 'connection' },
+    { firstTask: 'https://example.com' }, { troubleshooting: '../start' }, { setup: 'docs/start.md' },
+    { setup: ' start ' }, { setup: '' }, { setup: null }, { setup: undefined }, { setup: 42 },
+    { setup: 'start', command: 'powershell.exe' }, { execute: 'start' }]) {
+    assert.throws(() => parsePresentation({ schemaVersion: 1,
+      desktop: { ...desktop({ pages }), connection: { protocol, guides } } }), JSON.stringify(guides));
+  }
+});
+test('installed connection guide references survive safe package projection without granting extra documents', async t => {
+  const f = await fixture(t);
+  const connection = { protocol: 'agent-bridge-v1' as const,
+    guides: { setup: 'connections', firstTask: 'start', troubleshooting: 'connections' } };
+  await f.metadata(desktop({ connection }));
+  const pkg = (await f.library.project(await f.catalog())).plugins[0].package!;
+  assert.deepEqual(pkg.desktop?.connection, connection);
+  assert.match((await f.library.document({ ref: pkg.ref, path: 'docs/connections.md' })).text, /Connections/);
+  await assert.rejects(f.library.document({ ref: pkg.ref, path: 'docs/undeclared.md' }), /invalid-path/);
+  await f.metadata(desktop({ connection: { protocol: 'agent-bridge-v1',
+    guides: { setup: 'missing' } } }));
+  const rejected = (await f.library.project(await f.catalog())).plugins[0].package!;
+  assert.equal(rejected.desktop, undefined);
+  assert.equal(rejected.author, 'Author');
+  assert.equal(rejected.documentation.readme, 'README.md');
+});
 test('connection scope keys survive client restart but not package or installation changes, and require recorded provenance', async t => {
   const f = await fixture(t);
   await f.metadata(desktop({ connection: { protocol: 'agent-bridge-v1' } }));
@@ -235,6 +268,12 @@ test('published schema examples match the runtime desktop contract and path cons
   assert.equal(schema.definitions.desktop.properties.pages.minItems, 1);
   assert.equal(schema.definitions.desktop.properties.pages.maxItems, 8);
   assert.deepEqual(schema.definitions.desktop.properties.surface.enum, ['main-view', 'side-panel', 'window']);
+  const guides = schema.definitions.desktop.properties.connection.properties.guides;
+  assert.equal(guides.additionalProperties, false);
+  assert.equal(guides.maxProperties, 3);
+  assert.deepEqual(Object.keys(guides.properties), ['setup', 'firstTask', 'troubleshooting']);
+  assert.ok(Object.values(guides.properties).every(value =>
+    (value as { $ref: string }).$ref === '#/definitions/desktopPageId'));
   const pageId = new RegExp(schema.definitions.desktopPageId.pattern), rasterPath = new RegExp(schema.definitions.rasterPath.pattern);
   assert.ok(schema.examples.length > 0);
   for (const example of schema.examples) {

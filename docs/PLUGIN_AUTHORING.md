@@ -103,6 +103,23 @@ BVR 的账户桥也不是可按插件名称自动继承的通用能力。
 这是固定协议适配，不是可自定义 RPC、URL、脚本或文件路径的前端 SDK。
 旧宿主可能忽略整个可选 `desktop`，保留包内 README 作为降级入口。
 
+`connection.guides` 可选声明准备检查卡片及首次任务入口对应的文档页：
+
+```json
+{
+  "protocol": "agent-bridge-v1",
+  "guides": {
+    "setup": "setup",
+    "firstTask": "first-task",
+    "troubleshooting": "troubleshooting"
+  }
+}
+```
+
+三个字段都可省略；值必须是本插件已声明的页面 ID，不能是 `connection`、
+URL、文件路径或命令。省略时沿用 `defaultPage`，不新增文档读取权限。
+指南按钮只切换同一插件的文档页，不执行命令、不安装或配对，也不代表组件已运行。
+
 宿主通过原生目录选择器取得用户明确选择的本机 Agent profile，
 仅检查 `config.yaml` 文件标记，不打开其内容；读取该 profile 的
 `dfsc-bridge/config.json` 及其显式 `bridgeRoot` 中对应身份的 `model.json`。

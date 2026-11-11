@@ -41,7 +41,12 @@ function makePlugin(index: number): CapabilityPlugin {
     id: `plugin-${index}`, name: names[index], version: '0.2.0', mcpServers: [], warnings: [],
     package: {
       ref: `package-${index}`, provenance: 'recorded', documentation: {}, tutorials: [], links: [], warnings: [],
-      desktop: { ...desktop, ...(index === 0 && params.has('connection') ? { connection: { protocol: 'agent-bridge-v1' as const } } : {}),
+      desktop: { ...desktop, ...(index === 0 && params.has('connection') ? { connection: {
+        protocol: 'agent-bridge-v1' as const,
+        ...(!params.has('no-guides') ? { guides: {
+          setup: 'setup', firstTask: 'first-task', troubleshooting: 'troubleshooting',
+        } } : {}),
+      } } : {}),
         title: names[index], symbol: symbols[index], icon: index === 1
         ? { light: 'data:image/png;base64,AA==' } : index === 2 ? { light: customIcon, dark: customIcon } : undefined },
     },

@@ -600,7 +600,7 @@ try {
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1400, 950));
   await page.reload();
   await button('Remote access').click();
-  await panel.getByRole('button', { name: /Manage/ }).click();
+  await panel.getByRole('button', { name: /^Feishu\b.*Manage/ }).click();
   await page.getByRole('heading', { name: 'Remote access', exact: true }).waitFor();
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(420, 850));
   for (const theme of ['light', 'dark']) {

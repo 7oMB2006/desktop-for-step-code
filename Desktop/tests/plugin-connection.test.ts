@@ -64,6 +64,27 @@ test('read-only profile inspection projects only identity-bound tasks inside int
   assert.ok(!JSON.stringify(result).includes('yaml-marker-secret'));
 });
 
+test('generic connector inspection carries the explicit protocol without falling back to legacy credentials', async t => {
+  const f = await fixture(t);
+  await f.saveConfig({ protocol: 'dfsc-external-v1' });
+  assert.equal((await inspectAgentProfile(f.profile)).status, 'identity-mismatch');
+  assert.equal(f.requests.length, 0);
+  await f.saveDescriptor({ protocol: 'dfsc-external-v1' });
+  f.respond((request, socket) => {
+    assert.equal(request.protocol, 'dfsc-external-v1');
+    socket.end(JSON.stringify({ ok: true, result: request.method === 'system.capabilities'
+      ? { protocol: 'dfsc-external-v1', agentId: 'test-agent', roots: [f.work] }
+      : [{ id: 'new-task', title: 'Waiting', phase: 'queued', cwd: f.scoped, origin: { agentProfile: 'test-agent' } }] }) + '\n');
+  });
+  const state = await inspectAgentProfile(f.profile);
+  assert.equal(state.status, 'ready');
+  assert.equal(state.tasks[0].phase, 'queued');
+  const calls = f.requests.length;
+  await f.saveConfig({ protocol: undefined });
+  assert.equal((await inspectAgentProfile(f.profile)).status, 'identity-mismatch');
+  assert.equal(f.requests.length, calls);
+});
+
 test('prerequisite diagnostics never guess credentials or fall back to a personal profile', async t => {
   const f = await fixture(t);
   assert.equal((await inspectAgentProfile(join(f.root, 'missing'))).status, 'profile-missing');

@@ -13891,10 +13891,40 @@ Local verification on the `ed018f1` baseline:
   1280/520/360-pixel combinations for overview/detail icons and row layout.
   Screenshots are in `Desktop/test-results/workflow-role*.png`.
 
-The existing Electron workflow and real-RPC acceptance scripts now assert
-role icons and role propagation, respectively, but have not been rerun for
-this change. No installer, running-app replacement, cloud CI, native macOS
-or real-model acceptance is claimed.
+Final source verification after merging main `cb8852c`:
+
+- Desktop typecheck and production build passed, with existing build warnings.
+- The focused conversation, workflow, background-agent and staging run passed
+  74 tests. Pinned runtime workflow tests passed 63 tests.
+- CI policy/inventory tests passed 66 tests with one platform skip.
+- The production-component browser matrix passed all 12 combinations again.
+  Desktop and narrow transcript screenshots were inspected.
+- Fresh runtime staging passed against the pinned patched source. The native
+  `verify-workflow-runtime.mjs` passed actual RPC parallel/chain execution,
+  explicit role propagation, restart hydration, stop/drain/resume, replay,
+  forced-crash recovery, partial failure/selective retry and HTTP 429 recovery.
+  Inference requests used only the controlled loopback model fixture.
+- `verify-workflow.mjs` passed role icons, overview/detail navigation, retained
+  final snapshots, failure/retry/recovery, reload, light/dark/narrow/English
+  and session isolation. `verify-subagent-status.mjs` passed status animation,
+  stable layout, history, themes, narrow/reduced-motion and click-toggle.
+- `git diff --check` passed.
+
+Earlier local setup attempts are not passing evidence. Missing dependency
+links initially blocked staging. The first native RPC run then found missing
+role metadata: the isolated CLI dependency junction resolved an older shared
+coding-agent build. Only the task-owned CLI dependency layout was corrected
+to resolve the patched local coding-agent; fresh staging and the complete
+native RPC rerun then passed. Shared upstream source was not modified.
+The failed screenshot remains `Desktop/test-results/workflow-runtime-failed.png`;
+final UI and crash-recovery screenshots are alongside the role matrix evidence.
+
+Rebuildable artifacts were inventoried, not deleted: the task-owned D: runtime
+is approximately 124 MiB, Node tooling 88 MiB, coding-agent dist 26 MiB and CLI
+dist 4 MiB; `Desktop/dist` is approximately 13 MiB. The existing fixture preview
+remains on port 5187; no native acceptance process is intentionally retained.
+No installer, running-app replacement, shortcut change, cloud CI result,
+native macOS or real-model acceptance is claimed.
 
 ## Hermes x DFSC First-Run Guidance (2026-11-10, Local Source Verification)
 

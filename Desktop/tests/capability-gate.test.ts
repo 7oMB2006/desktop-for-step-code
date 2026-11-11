@@ -361,13 +361,14 @@ const mainFlags = () => ({
   transition: false, sessionNavigation: { busy: false }, settingsMutation: false, undoBusy: false,
   quitting: false, quitPending: false, updateInstalling: false, providerSettingsPending: false,
 });
-const callbacks = new Function(...Object.keys(mainFlags()), 'pendingMessages', 'runtimes', 'remote', 'capabilityGate',
+const callbacks = new Function(...Object.keys(mainFlags()), 'pendingMessages', 'runtimes', 'remote', 'capabilityGate', 'externalTasks',
   ts.transpileModule(`return { submit: ${remoteCallback('submit')}, respond: ${remoteCallback('respond')} };`,
     { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText) as
   (...args: unknown[]) => Pick<RemoteHost, 'submit' | 'respond'>;
 
 function remoteFixture(gate: CapabilityGate) {
   const state = mainFlags(), queued: string[] = [], answers: Record<string, unknown>[] = [], events: string[] = [];
+  const externalWorkers = new Set<SessionRuntime>();
   const runtimes = new SessionRuntimes(() => {}, () => { throw new Error('No native workers in this test'); });
   const worker = {
     id: 'runtime-a', cwd: 'fixture', status: 'connected', state: { sessionId: 'session-a' }, remoteAttached: true,
@@ -379,9 +380,10 @@ function remoteFixture(gate: CapabilityGate) {
     resumed: () => { events.push('resumed'); }, drain: async () => { events.push('drain'); },
   };
   const current = () => callbacks(...Object.values(state), pendingMessages, runtimes,
-    { runtimeEvent: () => { events.push('ui-expired'); } }, gate);
+    { runtimeEvent: () => { events.push('ui-expired'); } }, gate,
+    { retains: (value: SessionRuntime) => externalWorkers.has(value) });
   return {
-    state, worker, queued, answers, events,
+    state, worker, queued, answers, events, externalWorkers,
     submit: () => current().submit(worker, 'remote input', id => { events.push(`accepted:${id}`); }),
     respond: () => current().respond(worker, { id: 'approval', confirmed: true }),
     approval: () => worker.pendingUI.set('approval', {
@@ -389,6 +391,22 @@ function remoteFixture(gate: CapabilityGate) {
     } satisfies UIRequest),
   };
 }
+
+test('actual main Remote cannot submit or answer approvals for an external-owned task', async () => {
+  const f = fixture(), remote = remoteFixture(f.gate);
+  remote.externalWorkers.add(remote.worker);
+  remote.approval();
+  await assert.rejects(remote.submit(), /This session belongs to an external task/);
+  assert.throws(remote.respond, /Review external task approvals locally/);
+  assert.deepEqual(remote.queued, []);
+  assert.deepEqual(remote.answers, []);
+  assert.equal(remote.worker.pendingUI.size, 1);
+  remote.externalWorkers.delete(remote.worker);
+  remote.respond();
+  await remote.submit();
+  assert.equal(remote.answers.length, 1);
+  assert.equal(remote.queued.length, 1);
+});
 
 for (const scope of ['discovery', 'theme'] as const) {
   test(`${scope} permits real main submit/respond guards during observation, mutation and refresh`, async () => {

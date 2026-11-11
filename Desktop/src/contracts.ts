@@ -5,6 +5,7 @@ import type { LaunchState } from './launch-state';
 import type { BackgroundAgentClient } from './background-agents';
 import type { WindowConversationBridge, WindowPresentation } from './window-conversation';
 import type { RemoteBridge } from './remote';
+import type { ExternalConnectorBridge } from './external-connectors';
 import type { SpeechBridge } from './speech';
 export interface Snapshot { windowPresentation?: WindowPresentation; windowPresentationRevision?: number }
 export interface Message { desktopWorkflow?: WorkflowState; desktopToolPending?: boolean }
@@ -112,7 +113,7 @@ export interface PluginWindowSnapshot {
   plugin: import('./capabilities').CapabilityPlugin;
   preferences: Pick<Preferences, 'language' | 'theme' | 'accentColor' | 'appearance'>;
 }
-export interface DesktopBridge extends SessionImportBridge, BtwBridge, BackgroundAgentClient, WindowConversationBridge, RemoteBridge, SpeechBridge {
+export interface DesktopBridge extends SessionImportBridge, BtwBridge, BackgroundAgentClient, WindowConversationBridge, RemoteBridge, ExternalConnectorBridge, SpeechBridge {
   pluginWindowOpen(input: { ref: string }): Promise<void>;
   pluginWindowState(): Promise<PluginWindowSnapshot>;
   pluginWindowConfigure(): Promise<void>;
@@ -122,6 +123,9 @@ export interface DesktopBridge extends SessionImportBridge, BtwBridge, Backgroun
   finishFirstRun(outcome: 'completed' | 'skipped'): Promise<Snapshot>;
   capabilityCatalog(): Promise<import('./capabilities').CapabilityCatalog>;
   pluginDocument(input: { ref: string; path: string }): Promise<import('./capabilities').PluginDocument>;
+  pluginConnectionState(input: { ref: string }): Promise<import('./capabilities').PluginConnection>;
+  pluginConnectionChooseProfile(input: { ref: string }): Promise<import('./capabilities').PluginConnection | null>;
+  pluginConnectionForgetProfile(input: { ref: string }): Promise<import('./capabilities').PluginConnection>;
   pluginRepositoryInfo(input: { ref: string; refresh: boolean }): Promise<import('./capabilities').PluginStarSnapshot>;
   pluginConfiguration(input: { ref: string }): Promise<import('./capabilities').PluginConfiguration>;
   pluginSaveConfiguration(input: import('./capabilities').PluginConfigurationInput): Promise<import('./capabilities').PluginConfiguration>;

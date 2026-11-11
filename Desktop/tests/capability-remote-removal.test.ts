@@ -142,7 +142,7 @@ test('theme update refuses a candidate changed after classification and preserve
   assert.equal(f.transport.stopped, false);
 });
 
-test('theme installation refuses executable, malformed, unreferenced and forged candidates under Remote', async t => {
+test('unproven theme installations cannot bypass a strict caller guard under Remote', async t => {
   const f = await installFixture(t);
   for (const extra of [
     { entry: 'index.js' }, { skills: ['skills'] }, { commands: ['commands'] }, { agents: ['agents'] },
@@ -380,7 +380,7 @@ test('recovery appearing after the guard is refused inside the native management
   assert.equal(f.transport.stopped, false);
 });
 
-test('renderer-supplied flags cannot exempt other capability mutations from Remote ownership', async t => {
+test('renderer-supplied flags cannot exempt capability mutations from a strict caller or restart guard', async t => {
   const f = await fixture(t);
   for (const mutation of [
     { action: 'plugin-toggle', id: 'theme', enabled: false },

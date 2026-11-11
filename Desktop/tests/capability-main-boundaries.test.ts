@@ -331,7 +331,11 @@ test('actual main recovery rechecks idle after asynchronous resource observation
   `));
   const value = create({
     workers: new Map(),
-    async assertAllIdle() { observations++; if (changed) throw new Error('late task'); },
+    async assertAllIdle(options: unknown) {
+      assert.deepEqual(options, { stopHost: false, resources: true, allowRemote: true });
+      observations++;
+      if (changed) throw new Error('late task');
+    },
   }, async (id: string) => { assert.equal(id, 'journal-owner'); changed = true; });
   await assert.rejects(value.guard('journal-owner'), /late task/);
   assert.equal(observations, 2);

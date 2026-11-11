@@ -36,16 +36,17 @@ process.stdout.write = function(chunk, ...args) {
     delete env.ELECTRON_RUN_AS_NODE;
     delete env.DESKTOP_DEV_URL;
     delete env.DESKTOP_TEST_STARTUP_WINDOW;
-    let app, page, popup, exited = false;
+    let app, page, popup, mainId, exited = false;
     try {
       app = await electron.launch({ ...(process.env.DESKTOP_VERIFY_EXE
         ? { executablePath: process.env.DESKTOP_VERIFY_EXE } : { args: [resolve('.')] }), env, timeout: 60000 });
       const child = app.process();
       const exit = new Promise(resolve => child.once('exit', code => { exited = true; resolve(code); }));
       page = await app.firstWindow();
+      mainId = await (await app.browserWindow(page)).evaluate(view => view.id);
       page.setDefaultTimeout(15000);
-      await app.evaluate(({ BrowserWindow, Tray, shell }, preload) => {
-        const main = BrowserWindow.getAllWindows()[0];
+      await app.evaluate(({ BrowserWindow, Tray, shell }, { preload, mainId }) => {
+        const main = BrowserWindow.fromId(mainId);
         main.setOpacity(0); main.setIgnoreMouseEvents(true); main.showInactive();
         const tooltip = Tray.prototype.setToolTip;
         Tray.prototype.setToolTip = function(text) {
@@ -71,7 +72,7 @@ process.stdout.write = function(chunk, ...args) {
         };
         process.getBuiltinModule('module').syncBuiltinESMExports();
         shell.openExternal = async () => { throw new Error('External authorization is forbidden in this fixture'); };
-      }, preload);
+      }, { preload, mainId });
       await page.emulateMedia({ reducedMotion: 'reduce' });
       await page.getByRole('heading', { name: '连接模型服务', exact: true }).waitFor({ timeout: 60000 });
       await page.waitForFunction(() => !document.querySelector('.first-run-skip-motion'));
@@ -136,7 +137,7 @@ process.stdout.write = function(chunk, ...args) {
         await page.locator('.notice-toast.warning').waitFor();
         assert.match(await page.locator('.notice-toast.warning').innerText(), /退出未完成/);
         assert.equal(exited, false);
-        assert.equal(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isVisible()), true);
+        assert.equal(await app.evaluate(({ BrowserWindow }, id) => BrowserWindow.fromId(id).isVisible(), mainId), true);
         await page.screenshot({ path: join(output, 'exit-first-run-stop-failed.png') });
         const logs = join(profile, 'logs');
         const until = Date.now() + 5000;
@@ -154,11 +155,16 @@ process.stdout.write = function(chunk, ...args) {
         await waitForExit();
       } else {
         await page.evaluate(() => window.desktop.windowControl('close'));
-        assert.equal(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isVisible()), false);
+        assert.equal(await app.evaluate(({ BrowserWindow }, id) => BrowserWindow.fromId(id).isVisible(), mainId), false);
         await quitFromTray();
         await waitForExit();
       }
     } catch (error) {
+      if (app) console.error(`First-run ${scenario} window identities:`, await app.evaluate(({ BrowserWindow }, mainId) => ({
+        mainId, windows: BrowserWindow.getAllWindows().map(view => ({
+          id: view.id, title: view.getTitle(), visible: view.isVisible(),
+        })),
+      }), mainId).catch(() => undefined));
       if (page && !page.isClosed())
         await page.screenshot({ path: join(output, `exit-${scenario}-failure.png`) }).catch(() => {});
       throw error;

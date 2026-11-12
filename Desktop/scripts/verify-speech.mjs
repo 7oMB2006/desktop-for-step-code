@@ -404,8 +404,17 @@ try {
   mode = 'hold';
   await input().fill('慢服务前保留草稿');
   await begin();
+  // One in-flight phrase plus four queued phrases: the sixth must stop capture.
+  // Native fake audio can run slower than wall time on a hosted macOS runner.
+  const backpressureSamples = 6 * 4 * 16000;
+  const backpressureStarted = Date.now();
+  await until(async () => await page.evaluate(samples => window.__speechFixtureCapture.samples >= samples, backpressureSamples),
+    'Native capture did not deliver enough PCM to exercise backpressure', 55000);
   await until(async () => await page.locator('.speech-error[role="alert"]').count() > 0,
-    'A slow provider did not stop bounded continuous recording', 35000);
+    'A slow provider did not stop recording after the bounded PCM queue filled', 3000);
+  const backpressureCapture = await page.evaluate(() => ({ ...window.__speechFixtureCapture }));
+  assert.ok(backpressureCapture.voicedSamples >= backpressureSamples, 'Backpressure requires six real voiced PCM phrases');
+  console.log('Speech backpressure capture:', JSON.stringify({ ...backpressureCapture, elapsedMs: Date.now() - backpressureStarted }));
   assert.match(await page.locator('.speech-error[role="alert"]').innerText(), /响应较慢/);
   assert.equal(calls.length, completed + 3, 'Backpressure must not send additional queued requests');
   assert.equal(await text(), '慢服务前保留草稿');
@@ -541,7 +550,7 @@ try {
   assert.equal((await settingsValue()).source, 'follow');
   assert.equal(await permission(), false);
   assert.deepEqual(errors, []); assert.deepEqual(failures, []); assert.deepEqual(nativeAudioErrors, []);
-  const result = { ok: true, requests: calls, evidence, continuousCapture, audioProcesses: audio, nativeAudioErrors, checks: [
+  const result = { ok: true, requests: calls, evidence, continuousCapture, backpressureCapture, audioProcesses: audio, nativeAudioErrors, checks: [
     'production Electron and synthetic microphone', 'first-use disclosure and Plan route',
     'renderer OS sandbox, context isolation and no Node integration',
     'fixture audio utility only is unsandboxed; no global sandbox bypass',

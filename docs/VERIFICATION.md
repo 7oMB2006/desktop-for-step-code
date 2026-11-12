@@ -13926,6 +13926,38 @@ remains on port 5187; no native acceptance process is intentionally retained.
 No installer, running-app replacement, shortcut change, cloud CI result,
 native macOS or real-model acceptance is claimed.
 
+### CI Follow-Up (2026-11-13)
+
+PR #235's original Windows jobs passed, as did the macOS role-icon browser
+matrix, runtime and session groups. The macOS interface job in run
+`43034461083` failed in the existing speech backpressure acceptance, not a role
+assertion. Artifact `13864906474`, `speech/failure-diagnostic.json`, records
+300,800 voiced PCM samples after the 35-second wall-clock wait, with no
+renderer, transport or native audio errors. That is only 18.8 seconds at
+16 kHz: one in-flight phrase and four pending four-second phrases require
+the sixth phrase, or 384,000 samples, to exercise the existing queue guard.
+
+The verifier now waits for that real PCM threshold with a 55-second capture
+deadline, then separately requires the slow-provider error within three
+seconds. It still checks the voiced sample count, exact request count, retained
+draft and released microphone permission. Product queue limits, capture,
+transport and security settings are unchanged; no check was skipped.
+A segmentation regression covers the original 300,800-sample shortfall and
+the remaining samples needed to reach six complete phrases.
+
+Desktop typecheck and 36 speech tests passed. CI inventory/runner tests passed
+27 tests with one platform skip. The complete Windows source speech acceptance
+passed, observing exactly 384,000 voiced samples and the guard after 24,039 ms.
+Evidence is in
+`D:\DFSC-Preview-QA\ultracode-role-icons-ci-20261113\windows-after`.
+An earlier Windows diagnostic run passed the old backpressure assertion but
+failed later at logout with `Runtime process-tree termination failed (1)`;
+it is retained in `windows-before` and is not counted as a passing full run.
+No runtime termination change was made for that separate local failure.
+Native fixture processes exited. New diagnostics and a partial archive total
+approximately 37 MiB on D: and were retained without deletion. No new build or
+installer was produced. Fresh macOS source/package CI remains required.
+
 ## Hermes x DFSC First-Run Guidance (2026-11-10, Local Source Verification)
 
 The Agent Bridge connection page now separates four preparation checkpoints:

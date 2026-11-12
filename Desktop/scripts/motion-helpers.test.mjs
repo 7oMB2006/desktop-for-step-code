@@ -117,6 +117,72 @@ test('session search acceptance waits for sidebar entrance and still rejects per
   }
 });
 
+test('conversation timing checks history first but waits for the live runtime before hovering', { timeout: 15000 }, async () => {
+  const source = ts.createSourceFile('verify-conversation-timing.mjs',
+    await readFile(new URL('./verify-conversation-timing.mjs', import.meta.url), 'utf8'),
+    ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
+  const body = source.statements.find(ts.isTryStatement)?.tryBlock.statements;
+  assert.ok(body);
+  const start = body.findIndex(statement => statement.getText(source).startsWith('const messageTime ='));
+  const end = body.findIndex((statement, index) => index > start
+    && statement.getText(source).startsWith("assert.equal(await page.locator('.assistant-actions .message-time')")
+    && statement.getText(source).endsWith("'1');"));
+  assert.ok(start >= 0 && end > start);
+  const inspect = new Function('page', 'settleLayout', 'assert',
+    `return (async () => { ${body.slice(start, end + 1).map(statement => statement.getText(source)).join('\n')} })();`);
+  const page = await browser.newPage({ viewport: { width: 900, height: 400 } });
+  try {
+    const css = await readFile(new URL('../src/layout.css', import.meta.url), 'utf8');
+    await page.setContent(`<style>${css}
+      body { margin: 0; }
+      .sidebar { position: absolute; width: 100px; height: 400px; }
+      .message { width: 500px; margin: 40px 0 0 180px; padding: 20px; }
+    </style><aside class="sidebar"></aside><div class="composer-wrap" aria-busy="true"></div>
+      <div class="session-reading-preview"></div>
+      <article class="message assistant"><div class="thinking">
+        <span class="elapsed-label">已耗时 17s</span><span class="elapsed-label">已耗时 15s</span>
+      </div><div class="assistant-footer-row"><div class="message-actions assistant-actions">
+        <span class="message-time">12:30</span><span class="elapsed-total">共耗时 1m 23s</span>
+      </div></div></article>`);
+    let ready = false, hovered = 0, checkedHistory = false;
+    const guarded = {
+      locator(selector) {
+        const locator = page.locator(selector);
+        if (selector === '.sidebar' || selector === '.assistant-actions') return {
+          async hover() {
+            assert.equal(ready, true, 'A history preview must not own the hover assertion');
+            hovered++;
+            await locator.hover();
+          },
+        };
+        return locator;
+      },
+      async waitForFunction(predicate, argument, options) {
+        assert.equal(options.timeout, 60000, 'The existing runtime deadline is unchanged');
+        assert.equal(await page.evaluate(predicate), false);
+        assert.deepEqual(await page.locator('.thinking .elapsed-label').allTextContents(), ['已耗时 17s', '已耗时 15s']);
+        checkedHistory = true;
+        await page.locator('.composer-wrap').evaluate(element => element.setAttribute('aria-busy', 'false'));
+        assert.equal(await page.evaluate(predicate), false, 'A remaining reading preview is not interactive readiness');
+        await page.locator('.composer-wrap').evaluate(element => element.setAttribute('aria-busy', 'true'));
+        await page.locator('.session-reading-preview').evaluate(element => element.remove());
+        assert.equal(await page.evaluate(predicate), false, 'An unfinished runtime is not interactive readiness');
+        await page.locator('.composer-wrap').evaluate(element => element.setAttribute('aria-busy', 'false'));
+        await page.waitForFunction(predicate, argument, options);
+        ready = true;
+      },
+    };
+    await inspect(guarded, settleLayout, assert);
+    assert.equal(checkedHistory, true);
+    assert.equal(hovered, 2);
+    hovered = 0;
+    const failure = new Error('Runtime never became ready');
+    guarded.waitForFunction = async () => { throw failure; };
+    await assert.rejects(inspect(guarded, settleLayout, assert), error => error === failure);
+    assert.equal(hovered, 0, 'A permanent runtime readiness failure must not attempt hover');
+  } finally { await page.close(); }
+});
+
 test('conversation timing acceptance waits for timestamp and parent fades but rejects persistent opacity', { timeout: 15000 }, async () => {
   const source = ts.createSourceFile('verify-conversation-timing.mjs',
     await readFile(new URL('./verify-conversation-timing.mjs', import.meta.url), 'utf8'),

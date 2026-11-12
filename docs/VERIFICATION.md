@@ -1,5 +1,28 @@
 # Verification
 
+## Ultra CI 的计时验收交互边界（2026-11-12）
+
+`84e45b7` 的 Windows 全组及 `CI result` 通过，macOS 候选构建/协议、
+sessions 源码与包内组通过。macOS runtime 源码组在
+`verify-conversation-timing.mjs:90` 失败：悬停后时间戳透明度实际为
+`0`，严格期望 `1`。原云端没有记录 DOM 悬停及读取预览状态，不能据此
+断言具体根因；此前两处夹具与这个脚本也没有调用关系。
+
+计时夹具特意延迟真实 runtime 以验证历史先显示，但原本在完成悬停
+断言后才等待 runtime 就绪。保留历史计时断言在前，将原有的 60 秒
+交互就绪检查移到首次悬停之前，避免交互落在待替换的历史预览上。
+`settleLayout`、精确 `0/1` 透明度、计时数值、重载、主题、窄屏及
+实时冻结断言均保留，不修改产品或共享动画函数；失败补充预览、忙态、
+文档焦点及实际 DOM 悬停状态。
+
+执行原脚本真实交互片段的浏览器回归确认：忙态或预览任一未结束时
+不能开始悬停，永久就绪失败保留原异常且不触发悬停。完整 motion
+回归 20/20 通过，继续覆盖动画层等待及持久透明度错误负控；两轮完整
+原生计时验收通过。日志为 `Desktop/test-results/ultra-ci-timing-*.log`，
+云端失败原文为 `ultra-ci-84e45b7-macos-runtime-failure.log`。
+本机未复现原始 macOS 悬停失败，新 head 仍须单独完成两端云端验收；
+不将旧 head 的 Windows 通过当作新 head 全绿，不绕过或合并 PR。
+
 ## Ultra CI 的 Remote 断开就绪与 ARM64 排队（2026-11-12）
 
 首轮夹具加固 `ffca523` 的 Windows interface、sessions 组通过，runtime

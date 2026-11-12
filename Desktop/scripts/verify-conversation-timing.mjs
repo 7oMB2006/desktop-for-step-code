@@ -80,10 +80,13 @@ try {
   await page.getByText(user.content, { exact: true }).click();
   await page.locator('.elapsed-total').waitFor();
   const messageTime = page.locator('.assistant-actions .message-time');
-  await page.locator('.sidebar').hover();
-  await settleLayout(messageTime);
   assert.deepEqual(await page.locator('.thinking .elapsed-label').allTextContents(), ['已耗时 17s', '已耗时 15s']);
   assert.equal(await page.locator('.elapsed-total').textContent(), '共耗时 1m 23s');
+  // History can paint first, but hovering it must not race its runtime replacement.
+  await page.waitForFunction(() => document.querySelector('.composer-wrap')?.getAttribute('aria-busy') === 'false'
+    && !document.querySelector('.session-reading-preview'), undefined, { timeout: 60000 });
+  await page.locator('.sidebar').hover();
+  await settleLayout(messageTime);
   assert.equal(await page.locator('.assistant-actions .message-time').evaluate(element => getComputedStyle(element).opacity), '0');
   await page.locator('.assistant-actions').hover();
   await settleLayout(messageTime);
@@ -91,8 +94,6 @@ try {
   await page.locator('.sidebar').hover();
   await settleLayout(messageTime);
   await page.screenshot({ path: 'test-results/conversation-elapsed-dark.png' });
-  await page.waitForFunction(() => document.querySelector('.composer-wrap')?.getAttribute('aria-busy') === 'false'
-    && !document.querySelector('.session-reading-preview'), undefined, { timeout: 60000 });
   await page.reload();
   await page.locator('.elapsed-total').waitFor();
   assert.equal(await page.locator('.elapsed-total').textContent(), '共耗时 1m 23s');
@@ -142,6 +143,16 @@ try {
   assert.deepEqual(errors, []);
   console.log('Elapsed UI: history/reload, dark/light/narrow, ticking/freeze passed.');
 } catch (error) {
+  console.error('Elapsed hover state:', await (await app.firstWindow()).evaluate(() => ({
+    preview: Boolean(document.querySelector('.session-reading-preview')),
+    busy: document.querySelector('.composer-wrap')?.getAttribute('aria-busy'),
+    documentFocused: document.hasFocus(),
+    timestamps: [...document.querySelectorAll('.assistant-actions .message-time')].map(element => ({
+      connected: element.isConnected, opacity: getComputedStyle(element).opacity,
+      hovered: element.closest('.message')?.matches(':hover'),
+      footerHovered: element.closest('.assistant-actions')?.matches(':hover'),
+    })),
+  })).catch(() => ({ unavailable: true })));
   console.log(JSON.stringify(await (await app.firstWindow()).evaluate(() => window.desktop.snapshot()), null, 2));
   await (await app.firstWindow()).screenshot({ path: 'test-results/conversation-elapsed-failure.png' });
   throw error;

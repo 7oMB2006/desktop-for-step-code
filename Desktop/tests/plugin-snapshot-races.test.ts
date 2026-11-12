@@ -204,6 +204,7 @@ async function modules(fs) {
     composition: join(repository, 'Desktop/electron/theme-composition.mjs'),
     update: join(repository, 'Desktop/electron/plugin-update.mjs'),
     configuration: join(repository, 'Desktop/electron/plugin-configuration.mjs'),
+    schemaUpdate: join(repository, 'Desktop/electron/plugin-schema-update.mjs'),
     reader: join(repository, 'examples/plugins/config-starter/plugins/dfsc-config-example/server/configuration.mjs'),
   };
   const builtins = {
@@ -233,6 +234,7 @@ async function modules(fs) {
       if (specifier === './theme-composition.mjs') return load('composition');
       if (specifier === './plugin-update.mjs') return load('update');
       if (specifier === './plugin-configuration.mjs') return load('configuration');
+      if (specifier === './plugin-schema-update.mjs') return load('schemaUpdate');
       throw new Error('Unexpected import: ' + specifier);
     });
     return module;
@@ -663,8 +665,192 @@ async function updateTransactions() {
     'cleanup failure cannot roll back an already committed update or hide it from a later catalog');
 }
 
+async function versionTwoFixture() {
+  const fs = memoryFilesystem(), load = await modules(fs), files = await load('files'), update = await load('update');
+  const transaction = '00000000-0000-4000-8000-000000000000', instance = '11111111-1111-4111-8111-111111111111';
+  const staging = join(root, 'desktop-plugins/update-' + transaction), target = join(root, 'plugins/example');
+  const candidate = join(staging, 'candidate'), backup = join(staging, 'previous');
+  const oldSchema = JSON.stringify({ schemaVersion: 1, consumer: { kind: 'json-file-v1', server: 'notes' },
+    groups: [{ id: 'general', title: 'General', fields: [{ id: 'prefix', label: 'Prefix', type: 'text' },
+      { id: 'key', label: 'Key', type: 'secret' }] }] });
+  const nextSchema = oldSchema.replace('"Prefix"', '"Updated prefix"');
+  fs.json(join(target, 'step.plugin.json'), { id: 'example', version: '1.0.0' });
+  fs.put(join(target, 'dfsc.settings.json'), oldSchema);
+  fs.json(join(candidate, 'step.plugin.json'), { id: 'example', version: '2.0.0' });
+  fs.put(join(candidate, 'dfsc.settings.json'), nextSchema);
+  const previous = { instance, folder: 'example', id: 'example', source: 'source-generation',
+    marketplace: 'community', fingerprint: await files.packageFingerprint(target), state: 'installed' };
+  const next = { ...previous, fingerprint: await files.packageFingerprint(candidate) };
+  const saved = { version: 1, instance, id: 'example', schemaHash: hash(oldSchema), revision: hash('old revision'),
+    values: { prefix: 'Keep this value' }, secrets: { key: 'v2-fixture-private-key' } };
+  const nextSaved = { ...saved, schemaHash: hash(nextSchema), revision: hash('new revision') };
+  const binding = { version: 1, instance, id: 'example', fingerprint: previous.fingerprint,
+    schemaHash: saved.schemaHash, revision: saved.revision, contentHash: hash(JSON.stringify(saved)) };
+  const nextBinding = { ...binding, fingerprint: next.fingerprint, schemaHash: nextSaved.schemaHash,
+    revision: nextSaved.revision, contentHash: hash(JSON.stringify(nextSaved)) };
+  const receipts = join(root, 'desktop-plugins/installations.json');
+  const bindingPath = join(root, 'desktop-plugins/bindings/example.json');
+  const snapshot = join(root, 'desktop-plugins/settings', instance, saved.revision + '.json');
+  const nextSnapshot = join(root, 'desktop-plugins/settings', instance, nextSaved.revision + '.json');
+  const temporary = join(root, 'desktop-plugins/settings', instance, 'update-' + transaction + '.tmp');
+  const historical = join(root, 'desktop-plugins/settings', instance, hash('historical revision') + '.json');
+  const journalPath = join(root, 'desktop-plugins/update-transaction.json');
+  fs.json(receipts, { version: 1, installations: [previous] }); fs.json(bindingPath, binding);
+  fs.put(snapshot, JSON.stringify(saved) + '\n');
+  fs.put(historical, 'unrelated historical private snapshot');
+  const journal = { version: 2, transaction, previous, next, binding, nextBinding,
+    snapshot: { revision: nextBinding.revision, contentHash: nextBinding.contentHash }, phase: 'prepared' };
+  const migration = { binding: nextBinding, snapshot: nextSaved };
+  const oldBytes = fs.bytes(snapshot), historicalBytes = fs.bytes(historical);
+  return { fs, files, update, target, candidate, backup, staging, receipts, bindingPath, snapshot, nextSnapshot,
+    temporary, historical, journalPath, journal, migration, saved, nextSaved, oldBytes, historicalBytes };
+}
+
+async function versionTwoCheckpoint(f, checkpoint) {
+  const checkpoints = ['prepared', 'temporary', 'snapshot', 'backup', 'replacement', 'binding', 'receipt', 'committed'];
+  const position = checkpoints.indexOf(checkpoint);
+  assert.notEqual(position, -1);
+  if (checkpoint === 'temporary') f.fs.put(f.temporary, JSON.stringify(f.nextSaved) + '\n');
+  if (position >= checkpoints.indexOf('snapshot')) f.fs.put(f.nextSnapshot, JSON.stringify(f.nextSaved) + '\n');
+  if (position >= checkpoints.indexOf('backup')) await f.fs.api.rename(f.target, f.backup);
+  if (position >= checkpoints.indexOf('replacement')) await f.fs.api.rename(f.candidate, f.target);
+  if (position >= checkpoints.indexOf('binding')) f.fs.json(f.bindingPath, f.journal.nextBinding);
+  if (position >= checkpoints.indexOf('receipt')) f.fs.json(f.receipts, { version: 1, installations: [f.journal.next] });
+  if (checkpoint === 'committed') f.journal.phase = 'committed';
+  f.fs.json(f.journalPath, f.journal);
+}
+
+async function assertVersionTwoState(f, committed) {
+  const expected = committed ? f.journal.next : f.journal.previous;
+  assert.equal(await f.files.packageFingerprint(f.target), expected.fingerprint);
+  assert.deepEqual(JSON.parse(f.fs.bytes(f.receipts)).installations, [expected]);
+  assert.deepEqual(JSON.parse(f.fs.bytes(f.bindingPath)), committed ? f.journal.nextBinding : f.journal.binding);
+  assert.ok(f.fs.bytes(f.snapshot).equals(f.oldBytes), 'old active snapshot must remain byte-identical');
+  assert.ok(f.fs.bytes(f.historical).equals(f.historicalBytes), 'unrelated historical snapshot must remain untouched');
+  assert.equal(f.fs.nodes.has(f.nextSnapshot), committed);
+  if (committed) assert.deepEqual(JSON.parse(f.fs.bytes(f.nextSnapshot)), f.nextSaved);
+  assert.ok(!f.fs.nodes.has(f.temporary));
+}
+
+async function versionTwoCheckpoints() {
+  for (const checkpoint of ['prepared', 'temporary', 'snapshot', 'backup', 'replacement', 'binding', 'receipt', 'committed']) {
+    const f = await versionTwoFixture();
+    await versionTwoCheckpoint(f, checkpoint);
+    const journalBytes = f.fs.bytes(f.journalPath);
+    assert.doesNotMatch(journalBytes.toString(), /v2-fixture-private-key|Keep this value/);
+    const inspected = await f.update.inspectPluginUpdate(root);
+    await f.update.recoverPluginUpdate(root, { expectedJournal: inspected.fingerprint });
+    await assertVersionTwoState(f, checkpoint === 'committed');
+    assert.ok(!f.fs.nodes.has(f.staging), checkpoint + ' must clean its transaction directory');
+    assert.ok(!f.fs.nodes.has(f.journalPath), checkpoint + ' must clear its resolved journal');
+    await f.update.recoverPluginUpdate(root);
+    await assertVersionTwoState(f, checkpoint === 'committed');
+    f.fs.assertClosed();
+  }
+}
+
+async function versionTwoFailures() {
+  for (const failure of ['snapshot-write', 'snapshot-publish', 'locked-target', 'package-publish', 'binding', 'receipt', 'commit-marker']) {
+    const f = await versionTwoFixture();
+    let fired = false, journalWrites = 0;
+    const denied = () => { fired = true; throw Object.assign(new Error('Simulated v2 failure'), { code: 'EACCES' }); };
+    f.fs.hooks.beforeWrite = target => {
+      if (!fired && failure === 'snapshot-write' && target === f.temporary) denied();
+    };
+    f.fs.hooks.beforeRename = (source, destination) => {
+      if (destination === f.journalPath) journalWrites++;
+      if (fired) return;
+      if (failure === 'snapshot-publish' && destination === f.nextSnapshot
+        || failure === 'locked-target' && source === f.target
+        || failure === 'package-publish' && source === f.candidate
+        || failure === 'binding' && destination === f.bindingPath
+        || failure === 'receipt' && destination === f.receipts
+        || failure === 'commit-marker' && destination === f.journalPath && journalWrites === 2) denied();
+    };
+    await assert.rejects(f.update.applyPluginUpdate(root, f.journal, { migration: f.migration }),
+      error => error.code === 'EACCES', failure);
+    assert.equal(fired, true, failure + ' injection must execute');
+    await assertVersionTwoState(f, false);
+    assert.ok(!f.fs.nodes.has(f.journalPath), failure + ' rollback must clear its journal');
+    f.fs.assertClosed();
+  }
+  const f = await versionTwoFixture();
+  await versionTwoCheckpoint(f, 'snapshot');
+  const unrelated = join(root, 'desktop-plugins/bindings/unrelated.tmp');
+  f.fs.put(unrelated, 'partial unrelated configuration write');
+  const original = f.fs.bytes(unrelated);
+  await f.update.recoverPluginUpdate(root);
+  await assertVersionTwoState(f, false);
+  assert.ok(f.fs.bytes(unrelated).equals(original), 'an unrelated temporary binding file is not a commit pointer or cleanup target');
+  f.fs.assertClosed();
+}
+
+async function versionTwoCleanup() {
+  const f = await versionTwoFixture();
+  f.fs.hooks.beforeRm = target => {
+    if (target === f.staging) throw Object.assign(new Error('Transaction cleanup locked'), { code: 'EACCES' });
+  };
+  const notes = await f.update.applyPluginUpdate(root, { ...f.journal, version: 1 }, { migration: f.migration });
+  assert.equal(notes.length, 1);
+  await assertVersionTwoState(f, true);
+  assert.equal(JSON.parse(f.fs.bytes(f.journalPath)).version, 2, 'caller version cannot downgrade a migration journal');
+  assert.equal(JSON.parse(f.fs.bytes(f.journalPath)).phase, 'committed');
+  const pendingBytes = f.fs.bytes(f.journalPath);
+  await assert.rejects(f.update.recoverPluginUpdate(root), error => error.code === 'EACCES');
+  assert.ok(f.fs.bytes(f.journalPath).equals(pendingBytes), 'failed committed cleanup must retain its exact journal');
+  await assertVersionTwoState(f, true);
+  delete f.fs.hooks.beforeRm;
+  await f.update.recoverPluginUpdate(root);
+  await assertVersionTwoState(f, true);
+  assert.ok(!f.fs.nodes.has(f.journalPath));
+  assert.ok(!f.fs.nodes.has(f.staging));
+  f.fs.assertClosed();
+}
+
+async function versionTwoTampering() {
+  for (const changed of ['next-instance', 'snapshot-reference', 'unknown-version', 'old-payload', 'new-payload', 'foreign-reference', 'partial-temporary']) {
+    const f = await versionTwoFixture();
+    await versionTwoCheckpoint(f, changed === 'new-payload' ? 'committed' : 'snapshot');
+    if (changed === 'next-instance') {
+      f.journal.nextBinding.instance = '22222222-2222-4222-8222-222222222222';
+      f.fs.json(f.journalPath, f.journal);
+    } else if (changed === 'snapshot-reference') {
+      f.journal.snapshot.contentHash = hash('unrelated snapshot');
+      f.fs.json(f.journalPath, f.journal);
+    } else if (changed === 'unknown-version') {
+      f.journal.version = 3; f.fs.json(f.journalPath, f.journal);
+    } else if (changed === 'old-payload') {
+      f.fs.json(f.snapshot, { ...f.saved, secrets: { key: 'tampered old secret' } });
+    } else if (changed === 'new-payload') {
+      f.fs.json(f.nextSnapshot, { ...f.nextSaved, secrets: { key: 'tampered new secret' } });
+    } else if (changed === 'foreign-reference') {
+      f.fs.json(join(root, 'desktop-plugins/bindings/other.json'), f.journal.nextBinding);
+    } else f.fs.put(f.temporary, '{"version":1,"secrets":');
+    const evidence = f.fs.bytes(f.journalPath), candidate = f.fs.bytes(f.nextSnapshot);
+    await assert.rejects(f.update.recoverPluginUpdate(root), error => error.code === 'update-recovery-required', changed);
+    assert.ok(f.fs.bytes(f.journalPath).equals(evidence), changed + ' must retain its journal');
+    assert.ok(f.fs.bytes(f.nextSnapshot).equals(candidate), changed + ' must not delete an unproven candidate');
+    assert.ok(f.fs.bytes(f.historical).equals(f.historicalBytes));
+    if (changed !== 'old-payload') assert.ok(f.fs.bytes(f.snapshot).equals(f.oldBytes));
+    if (changed === 'partial-temporary') assert.equal(f.fs.bytes(f.temporary).toString(), '{"version":1,"secrets":');
+    f.fs.assertClosed();
+  }
+  const f = await versionTwoFixture();
+  f.journal.version = 1;
+  f.journal.binding.revoked = false;
+  delete f.journal.nextBinding; delete f.journal.snapshot;
+  f.fs.json(f.bindingPath, f.journal.binding);
+  f.fs.json(f.journalPath, f.journal);
+  await f.update.recoverPluginUpdate(root);
+  assert.deepEqual(JSON.parse(f.fs.bytes(f.bindingPath)), f.journal.binding);
+  assert.ok(f.fs.bytes(f.snapshot).equals(f.oldBytes), 'v1 recovery must still retain explicitly non-revoked bindings');
+  f.fs.assertClosed();
+}
+
 const scenarios = { install: installRace, payload: payloadRace, revocation: revocationRace, junction: junctionRace,
-  interrupted: interruptedOperations, removal: removalPreflight, writeJunction: writeJunctionRace, update: updateTransactions };
+  interrupted: interruptedOperations, removal: removalPreflight, writeJunction: writeJunctionRace, update: updateTransactions,
+  updateV2Checkpoints: versionTwoCheckpoints, updateV2Failures: versionTwoFailures,
+  updateV2Cleanup: versionTwoCleanup, updateV2Tampering: versionTwoTampering };
 assert.ok(Object.hasOwn(scenarios, scenario), 'unknown regression scenario');
 await scenarios[scenario]();
 `;
@@ -689,3 +875,7 @@ test('interrupted publication and failed uninstall retain incomplete, unauthoriz
 test('uninstall preflight rejects foreign bindings, mismatched receipts and replaced installation instances', () => verify('removal'));
 test('private writes reject parent substitution before secrets and erase failed snapshots through the open handle', () => verify('writeJunction'));
 test('plugin replacement rolls back locked writes and recovers every journal checkpoint without losing private settings', () => verify('update'));
+test('version two migration recovers every snapshot and package checkpoint without changing historical secrets', () => verify('updateV2Checkpoints'));
+test('version two migration rolls back write failures without parsing unrelated binding temporary files', () => verify('updateV2Failures'));
+test('version two committed cleanup retains recoverable evidence and retries without rolling back the installed version', () => verify('updateV2Cleanup'));
+test('version two recovery rejects tampered metadata and unproven snapshots while retaining version one compatibility', () => verify('updateV2Tampering'));

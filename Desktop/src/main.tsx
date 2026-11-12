@@ -2058,6 +2058,11 @@ function App() {
         themePack={data.themePacks?.find(pack => pack.id === data.preferences.theme)}
         customBackgroundRequest={customBackgroundRequest} customBackgroundState={data.customBackground}
         onBack={() => setPluginsOpen(false)} onOpenDesktop={openInstalledDesktop}
+        onOpenSession={async id => {
+          const session = data.sessions.find(item => item.id === id);
+          if (!session || !await navigateSession(session)) throw new Error('capability:runtime-unavailable');
+          setPluginsOpen(false);
+        }}
         onChanged={async () => { setSettings(await bridge.settings()); setCapabilityRevision(value => value + 1); }}
         onManageMcp={name => {
           setCapabilityTarget(undefined); setTab('mcp');

@@ -7,6 +7,7 @@ import type { PluginPresentation } from '../../src/PluginDocumentation';
 import { SidebarTaskActions } from '../../src/ScheduledTasks';
 import type { CapabilityCatalog, PluginPackage } from '../../src/capabilities';
 import type { PluginConfiguration, PluginHostSettings } from '../../src/capabilities';
+import type { PluginUpdateBridge, PluginUpdateOperation, PluginUpdatePreflight, PluginUpdateRequest } from '../../src/plugin-update';
 import exampleReadme from '../../../examples/plugins/config-starter/plugins/dfsc-config-example/README.md?raw';
 import exampleConsumer from '../../../examples/plugins/config-starter/plugins/dfsc-config-example/docs/consumer.md?raw';
 import exampleSchema from '../../../examples/plugins/config-starter/plugins/dfsc-config-example/dfsc.settings.json?raw';
@@ -222,7 +223,8 @@ if (updatePreview || nativeUpdates) {
   bvr.installationSource = { status: 'recorded', marketplaces: ['dfsc-community'] };
   catalog.available.unshift({ name: bvr.id, id: bvr.id, displayName: bvr.name, marketplace: 'dfsc-community',
     version: '0.1.1', description: bvr.description, repository: bvr.repository, installed: true, installedId: bvr.id,
-    icon: { kind: 'png', dataUrl: bvrUpdateLogo }, package: bvr.package });
+    icon: { kind: 'png', dataUrl: bvrUpdateLogo },
+    package: nativeUpdates ? { ...bvr.package!, ref: 'fixture-update' } : bvr.package });
   catalog.marketplaces.unshift({ name: 'dfsc-community', kind: 'git', origin: 'https://github.com/7oMB2006/dfsc-community-plugins' });
   presentations[bvr.id].changelog = '## 0.1.1\n\n- 更换插件图标，去除外侧白边。\n- 研究能力与配置协议保持不变。\n\n'
     + presentations[bvr.id].changelog;
@@ -236,7 +238,15 @@ let configuration: BvrConfiguration = { revision: 'fixture-1', configured: true,
   apiBase: 'https://api.stepfun.com/v1', model: 'step-3.7-flash', hasApiKey: false, asrApiBase: 'https://api.stepfun.com/v1',
   asrModel: 'stepaudio-2.5-asr', hasAsrApiKey: false, cookieFile: '', proxy: '', downloadDirectory: '', preferCaptions: true };
 let saves = 0, restarts = 0, catalogReads = 0, preparationRefreshes = 0, repositoryReads = 0;
-let updateAttempts = 0, updateChecks = 0, updateApplied = 0, updateFailure = false, releaseUpdate: (() => void) | undefined;
+let updateAttempts = 0, updateChecks = 0, updateApplied = 0, updatePreflights = 0, updateOperationReads = 0, legacyUpdates = 0;
+let updateReferenceRevision = 0, staleUpdateRequests = 0;
+let updateFailure: 'unchanged' | 'reject' | 'restoration' | undefined, releaseUpdate: (() => void) | undefined;
+let updateReadiness: PluginUpdatePreflight['readiness'] = 'ready';
+let latestUpdateOperation: PluginUpdateOperation | null = null;
+let nextOperationResponse: { snapshot: PluginUpdateOperation | null; held?: Promise<void> } | undefined;
+let releaseOperationResponse: (() => void) | undefined;
+const updateConsents: boolean[] = [];
+const updateTokens = new Map<string, { request: PluginUpdateRequest; preflight: PluginUpdatePreflight }>();
 let updateCatalogHeld: Promise<void> | undefined, releaseUpdateCatalog: (() => void) | undefined;
 let releaseRepositories: (() => void) | undefined;
 const repositoriesHeld = new URLSearchParams(location.search).get('repositories') === 'held'
@@ -280,7 +290,85 @@ const hostConnected = () => {
       } : {}), authorization: id === 'model.tts' ? 'unavailable' as const : 'required' as const,
     })) };
 };
+const retireUpdateReferences = () => {
+  const plugin = catalog.plugins.find(item => item.id === 'bilibili-video-research')!;
+  const revision = ++updateReferenceRevision;
+  plugin.package = { ...plugin.package!, ref: `fixture-${plugin.id}-installed-${plugin.version}-refs-${revision}` };
+  if (plugin.update?.status === 'available') {
+    const candidate = `fixture-update-${plugin.update.version}-refs-${revision}`;
+    plugin.update = { ...plugin.update, ref: candidate };
+    const available = catalog.available.find(item => item.installedId === plugin.id)!;
+    available.package = { ...available.package!, ref: candidate };
+  }
+};
+const nativeUpdateBridge: PluginUpdateBridge = {
+  pluginUpdatePreflight: async input => {
+    const plugin = catalog.plugins.find(item => item.id === input.id);
+    if (!nativeUpdates || plugin?.package?.ref !== input.ref || plugin.update?.status !== 'available'
+      || plugin.update.ref !== input.candidate || !plugin.update.version) {
+      staleUpdateRequests++;
+      throw new Error('capability:stale');
+    }
+    const preflight: PluginUpdatePreflight = {
+      token: `fixture-preflight-${++updatePreflights}`, pluginId: input.id, version: plugin.update.version,
+      status: 'compatible', changes: [{ code: 'presentation' }], readiness: updateReadiness,
+      sessions: updateReadiness === 'ready' ? [] : [
+        { runtimeId: 'fixture-runtime', sessionId: 'fixture-session', name: '当前研究会话',
+          status: updateReadiness === 'blocked' ? 'busy' : 'idle' },
+        { runtimeId: 'fixture-background', sessionId: 'fixture-background-session', name: '后台研究会话', status: 'idle' },
+      ],
+      blockers: updateReadiness === 'blocked' ? ['session-busy'] : [],
+    };
+    updateTokens.set(preflight.token, { request: { ...input }, preflight });
+    return structuredClone(preflight);
+  },
+  pluginUpdateApply: async input => {
+    const preview = updateTokens.get(input.token);
+    updateTokens.delete(input.token);
+    if (!preview) throw new Error('capability:stale');
+    const { request, preflight } = preview;
+    const plugin = catalog.plugins.find(item => item.id === request.id);
+    if (plugin?.package?.ref !== request.ref || plugin.update?.ref !== request.candidate) throw new Error('capability:stale');
+    if (preflight.readiness === 'blocked' || preflight.readiness === 'needs-release' && !input.release)
+      throw new Error('capability:operation-denied');
+    updateAttempts++;
+    updateConsents.push(input.release);
+    latestUpdateOperation = {
+      id: preflight.token, pluginId: request.id, version: preflight.version,
+      phase: input.release ? 'releasing' : 'applying', installation: 'unchanged', warnings: [],
+      sessions: preflight.sessions.map(session => ({ ...session, restoration: 'pending' })),
+    };
+    await new Promise<void>(resolve => { releaseUpdate = resolve; });
+    const result = updateFailure;
+    updateFailure = undefined;
+    if (result === 'reject') { retireUpdateReferences(); latestUpdateOperation = null; throw new Error('capability:stale'); }
+    if (result === 'unchanged') {
+      retireUpdateReferences();
+      latestUpdateOperation = { ...latestUpdateOperation, phase: 'attention', error: 'capability:resource-in-use',
+        sessions: latestUpdateOperation.sessions.map(session => ({ ...session, restoration: 'restored' })) };
+      return structuredClone(latestUpdateOperation);
+    }
+    plugin.version = preflight.version;
+    plugin.package = { ...plugin.package!, ref: `fixture-${plugin.id}-installed-${preflight.version}` };
+    plugin.update = { status: 'current' };
+    plugin.icon = { kind: 'png', dataUrl: bvrUpdateLogo };
+    updateApplied++;
+    latestUpdateOperation = { ...latestUpdateOperation, phase: result === 'restoration' ? 'attention' : 'done',
+      installation: 'committed', ...(result === 'restoration' ? { error: 'capability:runtime-unavailable' } : {}),
+      sessions: latestUpdateOperation.sessions.map((session, index) =>
+        ({ ...session, restoration: result === 'restoration' && index === 0 ? 'failed' : 'restored' })) };
+    return structuredClone(latestUpdateOperation);
+  },
+  pluginUpdateOperation: async input => {
+    updateOperationReads++;
+    const response = nextOperationResponse;
+    nextOperationResponse = undefined;
+    if (response) { await response.held; return structuredClone(response.snapshot); }
+    return latestUpdateOperation?.pluginId === input.pluginId ? structuredClone(latestUpdateOperation) : null;
+  },
+};
 const bridge: PluginCenterBridge = {
+  ...(nativeUpdates ? nativeUpdateBridge : {}),
   platform: 'win32', capabilityCatalog: async () => { catalogReads++; await updateCatalogHeld; return structuredClone(catalog); },
   pluginRepositoryInfo: async input => {
     repositoryReads++;
@@ -332,7 +420,8 @@ const bridge: PluginCenterBridge = {
     if (input.ref === 'fixture-config') return { path: input.path,
       text: input.path === 'README.md' ? exampleReadme : exampleConsumer, images: {},
       links: Object.fromEntries([input.path === 'README.md' ? ['docs/consumer.md', 'docs/consumer.md'] : ['../README.md', 'README.md']]) };
-    const content = presentations[input.ref.replace(/^fixture-/u, '')];
+    const content = presentations[input.ref.startsWith('fixture-bilibili-video-research-')
+      ? 'bilibili-video-research' : input.ref.replace(/^fixture-/u, '')];
     const text = input.path === 'README.en.md' ? '## Video research\n\nAsk a specific question and provide a public video URL.'
       : input.path === 'README.md' ? content?.readme : content?.changelog;
     if (!text) throw new Error('capability:not-found');
@@ -341,14 +430,8 @@ const bridge: PluginCenterBridge = {
   capabilityMutate: async input => {
     if (input.action === 'plugin-check-updates') { updateChecks++; return { warnings: [] }; }
     if (input.action === 'plugin-update') {
-      const plugin = catalog.plugins.find(item => item.id === input.id);
-      if (!nativeUpdates || plugin?.package?.ref !== input.ref || plugin.update?.ref !== input.candidate) throw new Error('capability:stale');
-      updateAttempts++;
-      await new Promise<void>(resolve => { releaseUpdate = resolve; });
-      if (updateFailure) { updateFailure = false; throw new Error('capability:resource-in-use'); }
-      plugin.version = '0.1.1'; plugin.update = { status: 'current' }; plugin.icon = { kind: 'png', dataUrl: bvrUpdateLogo };
-      updateApplied++;
-      return { warnings: [] };
+      legacyUpdates++;
+      throw new Error('Native update fixtures must use the coordinated update bridge');
     }
     if (input.action === 'plugin-toggle') {
       catalog.mcp.filter(server => server.pluginId === input.id).forEach(server => { server.enabled = input.enabled; });
@@ -384,11 +467,34 @@ const bridge: PluginCenterBridge = {
 };
 Object.assign(window, { pluginCenterTest: { configuration: () => structuredClone(configuration),
   counts: () => ({ saves, restarts, catalogReads, preparationRefreshes, repositoryReads }),
-  updateCounts: () => ({ attempts: updateAttempts, checks: updateChecks, applied: updateApplied }),
+  updateCounts: () => ({ attempts: updateAttempts, checks: updateChecks, applied: updateApplied,
+    preflights: updatePreflights, operationReads: updateOperationReads, legacy: legacyUpdates, consents: [...updateConsents],
+    retiredReferences: updateReferenceRevision, staleRequests: staleUpdateRequests }),
+  updateOperation: () => structuredClone(latestUpdateOperation),
+  persistUpdateOperation: (value: PluginUpdateOperation | null) => { latestUpdateOperation = structuredClone(value); },
+  holdNextOperation: () => {
+    nextOperationResponse = { snapshot: structuredClone(latestUpdateOperation),
+      held: new Promise(resolve => { releaseOperationResponse = resolve; }) };
+  },
+  nextOperation: (value: PluginUpdateOperation | null) => { nextOperationResponse = { snapshot: structuredClone(value) }; },
+  releaseOperation: () => { releaseOperationResponse?.(); releaseOperationResponse = undefined; },
+  remount: () => dispatchEvent(new Event('plugin-center-remount')),
   holdUpdateCatalog: () => { updateCatalogHeld = new Promise(resolve => { releaseUpdateCatalog = resolve; }); },
   releaseUpdateCatalog: () => { releaseUpdateCatalog?.(); updateCatalogHeld = undefined; },
   releaseUpdate: () => { releaseUpdate?.(); releaseUpdate = undefined; },
-  failUpdate: () => { updateFailure = true; },
+  failUpdate: () => { updateFailure = 'unchanged'; },
+  rejectUpdate: () => { updateFailure = 'reject'; },
+  failRestoration: () => { updateFailure = 'restoration'; },
+  retireUpdateReferences,
+  updateReadiness: (readiness: PluginUpdatePreflight['readiness']) => { updateReadiness = readiness; },
+  publishUpdate: (version: string) => {
+    const plugin = catalog.plugins.find(item => item.id === 'bilibili-video-research')!;
+    const candidate = `fixture-update-${version}`;
+    plugin.update = { status: 'available', version, ref: candidate };
+    const available = catalog.available.find(item => item.installedId === plugin.id)!;
+    available.version = version;
+    available.package = { ...plugin.package!, ref: candidate };
+  },
   releaseRepositories: () => releaseRepositories?.(),
   language: (language: 'zh' | 'en') => dispatchEvent(new CustomEvent('plugin-center-language', { detail: language })),
   holdPreparationRefresh: () => { preparationRefresh = new Promise(resolve => { releasePreparationRefresh = resolve; }); },
@@ -424,6 +530,7 @@ Object.assign(window, { pluginHostTest: {
 } });
 function Fixture() {
   const [active, setActive] = useState(true);
+  const [revision, setRevision] = useState(0);
   const [language, setLanguage] = useState<'zh' | 'en'>('zh');
   const [dark, setDark] = useState(false);
   const [wide, setWide] = useState(() => matchMedia('(min-width: 1001px)').matches);
@@ -435,6 +542,11 @@ function Fixture() {
     const change = (event: Event) => setLanguage((event as CustomEvent<'zh' | 'en'>).detail);
     addEventListener('plugin-center-language', change);
     return () => removeEventListener('plugin-center-language', change);
+  }, []);
+  useEffect(() => {
+    const change = () => setRevision(value => value + 1);
+    addEventListener('plugin-center-remount', change);
+    return () => removeEventListener('plugin-center-remount', change);
   }, []);
   useEffect(() => {
     const change = (event: Event) => setHostRuntime((event as CustomEvent<string>).detail);
@@ -465,7 +577,7 @@ function Fixture() {
     {updatePreview && <PluginUpdatePreviewControls language={language} onLanguage={setLanguage} preview={updateState}/>}</header>
     <aside className="sidebar"><SidebarTaskActions selected={false} pluginsSelected={active} onNewSession={() => setActive(false)}
       onScheduledTasks={() => setActive(false)} onPlugins={() => setActive(value => !value)}/></aside>
-    <main><PluginCenter key={updatePreview ? updateState.revision : 'default'} bridge={bridge} active={active} language={language} busy={false}
+    <main><PluginCenter key={updatePreview ? updateState.revision : revision} bridge={bridge} active={active} language={language} busy={false}
       currentVersion={metadataPreview ? '0.6.0' : undefined}
       updates={updatePreview ? updateState.updates : undefined} runtimeId={hostRuntime} settings={{ mcp: {} }}
       onChanged={async () => { if (preparationRefresh) { preparationRefreshes++; await preparationRefresh; } }}

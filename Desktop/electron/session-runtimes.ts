@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { existsSync } from 'node:fs';
+import { existsSync, statSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { RpcProcess } from './runtime';
 import { permissionFromStatus } from './permission-status';
@@ -31,6 +31,24 @@ export interface WorkerTransport {
   request(type: string, args?: Record<string, unknown>, timeout?: number): Promise<any>;
   respond(value: Record<string, unknown>): void;
   stop(): Promise<void>;
+  stopForUpdate?(): Promise<void>;
+}
+export interface RuntimeUpdateLease {
+  readonly worker: SessionRuntime;
+  readonly rpc: WorkerTransport;
+  readonly sessionId: string;
+  readonly sessionFile?: string;
+  readonly state: RuntimeState;
+  readonly model: RuntimeState['model'];
+  readonly thinkingLevel: RuntimeState['thinkingLevel'];
+  readonly permissionPreset?: PermissionPreset;
+  readonly pendingModel?: ModelSelection;
+  readonly touched: number;
+  readonly messages: Message[];
+  readonly leafId?: string;
+  readonly models: Model[];
+  readonly stats?: SessionStats;
+  readonly launch?: LaunchState;
 }
 export interface RuntimeStartupDiagnostic {
   runtimeId: string;
@@ -99,11 +117,13 @@ function cronBlocksResourceWrite(state: CronState | undefined, options: RuntimeI
 
 // A worker owns one session identity until disposal; edits move its history leaf.
 export class SessionRuntimes {
+  private updateLeases = new WeakSet<RuntimeUpdateLease>();
   readonly workers = new Map<string, SessionRuntime>();
   readonly unreadSessionIds = new Set<string>();
   activeId?: string;
   private openingEmpty = new Map<string, Promise<SessionRuntime>>();
   private reads = new Map<SessionRuntime, Set<Promise<void>>>();
+  private snapshotEpochs = new WeakMap<SessionRuntime, number>();
   private statsVersions = new WeakMap<SessionRuntime, number>();
   private statsReads = new WeakMap<SessionRuntime, {
     rpc: WorkerTransport; sessionId: string; dirty: boolean; reading?: Promise<void>;
@@ -121,7 +141,7 @@ export class SessionRuntimes {
     // Reviewed imports can contain 128 MiB of source history plus embedded
     // images. Keep history RPC bounded without disconnecting at 32 MiB.
     private create: (receive: (event: RuntimeEvent) => void) => WorkerTransport = receive =>
-      new RpcProcess(receive, 256 * 1024 * 1024),
+      new RpcProcess(receive, 256 * 1024 * 1024, true),
     private hooks: { launch?: (worker: SessionRuntime) => { env: Record<string, string>; args: string[] }; dispose?: (worker: SessionRuntime) => void;
       canReuseEmpty?: (worker: SessionRuntime) => boolean;
       event?: (worker: SessionRuntime, event: RuntimeEvent) => RuntimeEvent;
@@ -575,6 +595,7 @@ export class SessionRuntimes {
   }
   private async readSnapshot(worker: SessionRuntime) {
     const revision = worker.revision;
+    const epoch = this.snapshotEpochs.get(worker);
     const rpc = worker.rpc;
     const statsVersion = this.nextStatsVersion(worker);
     const [state, { messages }, { models }, stats, history] = await Promise.all([
@@ -582,14 +603,16 @@ export class SessionRuntimes {
       worker.rpc.request('get_available_models'), worker.rpc.request('get_session_stats'),
       worker.rpc.request('get_entries'),
     ]);
-    if (worker.rpc !== rpc || worker.status !== 'connected' || this.workers.get(worker.id) !== worker) return;
+    if (worker.rpc !== rpc || worker.status !== 'connected' || this.workers.get(worker.id) !== worker
+      || this.snapshotEpochs.get(worker) !== epoch) return;
     const projected = importedHistoryMessages(messages, history.entries ?? [], history.leafId ?? null);
     const savedMessages = projected === messages
       ? messagesWithEntryIds(messages, history.entries ?? [], history.leafId ?? null) : projected;
     if (revision === worker.revision && state.sessionId)
       worker.launch = projectLaunch(history.entries ?? [], history.leafId ?? null, state.sessionId, worker.launch);
     const decorated = this.hooks.messages ? await this.hooks.messages(worker, savedMessages) : savedMessages;
-    if (worker.rpc !== rpc || worker.status !== 'connected' || this.workers.get(worker.id) !== worker) return;
+    if (worker.rpc !== rpc || worker.status !== 'connected' || this.workers.get(worker.id) !== worker
+      || this.snapshotEpochs.get(worker) !== epoch) return;
     // Never replace newly received deltas with an older asynchronous snapshot.
     if (revision === worker.revision) {
       worker.state = worker.runActive ? { ...state, isStreaming: true } : state;
@@ -803,6 +826,129 @@ export class SessionRuntimes {
       }
       throw error;
     } finally { worker.mutating = false; this.publish(); }
+    await this.hooks.pluginsReady?.(worker);
+  }
+  isReleasedForUpdate(lease: RuntimeUpdateLease) {
+    const { worker, rpc, sessionId } = lease;
+    return this.updateLeases.has(lease) && this.workers.get(worker.id) === worker && worker.rpc === rpc
+      && worker.state?.sessionId === sessionId && worker.status === 'disconnected' && worker.mutating;
+  }
+  assertUpdateRestorable(worker: SessionRuntime) {
+    const file = worker.state?.sessionFile;
+    try {
+      if (file) {
+        const saved = statSync(file);
+        if (saved.isFile() && saved.size > 0) return;
+      }
+    } catch {}
+    throw new Error('capability:runtime-history-unavailable');
+  }
+  async assertUpdateIdle(leases: readonly RuntimeUpdateLease[]) {
+    const workers = [...this.workers.values()];
+    const released = new Set(leases.map(lease => {
+      if (!this.isReleasedForUpdate(lease)) throw new Error('capability:release-unconfirmed');
+      return lease.worker;
+    }));
+    const owners = workers.map(worker => ({ worker, rpc: worker.rpc, sessionId: worker.state?.sessionId }));
+    for (const worker of workers) {
+      if (released.has(worker)) continue;
+      if (worker.operations || worker.mutating || worker.stopping) throw new Error('Session operation in progress');
+      await this.assertIdle(worker, { stopHost: false, allowRemote: true, resources: true });
+    }
+    if (workers.length !== this.workers.size || owners.some(({ worker, rpc, sessionId }) =>
+      this.workers.get(worker.id) !== worker || worker.rpc !== rpc || worker.state?.sessionId !== sessionId
+      || !released.has(worker) && (worker.operations || worker.mutating || worker.stopping || worker.queued || this.isBusy(worker)
+        || worker.btwActive || hasBackgroundWork(worker) || worker.launch?.goal?.status === 'active'
+        || cronBlocksResourceWrite(worker.cron, { resources: true })))
+      || leases.some(lease => !this.isReleasedForUpdate(lease))) throw new Error('Session operation in progress');
+  }
+  async releaseForUpdate(workers: readonly SessionRuntime[], released: RuntimeUpdateLease[]) {
+    for (const worker of workers) {
+      await this.assertUpdateIdle(released);
+      await this.assertIdle(worker, { stopHost: true, resources: true });
+      if (worker.status !== 'connected' || !worker.state?.sessionId || !worker.rpc.stopForUpdate
+        || worker.operations || worker.mutating || worker.stopping) throw new Error('capability:release-unconfirmed');
+      this.assertUpdateRestorable(worker);
+      const lease: RuntimeUpdateLease = { worker, rpc: worker.rpc, sessionId: worker.state.sessionId,
+        sessionFile: worker.state.sessionFile && existsSync(worker.state.sessionFile) ? worker.state.sessionFile : undefined,
+        state: worker.state, model: worker.state.model, thinkingLevel: worker.state.thinkingLevel,
+        permissionPreset: worker.permissionPreset, pendingModel: worker.pendingModel, touched: worker.touched,
+        messages: worker.messages, leafId: worker.leafId, models: worker.models, stats: worker.stats, launch: worker.launch };
+      worker.mutating = true;
+      this.snapshotEpochs.set(worker, (this.snapshotEpochs.get(worker) ?? 0) + 1);
+      worker.status = 'disconnected';
+      this.hooks.dispose?.(worker);
+      try {
+        await lease.rpc.stopForUpdate!();
+        this.updateLeases.add(lease);
+        released.push(lease);
+      } catch (error) {
+        worker.mutating = false; worker.failed = true;
+        throw error;
+      } finally { this.publish(); }
+    }
+  }
+  private async assertUpdateHistory(lease: RuntimeUpdateLease) {
+    const { worker } = lease;
+    if (worker.leafId === lease.leafId) return;
+    const history = await worker.rpc.request('get_entries');
+    if (!lease.leafId || history.leafId !== worker.leafId || !Array.isArray(history.entries))
+      throw new Error('Runtime history restoration is unconfirmed');
+    const branch = activeHistory(history.entries, history.leafId);
+    const previous = branch.findIndex(entry => entry.id === lease.leafId);
+    // The pinned runtime records capabilities and skill discovery on session_start.
+    // These may extend the same branch, but no conversation or arbitrary custom entry may.
+    const metadata = branch.slice(previous + 1);
+    if (previous < 0 || !metadata.length || metadata.some(entry => {
+      const row = entry as typeof entry & { customType?: string; data?: {
+        version?: number; sessionId?: string; kind?: string; stage?: string;
+      } };
+      return row.type !== 'custom' || row.data?.version !== 1 || row.data.sessionId !== lease.sessionId
+        || !(row.customType === 'step.activity_capabilities'
+          || row.customType === 'step.activity' && row.data.kind === 'skill' && row.data.stage === 'discovered');
+    })) throw new Error('Runtime history restoration is unconfirmed');
+  }
+  async restoreAfterUpdate(lease: RuntimeUpdateLease, node: string, entry: string, env: NodeJS.ProcessEnv) {
+    if (!this.isReleasedForUpdate(lease)) throw new Error('capability:release-unconfirmed');
+    const { worker } = lease;
+    this.updateLeases.delete(lease);
+    this.snapshotEpochs.set(worker, (this.snapshotEpochs.get(worker) ?? 0) + 1);
+    try {
+      worker.modelUnavailable = false;
+      worker.permissionPreset = undefined;
+      await this.openWorker(node, entry, worker.cwd, env, lease.sessionFile, undefined, false, worker);
+      if (worker.state?.sessionId !== lease.sessionId) throw new Error('Runtime changed session identity');
+      await restoreSelectedModel(worker, lease.model);
+      if (lease.model && lease.thinkingLevel) {
+        const { levels } = await worker.rpc.request('get_available_thinking_levels');
+        if (!levels?.includes(lease.thinkingLevel)) throw new Error('Runtime effort is unavailable');
+        await worker.rpc.request('set_thinking_level', { level: lease.thinkingLevel });
+      }
+      if (lease.permissionPreset && lease.permissionPreset !== 'full-access')
+        await worker.rpc.request('prompt', { message: `/permissions ${lease.permissionPreset}` });
+      this.snapshotEpochs.set(worker, (this.snapshotEpochs.get(worker) ?? 0) + 1);
+      await this.read(worker);
+      await this.assertUpdateHistory(lease);
+      if (this.workers.get(worker.id) !== worker || worker.state?.sessionId !== lease.sessionId
+        || worker.messages.length !== lease.messages.length
+        || lease.model && (worker.state.model?.provider !== lease.model.provider || worker.state.model.id !== lease.model.id)
+        || lease.thinkingLevel && worker.state?.thinkingLevel !== lease.thinkingLevel
+        || lease.permissionPreset && lease.permissionPreset !== 'full-access' && worker.permissionPreset !== lease.permissionPreset
+        || worker.permissionPreset === 'full-access') throw new Error('Runtime state restoration is unconfirmed');
+    } catch (error) {
+      worker.state = lease.state;
+      worker.messages = lease.messages; worker.leafId = lease.leafId;
+      worker.models = lease.models; worker.stats = lease.stats; worker.launch = lease.launch;
+      worker.permissionPreset = lease.permissionPreset === 'full-access' ? undefined : lease.permissionPreset;
+      await this.suspend([worker]);
+      throw error;
+    } finally {
+      this.snapshotEpochs.set(worker, (this.snapshotEpochs.get(worker) ?? 0) + 1);
+      worker.pendingModel = lease.pendingModel;
+      worker.touched = lease.touched;
+      worker.mutating = false;
+      this.publish();
+    }
     await this.hooks.pluginsReady?.(worker);
   }
   async suspend(workers: SessionRuntime[] = [...this.workers.values()]) {

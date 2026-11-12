@@ -48,7 +48,7 @@ export function parseConfigurationSchema(value) {
   }
   return { schemaVersion: 1, consumer: { kind: 'json-file-v1', server: value.consumer.server }, groups };
 }
-function validateValue(field, value) {
+export function validateValue(field, value) {
   if (value === undefined || value === '') { if (field.required) fail(); return; }
   if (field.type === 'boolean') { if (typeof value !== 'boolean') fail(); }
   else if (field.type === 'number') {

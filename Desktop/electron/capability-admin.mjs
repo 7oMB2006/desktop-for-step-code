@@ -45,6 +45,8 @@ input.on('line', line => {
         : request.type === 'initialize' ? await manager.initialize()
         : request.type === 'mutate' ? await manager.mutate(request.input,
           AbortSignal.any([active.signal, AbortSignal.timeout(125000)]))
+        : request.type === 'plugin-update-preflight' ? await manager.preflightUpdate(request.input,
+          AbortSignal.any([active.signal, AbortSignal.timeout(125000)]))
         : request.type === 'import' ? await manager.importSkill(request.path)
         : (() => { throw new CapabilityError('invalid-input'); })();
       send({ id: request.id, type: 'response', success: true, data });

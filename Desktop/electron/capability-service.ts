@@ -12,6 +12,7 @@ import semver from 'semver';
 import type { PluginConfigurationInput, PluginHostRuntime, PluginHostSettings, PluginHostSettingsInput } from '../src/capabilities';
 import { parseModelSelection } from '../../examples/plugins/host-client/protocol.mjs';
 import type { CapabilityCatalog, CapabilityMutation, CapabilityResult } from '../src/capabilities';
+import type { PluginUpdateCompatibility, PluginUpdateRequest } from '../src/plugin-update';
 
 export async function assertPluginUnused(id: string, workers: Iterable<{
   rpc: { request(type: string): Promise<unknown> };
@@ -337,7 +338,37 @@ export class CapabilityService {
         independent, independentError, runtime };
     });
   }
-  mutate(input: CapabilityMutation, guard?: CapabilityGuard): Promise<CapabilityResult> {
+  private async updateExpected(input: PluginUpdateRequest) {
+    const catalog = await this.readCatalog();
+    const plugin = catalog.plugins.find(item => item.id === input.id && item.package?.ref === input.ref);
+    if (!plugin || plugin.update?.status !== 'available' || plugin.update.ref !== input.candidate)
+      throw new Error('capability:stale');
+    const installed = (await this.library.reference(input.ref)).descriptor;
+    const candidate = (await this.library.reference(input.candidate)).descriptor;
+    if (!installed.source || !installed.marketplace || !installed.instance) throw new Error('capability:stale');
+    return { installed, candidate, version: plugin.update.version!,
+      expected: { name: installed.name, marketplace: installed.marketplace,
+        expectedSource: installed.source, expectedInstance: installed.instance,
+        expectedOldFingerprint: installed.fingerprint, expectedFingerprint: candidate.fingerprint,
+        expectedVersion: plugin.update.version!, expectedOldVersion: plugin.version! } };
+  }
+  preflightUpdate(input: PluginUpdateRequest): Promise<PluginUpdateCompatibility & {
+    stamp: string; version: string; identity: string; scope: 'theme' | 'runtime';
+  }> {
+    if (!input || Object.keys(input).some(key => !['id', 'ref', 'candidate'].includes(key))
+      || ![input.id, input.ref, input.candidate].every(value => typeof value === 'string' && value.length <= 128))
+      throw new Error('capability:invalid-input');
+    input = { ...input };
+    return this.enqueue(async () => {
+      const { expected, version, installed, candidate } = await this.updateExpected(input);
+      const report = await this.request('plugin-update-preflight', { input: { action: 'plugin-update', ...input, ...expected } });
+      const theme = await dataOnlyThemeFingerprint(installed.root, input.id) === installed.fingerprint
+        && await dataOnlyThemeFingerprint(candidate.root, input.id) === candidate.fingerprint;
+      return { ...report, version, identity: digest(JSON.stringify(expected)), scope: theme ? 'theme' : 'runtime' };
+    });
+  }
+  mutate(input: CapabilityMutation, guard?: CapabilityGuard,
+    checked?: { stamp: string; identity: string }): Promise<CapabilityResult> {
     if (!input || typeof input !== 'object' || Array.isArray(input)
       || JSON.stringify(input).length > 150000) throw new Error('capability:invalid-input');
     // Freeze caller-owned input before the operation waits in the serial queue.
@@ -357,24 +388,20 @@ export class CapabilityService {
         expected = proof; themeId = id;
       }
       if (input.action === 'plugin-update') {
-        const catalog = await this.readCatalog();
-        const plugin = catalog.plugins.find(item => item.id === input.id && item.package?.ref === input.ref);
-        if (!plugin || plugin.update?.status !== 'available' || plugin.update.ref !== input.candidate)
-          throw new Error('capability:stale');
-        const installed = (await this.library.reference(input.ref)).descriptor;
-        const candidate = (await this.library.reference(input.candidate)).descriptor;
-        if (!installed.source || !installed.marketplace || !installed.instance) throw new Error('capability:stale');
-        expected = { name: installed.name, marketplace: installed.marketplace,
-          expectedSource: installed.source, expectedInstance: installed.instance,
-          expectedOldFingerprint: installed.fingerprint, expectedFingerprint: candidate.fingerprint,
-          expectedVersion: plugin.update.version!, expectedOldVersion: plugin.version! };
+        const update = await this.updateExpected(input);
+        const { installed, candidate } = update;
+        if (checked && digest(JSON.stringify(update.expected)) !== checked.identity) throw new Error('capability:stale');
+        expected = { ...update.expected, ...(checked ? { expectedConfiguration: checked.stamp } : {}) };
         if (await dataOnlyThemeFingerprint(installed.root, input.id) === installed.fingerprint
           && await dataOnlyThemeFingerprint(candidate.root, input.id) === candidate.fingerprint)
           themeId = input.id;
       }
       const policy = Object.freeze({ ...capabilityPolicy(input.action, themeId),
         ...(['plugin-remove', 'plugin-update'].includes(input.action) && 'id' in input ? { pluginId: input.id } : {}) });
-      const release = await guard?.(policy);
+      const release = await guard?.(policy, checked && input.action === 'plugin-update' ? async () => {
+        const report = await this.request('plugin-update-preflight', { input: { ...input, ...expected } });
+        if (report.status !== 'compatible' || report.stamp !== checked.stamp) throw new Error('capability:stale-configuration');
+      } : undefined);
       try {
         // Recovery is a different operation, guarded by the actual journal owner.
         // Neither a mutation nor a follow-up catalog read may perform it implicitly.

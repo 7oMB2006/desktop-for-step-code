@@ -149,10 +149,75 @@ test('actual main passive capability reads never trigger pending provider applic
     'themeScene', 'themePoster', 'themeImage',
     'customBackgroundState', 'customBackgroundImage', 'customBackgroundImport', 'customBackgroundSave', 'customBackgroundRemove',
     'bvrConfiguration', 'bvrCheckEnvironment', 'bvrChoosePath', 'capabilityMutate',
+    'pluginUpdatePreflight', 'pluginUpdateOperation', 'pluginUpdateApply',
   ]) assert.equal(await f.read(method), method);
   assert.equal(f.state.applications, 0);
   await f.read('beginSession');
   assert.equal(f.state.applications, 1);
+});
+
+function deleteSessionFixture() {
+  const clause = find(node => ts.isCaseClause(node) && ts.isStringLiteral(node.expression)
+    && node.expression.text === 'deleteSession') as ts.CaseClause;
+  let entered!: () => void, confirm!: () => void;
+  const dialogEntered = new Promise<void>(resolve => { entered = resolve; });
+  const confirmation = new Promise<void>(resolve => { confirm = resolve; });
+  const state = { dialogs: 0, removes: 0, trashed: 0 };
+  const create = new Function('state', 'confirmation', 'entered', javascript(`
+    let settingsMutation = false, transition = false;
+    const deletingArchived = false, preferences = { language: 'en' }, miniView = {}, window = {};
+    const worker = { id: 'background', state: { sessionId: 'saved' }, mutating: false, operations: 0 };
+    const runtimes = { workers: new Map([[worker.id, worker]]),
+      async assertIdle() {}, async remove() { state.removes++; } };
+    const text = value => value, listSessions = async () => [{ id: 'saved', path: 'saved.jsonl' }];
+    const externallyOwned = () => false;
+    const dialog = { async showMessageBox() { state.dialogs++; entered(); await confirmation; return { response: 1 }; } };
+    const shell = { async trashItem() { if (!transition) throw new Error('missing transition lock'); state.trashed++; } };
+    const workflowBindings = { async remove() {} }, usageEstimates = { async remove() {} };
+    return { worker, lock: () => { settingsMutation = true; }, replace: () => runtimes.workers.set(worker.id, { ...worker }),
+      invoke: async () => { const args = ['saved']; ${clause.statements.map(node => node.getText(file)).join('\n')} } };
+  `));
+  return { ...create(state, confirmation, entered), state, confirm, dialogEntered };
+}
+
+test('actual deletion refuses the update lock before prompting and rechecks it after confirmation', async () => {
+  const initial = deleteSessionFixture();
+  initial.lock();
+  await assert.rejects(initial.invoke(), /operation in progress/);
+  assert.equal(initial.state.dialogs, 0);
+  for (const changed of ['lock', 'mutation', 'identity']) {
+    const f = deleteSessionFixture();
+    const pending = f.invoke();
+    await f.dialogEntered;
+    if (changed === 'lock') f.lock();
+    if (changed === 'mutation') f.worker.mutating = true;
+    if (changed === 'identity') f.replace();
+    f.confirm();
+    await assert.rejects(pending, /operation in progress/);
+    assert.equal(f.state.removes, 0);
+    assert.equal(f.state.trashed, 0);
+  }
+  const ready = deleteSessionFixture();
+  const pending = ready.invoke();
+  await ready.dialogEntered;
+  ready.confirm();
+  assert.equal(await pending, true);
+  assert.equal(ready.state.removes, 1);
+  assert.equal(ready.state.trashed, 1);
+});
+
+test('actual snapshot does not query a transport while an update owns its mutation', async () => {
+  const declaration = find(node => ts.isFunctionDeclaration(node) && node.name?.text === 'snapshot') as ts.FunctionDeclaration;
+  const refresh = declaration.body!.statements.find(node => ts.isIfStatement(node)
+    && node.thenStatement.getText(file).includes('runtimes.read(worker)'))!;
+  let reads = 0;
+  const invoke = new Function('worker', 'runtimes', javascript(`return (async () => {
+    const refresh = true; ${refresh.getText(file)}
+  })();`));
+  await invoke({ status: 'connected', mutating: true }, { read: async () => { reads++; } });
+  assert.equal(reads, 0);
+  await invoke({ status: 'connected', mutating: false }, { read: async () => { reads++; } });
+  assert.equal(reads, 1);
 });
 test('actual connection IPC accepts only the native profile choice and rechecks package identity after asynchronous work', async () => {
   const clause = find(node => ts.isCaseClause(node) && ts.isStringLiteral(node.expression)

@@ -413,6 +413,13 @@
 .pc-path-choice { display: flex; width: 100%; gap: 10px; padding: 13px 10px; text-align: left; font-size: 12px; }
 .pc-path-choice > span { flex: 1; overflow-wrap: anywhere; }
 .pc-danger-button { color: var(--danger); }
+.pc-update-dialog-status { display: flex; align-items: center; gap: 9px; font-size: 13px; }
+.pc-update-dialog-status > span { margin-left: auto; color: var(--muted); }
+.pc-update-sessions { list-style: none; padding: 0; margin: 18px 0; }
+.pc-update-sessions > li { display: flex; align-items: center; gap: 10px; padding: 10px 4px; border-bottom: 1px solid var(--border); font-size: 12px; }
+.pc-update-sessions > li > span { min-width: 0; flex: 1; overflow-wrap: anywhere; }
+.pc-update-sessions small { color: var(--muted); font-size: 11px; }
+.pc-update-reasons { padding-left: 20px; font-size: 12px; line-height: 1.8; overflow-wrap: anywhere; }
 .pc-auth-call { display: flex; gap: 12px; align-items: center; margin-top: 20px; }
 .pc-auth-call strong { font-size: 13px; display: block; }
 .pc-auth-call small { display: block; margin-top: 5px; }

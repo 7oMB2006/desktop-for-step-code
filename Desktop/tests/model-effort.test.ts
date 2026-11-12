@@ -17,6 +17,8 @@ test('localized effort labels preserve every upstream level and unknown values',
     assert.equal(effortLabel(raw, 'en'), raw);
   }
   assert.equal(effortLabel('future-level', 'zh'), 'future-level');
+  assert.equal(effortLabel('ultra', 'zh'), 'Ultra');
+  assert.equal(effortLabel('ultra', 'en'), 'Ultra');
 });
 
 test('effort colors are evenly sampled from the gradient for the available levels', () => {
@@ -25,6 +27,7 @@ test('effort colors are evenly sampled from the gradient for the available level
   assert.equal(effortColorForIndex(2, 4), '#D58FEF');
   assert.equal(effortColorForIndex(3, 4), '#9E72FB');
   assert.equal(effortColorForIndex(1, 3), '#E7A1CF');
+  assert.equal(effortColorForIndex(7, 8), '#9E72FB');
 });
 
 test('fader resists clicks and sub-threshold drags, then crosses discrete stops', () => {

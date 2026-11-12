@@ -83,7 +83,8 @@ export function TerminalPanel({ open, replaced, overlay, expanded, runtimeId, cw
     const dark = document.documentElement.dataset.theme === 'dark';
     const style = getComputedStyle(document.documentElement);
     const color = (name: string, fallback: string) => style.getPropertyValue(name).trim() || fallback;
-    return { background: color('--bg', '#ffffff'), foreground: color('--ink', '#202124'),
+    return { background: document.documentElement.dataset.customBackgroundSurfaces === 'true' ? '#00000000' : color('--bg', '#ffffff'),
+      foreground: color('--ink', '#202124'),
       cursor: color('--ink', '#202124'), selectionBackground: '#7186aa55',
       black: dark ? '#8d949e' : '#30343a', red: dark ? '#e97883' : '#b73f50', green: dark ? '#70bf95' : '#287751',
       yellow: dark ? '#d7b259' : '#8d661c', blue: dark ? '#88aceb' : '#3b64a8', magenta: dark ? '#c69ce0' : '#8752a5',
@@ -116,7 +117,7 @@ export function TerminalPanel({ open, replaced, overlay, expanded, runtimeId, cw
     }
     const terminal = new Terminal({ fontFamily: '"Cascadia Code", Consolas, monospace', fontSize: 13,
       lineHeight: 1.25, scrollback: 5000, screenReaderMode: true, theme: theme(), cursorBlink: info.status === 'running',
-      cols: info.cols, rows: info.rows });
+      cols: info.cols, rows: info.rows, allowTransparency: true });
     terminal.options.linkHandler = { activate: () => {} };
     const fit = new FitAddon();
     terminal.loadAddon(fit);
@@ -203,7 +204,7 @@ export function TerminalPanel({ open, replaced, overlay, expanded, runtimeId, cw
       if (event.target === document.documentElement && ['--bg', '--ink'].includes(event.propertyName)) syncTheme();
     };
     const observer = new MutationObserver(syncTheme);
-    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme', 'class', 'style'] });
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme', 'class', 'style', 'data-custom-background-surfaces'] });
     document.documentElement.addEventListener('transitionend', finishTheme);
     document.documentElement.addEventListener('transitioncancel', finishTheme);
     return () => {

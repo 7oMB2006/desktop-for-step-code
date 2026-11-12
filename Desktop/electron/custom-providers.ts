@@ -8,7 +8,7 @@ const FIELD = '__desktopCustomProviders';
 const PREFIX = 'desktop-custom-';
 const APIS: ProviderApi[] = ['openai-completions', 'openai-responses', 'anthropic-messages'];
 type AuthData = Record<string, unknown>;
-export const THINKING_LEVELS = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
+export const THINKING_LEVELS = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra'];
 const MODALITIES = ['text', 'image', 'audio', 'video', 'file'];
 function stringSubset(raw: unknown, allowed: string[]): string[] | undefined {
   return Array.isArray(raw) && raw.length > 0 && raw.every(v => typeof v === 'string' && allowed.includes(v)) ? allowed.filter(v => raw.includes(v)) : undefined;
@@ -20,9 +20,12 @@ export function discoverModelMetadata(entry: Record<string, any>): Partial<Disco
   if (input) { result.declaredInput = input; result.vision = input.includes('image'); }
   if (output) result.declaredOutput = output;
   if (typeof entry.reasoning === 'boolean') result.reasoning = entry.reasoning;
-  const levels = stringSubset(entry.thinking_levels ?? entry.supported_reasoning_efforts ?? entry.effort?.supported_levels, THINKING_LEVELS);
-  if (levels) { result.thinkingLevels = levels; result.reasoning = levels.some(v => v !== 'off'); }
-  if (levels && typeof entry.effort?.default_level === 'string' && levels.includes(entry.effort.default_level)) result.thinkingDefaultLevel = entry.effort.default_level;
+  // Discovery may contain future efforts; saved configuration remains strict.
+  const rawLevels = entry.thinking_levels ?? entry.supported_reasoning_efforts ?? entry.effort?.supported_levels;
+  const levels = Array.isArray(rawLevels) && rawLevels.every(v => typeof v === 'string')
+    ? THINKING_LEVELS.filter(level => rawLevels.includes(level)) : [];
+  if (levels.length) { result.thinkingLevels = levels; result.reasoning = levels.some(v => v !== 'off'); }
+  if (typeof entry.effort?.default_level === 'string' && levels.includes(entry.effort.default_level)) result.thinkingDefaultLevel = entry.effort.default_level;
   const context = entry.context_window ?? entry.context_length;
   const max = entry.max_output_tokens ?? entry.top_provider?.max_completion_tokens;
   if (Number.isSafeInteger(context) && context > 0 && context <= 10000000) result.contextWindow = context;

@@ -189,7 +189,12 @@ try {
   await confirmation.getByRole('checkbox').uncheck();
   await confirmation.getByRole('button', { name: '确认导入', exact: true }).click();
   await page.locator('.import-job-summary').filter({ hasText: '跳过 1' }).waitFor();
-  assert.equal(await page.locator('.import-job-trigger').first().getAttribute('aria-expanded'), 'false');
+  // A result can arrive while the job is still running and intentionally expanded.
+  const reimportJob = page.locator('.import-job').filter({
+    has: page.locator('.import-job-summary').filter({ hasText: '跳过 1' }),
+  });
+  await reimportJob.locator('.import-job-trigger[aria-expanded="false"]').waitFor({ timeout: 5000 });
+  assert.equal(await reimportJob.locator('.import-job-trigger').getAttribute('aria-expanded'), 'false');
   assert.equal(await readFile(target, 'utf8'), importedBytes);
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1280, 900));
   for (const [theme, name] of [['light', '亮'], ['dark', '暗']]) {

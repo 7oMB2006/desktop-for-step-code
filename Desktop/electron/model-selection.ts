@@ -12,8 +12,8 @@ export function modelThinkingLevels(model: Model): string[] {
   if (model.thinkingLevels) return model.thinkingLevels;
   if (!model.reasoning) return ['off'];
   const map = (model as Model & { thinkingLevelMap?: Record<string, unknown> }).thinkingLevelMap;
-  return ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'].filter(level =>
-    map?.[level] !== null && (!['xhigh', 'max'].includes(level) || map?.[level] !== undefined));
+  return ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra'].filter(level =>
+    map?.[level] !== null && (!['xhigh', 'max', 'ultra'].includes(level) || map?.[level] !== undefined));
 }
 
 // Client observations live in sidecars, not Step's transcript or model context.

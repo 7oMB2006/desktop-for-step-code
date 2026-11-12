@@ -75,7 +75,7 @@ async function fixture() {
   const worker = await pool.open('never-spawn', 'step', 'fixture', {});
   worker.remoteAttached = true;
   const identity = { rpc: worker.rpc, sessionId: worker.state!.sessionId, id: worker.id };
-  const state = { writes: [] as string[], queued: [] as string[], answers: 0,
+  const state = { writes: [] as string[], queued: [] as string[], answers: 0, backgroundSyncs: 0,
     beforeWrite: undefined as (() => Promise<void>) | undefined };
   const write = async (kind: string) => { await state.beforeWrite?.(); state.writes.push(kind); return {}; };
   const service = {
@@ -106,6 +106,7 @@ async function fixture() {
       const preferences = { language: 'zh' }, themePacks = { packs: [] }, dataRoot = 'fixture';
       const window = { webContents: { id: 1, mainFrame: {}, send() {} } };
       const emit = () => {}, refreshThemePacks = async () => {};
+      const syncCustomBackground = async () => { state.backgroundSyncs++; };
       const text = value => value;
       const pluginHosts = { invalidate() {}, async resumeDeferred() {} };
       const admin = { request: async type => write(type) };
@@ -206,6 +207,8 @@ for (const [method, ...args] of operations) {
     const f = await fixture();
     await f.host.invoke(method, ...args);
     assert.equal(f.state.writes.length, 1);
+    assert.equal(f.state.backgroundSyncs,
+      ['plugin-install', 'plugin-update', 'plugin-remove'].includes((args[0] as CapabilityMutation)?.action) ? 1 : 0);
     assert.equal(f.host.locked(), false);
     f.retained();
   });

@@ -6,38 +6,65 @@ const { prepareDispatchInput, taskSectionIsRevealed, waitForTaskSectionReveal } 
 
 function dispatchFixture(menuExpected = true) {
   const events: string[] = [];
-  let value = '', menuReady = false, expanded = false, menuMounted = false, disposed = false;
+  let value = '', pending = '', empty = true, menuReady = false, expanded = false, menuMounted = false, disposed = false;
+  const document = { activeElement: null as unknown };
   const handle = {
     get value() { return value; },
+    get dataset() { return { empty: String(empty) }; },
+    isConnected: true,
+    ownerDocument: document,
     getAttribute: () => String(expanded),
     closest: () => ({ querySelector: () => menuMounted ? {} : null }),
     dispose: async () => { disposed = true; },
   };
+  document.activeElement = handle;
   const input = {
-    fill: async (text: string) => { value = text; events.push('fill'); },
+    fill: async (text: string) => { pending = text; events.push('fill'); },
     elementHandle: async () => handle,
-    press: async (key: string) => {
-      assert.equal(key, 'Escape', 'Preparing input never submits or retries a command');
-      assert.ok(!menuExpected || menuReady, 'Escape must not race ahead of menu readiness');
-      events.push('Escape'); expanded = false; menuMounted = false;
-    },
+    press: async () => { assert.fail('A locator keypress must not blur/refocus the inactive native editor'); },
+    evaluate: async () => ({ value, expanded, menuMounted, focused: document.activeElement === handle }),
   };
   const page = {
+    keyboard: {
+      press: async (key: string) => {
+        assert.equal(key, 'Escape', 'Preparing input never submits or retries a command');
+        assert.equal(document.activeElement, handle, 'Keyboard input stays on the already focused editor');
+        assert.equal(value, pending, 'Escape cannot race ahead of the editor model');
+        assert.ok(!menuExpected || menuReady, 'Escape must not race ahead of menu readiness');
+        events.push('Escape'); expanded = false; menuMounted = false;
+      },
+    },
     locator: (selector: string) => {
       assert.equal(selector, '.composer-discovery[data-mode="commands"]');
       return { getByText: (text: string, options: { exact: boolean }) => {
         assert.equal(options.exact, true);
         return { waitFor: async ({ timeout }: { timeout: number }) => {
           assert.equal(timeout, 5000);
+          assert.equal(value, pending, 'An old completion cannot stand in for an uncommitted editor value');
           events.push(`ready:${text}`); menuReady = true; expanded = true; menuMounted = true;
         } };
       } };
     },
     waitForFunction: async (predicate: (argument: unknown) => boolean,
       argument: { element: typeof handle; text: string }, options: { timeout: number }) => {
-      events.push('dismissed');
       assert.equal(argument.element, handle);
       assert.equal(options.timeout, 5000);
+      if (!events.includes('Escape')) {
+        events.push('editor-ready');
+        assert.equal(predicate(argument), false, 'The DOM fill has not reached the model yet');
+        value = pending;
+        assert.equal(predicate(argument), false, 'React must also commit the editor state');
+        empty = !value;
+        assert.equal(predicate(argument), true);
+        document.activeElement = null;
+        assert.equal(predicate(argument), false, 'A different focus owner cannot be treated as ready');
+        document.activeElement = handle;
+        handle.isConnected = false;
+        assert.equal(predicate(argument), false, 'A detached editor cannot be treated as ready');
+        handle.isConnected = true;
+        return;
+      }
+      events.push('dismissed');
       assert.equal(predicate(argument), true);
       expanded = true;
       assert.equal(predicate(argument), false, 'An open menu cannot be treated as dismissed');
@@ -54,7 +81,7 @@ test('dispatch waits for delayed completion readiness before Escape, without sub
   for (const text of ['/todos', 'Explain /todos']) {
     const value = dispatchFixture();
     await prepareDispatchInput(value.page, value.input, text);
-    assert.deepEqual(value.events, ['fill', 'ready:/todos', 'Escape', 'dismissed']);
+    assert.deepEqual(value.events, ['fill', 'editor-ready', 'ready:/todos', 'Escape', 'dismissed']);
     assert.equal(value.disposed(), true);
   }
 });
@@ -63,25 +90,60 @@ test('parameterized commands and ordinary prose do not wait for a nonexistent co
   for (const text of ['/compact keep interfaces', '/todos list', 'Explain task plans']) {
     const value = dispatchFixture(false);
     await prepareDispatchInput(value.page, value.input, text);
-    assert.deepEqual(value.events, ['fill', 'Escape', 'dismissed']);
+    assert.deepEqual(value.events, ['fill', 'editor-ready', 'Escape', 'dismissed']);
     assert.equal(value.disposed(), true);
   }
 });
 
-test('a completion readiness failure prevents Escape and retains the original error', async () => {
+test('an editor readiness failure prevents Escape and retains its diagnostic and original error', async t => {
   const value = dispatchFixture();
-  const failure = new Error('Completion menu did not appear');
-  value.page.locator = () => ({ getByText: () => ({ waitFor: async () => { throw failure; } }) });
-  await assert.rejects(prepareDispatchInput(value.page, value.input, '/todos'), error => error === failure);
-  assert.deepEqual(value.events, ['fill']);
-});
-
-test('a dismissal failure releases the input handle and never retries', async () => {
-  const value = dispatchFixture();
-  const failure = new Error('Completion menu did not close');
+  const failure = new Error('Editor value did not commit');
+  const log = t.mock.method(console, 'error', () => {});
   value.page.waitForFunction = async () => { throw failure; };
   await assert.rejects(prepareDispatchInput(value.page, value.input, '/todos'), error => error === failure);
-  assert.deepEqual(value.events, ['fill', 'ready:/todos', 'Escape']);
+  assert.deepEqual(value.events, ['fill']);
+  assert.equal(log.mock.calls.length, 1);
+  assert.equal(JSON.parse(log.mock.calls[0].arguments[1]).phase, 'editor readiness');
+  assert.equal(value.disposed(), true);
+});
+
+test('a completion readiness failure prevents Escape and retains the original error', async t => {
+  const value = dispatchFixture();
+  const failure = new Error('Completion menu did not appear');
+  const log = t.mock.method(console, 'error', () => {});
+  value.page.locator = () => ({ getByText: () => ({ waitFor: async () => { throw failure; } }) });
+  await assert.rejects(prepareDispatchInput(value.page, value.input, '/todos'), error => error === failure);
+  assert.deepEqual(value.events, ['fill', 'editor-ready']);
+  assert.equal(log.mock.calls.length, 1);
+  assert.equal(JSON.parse(log.mock.calls[0].arguments[1]).phase, 'completion readiness');
+  assert.equal(value.disposed(), true);
+});
+
+test('a dismissal failure releases the input handle and never retries', async t => {
+  const value = dispatchFixture();
+  const failure = new Error('Completion menu did not close');
+  const log = t.mock.method(console, 'error', () => {});
+  const wait = value.page.waitForFunction;
+  value.page.waitForFunction = async (...args) => {
+    if (value.events.includes('Escape')) throw failure;
+    return wait(...args);
+  };
+  await assert.rejects(prepareDispatchInput(value.page, value.input, '/todos'), error => error === failure);
+  assert.deepEqual(value.events, ['fill', 'editor-ready', 'ready:/todos', 'Escape']);
+  assert.equal(log.mock.calls.length, 1);
+  assert.equal(JSON.parse(log.mock.calls[0].arguments[1]).phase, 'completion dismissal');
+  assert.equal(value.disposed(), true);
+});
+
+test('unavailable diagnostics never replace the original dispatch failure', async t => {
+  const value = dispatchFixture();
+  const failure = new Error('Editor did not settle');
+  const log = t.mock.method(console, 'error', () => {});
+  value.page.waitForFunction = async () => { throw failure; };
+  value.input.evaluate = async () => { throw new Error('Editor detached during diagnostics'); };
+  await assert.rejects(prepareDispatchInput(value.page, value.input, '/todos'), error => error === failure);
+  assert.deepEqual(JSON.parse(log.mock.calls[0].arguments[1]),
+    { phase: 'editor readiness', expected: '/todos', unavailable: true });
   assert.equal(value.disposed(), true);
 });
 

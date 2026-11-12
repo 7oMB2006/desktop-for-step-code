@@ -7,8 +7,14 @@ const source = ts.createSourceFile('verify-remote-access.mjs',
   await readFile(new URL('../scripts/verify-remote-access.mjs', import.meta.url), 'utf8'),
   ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
 let initializer: ts.Expression | undefined;
+let confirmationInitializer: ts.Expression | undefined;
+const confirmationActions: string[] = [];
 const visit = (node: ts.Node) => {
   if (ts.isVariableDeclaration(node) && node.name.getText(source) === 'launch') initializer = node.initializer;
+  if (ts.isVariableDeclaration(node) && node.name.getText(source) === 'confirmRemoteAction')
+    confirmationInitializer = node.initializer;
+  if (ts.isCallExpression(node) && node.expression.getText(source) === 'confirmRemoteAction'
+    && ts.isStringLiteral(node.arguments[0])) confirmationActions.push(node.arguments[0].text);
   ts.forEachChild(node, visit);
 };
 visit(source);
@@ -63,4 +69,48 @@ test('Remote launcher preserves navigation failure instead of retrying or readin
   });
   await assert.rejects(launch(), error => error === failure);
   assert.equal(cleanups, 1, 'failed navigation still closes its isolated application');
+});
+
+test('Remote unbind and disconnect confirm only after the actual disclosure settles', async () => {
+  assert.ok(confirmationInitializer);
+  assert.deepEqual(confirmationActions, ['解除绑定', '断开连接']);
+  for (const action of confirmationActions) {
+    const events: string[] = [];
+    let finish!: () => void;
+    const settled = new Promise<void>(resolve => { finish = resolve; });
+    const confirmation = {
+      async waitFor() { events.push('visible'); },
+      async click() { events.push('confirm'); },
+    };
+    const button = (name: string) => name === '确认' ? confirmation : {
+      async click() { assert.equal(name, action); events.push('open'); },
+    };
+    const confirm = new Function('button', 'settleLayout',
+      `return ${confirmationInitializer.getText(source)};`)(button, async (target: unknown) => {
+      assert.equal(target, confirmation);
+      events.push('settle');
+      await settled;
+    });
+    const pending = confirm(action);
+    try {
+      await new Promise(resolve => setImmediate(resolve));
+      assert.deepEqual(events, ['open', 'visible', 'settle']);
+    } finally { finish(); }
+    await pending;
+    assert.deepEqual(events, ['open', 'visible', 'settle', 'confirm']);
+  }
+});
+
+test('Remote confirmation never retries or clicks through a disclosure readiness failure', async () => {
+  assert.ok(confirmationInitializer);
+  const failure = new Error('Confirmation did not settle');
+  const events: string[] = [];
+  const button = (name: string) => ({
+    async click() { events.push(name); },
+    async waitFor() { events.push('visible'); },
+  });
+  const confirm = new Function('button', 'settleLayout',
+    `return ${confirmationInitializer.getText(source)};`)(button, async () => { throw failure; });
+  await assert.rejects(confirm('解除绑定'), error => error === failure);
+  assert.deepEqual(events, ['解除绑定', 'visible']);
 });

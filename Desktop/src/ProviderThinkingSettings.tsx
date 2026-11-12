@@ -3,7 +3,7 @@ import type { ProviderModel, ProviderApi } from './contracts';
 import { effortLabel } from './ModelEffortPicker';
 import { DisclosureChevron } from './DisclosureChevron';
 
-const levels = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
+const levels = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra'];
 export function thinkingSummary(model: ProviderModel, language: string, api?: ProviderApi): string {
   const zh = language !== 'en';
   if (!model.thinkingLevels?.length) return zh ? '思考控制未知 · 服务默认' : 'Unknown control · Service default';

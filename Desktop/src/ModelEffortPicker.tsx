@@ -20,6 +20,7 @@ const labels: Record<string, string> = {
 };
 
 export function effortLabel(level: string, language: 'zh' | 'en'): string {
+  if (level === 'ultra') return 'Ultra';
   return language === 'zh' ? labels[level] ?? level : level;
 }
 
@@ -64,8 +65,8 @@ function AnimatedEffortLevel({ level, index, color, language }: { level: string;
       '--effort-origin': display.direction > 0 ? '-.2em' : '.2em',
       '--effort-settle': display.direction > 0 ? '.2em' : '-.2em',
     } as CSSProperties}>
-      {display.outgoing && <span key={`out-${display.revision}`} className="model-effort-heading-level-item model-effort-heading-level-outgoing" style={{ '--effort-color': display.outgoing.color } as CSSProperties} aria-hidden="true">{display.outgoing.label}</span>}
-      <span key={`in-${display.revision}`} className={`model-effort-heading-level-item model-effort-heading-level-current${display.revision ? ' model-effort-heading-level-entering' : ''}`} style={{ '--effort-color': display.current.color } as CSSProperties}>{display.current.label}</span>
+      {display.outgoing && <span key={`out-${display.revision}`} className="model-effort-heading-level-item model-effort-heading-level-outgoing" style={{ '--effort-color': display.outgoing.color } as CSSProperties} aria-hidden="true"><span className={display.outgoing.level === 'ultra' ? 'model-effort-ultra-text' : undefined}>{display.outgoing.label}</span></span>}
+      <span key={`in-${display.revision}`} className={`model-effort-heading-level-item model-effort-heading-level-current${display.revision ? ' model-effort-heading-level-entering' : ''}`} style={{ '--effort-color': display.current.color } as CSSProperties}><span className={display.current.level === 'ultra' ? 'model-effort-ultra-text' : undefined}>{display.current.label}</span></span>
     </span>
   </span>;
 }
@@ -198,7 +199,7 @@ export function ModelEffortPicker({ model, models, favoriteModels, onFavorite, l
   return <div className="model-effort" ref={root}>
     <button ref={trigger} type="button" className="model-effort-trigger" aria-label={zh ? '模型与思考强度' : 'Model and thinking level'} aria-expanded={open} aria-haspopup="dialog" disabled={disabled} onClick={() => { setOpen(value => !value); setView('effort'); }}>
       <span className="model-effort-name">{modelName}</span>
-      {(level || model?.thinkingServiceDefault) && <span className="model-effort-level">{model?.thinkingServiceDefault ? zh ? '服务默认' : 'Service default' : effortLabel(level!, language)}</span>}
+      {(level || model?.thinkingServiceDefault) && <span className={`model-effort-level${level === 'ultra' && !model?.thinkingServiceDefault ? ' model-effort-ultra-text' : ''}`}>{model?.thinkingServiceDefault ? zh ? '服务默认' : 'Service default' : effortLabel(level!, language)}</span>}
     </button>
     {open && <div className={`model-effort-popover ${view}-view`} style={{ '--effort-color': effortColor } as CSSProperties} role="dialog" aria-label={zh ? '模型与思考强度' : 'Model and thinking level'}>
       <div className="model-effort-panel model-effort-effort-panel" inert={view !== 'effort'} aria-hidden={view !== 'effort'}>

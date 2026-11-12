@@ -1,5 +1,172 @@
 # Verification
 
+## Ultra CI 的迁移终态与 Remote 确认区（2026-11-12）
+
+`4daa344` 的 Windows 全组及 `CI result` 通过，macOS runtime 源码组
+通过。macOS sessions 源码组在 `verify-session-import.mjs:192` 失败：
+重复导入显示“跳过 1”后，立即读取列表第一条任务的 `aria-expanded`，
+实际为 `true`、严格期望 `false`。跳过结果计数可以先于任务终态更新；
+产品在 `job.status === 'running'` 时保持展开，这是预期行为。
+
+仅修正验收：以本次跳过摘要定位同一个任务，最多五秒等待它的触发器
+实际折叠，再保留严格 false 断言。未改产品、导入状态机、持久化、
+去重、数据内容或 CI 门禁，不重发导入，也不接受错误任务的折叠状态。
+新增三项夹具回归，旧脚本未满足契约；修正后与迁移测试合计 18/18 通过，
+类型检查及两轮完整原生迁移验收通过，包括不可变预览、重复保护、
+历史与原生续写、持久重启、分页、批量导入及自动快照。
+
+日志为 `Desktop/test-results/ultra-ci-import-*.log`，原云端失败为
+`ultra-ci-4daa344-macos-sessions-failure.log`。本地结果不能替代后续
+head 的 macOS 源码及包内验收，尚未宣称整轮 CI 修复完成；不绕过检查、
+合并 PR 或改动现用应用。仅新增小型测试及日志，没有新包或产物删除。
+
+同一 head 的计时验收在 macOS 源码、包内均通过；runtime 包内组另在
+Remote 解绑后等待“暂无已授权连接”满 30 秒超时。这个失败不能以
+增加等待时间解释。确认区本身有展开动画，验收现在复用 `settleLayout`
+等待实际确认按钮及父层动画稳定后只点击一次，同时保留原来的 30 秒
+解绑结果等待。失败补充脱敏连接/授权状态、确认区状态、UI 错误和截图；
+未修改解绑业务或直接调用 API 代替原 UI 操作。两项夹具测试确认动画
+未就绪不能点击、就绪失败不能重试；合并定向回归 149/149 通过。
+类型检查及两轮完整 Remote 原生验收也通过，日志为
+`ultra-ci-remote-confirm-fixed-*.log` 与 `ultra-ci-readiness-combined-final.log`。
+该包内原始超时仍未在本机复现，保留原失败日志
+`ultra-ci-4daa344-macos-runtime-failure.log`，后续云端结果独立判断。
+
+## Ultra CI 的计时验收交互边界（2026-11-12）
+
+`84e45b7` 的 Windows 全组及 `CI result` 通过，macOS 候选构建/协议、
+sessions 源码与包内组通过。macOS runtime 源码组在
+`verify-conversation-timing.mjs:90` 失败：悬停后时间戳透明度实际为
+`0`，严格期望 `1`。原云端没有记录 DOM 悬停及读取预览状态，不能据此
+断言具体根因；此前两处夹具与这个脚本也没有调用关系。
+
+计时夹具特意延迟真实 runtime 以验证历史先显示，但原本在完成悬停
+断言后才等待 runtime 就绪。保留历史计时断言在前，将原有的 60 秒
+交互就绪检查移到首次悬停之前，避免交互落在待替换的历史预览上。
+`settleLayout`、精确 `0/1` 透明度、计时数值、重载、主题、窄屏及
+实时冻结断言均保留，不修改产品或共享动画函数；失败补充预览、忙态、
+文档焦点及实际 DOM 悬停状态。
+
+执行原脚本真实交互片段的浏览器回归确认：忙态或预览任一未结束时
+不能开始悬停，永久就绪失败保留原异常且不触发悬停。完整 motion
+回归 20/20 通过，继续覆盖动画层等待及持久透明度错误负控；两轮完整
+原生计时验收通过。日志为 `Desktop/test-results/ultra-ci-timing-*.log`，
+云端失败原文为 `ultra-ci-84e45b7-macos-runtime-failure.log`。
+本机未复现原始 macOS 悬停失败，新 head 仍须单独完成两端云端验收；
+不将旧 head 的 Windows 通过当作新 head 全绿，不绕过或合并 PR。
+
+## Ultra CI 的 Remote 断开就绪与 ARM64 排队（2026-11-12）
+
+首轮夹具加固 `ffca523` 的 Windows interface、sessions 组通过，runtime
+组在 `verify-remote-access.mjs:573` 立即比较断开状态时失败：
+期望 `idle`、实际 `connected`。该脚本未调用命令派发夹具，本轮没有
+修改 Remote 产品实现；完整构建、类型检查、协议及上游回归仍通过。
+
+在隔离原生 IPC 中，仅为这一次 UI 断开请求增加 250ms 延迟后，旧即时
+断言复现相同失败；不加延迟的原脚本本机通过。保留有界延迟作为回归场景，
+点击后复用原脚本已有的 30 秒状态等待，必须实际达到 `idle` 且已保存
+标记为 false。原来的严格状态、加密凭据文件删除、子进程退出、拒绝
+未授权操作断言均保留，不重复发送断开、不改变产品时序或 CI 门禁。
+修正后 Remote 相关测试 101/101 通过，两轮完整原生 Remote 验收通过，
+包括真实隔离退出重启恢复。证据为
+`Desktop/test-results/ultra-ci-remote-{original,delayed-negative,delayed-fixed-*}.log`
+和 `ultra-ci-remote-regressions-fixed.log`。
+
+同一 head 的 macOS run `43213891480` 候选构建/协议通过，但三个验收
+组排队 15 分钟后全部取消：runner 名称为空、steps 为空，GitHub 注释为
+“The job was not acquired by Runner of type hosted even after multiple attempts”，
+并提示 macOS ARM64 容量受限。这不是脚本执行失败，也不是验收通过；
+先前命令派发问题的 macOS 结果仍未确认。新 head 的两端云端结果须
+另行检查，不用旧 head 或本地通过替代，不绕过或合并 PR。
+
+## Ultra 合并候选的命令派发夹具加固（2026-11-12）
+
+PR #236 的 `4ecc342` 在 macOS run `43205867019` 中，仅 interface
+源码验收的 `verify-command-dispatch.mjs` 失败：响应式 `/todos` 场景在
+`prepareDispatchInput` 等待输入不变、ARIA 关闭和补全菜单卸载时超时。
+Windows 全组及 macOS 构建、协议、sessions/runtime 源码与包内组通过；
+macOS 最终汇总失败由 interface 失败导致。该夹具来自同步的主线
+`f96733b`，不是 Ultra 对 Todo 业务的修改。
+
+本机原脚本通过；真实编辑器/菜单探针正常和模拟未激活窗口各运行
+40 次也未复现。因此不能断言原云端根因，以下是夹具的定向加固：
+填入文本后等待 ProseMirror 值、React 空值标记及输入焦点就绪，
+再等待匹配补全；Escape 发送给已聚焦输入，不通过 locator 隐式重聚焦。
+超时输出阶段、预期/实际文本、焦点、补全、主题、语言和视口。
+保留原异常、五秒期限、文本不变及菜单关闭/卸载条件，不重试失败，
+不修改产品、Todo 断言或 CI 路由/门禁。
+
+新增契约测试先在旧夹具上失败，修正后四份定向测试 28/28 通过；
+Desktop 类型检查、三次独立完整命令派发原生验收和完整输入框菜单
+原生验收通过。日志为 `Desktop/test-results/ultra-ci-*-fixed*.log`，
+原失败片段保留于 `ultra-ci-macos-command-failure.log`。这些 Windows
+本地结果不能代替新 head 的 macOS 源码与包内云端验收，推送时仍待确认。
+本轮仅修改测试夹具、回归测试和本记录，未重新打包、绕过检查或合并 PR。
+现有 dist 约 12.7 MiB、验收证据约 5.2 MiB；未新增大型包或删除产物。
+
+## Ultra 同步主线与冲突解决（2026-11-12）
+
+PR #236 正常合入主线 `ed7c6e4`，唯一文本冲突是本文件顶部并列
+新增的验收记录。双方新增内容和原有历史逐字核对保留，仅补齐节间空行；
+其余文件保持 Git 自动合并结果，没有额外手改生产代码、运行时锁定或
+CI 门禁。运行时管理适配层 `admin.mjs` 与 staged 副本的 SHA-256 一致。
+
+- 文档 pin/patch 契约、3 项文档检查测试、合并新增行冲突标记检查及
+  差异空白检查通过；Desktop 类型检查、生产构建和 45 项相关测试通过。
+- 重新运行模型选择器原生验收：Ultra 独立档位、紫色斜体流光、明暗
+  主题、390px 窄屏、推条共享进度及无障碍回退通过，三张截图已实看。
+- 重新运行完整供应商原生验收：发现、选择、首轮与工具续轮、刷新、
+  重启后显式打开原会话、手动映射及三种协议实际发送 Ultra 均通过。
+  仅使用隔离 profile 和受控本机 HTTP 端点，不证明真实供应商验收。
+
+本轮构建及两份原生验收日志为 `Desktop/test-results/ultra-main-sync-*.log`。
+旧提交 `5f11fe2` 的全量本地测试和 Windows/macOS 云 CI 结果仅属于原组合；
+本轮未手动重跑完整协议或全套云 CI，新 head 的自动 CI 结果以 PR 为准。
+未绕过检查、合并 PR、打包或修改现用 profile/快捷方式。
+已盘点独立源码约 316.9 MiB、重放目录 17.5 MiB、staged runtime
+124.1 MiB、Desktop dist 12.7 MiB 和验收证据 4.8 MiB，未经授权未删除。
+
+## Ultra 思考档位适配（2026-11-11）
+
+基于主线 `cb8852c`，保持运行时锁定在
+`29eb460780489801ce8afc8bffc1a2efae7cbded`，新增独立的 `ultra` 档位。
+上游显式声明或手动配置后才提供，排序在 `max` 之上；不与 `max`
+互换，不启用 UltraCode 或自动委派，也不保证每次请求消耗更多 Token。
+未声明模型、未知思考控制和 Anthropic 非 adaptive 配置保留既有行为。
+上下文容量发现逻辑未更改，不补猜上游没有返回的元数据。
+
+- 发现、保存、手动发送值映射、管理进程草稿选项、待应用选择、运行时
+  类型与配置校验均已适配；混有未来未知字符串时保留已识别的声明，
+  保存配置仍严格拒绝未知档位。
+- 原生 Electron 供应商验收通过：从真实界面选择 Ultra、首轮及工具
+  续轮发包、供应商刷新、退出重启后显式打开原会话、手动添加 Ultra，
+  以及三种协议的精确字段。分别核对 `reasoning_effort`、
+  `reasoning.effort` 和显式 adaptive 下的 `output_config.effort`。
+  继续覆盖有密钥/无需密钥、真实工具、隔离保存、忙时延迟应用和禁用。
+- 完整模型选择器验收通过：紫色最高档、斜体流光、明暗对比度、
+  390px 窄屏、减少动态效果及高对比度回退。保留当前主线收藏、
+  键盘/IME、待应用选择与推条共享进度动画；Ultra 全程推条采样最大
+  填充/滑块偏差小于 0.01px。三张 Ultra 截图已实看。
+- 类型检查、最终生产构建通过。根目录 67 项中 66 通过、1 项既有平台
+  跳过；五份相关测试共 45 项通过，上游四份测试共 293 项通过。
+  上游全量类型检查、离线构建和干净源码完整补丁重放通过；
+  staging 的 72/72 份源码哈希匹配，Node 为 24.16.0。
+- 修正管理适配层后的完整协议最终重跑 234/234 文件通过，
+  `complete:true`；2,366 项中 2,352 通过、14 项既有跳过，无失败或取消。
+  最终逐文件证据位于 `Desktop/test-results/protocol-ultra-final/`。
+
+证据保留于独立工作树的 `Desktop/test-results/ultra-*.log`、
+`model-effort-ultra-*.png`，以及独立运行时构建目录
+`D:\Desktop Runtime Builds\ultra-effort-20261111`。
+初轮发包失败暴露管理进程仍只列到 max，已补齐并新增原生回归；
+随后重启断言误读空白草稿，已改为实际打开原会话验证。失败记录均保留，
+供应商最终通过记录为 `ultra-custom-providers-r5.log`。
+
+本轮仅使用本机受控 HTTP 端点，不代表真实供应商、真实账户或 macOS
+验收；预算型接口沿用 high 的既有预算回退，不虚构 Ultra 数字预算。
+未打包、修改现用 profile/快捷方式、合并或发布。已盘点独立源码、
+重放目录、staged runtime、Desktop dist 和验收证据，未经授权未删除。
+
 ## Remote 主线冲突同步（2026-11-11）
 
 听写修复 `884663f` 推送后，#223 因 `main ed018f1` 新增验收记录而
@@ -321,6 +488,7 @@ plus three immutable runtime-directory links per build. No installer was
 produced and no historical package was deleted. The owner's checkout, running
 client, profile, Remote binding and shortcut remain unchanged. This evidence
 does not establish native macOS, installer, real-model or release acceptance.
+
 ## 主线同步与 Hermes 全新安装验收（2026-11-11）
 
 将通用本机接入与插件连接引导合入当前分支，并正常合并主线

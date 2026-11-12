@@ -1,5 +1,37 @@
 # Verification
 
+## Ultra CI 的迁移终态与 Remote 确认区（2026-11-12）
+
+`4daa344` 的 Windows 全组及 `CI result` 通过，macOS runtime 源码组
+通过。macOS sessions 源码组在 `verify-session-import.mjs:192` 失败：
+重复导入显示“跳过 1”后，立即读取列表第一条任务的 `aria-expanded`，
+实际为 `true`、严格期望 `false`。跳过结果计数可以先于任务终态更新；
+产品在 `job.status === 'running'` 时保持展开，这是预期行为。
+
+仅修正验收：以本次跳过摘要定位同一个任务，最多五秒等待它的触发器
+实际折叠，再保留严格 false 断言。未改产品、导入状态机、持久化、
+去重、数据内容或 CI 门禁，不重发导入，也不接受错误任务的折叠状态。
+新增三项夹具回归，旧脚本未满足契约；修正后与迁移测试合计 18/18 通过，
+类型检查及两轮完整原生迁移验收通过，包括不可变预览、重复保护、
+历史与原生续写、持久重启、分页、批量导入及自动快照。
+
+日志为 `Desktop/test-results/ultra-ci-import-*.log`，原云端失败为
+`ultra-ci-4daa344-macos-sessions-failure.log`。本地结果不能替代后续
+head 的 macOS 源码及包内验收，尚未宣称整轮 CI 修复完成；不绕过检查、
+合并 PR 或改动现用应用。仅新增小型测试及日志，没有新包或产物删除。
+
+同一 head 的计时验收在 macOS 源码、包内均通过；runtime 包内组另在
+Remote 解绑后等待“暂无已授权连接”满 30 秒超时。这个失败不能以
+增加等待时间解释。确认区本身有展开动画，验收现在复用 `settleLayout`
+等待实际确认按钮及父层动画稳定后只点击一次，同时保留原来的 30 秒
+解绑结果等待。失败补充脱敏连接/授权状态、确认区状态、UI 错误和截图；
+未修改解绑业务或直接调用 API 代替原 UI 操作。两项夹具测试确认动画
+未就绪不能点击、就绪失败不能重试；合并定向回归 149/149 通过。
+类型检查及两轮完整 Remote 原生验收也通过，日志为
+`ultra-ci-remote-confirm-fixed-*.log` 与 `ultra-ci-readiness-combined-final.log`。
+该包内原始超时仍未在本机复现，保留原失败日志
+`ultra-ci-4daa344-macos-runtime-failure.log`，后续云端结果独立判断。
+
 ## Ultra CI 的计时验收交互边界（2026-11-12）
 
 `84e45b7` 的 Windows 全组及 `CI result` 通过，macOS 候选构建/协议、

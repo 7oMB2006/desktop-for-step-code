@@ -569,7 +569,20 @@ try {
   await panel.getByRole('heading', { name: '暂无已授权连接' }).waitFor();
   assert.equal((await state()).binding, undefined);
   await page.getByRole('tab', { name: '运行状态', exact: true }).click();
+  // Delayed native IPC must not turn a completed click into a false disconnect failure.
+  await app.evaluate(({ ipcMain }) => {
+    const handler = ipcMain._invokeHandlers.get('desktop');
+    ipcMain.removeHandler('desktop');
+    ipcMain.handle('desktop', async (event, method, ...args) => {
+      if (method === 'remoteAction' && args[0]?.type === 'disconnect') {
+        ipcMain.removeHandler('desktop'); ipcMain.handle('desktop', handler);
+        await new Promise(resolve => setTimeout(resolve, 250));
+      }
+      return handler(event, method, ...args);
+    });
+  });
   await button('断开连接').click(); await button('确认').click();
+  await waitState(current => current.status === 'idle' && current.saved === false);
   assert.equal((await state()).status, 'idle');
   await assert.rejects(readFile(join(profile, 'remote/connection.dpapi')), { code: 'ENOENT' });
   await app.evaluate(async () => {

@@ -1,5 +1,29 @@
 # Verification
 
+## Ultra CI 的 Remote 断开就绪与 ARM64 排队（2026-11-12）
+
+首轮夹具加固 `ffca523` 的 Windows interface、sessions 组通过，runtime
+组在 `verify-remote-access.mjs:573` 立即比较断开状态时失败：
+期望 `idle`、实际 `connected`。该脚本未调用命令派发夹具，本轮没有
+修改 Remote 产品实现；完整构建、类型检查、协议及上游回归仍通过。
+
+在隔离原生 IPC 中，仅为这一次 UI 断开请求增加 250ms 延迟后，旧即时
+断言复现相同失败；不加延迟的原脚本本机通过。保留有界延迟作为回归场景，
+点击后复用原脚本已有的 30 秒状态等待，必须实际达到 `idle` 且已保存
+标记为 false。原来的严格状态、加密凭据文件删除、子进程退出、拒绝
+未授权操作断言均保留，不重复发送断开、不改变产品时序或 CI 门禁。
+修正后 Remote 相关测试 101/101 通过，两轮完整原生 Remote 验收通过，
+包括真实隔离退出重启恢复。证据为
+`Desktop/test-results/ultra-ci-remote-{original,delayed-negative,delayed-fixed-*}.log`
+和 `ultra-ci-remote-regressions-fixed.log`。
+
+同一 head 的 macOS run `43213891480` 候选构建/协议通过，但三个验收
+组排队 15 分钟后全部取消：runner 名称为空、steps 为空，GitHub 注释为
+“The job was not acquired by Runner of type hosted even after multiple attempts”，
+并提示 macOS ARM64 容量受限。这不是脚本执行失败，也不是验收通过；
+先前命令派发问题的 macOS 结果仍未确认。新 head 的两端云端结果须
+另行检查，不用旧 head 或本地通过替代，不绕过或合并 PR。
+
 ## Ultra 合并候选的命令派发夹具加固（2026-11-12）
 
 PR #236 的 `4ecc342` 在 macOS run `43205867019` 中，仅 interface

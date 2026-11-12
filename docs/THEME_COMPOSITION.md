@@ -5,8 +5,9 @@ and the [installable v2 starter](../examples/plugins/theme-starter/README.md).
 
 This source contract requires a DFSC host containing the composition support.
 It does not make previously released clients understand new theme formats.
-This phase provides a bounded theme/background framework, not the complete
-personal image-import library or background-editing plugin.
+The composition contract is separate from personal image storage and editing.
+The companion [Custom Background package](../theme-marketplace/plugins/custom-background/README.md)
+selects a fixed host adapter; it does not grant plugin code execution.
 
 ## Ownership
 
@@ -104,7 +105,7 @@ one workspace background slot, not a generic scene graph.
 3. A replacement takes effect only when its supported provider type is listed
    in the theme's `accepts`.
 4. An incompatible request retains the default background. Keep the requested
-   choice distinct from the effective choice so a future editor can preserve
+   choice distinct from the effective choice so the editor can preserve
    the user's image and parameters rather than silently discarding them.
 5. Only one renderer owns the slot. Replacing a scene releases it; the old
    canvas must not continue running invisibly beneath an image.
@@ -120,6 +121,21 @@ A declaration is an opt-in composition contract, not a guarantee that every
 image is attractive or readable with every skin. Host reading surfaces and
 theme-specific visual acceptance are still required. Do not use global element
 opacity or blur that also affects text, controls, semantic colors or focus rings.
+
+With an active, decoded personal image, the host's `standard-v1` adapter offers
+independent conversation, composer, left-sidebar and right-panel transparency
+and backing-plane blur. These controls do not change palette tokens, foreground
+opacity, code surfaces, menus or approval dialogs. They are removed when the
+image is unavailable, disabled, uninstalled or incompatible. The `stellar-v1`
+skin retains its own materials even when it accepts `image-v1`; opening a
+background slot does not authorize overriding that skin. No new manifest
+capability or executable styling is implied by these host-owned controls.
+
+The conversation material covers the entire main workspace, including composer
+gutters, status footer and reserved space below the summary, in both main and
+MiniChat windows. Composer and summary transparency control their additional
+tint over that reading surface; 100% removes the control's tint, not the reading
+surface beneath it. Nested controls do not blur the same glass twice.
 
 ## Lifecycle and Input
 

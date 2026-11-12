@@ -79,6 +79,11 @@ const bridge: DesktopBridge = {
   themeScene: id => invoke('themeScene', id),
   themePoster: id => invoke('themePoster', id),
   themeImage: id => invoke('themeImage', id),
+  customBackgroundState: () => invoke('customBackgroundState'),
+  customBackgroundImage: revision => invoke('customBackgroundImage', revision),
+  customBackgroundImport: ref => invoke('customBackgroundImport', ref),
+  customBackgroundSave: input => invoke('customBackgroundSave', input),
+  customBackgroundRemove: ref => invoke('customBackgroundRemove', ref),
   capabilityMutate: input => invoke('capabilityMutate', input),
   capabilityImportSkill: () => invoke('capabilityImportSkill'),
   bvrConfiguration: () => invoke('bvrConfiguration'),
@@ -203,6 +208,7 @@ const bridge: DesktopBridge = {
 contextBridge.exposeInMainWorld('desktop', bridge);
 const theme: DesktopTheme = {
   themePacks: resolvedTheme.themePacks,
+  customBackground: resolvedTheme.customBackground,
   themeMotion: resolvedTheme.themeMotion,
   themeBrightness: resolvedTheme.themeBrightness,
   preference: resolvedTheme.preference,

@@ -8,6 +8,7 @@ import { join, resolve } from 'node:path';
 import assert from 'node:assert/strict';
 import { assertPersistentTurnStatus } from './turn-status-assertions.mjs';
 import { observeGoalClear, launchFailureDiagnostics, restoreGoalClearObservation } from './launch-failure-diagnostics.mjs';
+import { waitForLaunchProviderRequest } from './launch-provider-fixture.mjs';
 
 const requests = [];
 const streams = new Set();
@@ -119,11 +120,13 @@ try {
   }, png);
   await page.locator('.attachments .attachment-card').waitFor();
   const input = page.getByRole('textbox', { name: '消息', exact: true });
+  const goalRequestIndex = requests.length;
   await input.fill('核验这个图片，并完成本地测试目标。');
   await input.press('Enter');
   await page.waitForFunction(() => document.querySelector('.launch-status-pulse')?.getAttribute('data-goal-state') === 'active', undefined, { timeout: 60000 });
   await page.locator('.messages .message.user img').waitFor();
-  assert.ok(requests.some(request => JSON.stringify(request.messages).includes('image_url')), 'Goal attachments reach the model');
+  const goalRequest = await waitForLaunchProviderRequest(requests, goalRequestIndex);
+  assert.ok(JSON.stringify(goalRequest.messages).includes('image_url'), 'Goal attachments reach the model');
   snapshot = await page.evaluate(() => window.desktop.snapshot());
   const sessionId = snapshot.state.sessionId, runtimeId = snapshot.runtimeId;
   assert.equal(snapshot.launch.goalArmed, false);
@@ -393,6 +396,7 @@ try {
   console.log('Launch modes: real Goal RPC/SSE, attachments, draft arming, pulse management, pause/resume/edit/budget/complete/clear, single-task Ultracode, queue steering without inherited consent, light/dark and narrow UI passed.');
 } catch (error) {
   const page = await app.firstWindow().catch(() => undefined);
+  console.error('Launch provider request count:', requests.length);
   console.error('Launch failure diagnostic:', JSON.stringify(await launchFailureDiagnostics(app, page)));
   throw error;
 } finally {

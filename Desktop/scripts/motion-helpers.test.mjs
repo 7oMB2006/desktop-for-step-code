@@ -117,6 +117,88 @@ test('session search acceptance waits for sidebar entrance and still rejects per
   }
 });
 
+test('conversation timing acceptance waits for timestamp and parent fades but rejects persistent opacity', { timeout: 15000 }, async () => {
+  const source = ts.createSourceFile('verify-conversation-timing.mjs',
+    await readFile(new URL('./verify-conversation-timing.mjs', import.meta.url), 'utf8'),
+    ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
+  const body = source.statements.find(ts.isTryStatement)?.tryBlock.statements;
+  assert.ok(body);
+  const hover = body.findIndex(statement =>
+    statement.getText(source) === "await page.locator('.assistant-actions').hover();");
+  const assertion = body.findIndex((statement, index) => index > hover
+    && statement.getText(source).startsWith("assert.equal(await page.locator('.assistant-actions .message-time')")
+    && statement.getText(source).endsWith("'1');"));
+  assert.ok(hover >= 0 && assertion > hover, 'Exercise the verifier hover and strict final-opacity assertion');
+  const statements = body.slice(hover, assertion + 1).map(statement => statement.getText(source)).join('\n');
+  assert.ok(statements.includes('await settleLayout('), 'The native verifier must settle before measuring opacity');
+  const inspect = new Function('page', 'messageTime', 'settleLayout', 'assert',
+    `return (async () => { ${statements} })();`);
+  const css = await readFile(new URL('../src/layout.css', import.meta.url), 'utf8');
+  for (const heldTarget of ['timestamp', 'parent']) {
+    const page = await browser.newPage({ viewport: { width: 900, height: 400 } });
+    try {
+      await page.setContent(`<style>
+        ${css}
+        * { box-sizing: border-box; }
+        body { margin: 0; }
+        .message { width: 500px; margin: 40px 0 0 180px; padding: 20px; }
+        .assistant-footer-row { display: flex; }
+      </style><article class="message assistant"><div class="assistant-footer-row">
+        <div class="message-actions assistant-actions"><button>Copy</button>
+          <span class="message-time">12:30</span><span class="elapsed-total">1m 23s</span>
+        </div>
+      </div></article>`);
+      const messageTime = page.locator('.assistant-actions .message-time');
+      await page.locator('.assistant-actions').evaluate((element, heldTarget) => {
+        const timestamp = element.querySelector('.message-time');
+        getComputedStyle(element).opacity;
+        getComputedStyle(timestamp).opacity;
+        // Capture real :hover transitions before a protocol round trip can
+        // outlast them, then hold only the layer under test at a middle frame.
+        element.addEventListener('pointerover', () => {
+          getComputedStyle(timestamp).opacity;
+          const effects = [element, timestamp].map(target => target.getAnimations().find(animation =>
+            animation instanceof CSSTransition && animation.transitionProperty === 'opacity'));
+          if (effects.some(effect => !effect)) throw new Error('Both real footer opacity transitions must exist');
+          const held = effects[heldTarget === 'parent' ? 0 : 1];
+          for (const effect of effects) {
+            if (effect === held) { effect.pause(); effect.currentTime = 75; }
+            else effect.finish();
+          }
+          globalThis.timingFade = held;
+          globalThis.timingFadeTarget = heldTarget === 'parent' ? element : timestamp;
+        }, { once: true });
+      }, heldTarget);
+      let entered;
+      const waiting = new Promise(resolve => { entered = resolve; });
+      let measured = false;
+      const pending = inspect(page, messageTime, async locator => {
+        entered();
+        await settleLayout(locator);
+      }, assert).then(() => { measured = true; return { ok: true }; }, error => ({ error }));
+      const started = await Promise.race([waiting.then(() => true), pending.then(() => false)]);
+      assert.equal(started, true, 'The native verifier must reach its layout wait');
+      const middle = await page.evaluate(() => ({
+        opacity: Number(getComputedStyle(globalThis.timingFadeTarget).opacity),
+        state: globalThis.timingFade.playState, duration: globalThis.timingFade.effect.getTiming().duration,
+      }));
+      assert.equal(middle.state, 'paused');
+      assert.equal(middle.duration, 150);
+      assert.ok(middle.opacity > 0 && middle.opacity < 1, 'The held effect must be a real intermediate fade');
+      await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+      assert.equal(measured, false, `The ${heldTarget} fade must settle before final opacity is measured`);
+      await page.evaluate(() => globalThis.timingFade.play());
+      const outcome = await pending;
+      assert.ifError(outcome.error);
+      assert.equal(outcome.ok, true);
+      await page.addStyleTag({ content: '.assistant-actions .message-time { opacity: .5 !important; }' });
+      await assert.rejects(inspect(page, messageTime, settleLayout, assert), error =>
+        error instanceof assert.AssertionError && error.actual === '0.5' && error.expected === '1',
+      'A permanently half-transparent timestamp must still fail after settling');
+    } finally { await page.close(); }
+  }
+});
+
 test('layout settling waits for ancestor pseudo-element track motion before measuring a nested form', { timeout: 5000 }, async () => {
   const page = await browser.newPage();
   try {

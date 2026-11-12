@@ -34,8 +34,9 @@ export function hasStellarUi(pack: ThemePack | undefined): boolean {
   return Boolean(pack && themeComposition(pack).ui === 'stellar-v1');
 }
 
-export function resolveThemeBackground(pack: ThemePack, requested?: 'image-v1') {
-  const composition = themeComposition(pack);
+export function resolveThemeBackground(pack: ThemePack | undefined, requested?: 'image-v1') {
+  const composition: ThemeComposition = pack ? themeComposition(pack)
+    : { ui: 'standard-v1', background: { renderer: 'solid-v1' }, accepts: ['image-v1'] };
   const overridden = requested !== undefined && composition.accepts.includes(requested);
   return {
     renderer: overridden ? requested : composition.background.renderer,

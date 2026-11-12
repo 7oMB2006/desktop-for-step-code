@@ -8,6 +8,7 @@ import { assertFocusVisible } from './assert-focus-visible.mjs';
 import { closeDesktopFixtureAndWait } from './close-desktop-fixture.mjs';
 import { settleLayout } from './settle-layout.mjs';
 import { waitForSessionFixtureSnapshot } from './session-fixture.mjs';
+import { verifyFirstRunExit } from './first-run-exit-checks.mjs';
 
 const output = resolve('test-results/first-run-native');
 await mkdir(output, { recursive: true });
@@ -179,6 +180,8 @@ Object.defineProperty(globalThis, 'fetch', { configurable: true, get: () => rout
   }), address);
 };
 try {
+  await verifyFirstRunExit(output);
+  if (!process.argv.includes('--exit-only')) {
   mark('fresh profile, real production entry and interrupted setup');
   const root = await profile();
   await launch(root);
@@ -437,6 +440,7 @@ try {
   assert.deepEqual(errors, []);
   assert.deepEqual(transportErrors, []);
   console.log('Production first-run lifecycle, native chooser, saved provider, permissions, model handoff and loopback first send passed.');
+  }
 } catch (error) {
   console.error(`First-run failure during ${phase}`);
   if (page && !page.isClosed()) {

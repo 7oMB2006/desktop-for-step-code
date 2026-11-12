@@ -170,6 +170,10 @@ export const localOnly = [
   'verify-theme-packs.mjs',
   'verify-theme-workspace.mjs',
   'verify-theme-composition-electron.mjs',
+  // Personal-image editor/rendering matrices and isolated native import lifecycle.
+  'verify-custom-background-settings.mjs',
+  'verify-custom-background-rendering.mjs',
+  'verify-custom-background-electron.mjs',
   // Requires an explicitly prepared isolated Electron build and runtime.
   'verify-theme-pack-electron.mjs',
   'verify-stellar-pencil.mjs',

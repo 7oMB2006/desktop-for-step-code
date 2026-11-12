@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { closeDesktopFixture } from './close-desktop-fixture.mjs';
 import { captureWaapi } from './capture-waapi.mjs';
+import { waitForSessionFixtureSnapshot } from './session-fixture.mjs';
 
 const profile = await mkdtemp(join(tmpdir(), 'step-task-progress-'));
 const workspace = join(profile, 'workspace');
@@ -200,6 +201,9 @@ try {
   assert.equal(await trigger.getAttribute('aria-expanded'), 'false');
   await trigger.click();
   await history.getByRole('button', { name: /验证并归档/ }).waitFor();
+  await page.locator('.conversation .message.assistant .response-text').getByText('确认。', { exact: true }).waitFor();
+  await waitForSessionFixtureSnapshot(page, snapshot => snapshot.state?.isStreaming === false,
+    'the confirmation turn to finish');
   await page.waitForFunction(() => document.querySelector('.conversation')?.getAttribute('aria-busy') === 'false');
   await page.screenshot({ path: 'test-results/task-history-electron.png' });
   await page.reload();
@@ -209,6 +213,8 @@ try {
   assert.equal(await trigger.getAttribute('aria-expanded'), 'false');
   assert.equal(await progress.count(), 0, 'Reload reconstructs history from persisted runtime/message records');
   assert.equal(nextTurnRequests, 1, 'The next turn uses its own scenario rather than replaying the task tool');
+  assert.equal(taskUpdateRequests, 1, 'The next turn must not replay the completed task command');
+  assert.equal(taskSummaryRequests, 1, 'The next turn must not replay the prior task summary');
   assert.deepEqual(errors, []);
   console.log('Real Electron task progress verified: runtime tasks, round event, sound/impact/sweep, next-turn retirement, history and renderer reload.');
 } catch (error) {

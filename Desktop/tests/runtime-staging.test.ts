@@ -178,8 +178,11 @@ test('runtime packaging and standalone worker helpers use the current integratio
 
 test('the Desktop-only compile-cache extension is staged and launched without changing the upstream entry', async () => {
   const stage = await readFile(resolve('scripts/stage-runtime.mjs'), 'utf8');
+  const verification = await readFile(resolve('scripts/build-plugin-center-verification.mjs'), 'utf8');
   const main = await readFile(resolve('electron/main.ts'), 'utf8');
   assert.ok(stage.includes("cp('electron/runtime-compile-cache.mjs', join(runtime, 'runtime-compile-cache.mjs'))"));
+  assert.ok(verification.includes("'runtime-compile-cache.mjs'"));
+  assert.ok(verification.includes("input: ['index.html', 'tray-menu.html']"));
   assert.ok(main.includes("NODE_COMPILE_CACHE: join(dataRoot, 'compile-cache')"));
   assert.ok(main.includes("'--extension', join(runtimeRoot, 'runtime-compile-cache.mjs')"));
   assert.ok(stage.includes("entry: 'step/dist/bundle/step.js'"));

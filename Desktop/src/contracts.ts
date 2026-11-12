@@ -54,6 +54,7 @@ export type BackgroundLaneActivity = { status: 'known'; lanes: BackgroundLaneSum
 export interface RuntimeSummary { runtimeId: string; sessionId: string; cwd: string; name?: string; firstMessage?: string; backgroundCount?: number; background?: BackgroundLaneActivity; status: 'idle' | 'running' | 'waiting' | 'failed' | 'completed' | 'interrupted' }
 export interface Preferences { themeMotion?: boolean; themeBrightness?: number }
 export interface Snapshot { themePacks?: import('./theme-packs').ThemePack[] }
+export interface Snapshot { customBackground?: import('./custom-background').CustomBackgroundState }
 export interface Snapshot { preferences: Preferences; status: string; providerSettingsPending?: boolean; draftId?: string; runtimeId?: string; runtimeRevision?: number; runtimes?: RuntimeSummary[]; unreadSessionIds?: string[]; requests?: UIRequest[]; state?: RuntimeState; modelSelection?: ModelSelection; modelChanges?: ModelChange[]; permissionPreset?: PermissionPreset; launch?: LaunchState; messages: Message[]; models: Model[]; sessions: Session[]; independent?: boolean; stats?: SessionStats; pendingMessages?: PendingMessage[] }
 export interface Profile { id: string; title: string; description: string; credentialSource: string }
 export interface Account { loggedIn: boolean; validity: string; profile?: string; account?: string; userId?: string }
@@ -135,6 +136,11 @@ export interface DesktopBridge extends SessionImportBridge, BtwBridge, Backgroun
   themeScene(id: string): Promise<import('./theme-packs').StellarScene>;
   themePoster(id: string): Promise<string | undefined>;
   themeImage(id: string): Promise<import('./theme-packs').ThemeImage>;
+  customBackgroundState(): Promise<import('./custom-background').CustomBackgroundState>;
+  customBackgroundImage(revision: string): Promise<import('./theme-packs').ThemeImage>;
+  customBackgroundImport(ref: string): Promise<import('./custom-background').CustomBackgroundState | null>;
+  customBackgroundSave(input: { ref: string; patch: Partial<import('./custom-background').BackgroundOptions> }): Promise<import('./custom-background').CustomBackgroundState>;
+  customBackgroundRemove(ref: string): Promise<import('./custom-background').CustomBackgroundState>;
   capabilityMutate(input: import('./capabilities').CapabilityMutation): Promise<import('./capabilities').CapabilityResult>;
   capabilityImportSkill(): Promise<import('./capabilities').CapabilityResult | null>;
   bvrConfiguration(): Promise<import('./bvr-settings').BvrConfiguration>;
@@ -299,6 +305,7 @@ export interface RepositoryFileDiff {
   reason?: 'binary' | 'too-large' | 'unsupported' | 'no-text-change' | 'changed' | 'sensitive';
 }
 export interface DesktopTheme {
+  customBackground?: import('./custom-background').CustomBackgroundState;
   themePacks?: import('./theme-packs').ThemePack[];
   themeMotion?: boolean;
   themeBrightness?: number;

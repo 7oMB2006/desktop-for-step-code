@@ -59,7 +59,7 @@ const server = createServer(async (req, res) => {
     } else if (task === 'WORKFLOW-PARENT' && !body.messages.slice(userIndex + 1).some(message => message.role === 'tool')) {
       assert.ok(body.tools.some(tool => tool.function?.name === 'workflow'));
       const model = `${providerId}/fixture-workflow`;
-      const options = JSON.stringify({ model, retries: 1 });
+      const options = JSON.stringify({ model, retries: 1, agentType: 'explore' });
       const script = `const outputs = await parallel([() => agent("WORKFLOW-CHILD-A", ${options}), () => agent("WORKFLOW-CHILD-B", ${options})]); return await agent("WORKFLOW-FINAL " + JSON.stringify(outputs), ${options});`;
       send({ tool_calls: [{ index: 0, id: 'workflow-call', type: 'function',
         function: { name: 'workflow', arguments: JSON.stringify({ script, agentTimeoutMs: 30000 }) } }] });
@@ -208,6 +208,7 @@ try {
   assert.equal(saved.status, 'completed');
   assert.equal(saved.agents.length, 3);
   assert.ok(saved.agents.every(agent => agent.status === 'completed'));
+  assert.ok(saved.agents.every(agent => agent.agentType === 'explore'), 'real workflow progress includes the execution role');
   const sessionId = finished.state.sessionId;
   const requestCount = requests.length;
   await closeDesktopFixtureAndWait(app);

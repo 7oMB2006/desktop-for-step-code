@@ -17,6 +17,23 @@ const progress = { schemaVersion: 1, runId: 'wf_test', name: 'inline', status: '
 const final = { schemaVersion: 1, runId: 'wf_test', name: 'inline', status: 'completed', startedAt: 100,
   finishedAt: 200, agentCalls: 2, spentTokens: 50 };
 
+test('workflow roles are bounded, redacted and retained through final results, never inferred from labels', () => {
+  const previous = preserveWorkflow(undefined, resultMessage({ ...progress, agents: [
+    { ...progress.agents[0], agentType: 'explore' }, { ...progress.agents[1], label: 'review' },
+  ] }));
+  assert.deepEqual(previous.desktopWorkflow?.agents.map(agent => agent.agentType), ['explore', undefined]);
+  const state = preserveWorkflow(previous, resultMessage({ ...final, status: 'failed', failures: [
+    { id: 'a', status: 'failed' },
+  ] })).desktopWorkflow!;
+  assert.equal(state.agents[0].agentType, 'explore');
+  for (const [agentType, expected] of [[42, undefined], ['', undefined], ['x'.repeat(101), 'x'.repeat(100)]]) {
+    assert.equal(projectWorkflow({ ...progress, agents: [{ ...progress.agents[0], agentType }] }, 'call')?.agents[0].agentType, expected);
+  }
+  assert.doesNotMatch(projectWorkflow({ ...progress, agents: [
+    { ...progress.agents[0], agentType: 'API_KEY=private' },
+  ] }, 'call')!.agents[0].agentType!, /private/);
+});
+
 const failure = { id: 'b', status: 'failed', error: { code: 'NODE_FAILED', message: 'Invalid request', retryable: false } };
 const callback = { script: 'child.js', primitive: 'parallel', index: 1, message: 'Callback rejected' };
 const failureResult = { ...final, status: 'partial_failed', summary: { total: 2, completed: 1, failed: 1, failedCallbacks: 1 },

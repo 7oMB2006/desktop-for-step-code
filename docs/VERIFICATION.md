@@ -14352,6 +14352,118 @@ window. No installer, public release, cloud CI, native macOS, real-account or
 Hermes/Feishu business-flow acceptance is claimed by this local source record.
 No live-model inference or active-model-task continuity was exercised.
 
+## Ultracode Role Icons (2026-11-11)
+
+Ultracode overview rows and agent details now share the background-task role
+icons. Role identity comes from the workflow's explicit `agentType`, not its
+task label or prompt. New runtime progress includes the default `general`
+role; legacy records without role metadata keep a generic icon with an
+unknown-role description. Custom roles retain their name and generic icon.
+State icons remain separate.
+
+The transcript follow-up also replaces the generic icon on ordinary subagent
+rows with the shared role icon. Inline Ultracode summaries show up to six role
+groups with counts and an overflow entry, all opening the existing overview.
+They do not infer roles from task labels. The production transcript fixture
+checks grouping, role/state coexistence and navigation into overview and
+ordinary subagent detail in the same 12 viewport/theme/language combinations.
+The follow-up passed typecheck, build and 43 conversation/workflow tests.
+
+Local verification on the `ed018f1` baseline:
+
+- Desktop typecheck and production build passed.
+- Workflow projection, background-agent and staging tests passed: 50 tests.
+- Pinned runtime workflow tests passed: 63 tests, using injected runners.
+- The complete v0.1.7 integration patch sequence replayed successfully with
+  the new role patch and matching source hashes.
+- `node scripts/verify-workflow-roles.mjs` passed 12 light/dark, zh/en and
+  1280/520/360-pixel combinations for overview/detail icons and row layout.
+  Screenshots are in `Desktop/test-results/workflow-role*.png`.
+
+Final source verification after merging main `cb8852c`:
+
+- Desktop typecheck and production build passed, with existing build warnings.
+- The focused conversation, workflow, background-agent and staging run passed
+  74 tests. Pinned runtime workflow tests passed 63 tests.
+- CI policy/inventory tests passed 66 tests with one platform skip.
+- The production-component browser matrix passed all 12 combinations again.
+  Desktop and narrow transcript screenshots were inspected.
+- Fresh runtime staging passed against the pinned patched source. The native
+  `verify-workflow-runtime.mjs` passed actual RPC parallel/chain execution,
+  explicit role propagation, restart hydration, stop/drain/resume, replay,
+  forced-crash recovery, partial failure/selective retry and HTTP 429 recovery.
+  Inference requests used only the controlled loopback model fixture.
+- `verify-workflow.mjs` passed role icons, overview/detail navigation, retained
+  final snapshots, failure/retry/recovery, reload, light/dark/narrow/English
+  and session isolation. `verify-subagent-status.mjs` passed status animation,
+  stable layout, history, themes, narrow/reduced-motion and click-toggle.
+- `git diff --check` passed.
+
+Earlier local setup attempts are not passing evidence. Missing dependency
+links initially blocked staging. The first native RPC run then found missing
+role metadata: the isolated CLI dependency junction resolved an older shared
+coding-agent build. Only the task-owned CLI dependency layout was corrected
+to resolve the patched local coding-agent; fresh staging and the complete
+native RPC rerun then passed. Shared upstream source was not modified.
+The failed screenshot remains `Desktop/test-results/workflow-runtime-failed.png`;
+final UI and crash-recovery screenshots are alongside the role matrix evidence.
+
+Rebuildable artifacts were inventoried, not deleted: the task-owned D: runtime
+is approximately 124 MiB, Node tooling 88 MiB, coding-agent dist 26 MiB and CLI
+dist 4 MiB; `Desktop/dist` is approximately 13 MiB. The existing fixture preview
+remains on port 5187; no native acceptance process is intentionally retained.
+No installer, running-app replacement, shortcut change, cloud CI result,
+native macOS or real-model acceptance is claimed.
+
+### CI Follow-Up (2026-11-13)
+
+PR #235's original Windows jobs passed, as did the macOS role-icon browser
+matrix, runtime and session groups. The macOS interface job in run
+`43034461083` failed in the existing speech backpressure acceptance, not a role
+assertion. Artifact `13864906474`, `speech/failure-diagnostic.json`, records
+300,800 voiced PCM samples after the 35-second wall-clock wait, with no
+renderer, transport or native audio errors. That is only 18.8 seconds at
+16 kHz: one in-flight phrase and four pending four-second phrases require
+the sixth phrase, or 384,000 samples, to exercise the existing queue guard.
+
+The initial local correction waited for real PCM rather than a 35-second
+wall-clock assumption. It passed the full Windows speech acceptance at
+384,000 voiced samples after 24,039 ms, but is superseded by the later main
+sync below. An earlier diagnostic run failed later at logout with
+`Runtime process-tree termination failed (1)` and is not a passing full run.
+These records remain in `windows-after` and `windows-before`, respectively.
+
+Main `affe0da` already includes the independent speech fix from #223.
+This branch now retains that verifier unchanged: native synthetic audio proves
+continuous ASR, while controlled PCM at the capture boundary proves that four
+queued phrases remain allowed and the sixth phrase stops capture. It still
+checks serial requests, retained draft and ended microphone tracks. The main
+fix also verifies actual source/package launch identity. Product queue limits,
+capture, transport and security settings were not changed by this follow-up.
+The additional segmentation regression retains the original 300,800-sample
+shortfall and the remaining samples needed for six complete phrases.
+
+After resolving the main merge, Desktop typecheck/build and 116 focused
+speech, workflow, conversation, background-agent and staging tests passed.
+CI inventory/runner tests passed 27 tests with one platform skip. All 12
+role-icon browser combinations passed. The combined runtime patches replayed
+in an isolated Git index with all pre/post-image hashes verified; fresh
+providers/agent-core builds and runtime staging passed. Pinned workflow/role
+and Ultra tests passed 67 tests.
+The complete Windows source speech acceptance passed on the merged source,
+including native continuous audio with zero injected samples, controlled
+384,000-sample backpressure, ended tracks and relaunch identity.
+Both `verify-workflow-runtime.mjs` and `verify-workflow.mjs` passed again
+against that staged runtime, including explicit role propagation, restart
+hydration, parallel/chain, crash recovery, failure/retry, layout and navigation.
+Evidence is under
+`D:\DFSC-Preview-QA\ultracode-role-icons-ci-20261113\main-synced`.
+Earlier failed records and the partial downloaded archive are retained;
+the D: diagnostics directory totals approximately 54 MiB.
+Existing task-owned build directories were reused; no installer was produced,
+user application restarted or shortcut changed. Fresh macOS source/package
+CI remains required.
+
 ## Hermes x DFSC First-Run Guidance (2026-11-10, Local Source Verification)
 
 The Agent Bridge connection page now separates four preparation checkpoints:

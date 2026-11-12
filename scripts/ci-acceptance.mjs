@@ -90,6 +90,7 @@ export const acceptanceGroups = {
   ],
   runtime: [
     'verify-electron.mjs',
+    'verify-plugin-update-electron.mjs',
     'verify-cron-runtime.mjs',
     'verify-cron-management.mjs',
     'verify-cron-transcript-electron.mjs',
@@ -263,10 +264,11 @@ export function validateInventory(files, groups = acceptanceGroups, excluded = l
   }
 }
 
-// macOS uses the same feature inventory. Keep the native Windows shell probe
-// explicitly excluded; native macOS terminal behavior is tested separately.
+// macOS inherits shared coverage except explicit Windows-only native probes.
+// Native macOS terminal behavior is tested separately.
 export const macosExclusions = {
   'verify-windows-commands.mjs': 'Requires Windows executable discovery, Git Bash and PowerShell.',
+  'verify-plugin-update-electron.mjs': 'Requires Windows Job Object process-tree release and session restoration; automatic release is not supported on macOS.',
 };
 export const macosAcceptanceGroups = Object.fromEntries(Object.entries(acceptanceGroups)
   .map(([group, scripts]) => [group, scripts.filter(script => !(script in macosExclusions))]));

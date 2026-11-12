@@ -28,6 +28,9 @@ test('every acceptance script is assigned exactly once or explicitly remains out
   assert.ok(acceptanceGroups.interface.includes('verify-selection-inheritance.mjs'));
   assert.ok(acceptanceGroups.interface.includes('verify-notice-toast.mjs'),
     'Notice component timing needs the interface job that provisions Playwright Chromium');
+  assert.ok(acceptanceGroups.runtime.includes('verify-plugin-update-electron.mjs'),
+    'Plugin update release and restoration must run in Windows runtime acceptance');
+  assert.ok(!localOnly.includes('verify-plugin-update-electron.mjs'));
   for (const [script, timeout] of Object.entries(acceptanceTimeouts)) {
     assert.ok(Object.values(acceptanceGroups).flat().includes(script));
     assert.equal(timeout, 300000);

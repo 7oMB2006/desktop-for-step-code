@@ -1,5 +1,26 @@
 # Verification
 
+## 插件更新 CI 验收登记（2026-11-12）
+
+PR #238 的 `9d15b94` 首次云端运行在 Windows/macOS 分类阶段失败：
+新增 `verify-plugin-update-electron.mjs` 未登记到统一验收清单。
+这是本次提交遗漏，不是运行器故障；后续原生集成任务因此跳过。
+对应运行 `43219805446` / `43219805367` 不计为通过。
+
+将脚本编入 Windows `runtime` 组，沿用串行执行、300 秒期限及进程树清理；
+macOS 明确排除该 Windows Job Object 释放/恢复场景，不暗中标为 local-only。
+测试固定 Windows 分组和 macOS 排除理由，不改变产品逻辑、runtime pin 或工作流门禁。
+
+- `node --test scripts/ci-*.test.mjs scripts/windows-ci-summary.test.mjs`：
+  67 项，66 通过、1 项平台相关跳过、0 失败/取消。
+- 经实际 CI `executeScript` 执行器、默认 Desktop 启动入口重新运行原生验收，
+  不设置自定义构建根或 entry；六组通过、零 provider 请求、零 page error。
+  证据为 `Desktop/test-results/plugin-update-ci-registration`，约 14.76 MiB；
+  已核对 owner、两旧 worker 及两恢复 worker 均退出。未新增构建包或删除旧产物。
+
+以上为本地补验结果，新提交的云端分类及完整集成结果仍需分别确认；
+不能沿用首版 SDK 绿项或本地通过宣称整轮 CI 已通过。
+
 ## 首轮插件更新体验（2026-11-12，本地）
 
 基于 `main ed7c6e46c5fdad85b678eff857ae0b39b96977ba`，在独立工作区

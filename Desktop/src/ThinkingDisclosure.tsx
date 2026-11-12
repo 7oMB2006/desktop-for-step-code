@@ -4,17 +4,17 @@ import { Brain } from 'lucide-react';
 import { DisclosureChevron } from './DisclosureChevron';
 import { ProcessRowLabel } from './ProcessRowLabel';
 import { useAnimatedDisclosure } from './useAnimatedDisclosure';
+import { useConversationDisclosure } from './ConversationDisclosureState';
 
-export function ThinkingDisclosure({ autoOpen, running, preview, resetKey, index, label, elapsed, children, onLayoutChange, onExpandedChange }: {
-  autoOpen: boolean; running?: boolean; preview?: string; resetKey?: string; index: number; label: string; elapsed?: ReactNode; children: ReactNode; onLayoutChange?: () => void; onExpandedChange?: (expanded: boolean) => void;
+export function ThinkingDisclosure({ autoOpen, running, preview, resetKey, stateKey, index, label, elapsed, children, onLayoutChange, onExpandedChange }: {
+  autoOpen: boolean; running?: boolean; preview?: string; resetKey?: string; stateKey?: string; index: number; label: string; elapsed?: ReactNode; children: ReactNode; onLayoutChange?: () => void; onExpandedChange?: (expanded: boolean) => void;
 }) {
-  const [expanded, setExpanded] = useState(autoOpen);
-  const [visited, setVisited] = useState(autoOpen);
+  const [expanded, setExpanded] = useConversationDisclosure(stateKey, autoOpen, resetKey);
+  const [visited, setVisited] = useState(expanded);
   const { details, body } = useAnimatedDisclosure(expanded, onLayoutChange);
   useEffect(() => {
-    setExpanded(autoOpen);
-    if (autoOpen) setVisited(true);
-  }, [autoOpen, resetKey]);
+    if (expanded) setVisited(true);
+  }, [expanded]);
   const wasRunning = useRef(running);
   useEffect(() => {
     if (wasRunning.current && !running) setExpanded(false);
@@ -26,6 +26,6 @@ export function ThinkingDisclosure({ autoOpen, running, preview, resetKey, index
       <span className="thinking-chevron"><DisclosureChevron/></span>
       {!expanded && preview && <span className="thinking-preview">{preview}</span>}
     </summary>
-    <div ref={body} className="thinking-body" aria-hidden={!expanded} inert={!expanded}>{visited && children}</div>
+    <div ref={body} className="thinking-body" aria-hidden={!expanded} inert={!expanded}>{(visited || expanded) && children}</div>
   </details>;
 }

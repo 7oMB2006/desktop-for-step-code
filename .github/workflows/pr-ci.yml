@@ -26,7 +26,7 @@ jobs:
         with:
           node-version: 24.15.0
       - name: Test CI policy and acceptance inventory
-        run: node --test scripts/ci-policy.test.mjs scripts/ci-windows.test.mjs
+        run: node --test scripts/ci-*.test.mjs scripts/windows-ci-summary.test.mjs
       - name: Classify changed paths
         id: classify
         env:
@@ -45,11 +45,14 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
-      - name: Check documentation whitespace
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.15.0
+      - name: Check documentation contracts and added lines
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-        run: git diff --check "$BASE_SHA...$HEAD_SHA"
+        run: node scripts/ci-docs.mjs
 
   windows-interface:
     name: Windows interface

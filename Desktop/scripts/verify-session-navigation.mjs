@@ -34,7 +34,8 @@ for (let index = 0; index < 6; index++) {
       message: { role: 'user', content: [{ type: 'text', text: `Conversation ${index}, question ${turn}` }], timestamp: Date.parse(timestamp) } });
     const assistantId = `assistant-${turn}`;
     entries.push({ type: 'message', id: assistantId, parentId: userId, timestamp,
-      message: { role: 'assistant', content: [...(turn === 21 ? [{ type: 'thinking', thinking: 'Saved reasoning stays readable during recovery.' }] : []), { type: 'text', text: `Answer ${index}/${turn}. ` + 'A readable history paragraph with stable message identity.\n\n'.repeat(3) }],
+      message: { role: 'assistant', content: [...(turn === 21 ? [{ type: 'thinking', thinking: 'Saved reasoning stays readable during recovery.' }] : []), { type: 'text', text: `Answer ${index}/${turn}. ` + 'A readable history paragraph with stable message identity.\n\n'.repeat(3)
+        + `\`\`\`typescript\nexport const turn${turn} = ${turn};\n\`\`\`` }],
         api: 'openai-completions', provider: 'fixture', model: 'fixture', stopReason: 'stop',
         usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 2, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
         timestamp: Date.parse(timestamp) } });
@@ -130,6 +131,20 @@ try {
       Buffer.concat([before, Buffer.from(extra.map(entry => JSON.stringify(entry)).join('\n') + '\n')]));
     const newer = await page.evaluate(() => window.desktop.sessionReading('navigation-4'));
     assert.notEqual(newer.version, history.version);
+    const updated = before.toString('utf8').trimEnd().split('\n').map(line => JSON.parse(line));
+    updated.find(entry => entry.id === 'assistant-20').message.content[0].text = 'AUTHORITATIVE_UPDATED_EXISTING_ANSWER';
+    await writeFile(join(sessions, 'navigation-4.jsonl'),
+      [...updated, ...extra].map(entry => JSON.stringify(entry)).join('\n') + '\n');
+    await page.evaluate(() => {
+      const prose = document.querySelector('.session-reading-preview .response-text');
+      const range = document.createRange();
+      range.selectNodeContents(prose.querySelector('p'));
+      window.navigationHistoryBeforeReady = {
+        prose, paragraph: prose.querySelector('p'), code: prose.querySelector('code.hljs'),
+        thinking: document.querySelector('.session-reading-preview details.thinking'),
+        range, selectedText: range.toString(),
+      };
+    });
     await composer.focus();
     await composer.evaluate(element => {
       element.setSelectionRange(5, 5);
@@ -143,6 +158,23 @@ try {
     assert.equal(await page.locator('.messages').evaluate(element =>
       element.textContent.split('AUTHORITATIVE_HANDOFF_MESSAGE').length - 1), 1,
     'Runtime handoff replaces the historical snapshot with newer messages without duplicates');
+    assert.equal(await page.locator('.messages').evaluate(element =>
+      element.textContent.split('AUTHORITATIVE_UPDATED_EXISTING_ANSWER').length - 1), 1,
+    'An updated existing answer must replace the preview text');
+    assert.equal(await page.locator('.messages').evaluate(element => element.textContent.includes('Answer 4/20.')), false);
+    assert.ok(await page.evaluate(() => {
+      const saved = window.navigationHistoryBeforeReady;
+      const prose = document.querySelector('.messages .response-text');
+      return prose === saved.prose && prose.querySelector('p') === saved.paragraph
+        && prose.querySelector('code.hljs') === saved.code && saved.code?.isConnected
+        && saved.range.startContainer.isConnected && saved.range.toString() === saved.selectedText;
+    }), 'Unchanged prose, highlighted code and text ranges survive authoritative handoff');
+    assert.ok(await page.evaluate(() => {
+      const saved = window.navigationHistoryBeforeReady.thinking;
+      return saved === document.querySelector('.messages details.thinking')
+        && saved.getAttribute('data-expanded') === 'true'
+        && saved.textContent.includes('Saved reasoning stays readable');
+    }), 'An expanded historical disclosure must stay expanded after handoff');
     assert.ok(await page.evaluate(position => {
       const viewport = document.querySelector('#conversation-scroll');
       const article = document.querySelector('.messages > article[data-message-index="12"]');
@@ -170,7 +202,10 @@ try {
   console.log('Cold coalesced navigation ms:', Math.round(cold.times[0]));
   phase = 'two overtaken startups cannot block a resident or unlock billing changes';
   const residentRuntimeId = (await page.evaluate(() => window.desktop.snapshot())).runtimeId;
-  await app.evaluate(() => {
+  await app.evaluate(({ app }) => {
+    const { join, resolve } = process.getBuiltinModule('path');
+    const runtime = app.isPackaged ? join(process.resourcesPath, 'runtime') : resolve('runtime');
+    const sessionEntry = join(runtime, 'step/dist/bundle/step.js');
     const childProcess = process.getBuiltinModule('child_process');
     const spawn = childProcess.spawn;
     let claimed = 0;
@@ -179,7 +214,9 @@ try {
     globalThis.navigationReleaseStartup = index => releases[index]?.();
     childProcess.spawn = function (...args) {
       const child = spawn.apply(this, args);
-      if (claimed >= 2 || !args[1]?.includes('--mode') || !args[1]?.includes('rpc')) return child;
+      // Management RPC also spawns here, but cannot consume a cold-session slot.
+      if (claimed >= 2 || args[1]?.[0] !== sessionEntry
+        || !args[1]?.includes('--mode') || !args[1]?.includes('rpc')) return child;
       const index = claimed++;
       const write = child.stdin.write;
       let held = false;
@@ -419,8 +456,14 @@ try {
   const mainPid = await app.evaluate(() => process.pid);
   const crashedPids = fixtureRuntimeChildren(mainPid);
   for (const pid of crashedPids) {
-    if (process.platform === 'win32') execFileSync('taskkill.exe', ['/PID', String(pid), '/T', '/F'], { windowsHide: true });
-    else process.kill(pid);
+    try {
+      if (process.platform === 'win32') execFileSync('taskkill.exe', ['/PID', String(pid), '/T', '/F'], { windowsHide: true, stdio: 'pipe' });
+      else process.kill(pid);
+    } catch (error) {
+      // Idle workers can exit between enumeration and termination; live failures still fail.
+      try { process.kill(pid, 0); } catch (probe) { if (probe.code === 'ESRCH') continue; }
+      throw error;
+    }
   }
   assert.ok(crashedPids.length > 0, 'Only fixture-owned RPC children are terminated');
   await page.waitForFunction(runtimeId => window.navigationExits.includes(runtimeId), crashed.runtimeId);

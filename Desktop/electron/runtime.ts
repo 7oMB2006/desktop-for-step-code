@@ -33,7 +33,7 @@ export class JsonLines {
 export function isolatedEnvironment(root: string, parent: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
   const env = { ...parent };
   for (const key of Object.keys(env)) {
-    if (/^(STEP|PI_|AI_AGENT|ELECTRON_|NODE_OPTIONS|NODE_PATH)/i.test(key) || /(?:API_KEY|ACCESS_TOKEN|AUTH_TOKEN|SECRET|PASSWORD|COOKIE)$/i.test(key)) delete env[key];
+    if (/^(STEP|PI_|AI_AGENT|ELECTRON_|NODE_OPTIONS|NODE_PATH|NODE_COMPILE_CACHE|DFSC_(?:HOST|LAUNCH|RUNTIME_HOST)_)/i.test(key) || /(?:API_KEY|ACCESS_TOKEN|AUTH_TOKEN|SECRET|PASSWORD|COOKIE)$/i.test(key)) delete env[key];
   }
   return { ...env, STEPCODE_ENTRYPOINT: '1', STEPCODE_STORAGE_ROOT_DIR: root, STEP_CODING_AGENT_DIR: `${root}/agent`, STEP_CODING_AGENT_SESSION_DIR: `${root}/sessions`, STEPCODE_AUTH_PATH: `${root}/auth.json`, STEPCODE_LEGACY_AUTH_PATH: `${root}/legacy-auth.json`, STEPCODE_DISABLE_PI_SERVICES: '1', STEP_CLIENT: 'desktop-for-step-code' };
 }
@@ -50,29 +50,58 @@ function stderrForLog(text: string, lines = 40): string {
   return tail.length > 0 ? tail.join('\n') : '(no stderr lines passed the redaction filter)';
 }
 
-export class RpcCommandError extends Error {}
+export class RpcCommandError extends Error {
+  constructor(message: string, readonly details?: unknown) { super(message); }
+}
+
+export class RpcManagementStopError extends Error {
+  readonly code = 'management-stop-unconfirmed';
+  constructor(message: string, readonly shutdownAcknowledged: boolean, readonly exitConfirmed: boolean) {
+    super(message);
+    this.name = 'RpcManagementStopError';
+  }
+}
 
 export class RpcProcess {
   private child?: ChildProcessWithoutNullStreams;
+  private exitedChild?: ChildProcessWithoutNullStreams;
   get pid() { return this.child?.pid; }
   private stopping?: Promise<void>;
+  private stoppingManagement = false;
+  private managementStopError?: RpcManagementStopError;
+  private managementShutdown?: {
+    child: ChildProcessWithoutNullStreams; id: string; acknowledged: boolean;
+    finish: (reason?: string) => void;
+  };
   private disconnected = false;
   private stderr = '';
   private pending = new Map<string, { resolve: (data: any) => void; reject: (e: Error) => void; timer: NodeJS.Timeout }>();
   get hasPendingRequests() { return this.pending.size > 0; }
   constructor(private event: (value: any) => void, private maxRecordChars?: number) {}
   start(node: string, entry: string, cwd: string, env: NodeJS.ProcessEnv, args: string[] = []) {
-    if (this.child || this.stopping) throw new Error('Runtime already started or still stopping');
+    if (this.child || this.stopping || this.managementStopError) throw new Error('Runtime already started or still stopping');
     this.disconnected = false;
+    this.exitedChild = undefined;
     this.stderr = '';
     const child = spawn(node, [entry, '--mode', 'rpc', ...args], { cwd, env, windowsHide: true, stdio: 'pipe' });
     this.child = child;
     const decoder = new JsonLines(value => {
-      if (this.child !== child || this.disconnected) return;
-      if (value.type === 'response' && value.id && this.pending.has(value.id)) {
-        const request = this.pending.get(value.id)!; this.pending.delete(value.id); clearTimeout(request.timer);
-        value.success ? request.resolve(value.data) : request.reject(new RpcCommandError(value.error || 'Runtime command failed'));
-      } else this.event(value);
+      if (this.child !== child) return;
+      const shutdown = this.managementShutdown;
+      if (shutdown?.child === child && value?.type === 'response' && value.id === shutdown.id) {
+        if (value.success === true && value.data?.shutdown === true) shutdown.acknowledged = true;
+        else shutdown.finish('Management shutdown was not acknowledged');
+        return;
+      }
+      if (this.disconnected) return;
+      if (value.type === 'response') {
+        const request = this.pending.get(value.id);
+        if (!request) return;
+        this.pending.delete(value.id); clearTimeout(request.timer);
+        value.success ? request.resolve(value.data) : request.reject(new RpcCommandError(value.error || 'Runtime command failed', value.details));
+        return;
+      }
+      this.event(value);
     }, this.maxRecordChars);
     child.stdin.on('error', error => {
       if (this.child !== child || this.disconnected) return;
@@ -81,10 +110,14 @@ export class RpcProcess {
       void this.stop().catch(() => {});
     });
     child.stdout.on('data', chunk => {
-      if (this.child !== child || this.disconnected) return;
+      if (this.child !== child || this.disconnected && this.managementShutdown?.child !== child) return;
       try { decoder.push(chunk); }
       catch (e) {
         if (this.child !== child) return;
+        if (this.managementShutdown?.child === child) {
+          this.managementShutdown.finish('Management shutdown protocol failed');
+          return;
+        }
         this.fail(e as Error);
         this.event({ type: 'desktop_exit', details: { kind: 'rpc-protocol', message: (e as Error).message } });
         void this.stop().catch(() => {});
@@ -98,7 +131,10 @@ export class RpcProcess {
     child.on('error', error => { if (this.child === child && !this.disconnected) this.fail(error); });
     child.on('exit', (code, signal) => {
       if (this.child !== child) return;
+      // A final response can still be buffered on stdout when exit is emitted.
+      if (this.managementShutdown?.child === child) return;
       this.child = undefined;
+      this.exitedChild = child;
       if (this.disconnected) return;
       const details = { kind: 'runtime-exit', exitCode: code ?? null, signal: signal ?? null, stderrTail: stderrForLog(this.stderr) };
       const error = new Error(`Runtime exited (${code ?? signal ?? 'unknown'})`) as Error & { details?: Record<string, unknown> };
@@ -128,14 +164,73 @@ export class RpcProcess {
   }
   async stop() {
     if (this.stopping) return this.stopping;
+    return this.stopProcess(false);
+  }
+  async stopManagement(timeoutMs = 5000): Promise<void> {
+    if (!Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 30000)
+      throw new RangeError('Management shutdown timeout must be between 1 and 30000ms');
+    if (this.stopping) {
+      if (this.stoppingManagement) return this.stopping;
+      throw new RpcManagementStopError('Runtime process-tree termination is already in progress', false, false);
+    }
+    return this.stopProcess(true, timeoutMs);
+  }
+  private async stopProcess(management: boolean, timeoutMs = 5000) {
     const child = this.child;
-    if (!child) return;
+    if (!child) {
+      if (management && (this.managementStopError || this.exitedChild)) {
+        const previous = this.managementStopError;
+        const error = new RpcManagementStopError(previous?.message ?? 'Management worker exited without shutdown acknowledgment',
+          previous?.shutdownAcknowledged ?? false, Boolean(this.exitedChild) || previous?.exitConfirmed === true);
+        this.managementStopError = error;
+        throw error;
+      }
+      return;
+    }
     this.disconnected = true;
     this.fail(new Error('Runtime stopped'));
-    this.stopping = this.terminate(child).then(() => {
+    this.stoppingManagement = management;
+    this.stopping = (management ? this.terminateManagement(child, timeoutMs) : this.terminate(child)).then(() => {
       if (this.child === child) this.child = undefined;
-    }).finally(() => { this.stopping = undefined; });
+      this.exitedChild = undefined;
+      this.managementStopError = undefined;
+    }).finally(() => { this.stopping = undefined; this.stoppingManagement = false; });
     return this.stopping;
+  }
+  private terminateManagement(child: ChildProcessWithoutNullStreams, timeoutMs: number): Promise<void> {
+    return new Promise((resolve, reject) => {
+      let timer: NodeJS.Timeout;
+      const shutdown = {
+        child, id: randomUUID(), acknowledged: false,
+        finish: (reason?: string) => {
+          if (this.managementShutdown !== shutdown) return;
+          clearTimeout(timer);
+          child.off('close', closed); child.off('error', failed); child.stdin.off('error', failed);
+          this.managementShutdown = undefined;
+          if (reason) {
+            const error = new RpcManagementStopError(reason, shutdown.acknowledged,
+              child.exitCode !== null || child.signalCode !== null);
+            this.managementStopError = error;
+            reject(error);
+          } else resolve();
+        },
+      };
+      const closed = (code: number | null, signal: NodeJS.Signals | null) => {
+        if (this.child === child) this.child = undefined;
+        shutdown.finish(code !== 0 || signal !== null ? 'Management worker did not exit cleanly'
+          : !shutdown.acknowledged ? 'Management worker exited without shutdown acknowledgment' : undefined);
+      };
+      const failed = () => shutdown.finish('Management shutdown transport failed');
+      this.managementShutdown = shutdown;
+      child.once('close', closed); child.once('error', failed); child.stdin.once('error', failed);
+      timer = setTimeout(() => shutdown.finish('Management shutdown timed out before confirmed cleanup'), timeoutMs);
+      if (!child.stdin.writable) { failed(); return; }
+      try {
+        child.stdin.write(JSON.stringify({ type: 'shutdown', id: shutdown.id }) + '\n', error => {
+          if (error) failed();
+        });
+      } catch { failed(); }
+    });
   }
   private async terminate(child: ChildProcessWithoutNullStreams) {
     if (process.platform === 'win32' && child.pid) {

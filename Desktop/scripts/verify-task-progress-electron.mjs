@@ -6,13 +6,14 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { closeDesktopFixture } from './close-desktop-fixture.mjs';
 import { captureWaapi } from './capture-waapi.mjs';
+import { waitForSessionFixtureSnapshot } from './session-fixture.mjs';
 
 const profile = await mkdtemp(join(tmpdir(), 'step-task-progress-'));
 const workspace = join(profile, 'workspace');
 const runtimeProfile = join(profile, 'step-runtime');
 await mkdir(workspace);
 await mkdir(join(runtimeProfile, 'sessions'), { recursive: true });
-await writeFile(join(profile, 'preferences.json'), JSON.stringify({ language: 'zh', theme: 'light', workspace, workspaces: [workspace] }));
+await writeFile(join(profile, 'preferences.json'), JSON.stringify({ language: 'zh', theme: 'light', workspace, workspaces: [workspace], completionSound: true }));
 await writeFile(join(runtimeProfile, 'config.toml'), [
   'defaultProvider = "fixture"', 'defaultModel = "fixture"', 'permissionPreset = "approve-for-me"',
   '[telemetry]', 'enabled = false', '[mcp_servers.steppage__steppage]', 'enabled = false', '',
@@ -91,10 +92,13 @@ try {
   await page.getByRole('button', { name: '进度条声画验收', exact: true }).click();
   await page.waitForFunction(() => document.querySelector('.conversation')?.getAttribute('aria-busy') === 'false'
     && !document.querySelector('.composer-wrap[aria-busy="true"]') && !document.querySelector('.composer > .composer-input')?.disabled);
-  await page.locator('.right-tool-rail').getByRole('button', { name: '摘要', exact: true }).click();
+  await page.locator('.composer > .composer-input').fill('/todos');
+  await page.locator('.composer > .composer-input').press('Escape');
+  await page.locator('.composer > .composer-input').press('Enter');
   const board = page.getByRole('complementary', { name: '摘要', exact: true });
   const progress = board.getByRole('progressbar');
   await progress.waitFor();
+  assert.equal(await board.getByRole('heading', { name: '推进清单', exact: true }).evaluate(element => element === document.activeElement), true);
   assert.equal(await progress.getAttribute('aria-valuenow'), '1');
   await board.evaluate(boardRoot => {
     window.progressAudio = [];
@@ -137,6 +141,16 @@ try {
   assert.equal(typeof finishTaskAnswer, 'function');
   assert.equal(taskUpdateRequests, 1, 'The task command runs once regardless of auxiliary requests');
   assert.equal(taskSummaryRequests, 1, 'Only the post-tool answer is held for completion');
+  await page.locator('.composer > .composer-input').fill('/todos');
+  await page.locator('.composer > .composer-input').press('Escape');
+  await page.locator('.composer > .composer-input').press('Enter');
+  const inspected = await page.evaluate(() => window.desktop.snapshot());
+  assert.equal(inspected.pendingMessages?.length ?? 0, 0, 'Inspecting tasks while running never queues model input');
+  assert.equal(inspected.messages.some(message => message.role === 'user'
+    && (typeof message.content === 'string' ? message.content : JSON.stringify(message.content)).includes('/todos')), false,
+  'The local shortcut is not written into the native conversation or task history');
+  assert.equal(await progress.getAttribute('data-phase'), 'running', 'Inspection cannot settle or restart completion motion');
+  assert.equal(await page.evaluate(() => window.progressAudio.length), 0);
   const impact = await captureWaapi(page, '.sb-task-progress', () => {
     finishTaskAnswer();
     finishTaskAnswer = undefined;
@@ -187,6 +201,9 @@ try {
   assert.equal(await trigger.getAttribute('aria-expanded'), 'false');
   await trigger.click();
   await history.getByRole('button', { name: /验证并归档/ }).waitFor();
+  await page.locator('.conversation .message.assistant .response-text').getByText('确认。', { exact: true }).waitFor();
+  await waitForSessionFixtureSnapshot(page, snapshot => snapshot.state?.isStreaming === false,
+    'the confirmation turn to finish');
   await page.waitForFunction(() => document.querySelector('.conversation')?.getAttribute('aria-busy') === 'false');
   await page.screenshot({ path: 'test-results/task-history-electron.png' });
   await page.reload();
@@ -196,6 +213,8 @@ try {
   assert.equal(await trigger.getAttribute('aria-expanded'), 'false');
   assert.equal(await progress.count(), 0, 'Reload reconstructs history from persisted runtime/message records');
   assert.equal(nextTurnRequests, 1, 'The next turn uses its own scenario rather than replaying the task tool');
+  assert.equal(taskUpdateRequests, 1, 'The next turn must not replay the completed task command');
+  assert.equal(taskSummaryRequests, 1, 'The next turn must not replay the prior task summary');
   assert.deepEqual(errors, []);
   console.log('Real Electron task progress verified: runtime tasks, round event, sound/impact/sweep, next-turn retirement, history and renderer reload.');
 } catch (error) {

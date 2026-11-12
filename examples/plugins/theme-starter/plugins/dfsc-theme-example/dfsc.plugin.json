@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "authors": [{ "name": "Desktop for Step Code contributors" }],
+  "license": "MIT",
+  "categories": ["themes"],
+  "keywords": ["theme composition", "static background"],
+  "requirements": { "external": [] },
+  "documentation": { "readme": "README.md" }
+}

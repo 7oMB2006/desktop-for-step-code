@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from 'react';
 import { FolderOpen, Trash2 } from 'lucide-react';
 import { AppMenu } from './AppMenu';
 import { DisclosureChevron } from './DisclosureChevron';
@@ -17,58 +17,20 @@ function EnumField({ field, value, disabled, onChange }: {
     <AppMenu anchor={anchor} open={open} label={field.label} selected={value} items={(field.options ?? []).map(item => ({ id: item.value, label: item.label }))}
       onSelect={onChange} onClose={() => setOpen(false)} maxVisibleItems={8}/></span>;
 }
-function editable(value: PluginConfiguration): PluginConfigurationInput {
+export function editablePluginConfiguration(value: PluginConfiguration): PluginConfigurationInput {
   return { ref: value.ref, revision: value.revision, values: { ...value.values },
     secrets: Object.fromEntries(value.schema.groups.flatMap(group => group.fields)
       .filter(field => field.type === 'secret').map(field => [field.id, { action: 'keep' as const }])) };
 }
-export function PluginConfigurationForm({ bridge, pkg, language, busy, visible, formId, onState, onSaved }: {
-  bridge: Bridge; pkg: PluginPackage; language: string; busy: boolean; visible: boolean; formId: string;
-  onState(value: { dirty: boolean; pending: boolean; ready: boolean }): void; onSaved(): Promise<void>;
+export function PluginConfigurationFields({ saved, draft, setDraft, language, locked, choosePath }: {
+  saved: PluginConfiguration; draft: PluginConfigurationInput;
+  setDraft: Dispatch<SetStateAction<PluginConfigurationInput | undefined>>;
+  language: string; locked: boolean; choosePath(field: PluginConfigurationField): Promise<void>;
 }) {
-  const [saved, setSaved] = useState<PluginConfiguration>(), [draft, setDraft] = useState<PluginConfigurationInput>();
-  const [pending, setPending] = useState(false), [error, setError] = useState('');
-  const [reloadReview, setReloadReview] = useState(false);
-  const operation = useRef(false), alive = useRef(true), callback = useRef(onState);
-  callback.current = onState;
   const t = (cn: string, en: string) => language === 'zh' ? cn : en;
-  const dirty = Boolean(saved && draft && (!saved.configured || JSON.stringify(draft) !== JSON.stringify(editable(saved))));
-  const locked = busy || pending;
-  const read = async () => {
-    if (operation.current) return;
-    operation.current = true; setPending(true); setError('');
-    try {
-      const result = await bridge.pluginConfiguration({ ref: pkg.ref });
-      if (alive.current) { setSaved(result); setDraft(editable(result)); setReloadReview(false); }
-    } catch (error) { if (alive.current) setError(capabilityErrorText(error, language === 'zh')); }
-    finally { operation.current = false; if (alive.current) setPending(false); }
-  };
-  useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
-  useEffect(() => { if (visible && !saved && !error) void read(); }, [visible, saved, pkg.ref]);
-  useEffect(() => { callback.current({ dirty, pending, ready: Boolean(saved) }); }, [dirty, pending, saved]);
-  const submit = async () => {
-    if (!draft || operation.current || locked) return;
-    operation.current = true; setPending(true); setError('');
-    try {
-      const value = await bridge.pluginSaveConfiguration(draft);
-      if (alive.current) { setSaved(value); setDraft(editable(value)); }
-      await onSaved();
-    } catch (error) { if (alive.current) setError(capabilityErrorText(error, language === 'zh')); }
-    finally { operation.current = false; if (alive.current) setPending(false); }
-  };
   const update = (field: PluginConfigurationField, value: string | number | boolean) => setDraft(previous =>
     previous && ({ ...previous, values: { ...previous.values, [field.id]: value } }));
-  const choosePath = async (field: PluginConfigurationField) => {
-    if (locked || operation.current) return;
-    operation.current = true; setPending(true); setError('');
-    try {
-      const path = await bridge.pluginChoosePath({ ref: pkg.ref, field: field.id });
-      if (path !== null && alive.current) update(field, path);
-    } catch (error) { if (alive.current) setError(capabilityErrorText(error, language === 'zh')); }
-    finally { operation.current = false; if (alive.current) setPending(false); }
-  };
   const field = (field: PluginConfigurationField) => {
-    if (!draft || !saved) return null;
     const value = draft.values[field.id], secret = draft.secrets[field.id];
     return <div className="pc-field" key={field.id}>
       {field.type === 'boolean' ? <label className="pc-checkbox"><input type="checkbox" checked={value === true}
@@ -94,6 +56,54 @@ export function PluginConfigurationForm({ bridge, pkg, language, busy, visible, 
       {secret?.action === 'delete' && <p className="pc-hint">{t('保存后删除', 'Deleted on save')}</p>}
     </div>;
   };
+  return <>{saved.schema.groups.map((group, index) =>
+    index === 0 ? <section className="pc-form-section" key={group.id}><h3>{group.title}</h3><div className="pc-generic-fields">{group.fields.map(field)}</div></section>
+      : <CapabilityDisclosure key={group.id} className="pc-form-section" label={group.title}>
+        <div className="pc-generic-fields">{group.fields.map(field)}</div></CapabilityDisclosure>)}</>;
+}
+export function PluginConfigurationForm({ bridge, pkg, language, busy, visible, formId, onState, onSaved }: {
+  bridge: Bridge; pkg: PluginPackage; language: string; busy: boolean; visible: boolean; formId: string;
+  onState(value: { dirty: boolean; pending: boolean; ready: boolean }): void; onSaved(): Promise<void>;
+}) {
+  const [saved, setSaved] = useState<PluginConfiguration>(), [draft, setDraft] = useState<PluginConfigurationInput>();
+  const [pending, setPending] = useState(false), [error, setError] = useState('');
+  const [reloadReview, setReloadReview] = useState(false);
+  const operation = useRef(false), alive = useRef(true), callback = useRef(onState);
+  callback.current = onState;
+  const t = (cn: string, en: string) => language === 'zh' ? cn : en;
+  const dirty = Boolean(saved && draft && (!saved.configured || JSON.stringify(draft) !== JSON.stringify(editablePluginConfiguration(saved))));
+  const locked = busy || pending;
+  const read = async () => {
+    if (operation.current) return;
+    operation.current = true; setPending(true); setError('');
+    try {
+      const result = await bridge.pluginConfiguration({ ref: pkg.ref });
+      if (alive.current) { setSaved(result); setDraft(editablePluginConfiguration(result)); setReloadReview(false); }
+    } catch (error) { if (alive.current) setError(capabilityErrorText(error, language === 'zh')); }
+    finally { operation.current = false; if (alive.current) setPending(false); }
+  };
+  useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
+  useEffect(() => { if (visible && !saved && !error) void read(); }, [visible, saved, pkg.ref]);
+  useEffect(() => { callback.current({ dirty, pending, ready: Boolean(saved) }); }, [dirty, pending, saved]);
+  const submit = async () => {
+    if (!draft || operation.current || locked) return;
+    operation.current = true; setPending(true); setError('');
+    try {
+      const value = await bridge.pluginSaveConfiguration(draft);
+      if (alive.current) { setSaved(value); setDraft(editablePluginConfiguration(value)); }
+      await onSaved();
+    } catch (error) { if (alive.current) setError(capabilityErrorText(error, language === 'zh')); }
+    finally { operation.current = false; if (alive.current) setPending(false); }
+  };
+  const choosePath = async (field: PluginConfigurationField) => {
+    if (locked || operation.current) return;
+    operation.current = true; setPending(true); setError('');
+    try {
+      const path = await bridge.pluginChoosePath({ ref: pkg.ref, field: field.id });
+      if (path !== null && alive.current) setDraft(previous => previous && ({ ...previous, values: { ...previous.values, [field.id]: path } }));
+    } catch (error) { if (alive.current) setError(capabilityErrorText(error, language === 'zh')); }
+    finally { operation.current = false; if (alive.current) setPending(false); }
+  };
   return <form id={formId} className="pc-generic-form" hidden={!visible} onSubmit={event => { event.preventDefault(); void submit(); }}>
     {error && <div className="cap-error" role="alert">{error}
       {saved && !reloadReview && <button type="button" disabled={pending} onClick={() => setReloadReview(true)}>{t('重新载入配置', 'Reload configuration')}</button>}
@@ -102,9 +112,7 @@ export function PluginConfigurationForm({ bridge, pkg, language, busy, visible, 
         <button type="button" disabled={pending} onClick={() => void read()}>{t('丢弃并载入', 'Discard and reload')}</button></div>}
     </div>}
     {!draft || !saved ? <button type="button" disabled={pending} onClick={() => void read()}>{pending ? t('读取中', 'Loading') : t('重试', 'Retry')}</button>
-      : <fieldset disabled={locked} className="pc-form-fields">{saved.schema.groups.map((group, index) =>
-        index === 0 ? <section className="pc-form-section" key={group.id}><h3>{group.title}</h3><div className="pc-generic-fields">{group.fields.map(field)}</div></section>
-          : <CapabilityDisclosure key={group.id} className="pc-form-section" label={group.title}>
-            <div className="pc-generic-fields">{group.fields.map(field)}</div></CapabilityDisclosure>)}</fieldset>}
+      : <fieldset disabled={locked} className="pc-form-fields"><PluginConfigurationFields saved={saved} draft={draft} setDraft={setDraft}
+        language={language} locked={locked} choosePath={choosePath}/></fieldset>}
   </form>;
 }

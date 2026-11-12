@@ -7,6 +7,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { queueFixture } from './queue-demo-fixture.mjs';
 import { closeDesktopFixture } from './close-desktop-fixture.mjs';
+import { settleLayout } from './settle-layout.mjs';
 
 const profile = await realpath(await mkdtemp(join(tmpdir(), 'desktop-cron-management-')));
 const fixture = await queueFixture(profile, { duration: 6000, textOnly: true });
@@ -22,8 +23,15 @@ const results = [];
 const focusChecks = [];
 const nativeHeightLimit = process.env.DESKTOP_CRON_TEST_MAX_HEIGHT ? Number(process.env.DESKTOP_CRON_TEST_MAX_HEIGHT) : undefined;
 if (nativeHeightLimit !== undefined) assert.ok(Number.isSafeInteger(nativeHeightLimit) && nativeHeightLimit >= 540, 'Invalid native test window height limit');
-const resize = (width, height) => app.evaluate(({ BrowserWindow }, size) => BrowserWindow.getAllWindows()[0].setSize(...size),
-  [width, Math.min(height, nativeHeightLimit ?? height)]);
+const resize = async (width, height) => {
+  const size = await app.evaluate(({ BrowserWindow }, size) => {
+    const window = BrowserWindow.getAllWindows()[0];
+    window.setSize(...size);
+    return window.getContentSize();
+  }, [width, Math.min(height, nativeHeightLimit ?? height)]);
+  const page = await app.firstWindow();
+  await page.waitForFunction(([width, height]) => innerWidth === width && innerHeight === height, size);
+};
 // Poll async IPC in Node; waitForFunction's predicate must remain synchronous.
 const until = async (check, label) => {
   const deadline = Date.now() + 30000;
@@ -102,31 +110,47 @@ try {
   await page.getByRole('radio', { name: '临时任务', exact: true }).check();
   await page.getByText('仅保留在当前宿主内存中。', { exact: false }).waitFor();
   await durable.check();
-  for (const [theme, width, height] of [['dark', 1360, 950], ['light', 560, 950], ['dark', 1360, 684], ['light', 560, 684]]) {
+  for (const [theme, width, height] of [
+    ['dark', 1360, 950], ['light', 560, 950], ['dark', 1360, 684], ['light', 560, 684],
+    ['dark', 1360, 540], ['light', 560, 540],
+  ]) {
     await resize(width, height);
     await page.evaluate(theme => window.desktop.preferences({ theme }), theme);
     await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].webContents.send('runtime-event', { type: 'desktop_sessions_changed' }));
     await page.waitForFunction(theme => document.documentElement.dataset.theme === theme, theme);
+    // Sidebar track motion changes form wrapping even after the native resize.
+    await settleLayout(page.locator('.scheduled-tasks'));
     await assertFocusVisible(page, page.getByLabel('执行时间（本机时区）', { exact: true }), `cron ${theme} ${width} time`);
     await assertFocusVisible(page, page.getByLabel('任务指令', { exact: true }), `cron ${theme} ${width} multiline`);
-    if (height === 684) {
+    if (height === 540) {
       // A click/focus may expose only the textarea caret while its lower edge
       // remains clipped. Test the resulting focus without refocusing it.
-      await page.getByLabel('执行时间（本机时区）', { exact: true }).focus();
       const prompt = page.getByLabel('任务指令', { exact: true });
-      await prompt.evaluate(element => {
-        const scroller = element.closest('.scheduled-tasks');
-        scroller.scrollTop += element.getBoundingClientRect().bottom - scroller.getBoundingClientRect().bottom - 20;
-      });
+      const partiallyClipPrompt = async () => {
+        await page.getByLabel('执行时间（本机时区）', { exact: true }).focus();
+        await settleLayout(prompt);
+        await prompt.evaluate(element => {
+          const scroller = element.closest('.scheduled-tasks');
+          scroller.scrollTop += element.getBoundingClientRect().bottom - scroller.getBoundingClientRect().bottom - 20;
+        });
+        await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+        const point = await prompt.evaluate(element => {
+          const scroller = element.closest('.scheduled-tasks');
+          const box = element.getBoundingClientRect(), bounds = scroller.getBoundingClientRect();
+          const x = box.left + 12, y = box.top + 12;
+          return { x, y, clipped: box.bottom > bounds.bottom, hit: document.elementFromPoint(x, y) === element,
+            field: { top: box.top, bottom: box.bottom }, bounds: { top: bounds.top, bottom: bounds.bottom },
+            scrollTop: scroller.scrollTop, scrollHeight: scroller.scrollHeight, clientHeight: scroller.clientHeight,
+            viewport: { width: innerWidth, height: innerHeight } };
+        });
+        assert.ok(point.clipped && point.hit, `Partially clipped textarea has a visible pointer target: ${JSON.stringify(point)}`);
+        return point;
+      };
+      await partiallyClipPrompt();
       await prompt.focus();
       await assertFocusVisible(page, prompt, `cron ${theme} ${width} partially scrolled multiline`, { focus: false });
-      await page.getByLabel('执行时间（本机时区）', { exact: true }).focus();
-      await prompt.evaluate(element => {
-        const scroller = element.closest('.scheduled-tasks');
-        scroller.scrollTop += element.getBoundingClientRect().bottom - scroller.getBoundingClientRect().bottom - 20;
-      });
-      const box = await prompt.boundingBox();
-      await page.mouse.click(box.x + 12, box.y + 12);
+      const point = await partiallyClipPrompt();
+      await page.mouse.click(point.x, point.y);
       await assertFocusVisible(page, prompt, `cron ${theme} ${width} mouse-focused multiline`, { focus: false });
     }
     focusChecks.push({ theme, requested: { width, height }, viewport: await page.evaluate(() => ({ width: innerWidth, height: innerHeight })) });
@@ -429,6 +453,8 @@ try {
       const preview = await window.desktop.cronRecoveryPreview(key, 'queue-demo');
       return window.desktop.cronRecover(preview.token, true);
     }, task.key);
+    assert.equal((await page.evaluate(() => window.desktop.cronList())).tasks.find(row => row.key === task.key)?.automatic?.state,
+      'enabled', 'Queue recovery scenario starts with explicit automatic authorization');
     await page.locator('.session-row').filter({ hasText: '队列交互示例（本地模拟）' }).locator('button').first().click();
     await page.evaluate(id => { void window.desktop.command('prompt', { message: 'Isolated queue preservation check' }, id).catch(() => {}); }, recovered.runtimeId);
     await until(async () => fixture.requests.length === 1
@@ -440,10 +466,20 @@ try {
       return !state.state?.isStreaming && state.pendingMessages?.length === 1 && !state.requests.length ? state : undefined;
     }, 'stopped chat retains its queued message');
     await terminateSchedulingChild();
-    await until(async () => {
-      const state = await page.evaluate(() => window.desktop.cronList());
-      return state.tasks[0]?.automatic?.state === 'blocked';
-    }, 'unsent queue blocks automatic recovery');
+    let recoveryState;
+    try {
+      await until(async () => {
+        const overview = await page.evaluate(() => window.desktop.cronList());
+        const snapshot = await page.evaluate(() => window.desktop.snapshot());
+        recoveryState = { automatic: overview.tasks.find(row => row.key === task.key)?.automatic,
+          issues: overview.issues.map(row => row.reason), hosts: overview.hosts.length,
+          status: snapshot.status, pending: snapshot.pendingMessages?.length, runtimes: snapshot.runtimes.length };
+        return recoveryState.status === 'disconnected' && recoveryState.automatic?.state === 'blocked';
+      }, 'unsent queue blocks automatic recovery');
+    } catch (error) {
+      console.error('Isolated queue recovery state:', JSON.stringify(recoveryState));
+      throw error;
+    }
     await page.waitForTimeout(1500);
     const disconnected = await page.evaluate(() => window.desktop.snapshot());
     assert.equal(disconnected.runtimeId, stopped.runtimeId);
@@ -470,6 +506,15 @@ try {
 } catch (error) {
   console.error('Cron management acceptance error:', error.stack ?? String(error));
   const page = await app?.firstWindow().catch(() => undefined);
+  const state = await page?.evaluate(() => ({
+    alert: document.querySelector('.scheduled-failure')?.textContent,
+    issue: document.querySelector('.scheduled-tasks > .scheduled-boundary')?.textContent,
+    inert: document.querySelector('.scheduled-page')?.inert,
+    actions: [...document.querySelectorAll('.scheduled-detail-footer button')].map(button => ({
+      label: button.textContent?.trim(), disabled: button.disabled,
+    })),
+  })).catch(() => undefined);
+  console.error('Cron management failure state:', JSON.stringify({ ...state, completedCases: results.length, pageErrors: errors.length }));
   await page?.screenshot({ path: 'test-results/cron-management-failure.png' }).catch(() => {});
   throw error;
 } finally {

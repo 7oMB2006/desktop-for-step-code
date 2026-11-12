@@ -68,6 +68,23 @@ export function validateOutcomes(needs, commit) {
   return identity;
 }
 
+export function validateWorkflowOutcomes(needs, commit) {
+  assert.deepEqual(Object.keys(needs ?? {}).sort(), ['changes', 'documentation', 'prepare', ...groups].sort(),
+    'Unexpected workflow dependency set');
+  assert.equal(needs.changes?.result, 'success', 'Classification did not succeed');
+  const route = needs.changes.outputs?.['docs-only'];
+  assert.ok(['true', 'false'].includes(route), 'Missing documentation route');
+  assert.equal(needs.documentation?.result, route === 'true' ? 'success' : 'skipped', 'Wrong documentation outcome');
+  if (route === 'true') {
+    for (const key of ['prepare', ...groups]) {
+      assert.equal(needs[key]?.result, 'skipped', 'Documentation route ran native integration');
+      assert.equal(Object.keys(needs[key].outputs ?? {}).length, 0, 'Documentation route has unexpected candidate evidence');
+    }
+    return undefined;
+  }
+  return validateOutcomes(Object.fromEntries(['prepare', ...groups].map(key => [key, needs[key]])), commit);
+}
+
 export function validateReceipts(directory, identity) {
   assert.deepEqual(readdirSync(directory).sort(), groups.map(group => `ci-macos-receipt-${group}.json`).sort(),
     'Expected exactly three group receipts');
@@ -130,8 +147,12 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
       output({ group, complete: 'true', ...identity });
     }
   } else if (command === 'outcomes' || command === 'conclude') {
-    const prepared = validateOutcomes(JSON.parse(process.env.CI_MACOS_NEEDS), commit);
-    if (command === 'conclude') validateReceipts(directory, prepared);
+    const prepared = validateWorkflowOutcomes(JSON.parse(process.env.CI_MACOS_NEEDS), commit);
+    if (command === 'conclude') {
+      assert.ok(prepared, 'Documentation route cannot conclude or promote candidate receipts');
+      validateReceipts(directory, prepared);
+    }
+    output({ 'docs-only': prepared ? 'false' : 'true' });
     console.log(`macOS ${command}: validated`);
   } else {
     throw new Error('Expected inputs, candidate, receipt, outcomes or conclude');

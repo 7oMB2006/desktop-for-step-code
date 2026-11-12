@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { lstat, mkdir, open, readdir, realpath, rename, rm } from 'node:fs/promises';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { parseThemeComposition } from './theme-composition.mjs';
 
 export class PluginFileError extends Error {
   constructor(code) { super(`capability:${code}`); this.code = code; }
@@ -73,6 +74,31 @@ export async function packageFingerprint(root) {
   }
   await visit();
   return hash.digest('hex');
+}
+export async function dataOnlyThemeFingerprint(root, id) {
+  try {
+    const fingerprint = await packageFingerprint(root);
+    const manifest = JSON.parse((await plainFile(root, 'step.plugin.json', 32768)).toString('utf8'));
+    const theme = JSON.parse((await plainFile(root, 'dfsc.theme.json', 32768)).toString('utf8'));
+    let recognizedTheme = false;
+    // Preserve the legacy header proof; rendering validity is checked separately.
+    if (object(theme) && theme.schemaVersion === 1) recognizedTheme = theme.renderer === 'stellar-v1';
+    else if (object(theme) && theme.schemaVersion === 2) {
+      parseThemeComposition(theme);
+      recognizedTheme = true;
+    }
+    // Unknown declarations fail closed, including future executable capabilities.
+    const metadata = new Set(['id', 'name', 'version', 'description', 'icon', 'repository']);
+    const resources = new Set(['skills', 'commands', 'agents']);
+    if (!object(manifest) || manifest.id !== id || !recognizedTheme
+      // Omission enables upstream's conventional directory discovery.
+      || [...resources].some(key => !Array.isArray(manifest[key]) || manifest[key].length !== 0)
+      || Object.entries(manifest).some(([key, value]) => metadata.has(key) ? false
+        : resources.has(key) ? !Array.isArray(value) || value.length !== 0
+        : key === 'mcpServers' ? !object(value) || Object.keys(value).length !== 0 : true)
+      || await packageFingerprint(root) !== fingerprint) return;
+    return fingerprint;
+  } catch { return; }
 }
 export async function scanInstalled(root) {
   const directory = join(root, 'plugins'), entries = [];

@@ -199,7 +199,9 @@ async function modules(fs) {
   } } });
   const sources = {
     settings: join(repository, 'Desktop/electron/capability-settings.mjs'),
+    failure: join(repository, 'Desktop/electron/capability-failure.mjs'),
     files: join(repository, 'Desktop/electron/plugin-files.mjs'),
+    composition: join(repository, 'Desktop/electron/theme-composition.mjs'),
     update: join(repository, 'Desktop/electron/plugin-update.mjs'),
     configuration: join(repository, 'Desktop/electron/plugin-configuration.mjs'),
     reader: join(repository, 'examples/plugins/config-starter/plugins/dfsc-config-example/server/configuration.mjs'),
@@ -226,7 +228,9 @@ async function modules(fs) {
     cache.set(key, module);
     await module.link(specifier => {
       if (Object.hasOwn(builtins, specifier)) return load(specifier);
+      if (specifier === './capability-failure.mjs') return load('failure');
       if (specifier === './plugin-files.mjs') return load('files');
+      if (specifier === './theme-composition.mjs') return load('composition');
       if (specifier === './plugin-update.mjs') return load('update');
       if (specifier === './plugin-configuration.mjs') return load('configuration');
       throw new Error('Unexpected import: ' + specifier);
@@ -240,14 +244,16 @@ async function modules(fs) {
   };
 }
 
-async function installationFixture(change) {
+async function installationFixture(change, theme = false, declarations = {}) {
   const fs = memoryFilesystem();
   const market = join(root, 'marketplaces/community');
   const source = join(market, 'plugins/example');
   const target = join(root, 'plugins/example');
   const existing = join(root, 'plugins/existing');
   fs.directory(root);
-  fs.json(join(source, 'step.plugin.json'), { id: 'id-a', name: 'Example' });
+  fs.json(join(source, 'step.plugin.json'), { id: 'id-a', name: 'Example',
+    ...(theme ? { skills: [], commands: [], agents: [] } : {}), ...declarations });
+  if (theme) fs.json(join(source, 'dfsc.theme.json'), { schemaVersion: 1, renderer: 'stellar-v1' });
   fs.put(join(source, 'README.md'), 'Original package');
   fs.json(join(market, '.step-plugin/marketplace.json'), { plugins: [{ name: 'example' }] });
   fs.json(join(existing, 'step.plugin.json'), { id: 'id-b' });
@@ -283,9 +289,11 @@ async function installationFixture(change) {
   const load = await modules(fs);
   const helpers = await load('files');
   const expectedFingerprint = await helpers.packageFingerprint(source);
+  const info = await fs.api.lstat(market);
+  const expectedSource = hash(JSON.stringify(['local', null, resolve(market), info.dev, info.ino, info.birthtimeMs]));
   const settings = (await load('settings')).createCapabilitySettings(upstream, { root });
   return {
-    fs, target, expectedFingerprint,
+    fs, target, expectedFingerprint, expectedSource,
     remove() { return settings.mutate({ action: 'plugin-remove', id: 'id-a' }); },
     install(extra = {}) {
       return settings.mutate({ action: 'plugin-install', name: 'example', marketplace: 'community', ...extra });
@@ -362,6 +370,25 @@ async function installRace() {
   await assert.rejects(fingerprint.install({ expectedFingerprint: fingerprint.expectedFingerprint }),
     error => error.code === 'stale');
   fingerprint.assertUnpublished();
+
+  const theme = await installationFixture(undefined, true);
+  await theme.install({ preserveRuntime: true, expectedFingerprint: theme.expectedFingerprint, expectedSource: theme.expectedSource });
+  theme.assertStaged();
+  assert.ok(theme.fs.nodes.has(theme.target), 'a proven pure theme may be installed while retaining the runtime');
+  for (const [isTheme, declarations] of [[false, {}], [true, { entry: 'executable.js' }], [true, { skills: ['skills'] }]]) {
+    const candidate = await installationFixture(undefined, isTheme, declarations);
+    await assert.rejects(candidate.install({
+      preserveRuntime: true, expectedFingerprint: candidate.expectedFingerprint, expectedSource: candidate.expectedSource,
+    }), error => error.code === 'stale');
+    candidate.assertUnpublished();
+  }
+  const replaced = await installationFixture((fs, source) => {
+    fs.json(join(source, 'step.plugin.json'), { id: 'id-a', name: 'Changed', entry: 'executable.js' });
+  }, true);
+  await assert.rejects(replaced.install({
+    preserveRuntime: true, expectedFingerprint: replaced.expectedFingerprint, expectedSource: replaced.expectedSource,
+  }), error => error.code === 'stale');
+  replaced.assertUnpublished();
 }
 
 async function payloadRace() {

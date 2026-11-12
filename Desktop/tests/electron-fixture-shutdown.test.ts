@@ -4,16 +4,16 @@ import { PassThrough } from 'node:stream';
 import { runInNewContext } from 'node:vm';
 import test from 'node:test';
 
-const { closeDesktopFixture, closeDesktopFixtureAndWait, releaseExitedFixturePipes } = await import(new URL('../scripts/close-desktop-fixture.mjs', import.meta.url).href);
+const { closeDesktopFixture, closeDesktopFixtureAndWait, releaseExitedFixturePipes, releaseExitedFixtureInspector, fixtureBrowserPort } = await import(new URL('../scripts/close-desktop-fixture.mjs', import.meta.url).href);
 
 test('launcher exit cannot complete shutdown before the driver close settles', async () => {
-  const { child, page, dispose } = fixture();
+  const { child, page, context, dispose } = fixture();
   dispose();
   let release!: () => void;
   const driverClose = new Promise<void>(resolve => { release = resolve; });
   let settled = false;
-  const closing = closeDesktopFixtureAndWait({ process: () => child, windows: () => [page],
-    close: async () => { child.exitCode = 0; child.emit('exit', 0); await driverClose; page.closed = true; page.emit('close'); } }, 1000)
+  const closing = closeDesktopFixtureAndWait({ process: () => child, windows: () => [page], context: () => context,
+    close: async () => { child.exitCode = 0; child.emit('exit', 0); await driverClose; page.closed = true; page.emit('close'); context.emit('close'); } }, 1000)
     .then(() => { settled = true; });
   await new Promise(resolve => setImmediate(resolve));
   assert.equal(settled, false, 'a successful launcher exit does not abandon the controller close promise');
@@ -22,19 +22,22 @@ test('launcher exit cannot complete shutdown before the driver close settles', a
   assert.equal(settled, true);
   assert.equal(child.listenerCount('exit'), 0);
   assert.equal(page.listenerCount('close'), 0);
+  assert.equal(context.listenerCount('close'), 0);
 });
 
 test('driver close errors remain failures even after a successful launcher exit', async () => {
   const child = Object.assign(new EventEmitter(), { exitCode: null as number | null });
-  await assert.rejects(closeDesktopFixtureAndWait({ process: () => child, windows: () => [],
+  await assert.rejects(closeDesktopFixtureAndWait({ process: () => child, windows: () => [], context: () => new EventEmitter(),
     close: async () => { child.exitCode = 0; child.emit('exit', 0); throw new Error('Driver close failed'); } }, 1000), /Driver close failed/);
   assert.equal(child.listenerCount('exit'), 0);
 });
 
 test('driver closure alone cannot complete shutdown before the launcher exits', async () => {
   const child = Object.assign(new EventEmitter(), { exitCode: null as number | null });
+  const context = new EventEmitter();
   let settled = false;
-  const closing = closeDesktopFixtureAndWait({ process: () => child, windows: () => [], close: async () => {} }, 1000)
+  const closing = closeDesktopFixtureAndWait({ process: () => child, windows: () => [], context: () => context,
+    close: async () => { context.emit('close'); } }, 1000)
     .then(() => { settled = true; });
   await new Promise(resolve => setImmediate(resolve));
   assert.equal(settled, false);
@@ -47,7 +50,7 @@ test('a stalled driver close keeps the bounded shutdown failure', async () => {
   const child = Object.assign(new EventEmitter(), { exitCode: null as number | null });
   let release!: () => void;
   const stalled = new Promise<void>(resolve => { release = resolve; });
-  await assert.rejects(closeDesktopFixtureAndWait({ process: () => child, windows: () => [], close: () => stalled }, 20), /shutdown timed out/);
+  await assert.rejects(closeDesktopFixtureAndWait({ process: () => child, windows: () => [], context: () => new EventEmitter(), close: () => stalled }, 20), /shutdown timed out/);
   assert.equal(child.listenerCount('exit'), 1, 'only the in-flight close helper pipe guard remains, not the wait listener');
   release();
   await new Promise(resolve => setImmediate(resolve));
@@ -74,6 +77,7 @@ test('orderly fixture shutdown answers existing and changed quit reviews without
   await closeDesktopFixture({
     process: () => child,
     windows: () => [page],
+    context: () => new EventEmitter(),
     close: async () => {
       onEvent({ type: 'unrelated', state: { request: { id: 'ignored', phase: 'review' } } });
       onEvent({ type: 'desktop_quit_review', state: { request: { id: 'waiting', phase: 'closing' } } });
@@ -87,18 +91,54 @@ test('orderly fixture shutdown answers existing and changed quit reviews without
   assert.equal(child.listenerCount('exit'), 0);
 });
 
+test('bounded shutdown completes while a failed acceptance leaves an approval pending', async () => {
+  const child = Object.assign(new EventEmitter(), { exitCode: null as number | null });
+  const context = new EventEmitter();
+  let onEvent: (event: unknown) => void = () => {};
+  let acceptQuit!: () => void;
+  const reviewed = new Promise<void>(resolve => { acceptQuit = resolve; });
+  const desktop = {
+    onEvent: (listener: typeof onEvent) => { onEvent = listener; },
+    snapshot: async () => ({ requests: [{ id: 'pending-tool', method: 'confirm' }] }),
+    quitRespond: async (id: string, approved: boolean) => {
+      assert.equal(id, 'quit-with-pending-approval');
+      assert.equal(approved, true);
+      acceptQuit();
+    },
+  };
+  const page = Object.assign(new EventEmitter(), {
+    closed: false, isClosed() { return this.closed; },
+    evaluate: async (callback: () => void) => runInNewContext(`(${callback.toString()})()`, { window: { desktop } }),
+  });
+  await closeDesktopFixtureAndWait({
+    process: () => child, windows: () => [page], context: () => context,
+    close: async () => {
+      onEvent({ type: 'desktop_quit_review', state: { request: { id: 'quit-with-pending-approval', phase: 'review' } } });
+      await reviewed;
+      child.exitCode = 0; child.emit('exit', 0);
+      page.closed = true; page.emit('close'); context.emit('close');
+    },
+  }, 1000);
+  assert.equal(child.listenerCount('exit'), 0);
+  assert.equal(page.listenerCount('close'), 0);
+  assert.equal(context.listenerCount('close'), 0);
+});
+
 test('orderly fixture shutdown releases inherited pipes only after successful exit and closed pages', async () => {
-  const { child, page, dispose } = fixture();
+  const { child, page, context, dispose } = fixture();
   dispose();
   await closeDesktopFixture({
     process: () => child,
     windows: () => [page],
+    context: () => context,
     close: async () => {
       child.exitCode = 0;
       child.emit('exit', 0);
       assert.equal(child.stdout.destroyed, false);
       page.closed = true;
       page.emit('close');
+      assert.equal(child.stdout.destroyed, false, 'pipe disposal must not interrupt close event delivery');
+      await new Promise(resolve => setImmediate(resolve));
       assert.ok(child.stdio.every(pipe => pipe === null || pipe.destroyed));
     },
   });
@@ -107,11 +147,12 @@ test('orderly fixture shutdown releases inherited pipes only after successful ex
 });
 
 test('failed fixture shutdown removes pipe guards without hiding the error', async () => {
-  const { child, page, dispose } = fixture();
+  const { child, page, context, dispose } = fixture();
   dispose();
   await assert.rejects(closeDesktopFixture({
     process: () => child,
     windows: () => [page],
+    context: () => context,
     close: async () => { throw new Error('Fixture failed to close'); },
   }), /Fixture failed to close/);
   assert.equal(child.listenerCount('exit'), 0);
@@ -127,13 +168,14 @@ function fixture() {
   const page = Object.assign(new EventEmitter(), {
     closed: false, isClosed() { return this.closed; }, evaluate: async () => {},
   });
-  const app = { process: () => child, windows: () => [page] };
+  const context = new EventEmitter();
+  const app = { process: () => child, windows: () => [page], context: () => context };
   const dispose = releaseExitedFixturePipes(app);
-  return { child, page, dispose };
+  return { child, page, context, dispose };
 }
 
-test('fixture pipe release waits for a successful process exit and every page to close', () => {
-  const { child, page, dispose } = fixture();
+test('fixture pipe release waits for a successful process exit and every page to close', async () => {
+  const { child, page, context, dispose } = fixture();
   try {
     child.exitCode = 0;
     child.emit('exit', 0);
@@ -141,60 +183,232 @@ test('fixture pipe release waits for a successful process exit and every page to
     assert.equal(child.stderr.destroyed, false);
     page.closed = true;
     page.emit('close');
+    assert.equal(child.stdout.destroyed, false);
+    context.emit('close');
+    await new Promise(resolve => setImmediate(resolve));
     assert.ok(child.stdio.every(pipe => pipe === null || pipe.destroyed), 'extra Playwright pipes must also close');
   } finally { dispose(); }
 });
 
-test('closed pages cannot release a live process pipe', () => {
-  const { child, page, dispose } = fixture();
+test('context closure can wait for inherited launcher pipes without deadlocking shutdown', async () => {
+  const { child, page, context, dispose } = fixture();
+  dispose();
+  Object.assign(context, { isClosed: () => true });
+  const pipesClosed = Promise.all(child.stdio.filter(pipe => pipe !== null).map(pipe =>
+    new Promise<void>(resolve => pipe.once('close', resolve))));
+  let driverClosed = false;
+  await closeDesktopFixtureAndWait({
+    process: () => child, windows: () => [page], context: () => context,
+    close: async () => {
+      child.exitCode = 0;
+      child.emit('exit', 0);
+      page.closed = true;
+      page.emit('close');
+      await pipesClosed;
+      context.emit('close');
+      driverClosed = true;
+    },
+  }, 1000);
+  assert.equal(driverClosed, true);
+  assert.ok(child.stdio.every(pipe => pipe === null || pipe.destroyed));
+  assert.equal(context.listenerCount('close'), 0);
+});
+
+test('successful exit and driver completion cannot replace the actual context close event', async () => {
+  const child = Object.assign(new EventEmitter(), { exitCode: null as number | null });
+  const context = Object.assign(new EventEmitter(), { isClosed: () => true });
+  await assert.rejects(closeDesktopFixtureAndWait({
+    process: () => child, windows: () => [], context: () => context,
+    close: async () => { child.exitCode = 0; child.emit('exit', 0); },
+  }, 20), /shutdown timed out/);
+  assert.equal(context.listenerCount('close'), 0);
+  assert.equal(child.listenerCount('exit'), 0);
+});
+
+test('closed pages cannot release a live process pipe', async () => {
+  const { child, page, context, dispose } = fixture();
   try {
     page.closed = true;
     page.emit('close');
+    context.emit('close');
     assert.equal(child.stdout.destroyed, false);
     assert.equal(child.stderr.destroyed, false);
     assert.ok(child.stdio.every(pipe => pipe === null || !pipe.destroyed));
     child.exitCode = 0;
     child.emit('exit', 0);
+    await new Promise(resolve => setImmediate(resolve));
     assert.equal(child.stdout.destroyed, true);
     assert.equal(child.stderr.destroyed, true);
   } finally { dispose(); }
 });
 
 test('failed process exit cannot be turned into graceful fixture success', () => {
-  const { child, page, dispose } = fixture();
+  const { child, page, context, dispose } = fixture();
   try {
     page.closed = true;
     child.exitCode = 1;
     child.emit('exit', 1);
     page.emit('close');
+    context.emit('close');
     assert.equal(child.stdout.destroyed, false);
     assert.equal(child.stderr.destroyed, false);
     assert.ok(child.stdio.every(pipe => pipe === null || !pipe.destroyed));
   } finally { dispose(); }
 });
 
-test('all application pages must close before any pipe is released', () => {
+test('all application pages must close before any pipe is released', async () => {
   const child = Object.assign(new EventEmitter(), {
     exitCode: 0, stdout: new PassThrough(), stderr: new PassThrough(),
   });
   const pages = [true, false].map(closed => Object.assign(new EventEmitter(), { isClosed: () => closed }));
-  const dispose = releaseExitedFixturePipes({ process: () => child, windows: () => pages });
+  const context = new EventEmitter();
+  const dispose = releaseExitedFixturePipes({ process: () => child, windows: () => pages, context: () => context });
   try {
+    context.emit('close');
     assert.equal(child.stdout.destroyed, false);
     pages[1].isClosed = () => true;
     pages[1].emit('close');
+    await new Promise(resolve => setImmediate(resolve));
     assert.equal(child.stdout.destroyed, true);
   } finally { dispose(); }
 });
 
+test('pipe disposal cannot overtake remaining page close listeners', async () => {
+  const { child, page, context, dispose } = fixture();
+  child.exitCode = 0;
+  page.closed = true;
+  let forwarded = false;
+  page.on('close', () => {
+    assert.equal(child.stdout.destroyed, false);
+    assert.equal(child.stderr.destroyed, false);
+    forwarded = true;
+  });
+  try {
+    page.emit('close');
+    assert.equal(forwarded, true);
+    assert.equal(child.stdout.destroyed, false);
+    await new Promise(resolve => setImmediate(resolve));
+    assert.ok(child.stdio.every(pipe => pipe === null || pipe.destroyed));
+  } finally { dispose(); }
+});
+
+test('disposing a scheduled pipe release leaves the driver pipes intact', async () => {
+  const { child, page, context, dispose } = fixture();
+  child.exitCode = 0;
+  page.closed = true;
+  child.emit('exit', 0);
+  dispose();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.ok(child.stdio.every(pipe => pipe === null || !pipe.destroyed));
+});
+
 test('disposing the fixture guard removes process and page listeners', () => {
-  const { child, page, dispose } = fixture();
+  const { child, page, context, dispose } = fixture();
   dispose();
   assert.equal(child.listenerCount('exit'), 0);
   assert.equal(page.listenerCount('close'), 0);
+  assert.equal(context.listenerCount('close'), 0);
   child.exitCode = 0;
   page.closed = true;
   child.emit('exit', 0);
   page.emit('close');
+  context.emit('close');
   assert.equal(child.stdout.destroyed, false);
+});
+
+test('inspector cleanup requires successful launcher exit, closed pages and a dead native process', async () => {
+  const child = { exitCode: null as number | null };
+  let pageClosed = false, nativeAlive = true;
+  const socket = Object.assign(new PassThrough(), { remoteAddress: '127.0.0.1', remotePort: 34567 });
+  const other = Object.assign(new PassThrough(), { remoteAddress: '127.0.0.1', remotePort: 34568 });
+  const app = { process: () => child, windows: () => [{ isClosed: () => pageClosed }] };
+  const dispose = releaseExitedFixtureInspector(app, { pid: 12345, debugPort: 34567 }, [socket, other],
+    (pid: number) => { assert.equal(pid, 12345); return nativeAlive; });
+  const tick = () => new Promise(resolve => setTimeout(resolve, 50));
+  try {
+    await tick();
+    assert.equal(socket.destroyed, false);
+    child.exitCode = 1; pageClosed = true; nativeAlive = false;
+    await tick();
+    assert.equal(socket.destroyed, false, 'a failed exit cannot be turned into a graceful close');
+    child.exitCode = 0; pageClosed = false;
+    await tick();
+    assert.equal(socket.destroyed, false, 'an open page keeps its inspector');
+    pageClosed = true; nativeAlive = true;
+    await tick();
+    assert.equal(socket.destroyed, false, 'a dead shell launcher does not prove native Electron exited');
+    nativeAlive = false;
+    await tick();
+    assert.equal(socket.destroyed, true);
+    assert.equal(other.destroyed, false, 'unrelated sockets remain untouched');
+  } finally { dispose(); socket.destroy(); other.destroy(); }
+});
+
+test('inspector cleanup refuses ambiguous, external and invalid launch identities', async () => {
+  const app = { process: () => ({ exitCode: 0 }), windows: () => [] };
+  const sockets = [
+    Object.assign(new PassThrough(), { remoteAddress: '127.0.0.1', remotePort: 34567 }),
+    Object.assign(new PassThrough(), { remoteAddress: '127.0.0.1', remotePort: 34567 }),
+    Object.assign(new PassThrough(), { remoteAddress: '192.0.2.1', remotePort: 34568 }),
+  ];
+  const disposers = [
+    releaseExitedFixtureInspector(app, { pid: 12345, debugPort: 34567 }, sockets, () => false),
+    releaseExitedFixtureInspector(app, { pid: 12345, debugPort: 34568 }, sockets, () => false),
+    releaseExitedFixtureInspector(app, { pid: 0, debugPort: 34567 }, [sockets[0]], () => false),
+    releaseExitedFixtureInspector(app, { pid: 12345, debugPort: 0 }, [sockets[0]], () => false),
+  ];
+  try {
+    await new Promise(resolve => setTimeout(resolve, 50));
+    assert.ok(sockets.every(socket => !socket.destroyed));
+  } finally { for (const dispose of disposers) dispose(); for (const socket of sockets) socket.destroy(); }
+});
+
+test('disposing an inspector guard leaves its captured socket intact', async () => {
+  const socket = Object.assign(new PassThrough(), { remoteAddress: '127.0.0.1', remotePort: 34567 });
+  const dispose = releaseExitedFixtureInspector({ process: () => ({ exitCode: 0 }), windows: () => [] },
+    { pid: 12345, debugPort: 34567 }, [socket], () => false);
+  dispose();
+  await new Promise(resolve => setTimeout(resolve, 50));
+  assert.equal(socket.destroyed, false);
+  socket.destroy();
+});
+
+test('Chromium debugging port accepts only the bounded DevToolsActivePort format', () => {
+  const path = '/devtools/browser/12345678-1234-1234-1234-123456789abc';
+  assert.equal(fixtureBrowserPort(`34568\n${path}`), 34568);
+  assert.equal(fixtureBrowserPort(`34568\r\n${path}\r\n`), 34568);
+  for (const value of [undefined, '', '34568', `0\n${path}`, `65536\n${path}`, `-1\n${path}`,
+    `34568\nhttp://example.com`, `34568\n${path}\nextra`, `34568\n${path}${'x'.repeat(300)}`])
+    assert.equal(fixtureBrowserPort(value), undefined);
+});
+
+test('both unique inspector connections release only after the native process and pages exit', async () => {
+  const child = { exitCode: 0 };
+  let nativeAlive = true;
+  const node = Object.assign(new PassThrough(), { remoteAddress: '127.0.0.1', remotePort: 34567 });
+  const browser = Object.assign(new PassThrough(), { remoteAddress: '127.0.0.1', remotePort: 34568 });
+  const other = Object.assign(new PassThrough(), { remoteAddress: '127.0.0.1', remotePort: 34569 });
+  const dispose = releaseExitedFixtureInspector({ process: () => child, windows: () => [] },
+    { pid: 12345, debugPort: 34567, browserPort: 34568 }, [node, browser, other], () => nativeAlive);
+  try {
+    await new Promise(resolve => setTimeout(resolve, 50));
+    assert.equal(node.destroyed, false);
+    assert.equal(browser.destroyed, false);
+    nativeAlive = false;
+    await new Promise(resolve => setTimeout(resolve, 50));
+    assert.equal(node.destroyed, true);
+    assert.equal(browser.destroyed, true);
+    assert.equal(other.destroyed, false);
+  } finally { dispose(); node.destroy(); browser.destroy(); other.destroy(); }
+});
+
+test('an ambiguous Chromium endpoint does not release either of its possible connections', async () => {
+  const sockets = Array.from({ length: 2 }, () =>
+    Object.assign(new PassThrough(), { remoteAddress: '127.0.0.1', remotePort: 34568 }));
+  const dispose = releaseExitedFixtureInspector({ process: () => ({ exitCode: 0 }), windows: () => [] },
+    { pid: 12345, debugPort: 34567, browserPort: 34568 }, sockets, () => false);
+  try {
+    await new Promise(resolve => setTimeout(resolve, 50));
+    assert.ok(sockets.every(socket => !socket.destroyed));
+  } finally { dispose(); for (const socket of sockets) socket.destroy(); }
 });

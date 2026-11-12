@@ -5,6 +5,7 @@ import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { closeDesktopFixture } from './close-desktop-fixture.mjs';
+import { settleLayout } from './settle-layout.mjs';
 
 const profile = await mkdtemp(join(tmpdir(), 'step-elapsed-ui-'));
 const workspace = join(profile, 'workspace');
@@ -78,16 +79,17 @@ try {
   });
   await page.getByText(user.content, { exact: true }).click();
   await page.locator('.elapsed-total').waitFor();
+  const messageTime = page.locator('.assistant-actions .message-time');
   await page.locator('.sidebar').hover();
-  await page.waitForTimeout(180);
+  await settleLayout(messageTime);
   assert.deepEqual(await page.locator('.thinking .elapsed-label').allTextContents(), ['已耗时 17s', '已耗时 15s']);
   assert.equal(await page.locator('.elapsed-total').textContent(), '共耗时 1m 23s');
   assert.equal(await page.locator('.assistant-actions .message-time').evaluate(element => getComputedStyle(element).opacity), '0');
   await page.locator('.assistant-actions').hover();
-  await page.waitForTimeout(180);
+  await settleLayout(messageTime);
   assert.equal(await page.locator('.assistant-actions .message-time').evaluate(element => getComputedStyle(element).opacity), '1');
   await page.locator('.sidebar').hover();
-  await page.waitForTimeout(180);
+  await settleLayout(messageTime);
   await page.screenshot({ path: 'test-results/conversation-elapsed-dark.png' });
   await page.waitForFunction(() => document.querySelector('.composer-wrap')?.getAttribute('aria-busy') === 'false'
     && !document.querySelector('.session-reading-preview'), undefined, { timeout: 60000 });

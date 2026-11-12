@@ -58,7 +58,8 @@ await writeFile(join(root, 'models.json'), JSON.stringify({ providers: { fixture
 } } }));
 const env = { ...process.env, DESKTOP_TEST_USER_DATA: profile, DESKTOP_TEST_NO_FOCUS: '1', TEMP: profile, TMP: profile, TMPDIR: profile };
 delete env.ELECTRON_RUN_AS_NODE;
-let app, page, runtime;
+let app, page, runtime, electronPid, electronDebugPort;
+let contextCloseObserved = false;
 const wait = async predicate => {
   const deadline = Date.now() + 30000;
   while (Date.now() < deadline) {
@@ -75,6 +76,11 @@ try {
     : { args: [resolve('.')] }), env, timeout: 60000 });
   app.process().once('exit', (code, signal) => console.log(`then_run fixture process exited: code=${code} signal=${signal}`));
   app.process().once('close', (code, signal) => console.log(`then_run fixture process closed: code=${code} signal=${signal}`));
+  app.context().once('close', () => { contextCloseObserved = true; console.log('then_run fixture context close observed'); });
+  ({ pid: electronPid, debugPort: electronDebugPort } = await app.evaluate(() => ({
+    pid: process.pid, debugPort: process.debugPort,
+  })));
+  console.log(`then_run fixture processes: launcher=${app.process().pid} electron=${electronPid} inspector=${electronDebugPort}`);
   runtime = await app.evaluate(({ app }) => app.isPackaged ? `${process.resourcesPath}/runtime` : undefined) ?? resolve('runtime');
   page = await app.firstWindow();
   page.on('pageerror', error => errors.push(error.message));
@@ -260,9 +266,34 @@ try {
       assert.equal(app.windows().length, 0, 'Every application window must close');
       console.log('then_run fixture: driver and launcher closed');
     } catch (error) {
+      const sockets = process._getActiveHandles().filter(handle => handle.remotePort).map(socket => ({
+        localAddress: socket.localAddress, localPort: socket.localPort,
+        remoteAddress: socket.remoteAddress, remotePort: socket.remotePort,
+        destroyed: socket.destroyed, readyState: socket.readyState,
+      }));
       console.error('then_run shutdown resources:', JSON.stringify({ exitCode: child.exitCode,
         resources: process.getActiveResourcesInfo(), contextClosed: context.isClosed(),
-        windows: app.windows().length }));
+        contextCloseObserved, electronPid, electronDebugPort, windows: app.windows().length, sockets,
+        pipes: child.stdio.map(pipe => pipe && ({ destroyed: pipe.destroyed, closed: pipe.closed,
+          readableEnded: pipe.readableEnded, writableFinished: pipe.writableFinished })) }));
+      if (process.platform === 'win32') {
+        const owned = await promisify(execFile)('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command',
+          `$owned = [System.Collections.Generic.HashSet[int]]::new(); [void]$owned.Add(${child.pid}); [void]$owned.Add(${electronPid}); `
+          + '$all = @(Get-CimInstance Win32_Process); do { $added = $false; foreach ($p in $all) { '
+          + 'if ($owned.Contains([int]$p.ParentProcessId) -and $owned.Add([int]$p.ProcessId)) { $added = $true } } } while ($added); '
+          + '@($all | Where-Object { $owned.Contains([int]$_.ProcessId) } | Select-Object ProcessId,ParentProcessId,Name) | ConvertTo-Json -Compress'],
+        { encoding: 'utf8', windowsHide: true, timeout: 5000 }).catch(failure => ({ stdout: `Unavailable: ${failure.message}` }));
+        console.error('then_run shutdown owned processes:', owned.stdout.trim());
+        const ports = [...new Set(sockets.flatMap(socket => [socket.localPort, socket.remotePort]))];
+        if (ports.length) {
+          const connections = await promisify(execFile)('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command',
+            `$ports = @(${ports.join(',')}); Get-NetTCPConnection -ErrorAction SilentlyContinue | `
+            + 'Where-Object { $_.LocalPort -in $ports -or $_.RemotePort -in $ports } | '
+            + 'Select-Object LocalAddress,LocalPort,RemoteAddress,RemotePort,State,OwningProcess | ConvertTo-Json -Compress'],
+          { encoding: 'utf8', windowsHide: true, timeout: 5000 }).catch(failure => ({ stdout: `Unavailable: ${failure.message}` }));
+          console.error('then_run shutdown socket owners:', connections.stdout.trim());
+        }
+      }
       throw error;
     }
   }

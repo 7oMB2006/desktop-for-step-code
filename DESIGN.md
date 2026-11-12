@@ -15,6 +15,43 @@ the focus extent against clipping ancestors, not just the input's border box.
 
 ## Existing Components
 
+MiniChat is a native view of a normal conversation, not BTW or a second agent.
+Reuse the actual conversation/composer/queue/approval components and shared
+tokens; omit unrelated rails and the performance footer. The titlebar entry
+sits immediately before Minimize. A draggable compact header provides the
+shared session menu, pin, Return, Minimize and Close. Minimize uses the native
+window action, affects only MiniChat and preserves its session, draft and reading
+state while work continues. Restore it from the taskbar/Dock or MiniChat entry.
+Close hides without affecting work;
+reopen resumes the mini selection, and Return explicitly transfers it to main.
+Draft text, quotes/annotations and attachments are session-owned. Presentation
+state is per window/session; streaming must not pull an older reader to the
+tail. Use the shared return-to-bottom action, message anchors and stable
+disclosure identities. Keep real approvals and failure/stop states intact.
+Settings and larger tools return to main rather than fitting parallel control
+surfaces into the mini window. Reserve the complete four-pixel composer focus
+gutter in narrow and low-height layouts.
+MiniChat's scroll handle and turn ruler follow the full-width transcript's right
+edge, not the main window's centered reading column. Their height stays within
+the transcript, with a separate text gutter. The session switcher is content-sized
+and bounded; unused header space remains a native window-drag region.
+Its anchored native popover groups conversations by project with independent
+search/disclosure state, shared session/pinned-project ordering and a separate
+independent-session group. Open the current project first; other projects start
+collapsed with counts. Search temporarily expands matching groups, and same-name
+projects show full paths. Per-project Plus targets that exact workspace without
+changing main selection, sidebar disclosures or preferences. Retargeting an
+unsubmitted draft follows the existing shared draft contract and keeps its input
+and options. Reuse animated disclosures, the downward chevron, composite-field
+focus gutters, keyboard/IME handling and reduced-motion behavior.
+
+Shared text tooltips use a non-focusing manual native popover so they remain
+above native menus and session pickers, without intercepting input or dismissing
+their owner. Preserve the existing appearance and viewport gutter; measure
+intrinsic width independently of the previous tooltip position. Keyboard focus
+waits for its automatic scroll before placement. Closing the owning surface or
+removing its trigger also removes the tooltip.
+
 Context maintenance belongs in Settings > General, not its own category or the
 Context inspector. The main percentage is global; the shared animated advanced
 disclosure contains a global token ceiling and provider-qualified per-model ratio
@@ -55,10 +92,100 @@ plugin frontends are not executed. Package Markdown and images are read on deman
 through opaque references, never renderer filesystem access. Tutorials and
 authorship remain author declarations; GitHub Stars are host-queried snapshots.
 
+Host-model plugins reuse this same detail form and save/restart footer. An
+unconfigured installation has no selected source: Follow DFSC and Independent
+are explicit choices, not authorization. Independent fields reuse the author's
+validated schema; stored secrets never return to the renderer. The unframed
+connection/authorization list is a query snapshot, not a balance or success
+guarantee. Show actual session model, channel, region and per-capability approval
+only when confirmed. Saving, failed saves, management changes and session/restart
+changes invalidate the observation without discarding unsaved fields. Do not
+restart a session, grant access or renew a lease from this form.
+
+Installed plugins may contribute one data-only desktop workspace with a
+`main-view`, `side-panel` or `window` surface. All three render the same bounded,
+host-owned Markdown pages; they are not arbitrary frontend execution points.
+Their titlebar entry belongs to an independent plugin action group beside
+MiniChat, never inside application menus or native window controls. The group
+has its own component, DOM region, styles, focus and event handling, and reserves
+no empty space when no valid installed contribution exists. Use fixed-size
+icon buttons with accessible names and tooltips; narrow layouts must preserve
+window controls and a usable drag region. Package raster icons have verified
+light/dark variants with a host symbol fallback, not remote image requests.
+Opening, tabbing and closing a workspace preserve conversation drafts and do not
+submit prompts, grant permissions or claim a connected backend. Any configuration
+action navigates to the existing plugin configuration flow. Missing or stale
+packages clear the actionable workspace rather than displaying another package.
+Main-view and side-panel shortcuts toggle their visible workspace; a window
+shortcut opens or focuses its one native window. Opening a workspace transfers
+keyboard focus into its selected tab, or restores its last visible focused
+control when reopened. Returning restores the original entry, including the
+overflow trigger. Main views use Back; side panels and native windows use an
+explicit Close action with the correct accessible name.
+This optional author contract requires a new host build, not a package-name
+exception or an implied capability in all published 0.6.0 clients.
+
+Agent Bridge workspaces keep their titlebar entry as a lightweight status
+popover. The full connection page shows four preparation checkpoints: profile
+marker, companion configuration, read-only identity/connection, and visible
+authorized roots. Each checkpoint names its limited evidence, missing state and
+next action. A found profile is not an installed or working Agent; valid
+configuration is not a loaded companion; a successful read does not establish
+dispatch readiness. Missing roots remain actionable even after connection
+verification. Loading and failed checks clear old checkpoint evidence.
+Profile selection belongs to its checkpoint, with forgetting beside the selected
+path rather than a detached icon row. Setup, troubleshooting and first-task
+actions only navigate explicitly declared package pages and preserve the
+connection instance. No installer, pairing, authorization or task mutation is
+implied, and task summaries never certify a successful first-run workflow.
+
+For an `agent-bridge-v1` connection contribution, the titlebar shortcut instead
+toggles a compact native status popover anchored below the same entry (or its
+overflow trigger). It leaves the conversation and selected workspace untouched.
+Show the verified identity, first-batch task summaries and observation time,
+not an inferred live/idle Agent state. Reopen and explicit refresh read again;
+no background polling or mutation belongs to this quick view. An explicit full
+workspace action opens the main connection/setup view without toggling it closed.
+Escape and explicit close restore the anchor; outside dismissal preserves the
+clicked control's focus. Keep the panel bounded in short/narrow windows, preserve
+complete focus gutters, and reject dismissed or stale-package results.
+
 Plugin authoring, fixed layout, control/copy conventions and the BVR mapping
 are documented in `docs/PLUGIN_AUTHORING.md`. `examples/plugins` separates a
 native-installable resource starter from a host-owned React field template;
 neither declares a third-party frontend SDK.
+
+Marketplace cards expose declared authors, DFSC version requirements and
+required/optional external preparation. Unknown authors and requirements remain
+explicitly undeclared; an absent dependency list is not a declaration of none.
+Author bylines use the person icon and name without a visible label prefix;
+retain a localized accessible author label. Version badges show the DFSC range
+quietly when it matches; only warnings and unknown results need visible verdict
+text. The complete version verdict and its limited scope remain accessible.
+Version and dependency chips share one compact size, padding and quiet fill.
+Keep version content continuous, without internal dividers or code-block styling.
+A warning tints the whole version chip and uses one leading status icon plus
+visible verdict text, never multiple separately framed segments.
+External-preparation summaries are separate icon-and-count buttons, never
+nested inside the card's guide button. They open an anchored native popover
+without resizing the card. Mixed required/optional totals use a neutral summary,
+not a claim that every item is mandatory. Empty and undeclared remain distinct
+and can open their explanation. Escape, explicit close and a second click return
+to the trigger; outside interaction, leaving the surface and catalog scrolling
+dismiss the popover. Preserve visible keyboard focus, viewport bounds and reduced
+motion. Keep author-declaration and unchecked-environment qualifications in the
+accessible summary and the expanded surface. The popover and unframed detail
+requirements section share the same dependency list and safe document links.
+Keep the complete requirements section inside Guide, below the detail tabs,
+so long declarations never push configuration or capability navigation away.
+Compare semantic ranges with the actual running app version, but label only
+the version result, never overall compatibility, installed dependencies or
+dispatch readiness. Discover metadata belongs to its candidate version; show
+the installed version separately and keep configuration bound to the installed
+package. Adaptation maintainers are not a substitute for project authors.
+Unavailable download statistics are explained in details, not repeated on every
+card, until a trusted market measurement exists. GitHub stars and author-supplied numbers are not downloads;
+this UI does not add telemetry, dependency execution or installation permissions.
 
 First-run setup is a separate bootstrap surface, not a settings dialog layered
 over the conversation. Only a fresh Desktop profile enters it. Reuse the native
@@ -337,6 +464,10 @@ Session navigation remains available during execution. Viewing a different sessi
 
 Session workers append shared-workspace collaboration guidance through the runtime's existing system-prompt option. This preserves product and project instructions and does not alter visible user prompts. Agents are instructed to inspect Git state, re-read before narrow edits, preserve others' changes, stage only their task's paths or hunks, and ask about specific ambiguous overlaps rather than treating concurrent activity as a blocker. This is behavioral guidance, not file locking, an ownership registry, worktree isolation or automatic shared access to other conversations. Existing tool permission approvals remain unchanged.
 
+Settings > Global instructions edits the Desktop profile's native global context file under Electron userData `step-runtime/agent/`, normally `AGENTS.md`. Existing context files follow the runtime's discovery order (`AGENTS.override.md`, `AGENTS.md`, case variants, then `CLAUDE.md`); editing uses the active file instead of silently shadowing or replacing other files. The main process owns bounded UTF-8 reads, serialized revision-checked saves and atomic replacement, and refuses linked instruction files/directories. The renderer receives text and an opaque revision only. Instructions are plaintext preferences sent to the configured model, not credential storage or an access-control boundary.
+
+Global instructions supplement the native product prompt, Desktop collaboration rules and project context, without changing user messages or permissions. The runtime loads global context before ancestor/project context; this ordering is not a guarantee of model obedience or a new enforced instruction hierarchy. Saving does not reload, stop or mutate resident conversations. Newly started runtimes, including restarted or cold-restored history, load the current file; navigating to an already resident conversation retains its loaded context. A configuration save excludes older empty workers from new-session reuse. The editor retains unsaved text across settings tabs, supports save/discard/clear/reload, and preserves local edits on revision conflict. Clearing is persisted only by Save. No personal CLI profile or upstream runtime source is modified.
+
 Desktop-owned extensions expose explicit peer-session tools through a main-process loopback broker. Listing covers resident sessions in this Desktop profile, not cold history; reads return recent user/assistant prose only, never reasoning, tool payloads or images. Reads neither navigate nor clear unread status. Peer text is reference, not an instruction or authorization from the user. Sending one message always requires a source-session confirmation displaying the exact target, folder and text, even in bypass mode; read-only sources cannot send. Background confirmations stay with their source conversation and can be deferred. Accepted messages queue behind an active turn or start an idle peer; there is no cross-session interrupt, stop, broadcast or automatic reply loop. Delivery acknowledgement is not task completion. Tokens are per worker, revoked at disposal and never exposed through the renderer bridge.
 
 Session context menus provide Copy session reference through the existing main-process clipboard bridge. The stable `stepcode-desktop://sessions/<sessionId>` reference contains no filesystem path or broker credentials. Copying does not navigate, clear unread status or require an idle agent. Peer-session tools accept either this reference or the raw session ID; the list tool returns both. This preview does not register a Windows URL handler or make the reference clickable navigation, and a reference does not grant access to another Desktop profile or revive recycled history.
@@ -410,6 +541,17 @@ The composer accepts file selection, pasted images and file drops. PNG/JPEG/WebP
 Composer thumbnails and transcript images share an anchored image preview: cubic expansion from the thumbnail and return on close, drag panning, cursor-centered Ctrl+wheel zoom, keyboard focus return and reduced-motion support. Obvious preview controls and hover-only removal buttons have no tooltip. Image context menus follow the client language: Copy/Save As in the preview and composer; Add to chat/Copy image/Open in Explorer/Download a copy in the transcript. Explorer uses a reusable desktop-owned image cache under userData `cache/image-previews/`, with one replaceable file per image format, separate from configuration and runtime data. The cache is rebuildable, not a permanent image archive; explicit save actions use a native save dialog.
 
 ## Window Lifecycle
+
+Settings > General > Notifications and sound has independent approval banners
+(default on), completion banners (default off) and completion sound (default off).
+Native banners are silent and use generic localized text without commands,
+paths or conversation content. Only live pending requests and authoritative
+successful task completions qualify. A session already selected in a focused,
+visible main or MiniChat window stays quiet. Clicking restores main and opens
+the source conversation; it never approves a request. Foreground activation,
+resolved requests, disabled options and new work withdraw obsolete banners.
+Windows Do Not Disturb remains an operating-system choice and is not bypassed.
+The behavior and verification boundary are documented in `docs/NOTIFICATIONS.md`.
 
 Closing the main window hides it to the Windows tray without stopping Agent tasks, queued messages, terminal processes or browser tabs. The tray uses the product icon and supplies Open and Quit in the selected language. Clicking it or launching another instance restores the existing window. File > Quit application and tray Quit perform the existing confirmed shutdown and wait for runtime/terminal cleanup; cancellation keeps the application available. A failed tray creation falls back to the explicit shutdown path instead of hiding an unreachable window. Windows session end does not request interactive task confirmation.
 
@@ -505,7 +647,7 @@ Unfinished task progress uses the established yellow-to-purple palette with a
 flowing highlight. Completing the checklist is not the same as finishing the
 round: keep the full bar flowing during the final response. A matching live
 round-completed event starts the bar impact, cubic-out right-to-left green sweep
-and small square dust, alongside the existing completion notification sound.
+and small square dust, alongside the completion sound when explicitly enabled.
 Keep task-row completion and folding motion unchanged. Restored or reopened
 panels show settled state without replay; hidden panels do not gate sound.
 Reduced motion settles directly without impact or particles.

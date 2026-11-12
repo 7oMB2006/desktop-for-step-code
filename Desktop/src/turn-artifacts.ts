@@ -46,6 +46,18 @@ const parser = unified().use(remarkParse);
 const pathKey = normalizedFileKey;
 const basename = (path: string, platform: string) => (platform === 'win32' ? path.replace(/\\/g, '/') : path).split('/').at(-1)!;
 
+function mayHaveArtifactReference(text: string): boolean {
+  // Only reject definite negatives; encoded/escaped destinations still need Markdown.
+  if (/[%&\\]/u.test(text)) return true;
+  for (const match of text.matchAll(/\.[a-z\d]+/gi)) {
+    if (artifactKind(match[0]) !== 'file') return true;
+  }
+  for (const match of text.matchAll(/https?:\/\/[^\s<>"'`*(){}，。！？；：]+/gi)) {
+    if (localPreviewUrl(match[0])) return true;
+  }
+  return false;
+}
+
 export function turnOutputPaths(items: IndexedMessage[], platform: string = 'win32'): string[] {
   const calls = new Map<string, Content>();
   const found = new Map<string, string>();
@@ -67,7 +79,7 @@ export function turnOutputPaths(items: IndexedMessage[], platform: string = 'win
 
 export function turnArtifacts(text: string, outputPaths: string[] = [], platform: string = 'win32'): TurnArtifact[] {
   if (text.length > 200_000) return [];
-  const tree = parser.parse(text) as Root;
+  const tree: Root = mayHaveArtifactReference(text) ? parser.parse(text) as Root : { type: 'root', children: [] };
   const definitions = new Map<string, string>();
   for (const node of tree.children) if (node.type === 'definition') definitions.set(node.identifier.toLowerCase(), node.url);
   const found = new Map<string, TurnArtifact>();

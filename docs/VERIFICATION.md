@@ -1,5 +1,4724 @@
 # Verification
 
+## Remote 主线冲突同步（2026-11-11）
+
+听写修复 `884663f` 推送后，#223 因 `main ed018f1` 新增验收记录而
+无法生成可测试的合并树，尚未启动新 CI。本轮仅为实际冲突同步主线，
+保留双方记录，同时审查干净合入的 Remote 资源操作、Cron 与连接复核改动，
+未将文档冲突当成纯文档同步。
+
+主线新增的真实 main 测试夹具没有背景同步钩子，在合并树中复现 6 项
+`syncCustomBackground is not defined`。补齐计数钩子，验证安装/更新/删除
+会协调背景，保留产品 `finally` 同步及全部 Remote/资源占用拒绝断言。
+354 项 Remote、运行时、背景、能力门与首次引导定向回归全部通过，
+类型检查和合并后的生产构建通过。`884663f` 的原生听写证据只属于其旧树；
+合并候选的完整协议、原生回归和 Windows/macOS 云端结果另行确认。
+
+## 听写背压输入与真实包启动修正（2026-11-11，本地）
+
+#223 的 `7d5f301` 在 Windows 三组、macOS 候选构建及 sessions/runtime
+通过，但 macOS interface 的 package 步骤在听写背压等待失败。
+诊断只有 201,600 个有声采样，即 12.6 秒有效 PCM；现有队列要约
+384,000 个采样才能触发该断言。35 秒墙钟不足以证明输入前提成立，
+也不能据此断定队列损坏或云端负载就是根因。
+
+- 新增确定性回归，从真实 `SpeechInput` AST 提取队列和清理方法，
+  使用真实分段/WAV 编码，覆盖首段在途、四段等待、第六段停止、
+  串行完成、清空队列、释放音轨和晚到结果不覆盖草稿。
+- 原生验收只将背压场景改为 capture 端口上的受控 PCM：先见证原生
+  有声输入，首段确实到达挂起的回环 HTTP 后再推进队列；前五段
+  音轨仍存活，第六段停止、收回权限且只上传一次。其他连续转写和
+  Finish 场景保留原生麦克风、生产 Worklet、分段、IPC 和 provider。
+  原生与注入计数分离，不将此项称为 24 秒实时采集验收。
+- 增加 AudioContext 状态/时钟、首末消息时间和最大间隔诊断，
+  不修改产品采集约束、队列阈值、超时或自动重试策略。
+- 发现原脚本完全忽略 `DESKTOP_VERIFY_EXE`，名为包轮的听写实际
+  仍加载源码。本轮包分支启动指定 EXE，不传源码 entry，并核对
+  `isPackaged`、执行路径、资源目录和已加载的主模块来源。
+  另有实际启动表达式回归覆盖 Windows/macOS 路径和禁止源码回落。
+- 无账户凭据启动、初始模型走回环、关闭自动更新；安装隔离 transport
+  后只重启本夹具 admin，再通过回环 OAuth 登录。重启前退出账户，
+  重启后在重新登录前验证听写同意和设置；切回账户路线应清除独立 key。
+  renderer 的 OS 沙箱、context isolation 和禁用 Node 断言保持不变。
+
+41 项听写定向回归、类型检查、语法及 diff 检查通过。Windows 源码与
+指定 EXE 原生验收串行通过，各 7 次 ASR 请求全部经回环；两轮原生连续
+采集各 64,000 个有声样本且注入为零，背压各精确注入 384,000 个样本。
+指定 EXE 验证使用 `test-results/speech-ci-package-fixture` 下的本地目录
+装载夹具，Electron 文件硬链接、运行时只读 junction；它验证包启动分支，
+不是可分发安装包，也不替代 macOS 云端真实候选包验收。
+
+证据位于 `D:\Desktop For Step Code\output\custom-background-finish-20261111\speech-ci`。
+本轮仅改验收与测试，不改产品、不新增交付包、不改快捷方式或个人档案。
+云端采样落后的具体原因仍未确证；新提交需要自身的 Windows/macOS CI，
+不得沿用 `7d5f301` 的绿项声称修复完成。
+
+## 自定义背景收尾与主线整合（2026-11-11，本地）
+
+#223 已合入 `main 310c679`，本记录对应合并树 `afe3288` 之上的材质、
+首次引导退出及验收修复。保留主题作者指南、示例和协议的主线版本；
+唯一文档冲突保留双方历史，未恢复旧版作者稿。
+
+- 对话区、输入框、左右栏独立透明度与界面毛玻璃覆盖整个主视图，
+  包括输入区周围、底部状态区和摘要下方留白。前景不淡化或模糊，
+  Stellar 自有材质不覆盖；终端背景关闭后恢复主题实底。
+- 首次引导接入退出确认、重载恢复及错误提示；退出失败记录实际阶段。
+  新增 helper 覆盖离线授权失败、待完成会话的确认/取消/重载，以及停机失败重试。
+  停机失败注入兼容 Windows 与 POSIX，但本轮原生执行平台仅为 Windows。
+- 类型检查和生产构建通过。完整协议 232 文件、2259 项：
+  2244 通过、15 项既有平台/权限跳过、0 失败。随后只改轻构建入口和对应断言，
+  `runtime-staging.test.ts` 的 8 项单独复验通过，未重复整套协议。
+- CI 策略/执行器 67 项：66 通过、1 项 POSIX-only 跳过；文档契约通过。
+  设置浏览器 13 组、组件渲染 7 组及真实 main/MiniChat 交界像素矩阵通过；
+  主题背景浏览器 10 组、非空 canvas 像素检查通过。
+- 最终 r2 轻构建重新通过隔离原生背景 13 组与主题组合验收，
+  包括 PNG/JPEG、Stellar 互斥、主窗/MiniChat 边界像素、重启及卸载重装。
+  未仅凭 r1/r2 的主进程哈希相同沿用最终渲染证据。
+- 完整首次引导（含三组退出）、正常主界面退出、PowerShell 终端验收通过。
+  从正确的 `Desktop/` 源码目录执行完整 MiniChat 与听写验收通过，
+  包括双窗共享输入、审批、发送、重开，以及录音取消、背压和持久化。
+  所有模型/听写请求均使用回环夹具，不代表真实账户或物理麦克风验收。
+- MiniChat 首次完整运行在置顶原生状态断言失败。最小诊断和随后保留全部
+  原断言的完整调用轨迹运行均通过，按钮、IPC 与 OS 状态一致。
+  未改产品置顶逻辑、放宽断言或延长超时，根因仍未确认，不能声称已修复。
+
+首次轻构建被补丁指纹门禁拒绝，旧运行时未被覆盖；后续只读复用
+`29eb460`、Node 24.16 及全部 53 项补丁指纹匹配的运行时。
+轻构建 helper 补齐 `runtime-compile-cache.mjs` 和 `tray-menu.html`，
+避免隔离首次引导缺少托盘页面。MiniChat 的早期 ENOENT 来自错误执行目录，
+不是产品路径错误；听写未运行的阶段不计为通过。失败和中断证据均保留。
+
+最终隔离轻构建为
+`Desktop/release/custom-background-finish-20261111-verification-r2`；
+自有文件约 8.53 MiB，另有只读 junction，不是可独立安装的交付包。
+主证据位于 `D:\Desktop For Step Code\output\custom-background-finish-20261111`，
+浏览器证据位于 `output\playwright\custom-background-finish-20261111`。
+未删除历史产物、改快捷方式、个人档案或运行时版本。新提交仍需自己的
+Windows/macOS 云端验收，`33bd0dd` 的旧绿灯不作为本轮通过证据。
+
+## 首次引导退出反馈修复（2026-11-10，本地）
+
+用户反馈独立体验包在首次引导页无法从托盘退出。本轮仅结束核对过
+可执行路径的该体验包进程树，保留档案，未触及日常客户端或快捷方式。
+普通新档案及离线授权失败本身均能正常退出，不能据截图断言网络失败
+就是退出卡住的根因。
+
+- 确认并复现一个退出死等分支：首次引导中的会话操作未完成时，
+  主进程等待退出确认，但 FirstRunShell 未订阅或呈现该确认。
+  新增验收在原体验包上确认真实 transition review 存在，却等不到确认框。
+- 首次引导现在接入现有退出确认和错误通知，支持取消、确认及页面重载恢复；
+  订阅后重读退出状态并按 revision 合并，避免挂载期间漏掉请求。
+- 主进程退出失败时记录 `quit-failure` 及失败阶段，非终端失败不再误报
+  为终端无法结束。不通过跳过安全停机或强制退出应用来掩盖失败。
+- `verify-first-run.mjs --exit-only` 提供三组隔离原生验收：
+  离线授权失败后的隐藏/托盘退出、会话操作期间的确认/重载/取消/退出、
+  注入停机失败后的可见提示/诊断记录/重试退出。
+  默认首次引导验收也运行这三组，清理时自动确认不参与功能通过判定。
+
+证据位于 `D:\Desktop For Step Code\output\first-run-exit-20261110`，
+隔离轻构建为 `Desktop\release\first-run-exit-20261110-verification`。
+修复候选三组通过，原包在退出确认缺失处失败。用户现场没有留下退出
+失败日志，因此本轮复现不能证明已还原其全部触发条件。完整首次引导、
+普通主界面退出回归及修正版包的结果以对应原生验收记录为准。
+未据此宣称全套云 CI、真实账户授权、安装器安装或发布通过。
+
+## 自定义背景主视图连续材质修复（2026-11-10）
+
+用户体验上一版后指出消息区底边、输入区周围、底部状态区和摘要下方留白
+存在材质断层。上一轮组件夹具及 CSS 属性断言没有覆盖真实窗口的这些交界，
+不能据其通过认为主视图已完整适配。
+
+- 将对话材质从消息滚动容器提升到整个 main，同时覆盖摘要预留轨道。
+  主窗口与 MiniChat 复用真实布局，不硬编码标题栏高度或侧栏坐标。
+- 输入框与摘要卡片保留额外遮色调节，不重复模糊已有阅读材质。
+  100% 输入框/摘要透明度移除自身遮色，底下仍是主视图材质。
+  不改变布局、前景文字、代码底色、主题所有权或背景生命周期。
+- 渲染验收新增真实 main.tsx 离线桥夹具，包含实际消息、输入框及摘要，
+  检查明暗、侧栏隐藏、摘要关闭、760px 窄屏、MiniChat、透明端点、
+  明亮锐利测试图与实际壁纸。交界像素与连续整面参考材质比较，
+  按截图实际像素比例采样；注入旧实现时必须检出至少三处缺口。
+- 类型检查、原背景渲染七组和主题背景组合十组回归通过。
+  隔离 Electron 背景十三组通过，新增真实主窗/MiniChat 边界像素检查，
+  保留导入、重启、主题互斥、卸载/重装、共享只读和草稿保留断言。
+- 原生首轮在主题切换后因设置页等待定位不准确而失败，保留失败证据；
+  改为等待当前可见设置区域的导入控件后通过，未扩大超时或修改产品行为。
+
+证据位于 `D:\Desktop For Step Code\output\playwright` 下的
+`custom-background-continuity-20261110-verified`、
+`custom-background-continuity-20261110-theme-regression` 及
+`custom-background-continuity-20261110-native-final`。
+隔离轻构建为 `Desktop\release\custom-background-continuity-20261110-verification`。
+本记录对应 `33bd0dd` 上的未提交本地修改，不代表云 CI、真实账户/模型、
+安装器安装或发布通过。体验包完整性及包内原生验收另留交付记录。
+
+## 自定义背景分区材质（2026-11-10，本地源代码）
+
+在 `33bd0dd` 之上的未提交改动中，补齐对话区、输入框、左栏、右栏的
+独立透明度（0% 实底、100% 透明）及界面毛玻璃。只改变底层材质平面，
+不使用整块 UI 的 opacity/filter，不更改代码、菜单和审批对话框底色。
+移除消息阅读列实底和输入框上方的旧渐变遮罩；终端支持透明背景并能恢复实底。
+仅在已解码的个人图片实际生效且 UI 为 `standard-v1` 时启用，
+Stellar 皮肤仍由主题管理。旧存档补默认值，不丢失已有图片调节。
+
+本地验收：
+
+- Desktop 类型检查通过；背景存储、真实主进程处理器、插件和主题组合五文件
+  共 91 项，89 通过，2 项 Windows 文件符号链接权限条件跳过。
+- 设置浏览器矩阵 13 组、真实消息/输入/摘要组件渲染矩阵 7 组、
+  原主题背景组合回归 10 组通过。覆盖明暗/390px 窄屏、四边焦点、
+  分区端点及独立调节、布局/文字颜色不变、代码/确认框实底、
+  固定定位控件坐标、图片失效/主题切换/卸载的材质清理。
+- 隔离真实 Electron 主进程/预加载/渲染验收 13 组通过，包含 PNG/JPEG
+  导入、实际侧栏/摘要/输入区材质、关闭/重启、MiniChat 共享且只读、
+  删除及插件卸载/重装。使用离线模型配置，没有真实账户或付费模型请求。
+- 原生 PowerShell 终端完整定向验收通过，新增 xterm 背景透明/恢复断言，
+  保留原有输入输出、剪贴板、停靠、尺寸、背压、作用域和进程回收断言。
+- 几何验收等待实际入场动画结束后再测量；设置夹具等待初始化，
+  不通过延长超时或关闭动画放宽断言。首次并行 Vite 冷启动的空白失败
+  保留截图，其原因未确证，最终单独运行通过。
+
+证据：`D:\Desktop For Step Code\output\custom-background-surfaces-20261110`，
+原生背景成功记录位于 `native-background-settled`。
+隔离轻构建为 `Desktop\release\custom-background-surfaces-20261110-verification`，
+自有文件约 8 MB，运行时为只读复用 junction，不是可独立交付的安装包。
+未删除历史产物、更新体验包/快捷方式、修改用户档案、推送或重跑云 CI；
+原 PR 的旧 head 云结果不作为本轮改动的通过证据。
+
+## 导航验收进程归属修复（2026-11-10）
+
+`6f41e91` 的 Windows sessions 云验收在第二个冷启动拦截处失败。
+本地隔离复现确认：插件目录查询的 `capability-admin.mjs --mode rpc`
+占用了旧夹具的第二个拦截名额；真正的第二个会话进程未被挂起。
+不是双冷启动断言失败，也不是自定义背景修改了会话行为。
+
+- 夹具现在只匹配当前 source/package 运行时的确切 `step/dist/bundle/step.js`
+  入口，管理进程不占名额。保留双启动、账户锁、草稿隔离和回收的原断言及超时。
+- 新增 source/package 回归在修复前均失败，修复后均通过；相关导航及运行时
+  三文件共 115 项通过，类型检查通过。
+- 在 `6f41e91` 的隔离构建上运行修复后的完整原生导航验收通过，正常退出。
+  本次只改夹具与回归测试，未改变产品、依赖或构建输入，因此未重建应用或
+  重跑本地完整矩阵。新提交仍须独立云验收，不能沿用旧 head 的云结果。
+
+证据追加在 `output\custom-background-main-sync-20261110` 的
+`navigation-baseline`、`navigation-entry-probe` 和 `navigation-fixed` 子目录。
+
+## 自定义背景同步组合协议主线（2026-11-10）
+
+#222 已合并为 `5beaa5d`，本次将 #223 的 `c0c9627` 同步到该主线，
+包含 #231 CI、通用插件宿主与插件工作区，未改变运行时 pin。
+合并保留图片背景的独立操作门、被动读取、关闭前等待与卸载归属核对，
+同时保留主线插件目录变更通知、宿主设置及插件窗口权限。
+
+- 定向协议回归 9 文件、143 项：141 通过，2 项既有 Windows 文件符号链接
+  权限跳过；目录 junction 拒绝测试实际运行。最后修改的主进程边界文件单独
+  复验 16 项通过，真实市场 2 项另用当前补丁运行时复验通过。
+- 首次定向回归在关闭顺序夹具失败：新增插件宿主服务未被旧夹具模拟。
+  已补齐 `pluginHosts` / `pluginWindows`，保留原关闭顺序断言，另覆盖插件
+  变更成功与失败时的目录通知，以及插件窗口拒绝全部个人背景读取和修改。
+- 类型检查与隔离生产构建通过；CI 策略、清单和执行器 67 项：
+  66 通过，1 项既有 POSIX-only 跳过。
+- 编辑面板浏览器 12 项、渲染浏览器 6 项通过，含明暗／390px 窄屏四侧焦点、
+  4 组非空色彩像素、视差暂停／减少动态、场景互斥及失败回退。使用本机 Chrome。
+- 完整隔离 Electron 背景验收 12 项通过：真实市场安装、PNG/JPEG 原生解码、
+  参数持久化、封闭主题保留场景、重启、MiniChat 只读、确认删除和卸载／重装。
+  无页面错误，默认关闭流程正常结束，未使用强制退出测试选项。
+
+工作区旧 runtime 的补丁指纹不匹配新增宿主协议，未用于本次 Electron 验收，
+也未覆盖。新隔离构建只读复用 `plugin-host-contracts` 工作区的 Node 24.16
+及完整匹配当前 manifest 的 runtime，构建脚本核对 pin 和全部补丁源指纹。
+初始定向矩阵的真实市场测试曾使用旧 runtime，上述两项已在新隔离运行时复验，
+其余定向测试不依赖该 runtime。未重复本地完整云端矩阵。
+
+证据位于 `D:\Desktop For Step Code\output\custom-background-main-sync-20261110`
+及 `output\playwright\custom-background-main-sync-20261110`。隔离构建位于
+`Desktop\release\custom-background-main-sync-20261110`，这些目录均在共享 D: 仓库。
+本记录仅确认本地范围；新候选仍需新的 Windows/macOS 云端验收。
+未生成安装包、发布、替换日常客户端／快捷方式，未修改个人档案或 Remote 绑定。
+
+## 自定义背景 Review 与 CI 修复（2026-11-09）
+
+- 基础 PR #222 的原生插件夹具漏拷贝 `theme-composition.mjs`，
+  已在 `082e773` 补齐，并合入插件分支；未修改产品权限或测试断言。
+- PR #223 的 P2 已复现并修复：图片先写独占临时文件并同步，再原子发布。
+  再次导入可修复旧版本中断留下的普通文件；仍拒绝目录、链接和被替换的条目。
+  修复已被元数据引用的图片后，即使元数据提交失败，也不会误删该图片。
+- 存储、实际 main、插件权限和操作门回归共 89 项：88 通过，
+  1 项因本机文件符号链接权限跳过；目录 junction 拒绝测试实际运行。
+  新增空文件、截断文件、超限残留、重启后重选、删除后重选及提交失败回滚覆盖。
+- 类型检查、隔离生产构建通过。本机原生插件完整重跑在最后一项清理时
+  报 `Runtime process-tree termination failed (1)`，并留下测试进程；
+  单项重跑以及带 `--test-force-exit` 的诊断重跑分别为 1/1 和 9/9。
+  后者不是默认退出流程验收，未据此宣称关闭行为通过。
+- `custom-background-20261109-review-r4` 的隔离 Electron 完成七项导入、
+  解码、编辑和主题兼容检查，页面错误为空，但在正常关闭时超时，完整验收失败。
+  证据保存在 `output/custom-background-20261109/review-r4/failure.json`。
+  已按本轮精确进程路径清理残留，没有修改终止策略或放宽关闭断言。
+- 新构建约 7.5 MiB，另有只读运行时链接；未生成安装包、删除历史构建、
+  切换快捷方式或触碰个人档案。新提交的云端 CI 仍需独立确认。
+
+## Custom Background MVP (2026-11-09)
+
+The optional host-adapter package now opens a real local PNG/JPEG editor.
+The host owns import, normalized private storage, bounded revisions and renderer
+lifecycle. Themes still decide whether image replacement is accepted. Existing
+integrated Stellar themes remain closed; incompatible themes retain the saved
+personal image without running its renderer.
+
+The first version supports fit, position, zoom, brightness, background blur,
+weak mouse parallax, disable/restore, reset and confirmed deletion. UI material
+and panel opacity are unchanged. Video, HTML, arbitrary CSS/JavaScript and WebP
+are not supported. The existing opaque welcome/conversation surfaces deliberately
+remain opaque, so personal media is most visible in the surrounding workspace.
+
+Local verification:
+
+- Store, gate and actual-main boundary suites: 77 passes and one Windows
+  file-symlink privilege skip. Directory-junction and directory-replacement
+  rejection cases run. The boundary suite includes cached passive reads during
+  import, pre/post installation proof, shutdown during a pending picker proof,
+  storage-failure startup fallback and failed-uninstall reconciliation.
+- Theme/image/adapter/library/policy suites: 79 passes and one Windows
+  file-symlink privilege skip. Additional foundation/worker suites: 40 passes.
+- Runtime-backed theme, Remote ownership, idle-race, diagnostics and real
+  marketplace suites: 132 passes.
+- Production settings browser verifier: 12 cases. Production background
+  renderer: six cases and four desktop/mobile bitmap checks, with no page or
+  console errors. The existing foundation browser matrix also passes ten cases.
+  Desktop and 390-pixel light/dark screenshots were inspected for overlap,
+  horizontal overflow and four-sided focus clipping.
+- Final isolated Electron build `custom-background-20261109-verification-r3`:
+  12 lifecycle checks pass, with no page errors or remaining test Electron
+  processes. This includes real recorded marketplace installation, native
+  PNG/JPEG normalization, cancel/invalid input retention, all adjustments,
+  theme compatibility, orderly restart, MiniChat read-only propagation,
+  uninstall/reinstall activation safety and confirmed removal. Concurrent
+  state polling during PNG import does not interrupt the write.
+- Typecheck, production build, verifier inventory and whitespace checks pass.
+
+The combined CI-policy/runner local suite has 20 passes and one failure:
+the existing Windows descendant-cancellation test receives `taskkill` error
+"call cancelled" on this host. Its four exact fixture processes were identified
+by PID, parent and command line and stopped with PowerShell. No runner source
+or cancellation assertion was weakened.
+
+Foundation PR #222 cloud review reports no findings, but its Windows protocol
+jobs and macOS ARM64 preparation fail because the isolated native-plugin fixture
+does not copy the new `theme-composition.mjs` dependency. Both platforms report
+the same nine native-plugin startup failures. After owner approval, the fixture
+copy list includes the missing dependency in `082e773`. Replacement cloud CI is
+running; it is not yet a green result. This is separate from the local product
+acceptance above.
+
+Final native evidence is in
+`D:\Desktop For Step Code\output\custom-background-20261109\electron-final`.
+Browser evidence is under
+`D:\Desktop For Step Code\output\playwright\custom-background-settings` and
+`custom-background-rendering`. Earlier failed fixture attempts remain separate
+from `electron-final/results.json`.
+
+Three isolated builds contain approximately 7.4-7.5 MiB of owned files each,
+plus three immutable runtime-directory links per build. No installer was
+produced and no historical package was deleted. The owner's checkout, running
+client, profile, Remote binding and shortcut remain unchanged. This evidence
+does not establish native macOS, installer, real-model or release acceptance.
+## 主线同步与 Hermes 全新安装验收（2026-11-11）
+
+将通用本机接入与插件连接引导合入当前分支，并正常合并主线
+`ed018f1f478af2c6ec3424ee320012523dd78ff1`。保留 Remote、
+MiniChat、语音、插件宿主授权等已合入功能，不升级运行时锁定版本。
+本条是该集成源码的本机验收，下面较早的真实 Plan 记录保留原有构建边界。
+
+- 类型检查、最终生产构建和空白检查通过。根目录测试在系统健康恢复后
+  串行完整重跑：67 项，66 通过、1 项既有平台跳过，无失败。
+- 完整协议最终重跑 234/234 文件成功，`complete:true`；
+  2,362 项用例中 2,348 通过、14 项跳过，无失败或取消。
+  新日志位于 `Desktop/test-results/protocol-main-sync-final/summary.json`
+  和 `hermes-main-sync-protocol-final.log`，未覆盖首次失败记录。
+- 浏览器验收：外部接入 6 组、插件工作区 24 组、市场信息 21 组。
+  包含中英文、明暗主题、窄屏、完整焦点、迟到响应及关闭边界。
+- 原生通用接入 9 组通过，使用真正的 Python companion、loopback
+  模型和原生 Ask 会话，覆盖队列、幂等、本机拒绝/允许审批、停止归属及
+  重启回执。Remote 正常退出重启及插件 surfaces 17 组通过；
+  宿主独立设置、授权和撤销回归分别通过。
+- 最终构建的语音 21 组及 MiniChat 回归通过，包含正常退出、
+  重新启动、真实 PTY、原生审批、主小窗交接与草稿保留。
+  语音使用合成麦克风及 loopback ASR，不证明物理麦克风或真实账户。
+- 全新隔离 DFSC profile 经真实插件中心安装 companion 仓库中的
+  Hermes x DFSC 资源 0.3.0，7 组通过。核对作者、适配维护者、
+  semver 范围、四项依赖、无伪造下载量、原始 256px 头像和 17px
+  明暗直角图标、顶栏状态面板、四步准备及四页指南。
+  明暗和 640px 窄屏截图已实看，零模型请求、零页面错误、
+  退出码 0、零剩余窗口；最终进程扫描无残留。
+- companion 70 项中 69 通过、1 项既有平台跳过；资源测试 9 项通过。
+  独立仓库版本保持资源 0.3.0、companion 0.2.0。
+
+全新安装暴露并修复了市场依赖弹层缺陷：长搜索框失焦后的自身水平滚动
+会触发全局 scroll 捕获，误关刚打开的弹层。关闭条件现只匹配包含按钮
+锚点的滚动目标；搜索框自身滚动不关闭，真正列表滚动仍关闭。
+浏览器新增回归在旧代码失败、修后通过，同时保留 Escape、焦点离开、
+外部点击和卸载关闭断言。原生 r6 无预先 focus/settle workaround，
+记录到直接点击约 15ms 后真实 INPUT scroll，弹层仍保持展开。
+r1-r4 原失败及 r5 含临时焦点处理的证据均保留，不将 r5 冒充最终修复。
+
+主线同步后的首轮协议回归发现 `remote-management` 的源码抽取夹具
+未提供新增 `externallyOwned` 依赖；现抽取真实生产函数并注入可控归属集合，
+保留全部旧断言，新增准备中/保留中的设置阻断及 Remote 禁止派工/代答断言。
+另修复 CI 取消测试的 Windows 事件竞态：OS PID 消失可能早于 Node
+ChildProcess 的 exit 事件，夹具通过诊断通道匹配实际子进程并有界等待 exit，
+不修改生产终止逻辑、原时限或禁止终止已退出 PID 的断言。
+
+首轮语音在功能完成后退出失败，原始异常为系统 taskkill 返回 1，
+同机 Win32_Process 查询也失败。只清理本轮精确核实的孤立 fixture 后，
+独立 taskkill/进程查询探针恢复，随后原样根目录测试、语音及 MiniChat
+完整重跑通过；没有重启系统服务、放宽断言或把首轮失败计为通过。
+
+主要证据位于 `D:\DFSC-Preview-QA\hermes-real-setup-20261111`：
+`fresh-install-main-sync-r6/verification.json`、`market-scroll-fixed/`、
+`main-sync-browser-external/`、`main-sync-browser-workspace/` 和
+`main-sync-native/`。前五类原生回归在市场弹层修复前的集成构建完成，
+全新安装、语音及 MiniChat 使用最终构建。类型、构建、根目录测试及
+逐文件协议日志保存在当前工作区 `Desktop/test-results/`，旧失败日志未覆盖。
+运行时从独立源码重新构建并 staging，53/53 patched source hash 匹配，
+使用 Windows 要求的 Node 24.16.0；没有更改共享依赖或该独立源码文件。
+
+本轮仅使用受控模型端点，没有再次调用真实账户。此前真实 Plan
+工程闭环不冒充本轮集成构建的真实模型再验。全新 profile 安装也不等于
+干净机器、公开市场、真实聊天渠道、macOS 或发行安装包验收。
+没有新建发行包、修改现用应用/profile/快捷方式、合并或发布市场；
+社区市场的来源锁定 SHA 未更新。推送和云 CI 在对应 PR 单独记录。
+本轮构建产物约 12.6 MiB，原生证据约 125 MiB，另保留全新安装与失败基线；
+均已盘点，未经授权未删除既有包或证据。
+
+## Hermes 最小工程委托闭环（2026-11-11）
+
+沿用独立 Windows 预览包、独立 `userData` 和唯一授权的测试项目，
+完成一次真实 `step/step-5-preview` 工程任务及同进程结果回读。
+原有 DFSC profile 和主桌面快捷方式未修改，没有新建发行安装包。
+
+- 首次文本验收退出码 1 的原因已有原始会话和日志证据：
+  三轮工具发现、三次业务调用用完脚本指定的六轮额度，
+  Hermes 记录 `max_iterations_reached(6/6)`，不是未提交任务的证明。
+  原失败记录保留。本次新工程任务使用独立幂等 key、12 轮上限与临时
+  120 秒预算，正常在第 7 轮回答，CLI 及协议退出码均为 0。
+- 上次旧任务回读没有摘要，是因为 DFSC 已退出并重新启动。
+  摘要仅当前宿主进程保存的契约不变，不新增回答持久化或任意会话历史读取。
+  companion 增补搜索元数据、`task.create.id` 参数说明及缺少摘要时的处理指引。
+  搜索仍可能需要补充查询，不声称一次搜索即可发现工具。
+- Hermes 仅创建并提交一个新任务。DFSC 保持 Ask，原生确认消息的完整
+  Call ID 与同一 runtime 的唯一工具调用绑定，批准前严格核对完整命令、
+  工作目录和执行参数。审批由本机 QA 通过原生 preload 执行，不是把
+  人工审批能力开放给 Hermes，也不是一次真人手动审批验收。
+- 原生会话只有一次 `run_command` 调用，工具结果与调用 ID 对应且无错误。
+  命令以独占创建方式生成 `README.md`；独立核对项目仅有该文件，
+  内容逐字为 `Hermes x DFSC engineering acceptance` 加换行。
+  最终原生摘要为 `README.md 已创建。`，`resultAvailable:true`，未截断。
+- DFSC 保持同一进程时，原 Hermes 会话仅执行一次 `task.get`，
+  实际工具返回和 Hermes 最终回答都包含上述原生摘要，退出码均为 0。
+  任务仍只新增一项，原提交记录未改变，没有重建或重派。
+- 无真实模型的原生 Electron 9 组验收通过，包含本机拒绝审批后命令标记
+  文件不存在、原生拒绝工具结果、同 key 不重派，以及 completed 任务重启后
+  保留回执但没有摘要、不重新挂接原生历史。工具被拒绝后模型可以正常解释
+  拒绝，因此没有把该轮 `completed` 误称为工具执行成功。
+- 类型检查通过；完整协议回归 1,920 项中 1,907 通过、13 项既有跳过，
+  无失败。初轮 18 项失败均因四份 VM/Function 夹具未注入新增的外部委托
+  守卫依赖，已补齐并新增三项外部占用拒绝断言，没有移除产品守卫或放宽
+  原有断言。companion 70 项中 69 通过、1 项既有跳过，资源测试 9 项通过。
+- 临时预算已恢复，网关在归属和空闲核对后正常退出，DFSC 退出码 0、
+  零剩余窗口。最后仅重新打开保存会话并经真实侧栏导航截图，
+  未提交新提示、未再次调用模型；截图已实看。
+
+证据位于 `D:\DFSC-Preview-QA\hermes-real-setup-20261111\engineering`：
+`verification.json` 记录真实派工、精确审批和同进程结果回读，
+`capture-verification.json` 与 `*-visible.png` 记录真实界面复核。
+最初直接调用会话 IPC 后的两张截图未完成渲染器导航，不用作可见状态证据。
+受控 Electron 最终证据位于相邻的 `engineering-fixture-r2`；
+首轮 `engineering-fixture` 的能力字段投影断言失败保留，不计为通过。
+相邻的 `protocol-followup.log` 保留全量失败基线，
+`protocol-followup-final.log` 记录修复后的全量通过。
+
+本轮证明最小文件写入、原生本机审批和结果回读，不代表复杂工程、
+真实聊天渠道、无人值守、云端 CI、macOS 或公开市场安装验收。
+未提交、推送、合并或发布。
+
+## Hermes 通用连接真实 Plan 验收（2026-11-11）
+
+使用本轮源码生成的独立 Windows 预览包和全新 `userData`，
+仅授权空白测试工程。原有 DFSC 凭据、会话和主桌面快捷方式未修改；
+原 profile 的凭据解锁失败仍是独立未解决问题，不计入本次通过项。
+
+- 新 profile 经原生凭据导入、`AuthVault` 首启迁移和再次启动验证；
+  临时 `auth.json` 已删除，账户识别为中国区 Step Plan。
+- 原生 main/preload 配对仅含测试目录。Hermes companion 实际安装并由
+  原生插件加载器注册，真实 capabilities 握手通过；底层工具目录仅含
+  `dfsc_engineering`，模型入口的 Tool Search 重组另行核对。
+- Hermes 通过既有中国区 Plan 路由创建并提交唯一任务。DFSC 保存的
+  原生会话包含逐字匹配的测试输入和 `DFSC 连接成功`，实际回复模型为
+  `step/step-5-preview`、权限为 Ask，无工具调用，空白工程未改变。
+- 首次 Hermes CLI 退出码为 1，不算一次干净完成的聊天。随后核对原任务
+  和原生会话，在同一 Hermes 会话中仅执行一次 `task.get`，退出码 0；
+  任务仍只有一项，提交记录未改变，没有重建或重派。
+- 实际 Hermes x DFSC 前端资源已装入独立 profile。原生目录绑定、
+  顶栏锚定状态面板及已完成任务展示通过，中文页面截图已实看。
+- companion 安装暴露了 `--hermes-source` 导入整个 CLI bootstrap 后
+  重启丢失脚本导入路径的问题；改为只激活原生依赖环境，新增独立进程
+  安装回归。companion 测试 68 项：67 通过、1 项既有跳过。
+- 临时 120 秒预算已精确恢复；本次网关经 PID、出生时间、实例身份及
+  空闲状态核验后正常退出。DFSC 验收进程退出码 0，窗口全部关闭。
+
+证据位于 `D:\DFSC-Preview-QA\hermes-real-setup-20261111\real-chain`：
+`verification.json` 保留首次聊天失败，`final-verification.json` 记录原生
+回复和后续只读查询，`capture-verification.json` 记录真实界面截图验收。
+这是本机最小文本委托验证，不是工程工具审批、文件修改、飞书、
+多渠道、公开市场、云端 CI、macOS 或发布验收。未提交、推送或发布。
+
+## Hermes 顶栏轻量状态入口（2026-11-09）
+
+按交互修正，声明 `agent-bridge-v1` 的插件顶栏按钮先展开原处锚定的
+原生状态小面板，不直接切换主视图，不改变当前聊天、草稿或阅读位置。
+小面板展示本次只读诊断、身份、首批最多 5 项任务与检查时间；
+打开或手动刷新才读取，不推断实时在线、空闲、companion 加载或可派工状态。
+再次点击、Escape、显式关闭和外部点击均可收起；键盘关闭恢复原入口，
+外部点击保留目标控件焦点。完整工作台是显式次级入口，选择/更换/忘记
+profile、授权目录详情和安装指南继续放在完整页。未声明连接的插件行为不变。
+
+本地验证：
+
+- 类型检查、生产构建、`git diff --check` 通过。
+- 完整协议回归 1,817 项：1,804 通过、13 项既有平台跳过，无失败。
+- 浏览器 20 组通过：新增直接及溢出入口、开关/关闭/焦点、显式完整页、
+  5 项边界、关闭后的迟到响应、窄/矮窗口、明暗/中英文、完整焦点轮廓、
+  打开时缩放、换包/卸载及设置阻断时移除旧面板。
+- 生产 Electron 16 组通过：真实主进程/预加载桥/渲染器与隔离 Bridge，
+  实际 Hermes 0.3.0 资源和已确认图标；状态查询不改变主导航、草稿或阅读位置，
+  显式进入完整连接页，保留身份/目录过滤、脱敏及更新失效回归。
+- 中文模式使用「智能体状态」及中文提示，新增实际 Hermes 中文明暗截图与
+  标题、刷新、工作台、任务阶段和检查时间的本地化断言；英文模式保留。
+- 原生流程零模型请求、零页面错误，退出码 0，夹具窗口全部关闭。
+- Hermes 随包说明同步小面板与完整页的层级，资源测试 6 项通过；
+  不改 companion 运行逻辑、元数据协议或已确认图标。
+
+证据位于 `D:\DFSC-Preview-QA\hermes-status-20261109`：
+`browser-final/` 和 `electron-final/verification.json`。
+中文文案复验位于 `browser-zh/` 与 `electron-zh/verification.json`，
+`electron-zh/hermes-status-zh-*-detail.png` 为带原始顶栏图标的中文局部截图。
+原生初轮在更新返回后立刻点击，使用了尚未刷新的旧入口声明；
+脚本现等待渲染器出现更新版本再验证新行为。浏览器几何断言也等待
+实际布局/动画与缩放后的定位完成，未放宽内容、数量或隔离断言。
+初轮失败证据保留，不作为通过证据。
+
+仅修改开发源码及隔离验收证据；无安装包、真实 profile、账号、飞书或工程任务，
+不改变当前运行应用和桌面快捷方式。云端 CI 与公开安装包兼容仍需独立核验。
+
+## 插件只读 Agent Bridge 连接主视图（2026-11-09）
+
+在已合入的通用工作区之上，新增固定 `agent-bridge-v1` 协议适配。
+仅限来源记录有效的已安装主视图插件；包不能声明任意方法、URL 或文件路径。
+用户主动通过原生目录选择器选取本机 profile 后，主进程只检查
+`config.yaml` 文件标记、读取 companion 配置与对应身份的 `model.json`。
+令牌不进入渲染器，不读取 YAML 内容、`human.json`、`.env` 或个人默认 profile。
+
+只调用 `system.capabilities` 和首批 `task.list`，核验身份、真实目录交集后
+最多返回 20 项摘要，不返回对话、日志或工具输出。单次读取有绝对超时和体积上限。
+缺少前置组件、配对、身份不符和连接失败分别显示诊断，不伪装可派工。
+忘记选择仅删除宿主绑定；安装实例或包内容变化使绑定及在途旧请求失效。
+MiniChat 和独立插件窗口继续拒绝这些接口。
+
+本地最终源码验收：
+
+- 类型检查、生产构建和空白检查通过。
+- 完整协议回归 1,817 项：1,804 项通过、13 项既有平台跳过，无失败。
+- 浏览器 16 组通过，覆盖诊断、重试、忘记选择、取消选择保留原状态、
+  隐藏页面的过期响应、中英文、明暗主题、窄窗口、完整焦点轮廓和任务排版。
+- 最终生产 Electron 13 组通过。使用真实主进程、预加载桥、渲染器、
+  安装来源与本机 Git 市场；目录选择器返回值由夹具控制，
+  其余连接读取走临时 profile 与受控回环 TCP JSONL 服务。
+  覆盖身份与目录过滤、脱敏、无目录状态、更新期间的引用失效、
+  卸载拒绝旧引用、忘记选择保留配对文件，以及原有草稿与工作区隔离。
+- 同一原生流程安装并打开实际 Hermes 0.3.0 源码资源包。
+  详情头像的原始 256px 字节、顶栏 17px 明暗直角图标分别核验，
+  不把两类资源当作同一图片。实际 Hermes 连接页可显示隔离夹具的任务摘要。
+  原生流程记录零模型请求、零页面错误、退出码 0，所有夹具窗口已关闭。
+
+证据位于 `D:\DFSC-Preview-QA\hermes-connection-20261109`：
+`protocol-final.log`、`build-final.log`、`browser-final/` 与
+`electron-final-source/verification.json`。初轮失败证据保留：
+验收脚本曾误把包头像与顶栏图标等同，并假设所有入口均在直接按钮区；
+已分别核验资源和溢出菜单状态，未放宽隔离或内容断言。
+
+这是只读客户端接入，不是 Agent Bridge 服务迁入或完整 Hermes 派工前端。
+当前桌面主线仍不内置配套服务，连接核验不证明 companion 已加载或可派工。
+不声称公开安装包兼容、云端宿主 CI、原生 macOS、真实账号、飞书或过夜工程验收。
+未改变主人的运行应用、真实 profile、凭据、快捷方式或上游运行时。
+本轮只重建开发 `dist` 并生成隔离验收证据，未制作安装包；未删除旧包或历史证据。
+
+## Remote 治理同步当前主线（2026-11-11）
+
+Remote 管理候选从旧基线同步到 `310c679`。唯一文本冲突是本文件
+并列新增的记录，双方完整保留；生产代码自动合并后，测试夹具补齐
+主线新增的听写对象，继续执行实际 main IPC，不跳过新的共享门控。
+独立只读复审未发现新的 P1/P2 阻断。
+
+同步后核心、扩展及运行时三组定向测试共 772 项，769 通过、
+3 项既有平台跳过、零失败；包含听写 IPC 与编译缓存恢复回归。
+类型检查、生产构建、验收脚本语法及差异空白检查通过。
+本地普通 runtime 只补入主线新增的 `runtime-compile-cache.mjs`，
+其余暂存输入、依赖锁文件和 runtime pin 与原基线一致；未修改上游 checkout
+或通过依赖 junction 覆盖共享文件。
+
+Windows 源码管理原生验收 18 项通过，`cleanupConfirmed: true`，
+两次模型请求均为 loopback，零 renderer 错误。证据为
+`Desktop/test-results/remote-management-main-sync-native/results.json`。
+这不是包内、真实飞书、真实账户或 macOS 验收。
+未修改的 StepPage 原生验收也通过：Cron 待命准备不替换宿主和任务，
+重启仍拒绝，实际 MCP 连接 13 个工具，禁用重启后为 0，
+修复和再启动均保留禁用；日志为
+`Desktop/test-results/remote-management-main-sync-steppage-native.log`。
+
+CI 策略本机运行不是全绿：67 项中 65 通过、1 跳过，另有
+`Windows cancellation never targets an exited leader with inherited pipes`
+未收到预期的 leader-exit 分支。Node 24.15、24.16 以及单例隔离均复现，
+相关脚本与 `origin/main` 相同，本轮不修改或放宽该退出断言，
+也不据此宣称已确认环境根因或修复。日志保留在
+`remote-management-main-sync-ci-policy*.log` 与
+`remote-management-main-sync-ci-exit-isolated.log`。
+
+以上只记录本地结果。此次交付范围为独立 PR 与新 head 的 Windows/macOS
+云端检查，云端结果另行核对；未生成体验安装包、合并、发布插件、
+修改主快捷方式或日用 profile。
+
+## 主题作者指南同步听写主线（2026-11-11）
+
+PR #232 同步已合入 #229 的主线 `be4f865`。唯一冲突是本文件顶部
+并列新增的验收记录，双方内容完整保留；未手改主线功能代码、主题组合
+协议、runtime pin 或 CI 门禁。此前 `26cbdaa` 的 Windows 与 macOS
+全绿仅属于旧组合，不代替本次合并提交的云端验收。
+
+Node 24.16.0 下串行运行 12 个定向协议文件，共 115 项：
+114 通过、1 项 Windows 文件符号链接权限跳过，覆盖独立 v2 起步包、
+实际市场管理器发现/安装/卸载、主题组合与图片边界、实际 main IPC、
+主题权限及新增听写的服务/分段/IPC。CI 策略、清单、执行器及汇总
+回归 67 项，66 通过、1 项平台跳过；类型检查、生产构建和文档
+pin/patch 指令检查通过。协议日志和 TAP 保存在
+`Desktop/test-results/theme-authoring-main-sync-20261111/protocol/`。
+
+依赖清单和锁文件与已验证版本一致，本地仅只读复用既有测试 runtime，
+没有在共享目录暂存新补丁。完整协议、原生源码和包内验收由新 head
+云端重新运行；以上不代表其通过，也不是原生麦克风或真实账户验收。
+本轮未生成本地安装包、改动快捷方式或日用档案、合并 PR 或发布。
+
+## 独立主题作者交付候选（2026-11-11）
+
+基于主线 `a72e550f3954ea6d957b7f8506f8ef8106b3fa08` 的干净工作区，
+只增加中文作者指南、独立 v2 起步包、文档入口与示例回归。
+不带入 #223 的个人图片编辑器、分区材质、首次引导退出修复或星辰资源修改。
+指南明确区分已合入的组合协议与 #223 候选适配，不把插槽声明当作编辑器交付。
+
+- 四个专项测试文件共 34 项：33 通过、1 项 Windows 文件符号链接权限跳过。
+  包含真实插件管理器发现、安装及卸载原样示例，开放/关闭插槽和图片边界检查。
+- Desktop 类型检查、文档 pin/patch 指令检查与差异空白检查通过。
+- Markdown AST 检查两仓库 12 个作者路径文档的 44 个本地相对链接，全部存在；
+  不是远程链接、排版或完整标题锚点验收。
+- 示例在社区主题专项检查中零 error、零 warning。
+  PNG 由随示例提供的生成器重新生成，不复制用户图片或星辰素材。
+
+本地依赖复用前核对 `package.json` 与 `pnpm-lock.yaml` 一致；
+真实管理器测试使用已准备的隔离测试 runtime，没有升级 runtime pin。
+不重复在本机运行与本次作者数据无关的全套客户端验收。
+新增可执行示例和测试依照现有策略仍进入云端完整集成路径，不改门禁或取消检查。
+本条本地结果不代表新 PR 的云端、macOS/Linux、打包或发布通过。
+
+前一轮在 `33bd0dd` 加未提交背景/退出候选上，使用既有 Windows 体验包完成
+默认图片、原生 PNG 解码、个人替换、单背景/UI 保留、跟随主题、窄屏、
+重启及卸载回退验收，证据位于 `output/playwright/theme-authoring-20261110/`。
+该记录只证明那个体验包与示例的组合，不是本次干净主线重新构建的原生证据。
+此次未打新包、更新快捷方式、修改日用档案、合并 PR 或发布。
+
+## 原生听写改向主线与冲突处理（2026-11-11）
+
+PR #220 已合入主线后，将 #229 的目标从旧父分支改为 `main`，
+同步当前主线 `a72e550`。两处文本冲突分别为主窗口侧栏验收和本文件：
+保留双方验收记录；侧栏沿用真实响应式起点和中间帧断言，同时保留
+主线的布局等待。保留主线主题组合、会话性能和 CI 执行器改动，
+不调整已确认的听写交互、音频路径、账户路由或 runtime pin。
+
+本地类型检查、生产构建和脚本语法检查通过；11 个定向协议文件
+125 项全部通过，包含语音、实际 main IPC、账户凭据、BVR、
+插件宿主和主题权限边界。动画 helper 浏览器回归 18 项通过。
+Node 24.16.0 下串行 CI 策略、清单、执行器和汇总回归 67 项，
+66 通过、1 项平台跳过。先前 Node 24.15.0 并行运行有一项
+Windows 退出事件断言失败，同文件串行复跑通过；未修改断言，
+不将复跑结果写成已确认其根因或修复。
+
+定向协议通过有界执行器保留逐文件日志、TAP 和标注范围的汇总，
+位于 `D:\DFSC-Preview-QA\native-speech-ci-fix-20261109\main-sync-20261111`。
+本机共享 runtime 没有主线新加的 compile-cache 扩展，保持只读不覆盖；
+完整协议和原生矩阵由云端重新暂存并验收。旧目标下 `07f0558` 的
+Windows、macOS 和 SDK 全绿不能代替此主线组合的新结果。
+本轮不证明真实账户权益、计费、物理麦克风或用户安装验收；
+未打安装包、修改快捷方式、重启用户应用或清理历史产物。
+
+## 原生听写几何基准等待（2026-11-11）
+
+head `034aa2a` 的 Windows 三组及汇总、两平台 SDK 通过。
+macOS 首轮三个验收任务因 hosted ARM64 runner 分配失败而取消，
+没有执行测试；仅重跑失败任务，复用同一候选，不重新构建。
+第二轮 runtime、sessions 源码/包内及原生终端通过，interface
+完整源码组通过。语音原生收音已恢复：首段 65,600 个采样均有声，
+音频 utility sandboxed=false，renderer OS 沙箱仍开启；
+侧栏取样在源码和包内均为 224、208.141、112、0px。
+
+interface 包内轮在语音后段布局断言失败：基准 x=350.75，
+随后 x=352，y/width/height 不变。该基准紧接窄窗恢复宽窗，
+原脚本未等待祖先布局过渡结束；状态行自身的等待不覆盖这段
+几何变化。本轮仅在取基准前复用整页 `settleLayout`，涵盖
+祖先伪元素 flex track，保留原 0.5px 阈值、超时和全部功能断言。
+新增真实浏览器回归：有限伪元素 flex-basis 动画未结束时，
+等待不得返回子元素基准；结束后子元素应处于最终位置。
+不修改产品代码、CSS、听写交互或音频通路。
+
+本地完整语音验收连续两轮通过（约 46 秒、45 秒），每轮 7 次请求
+均走 loopback，首段 64,000 个采样均有声；35 项语音回归通过。
+CI 策略、运行器及动画 helper 共 47 项，46 通过、1 平台跳过，
+包括新增的有限 flex track 等待回归。语法和 diff 检查通过；
+新 head 的云端结果仍需独立确认。证据保存在
+`D:\DFSC-Preview-QA\native-speech-ci-fix-20261109`。
+
+## 原生听写夹具开关覆盖与侧栏动画取样（2026-11-10）
+
+head `21165d7` 的 Windows 三组及 CI 汇总、两平台 SDK 和 macOS
+ARM64 候选、sessions 源码及包内验收通过。macOS interface 的
+原生诊断明确报告 WAV 读取失败并提示关闭沙箱，324,800 个采样
+全部为零；上一轮命令行参数未生效，
+不将 `AudioServiceSandbox` 已写入参数等同于实际关闭。
+
+固定版本 Playwright 的 Electron loader 会重写 `disable-features`，
+覆盖传入参数。本轮在隔离夹具入口、加载产品代码前合并该列表，
+只关闭合成 WAV 所用音频 utility 的沙箱，保留其他 Playwright 开关。
+启动时检查未使用 `--no-sandbox`、音频开关确实存在；音频开始后
+实查该 utility 的 sandboxed 为 false，每次启动均实查 renderer
+OS 沙箱为 true，并保留 sandbox/contextIsolation/nodeIntegration
+及实际有声 PCM 断言。原生读取错误会立即中止等待并保留脱敏诊断。
+未修改产品约束、权限、采集、worklet、分段、IPC 或 provider。
+
+macOS runtime 的侧栏动画验收原本在 native resize 往返后固定等待
+65 ms，读取时动画已结束。本轮复用 `sampleMotion`，在 compact
+类提交时捕获真实 pseudo-element flex-basis 过渡，验证 280 ms、
+原 cubic easing、起点/终点及两个中间帧，不添加动画或放宽期限。
+窄窗媒体查询可能先把宽度从 244px 切到 224px，断言以实际过渡
+起点为准。本地观察为 224、208.141、112、0px。
+
+本地完整语音及主窗口验收通过，分别约 45 秒、75 秒；CI 策略、
+运行器与动画 helper 测试共 46 项，45 通过、1 平台跳过；
+语音服务、分段及实际 main IPC 定向回归 35 项全部通过。
+回执、日志和失败尝试保存在
+`D:\DFSC-Preview-QA\native-speech-ci-fix-20261109`。
+新 head 的 macOS 源码及包内验收仍需云端独立确认。
+未改已确认的听写 UI、账户路由或 runtime pin，未打新包、
+变更日用快捷方式、重启用户应用、调用真实账户或删除产物。
+
+## 原生听写的 macOS 音频夹具与父分支同步（2026-11-10）
+
+head `122542a` 的 Windows 三组和最终汇总、两平台 SDK、macOS
+候选及 runtime、sessions 两组通过。macOS interface 仍在首次连续
+听写失败：323,200 个采样全部为零，最大 RMS 为 0；音轨的三个
+处理开关确实关闭，没有 ASR 请求或 renderer/transport 错误。
+上一轮关闭处理的修订未解决 macOS 问题，不将其记录为根因修复。
+
+Chromium 的 WAV 假麦克风在音频服务中读文件，读失败会返回空数据。
+本轮只在 macOS 测试启动参数禁用 `AudioServiceSandbox`，不使用
+`--no-sandbox`，不改产品音频约束、权限或上传路径。每次启动实查
+renderer 的 sandbox/contextIsolation 均为 true、nodeIntegration
+为 false；补入有界、去除 profile 路径的原生 WAV 读取错误诊断。
+该参数是否解决云端静音仍须新 head 的 macOS 结果确认。
+
+同步父 PR #220 至 `6bc08a9`，合并听写与插件窗口/通知/全局指令
+的并列分支及浏览器遮挡条件，保留双方市场刷新检查，不改 runtime pin。
+本地发现并修订三个夹具同步问题：语音重启用双语精确输入定位并确认
+英文偏好持久化；市场窄窗操作绑定当前页面的 BrowserWindow，不按
+窗口列表第一项猜测；插件页面返回后等待原阅读位置恢复，仍保留
+小于 4px 的误差断言及原超时，并补入失败位置诊断。
+
+合并后的类型检查、生产构建和完整协议套件通过：1994 项中
+1981 项通过、13 项跳过、零失败；最终定向 54 项通过，CI 策略/
+运行器另 30 项通过、1 项平台跳过。11 项相关原生/浏览器验收
+通过，覆盖语音、任务模式、主窗口、设置、市场诊断、命令、浏览器、
+全局指令、插件表面、通知和归档。语音 7 次请求全部走 loopback，
+首段 64,000 个采样均有声、最大 RMS 约 0.1414，未发现原生读取错误。
+失败尝试与最终回执均保存在
+`D:\DFSC-Preview-QA\native-speech-ci-fix-20261109`。
+
+只读盘点：dist 12.23 MiB、terminal-runtime 62.96 MiB、
+test-results 95.90 MiB、本轮 CI 修订证据 139.99 MiB；
+未删除产物、改动共享 junction、生成安装包、切换快捷方式或重启日用
+应用。这不是新 head 云端全绿、真实账户/计费、物理麦克风或安装验收。
+
+## 原生听写 CI 回归修订（2026-11-09）
+
+head `0024c96` 的 Windows 三组完整验收及 CI 汇总门禁、两平台 SDK、
+macOS ARM64 候选以及 runtime、sessions 源码/包内验收通过。macOS interface
+在首次连续听写等待文字时失败：诊断中原生 worklet 收到 323,200 个
+采样，但有声采样为零，没有 ASR 请求、transport 断言或 renderer 错误。
+这不是“已观察到 ASR HTTP 失败”，也不据此推断真实麦克风故障。
+
+合成 WAV fixture 现通过原生 getUserMedia 显式关闭回声消除、降噪和
+自动增益，返回原 MediaStream；不替换权限、采集、worklet、分段、
+IPC 或 provider，不改变产品默认约束。新增音轨处理开关和真实 PCM
+振幅断言，失败证据补入最大 RMS 与去除设备标识的音轨设置。
+本地完整语音验收连续两轮通过，每轮 7 次请求均走 loopback；
+首段 64,000 个采样均有声、最大 RMS 约 0.1414。语音服务/分段/
+worklet/实际 main IPC 共 35 项回归通过。原 20 秒等待和全部功能断言
+保留，新 head 的 macOS 结果仍需独立确认，不将本地成功写成已证明
+macOS 原因或已完成其源码/包内验收。
+
+head `34e26b1` 的 Windows runtime、sessions、两平台 SDK 和 macOS
+ARM64 候选构建通过。Windows interface 已通过语音验收，随后在既有
+市场诊断脚本轮询运行中的 Git checkout 文件时遇到 `ENOENT`。
+两处磁盘内容检查改到真实 UI 操作完成之后执行，保留健康市场推进、
+错误诊断、已安装插件不变及 Remote 连接/流式任务断言；不吞文件错误、
+增加固定延时、放宽期限或修改产品代码。
+本地完整诊断 Electron 验收通过，清理确认成功；诊断、Git 刷新、
+Remote 保留和清理定向单测 127 项全部通过，脚本语法及 diff 检查通过。
+新 head 的完整云端验收另行确认；此处不把 macOS 候选构建写成包内验收。
+
+本地继续串行补跑诊断之后的 36 项 interface 验收，先通过 22 项，
+归档脚本随后暴露“语言”子串同时匹配“识别语言”的严格定位错误。
+改为设置对话框内完整语言标签后，归档及余下 13 项全部通过，
+包括生产宿主授权、输入/终端/浏览器/文件预览、搜索、账户和主题。
+未跳过失败项或改变双语、删除保护、重启持久化等原断言。
+CI 策略和 Win/mac 运行器另 30 项通过、1 项平台跳过。
+两段串行报告位于 `D:\DFSC-Preview-QA\native-speech-ci-fix-20261109`
+内 `interface-tail.json`、
+`interface-tail-2.json`；首次定位失败日志一并保留。
+
+后续 head `8412642` 本地 300 项定向回归和六项相关 Electron 验收通过。
+云端 Windows 完整协议套件也通过：1907 项中 1894 项通过、
+13 项平台场景跳过，没有失败，runtime 和 sessions 两组完整验收通过。
+interface 随后发现设置加载竞态：
+脚本只等待始终存在的标题，账户渠道断言读到了“加载中”。
+本轮改等已加载的识别服务控件；fixture 可控挂起真实 IPC 回执，
+显式检查加载态后放行，再检查原渠道与完整设置流程。该语音验收
+本地复跑通过，7 次请求仍全部走 loopback，不加固定延时或放宽断言。
+新提交的云端完整结果仍须独立确认。
+
+PR #229 的 `bcd518c` 在 Windows 和 macOS 验收中同样失败：
+任务模式状态、通用设置语言定位，以及短录音错误场景。
+本轮保留已确认的听写布局与动画，修复如下：
+
+- 听写与任务状态在草稿页使用了相同 React key，实际会残留旧任务按钮。
+  为听写 key 增加命名空间，仍随 owner 变化重挂载；真实 renderer
+  回归检查模式切换、新建与刷新后始终只有一个任务状态和一个听写控件。
+- 界面语言设置增加明确的中英无障碍名称，各语言切换脚本改为完整名称
+  定位，并确认切换界面语言不会改变识别语言。工具栏严格顺序断言补入
+  新增麦克风并检查其图标，不删除布局断言。
+- 录音 fixture 使用循环有声 WAV，观察真实 AudioWorklet 消息中新增的
+  有声采样后再点击结束，不再依赖固定 700 ms 等待。错误场景额外确认
+  请求确实到达 ASR transport；未替换生产采集、分段、IPC 或 provider
+  调用，也未修改静音丢弃规则、队列限制或现有验收超时。
+
+修复提交 `1fdbc2b` 的类型检查、生产构建、183 项定向回归、
+语音 Electron 验收和任务模式完整验收通过；7 次 ASR 请求均走
+隔离 loopback。之后同步父 PR #220 的 `bb74201`，仅验证记录发生
+文本冲突，双方历史记录均保留，不升级 runtime pin。合并后的
+类型检查、构建及完整 `verify-electron.mjs` 通过。
+
+本地另一次主窗口验收遇到进程树结束错误并在清理阶段超时；并行的
+完整协议套件停在 `plugin-skeleton-native.test.ts`，核对进程归属后
+终止，未计为通过。日志及失败截图保留在
+`D:\DFSC-Preview-QA\native-speech-ci-fix-20261109`。
+其余定向验收和新 head 云端结果需独立确认，不将旧 head 绿项、
+合成麦克风或父分支的验收视作本轮真实服务、安装包或 macOS 验收。
+未重启用户应用、修改共享 junction、操作日用安装或删除历史产物。
+
+## 原生听写提交前检查（2026-11-09）
+
+最终预览的收音波形跟随主题强调色，停止和错误保留原有语义色。
+用户确认当前交互版本；不据此推断真实账户权益、计费或识别准确率。
+
+- 最终源码类型检查和生产构建通过，保留既有 Vite 指令和 chunk 提示。
+- 提交前补跑语音、main IPC、共享账户、BVR、插件宿主、凭据存储、
+  输入区、引用、diff 和主题定向回归，183 项全部通过。
+- 强调色改动后的 `verify-speech.mjs` 通过，7 次 ASR 请求全部拦截
+  到 loopback；深浅主题、窄窗、引用/队列/diff 同屏与减少动画继续
+  通过，最终截图已检查。回执和截图位于
+  `D:\DFSC-Preview-QA\native-speech-context-20261109\accent-wave`。
+- `git diff --check` 通过。没有重跑完整 Desktop 套件，不宣称物理
+  麦克风、真实服务、安装包或 macOS 已验收。
+
+PR #229 首轮 CI 在分类检查发现 `verify-speech.mjs` 漏登记，
+尚未运行 Windows 验收。已将其加入共享 interface 组，不改断言、
+期限或排除列表。对应 CI 策略测试本地 24 项全部通过；macOS
+清单、策略和运行器测试 15 项通过、1 项平台场景跳过。
+这些结果不代替补推后云端各验收任务的最终结果。
+
+只读盘点：当前 `Desktop/dist` 12.10 MiB，`Desktop/terminal-runtime`
+62.96 MiB，本次强调色验收证据和隔离 profile 共 14.14 MiB。
+没有删除产物、修改共享 junction、重启预览或改动日用安装。
+
+## 听写复用引用辅助行（2026-11-09）
+
+本轮仅调整原生听写的 composer 交互，不改账户路由或 ASR 协议。
+录音、完成及错误提示移至既有引用辅助行中间，不在输入框内增加
+一行；与实时 diff 并存时等分空间，有队列时沿用原有靠右布局。
+状态使用 240 ms cubic-out 展开/收起，减少动画偏好直接切换。
+错误完整内容可悬停或键盘聚焦查看，取消后焦点回到麦克风。
+修复听写期间非空草稿将运行中主按钮切为禁用队列发送的问题：
+听写中仍保留 Agent Stop，结束后恢复普通发送/队列规则。
+
+本轮 Windows 源码验证：
+
+- 类型检查、生产构建通过；保留既有 Vite 指令及 chunk 提示。
+- 语音、main IPC、草稿、引用、diff 和主按钮定向回归 83 项通过。
+- `verify-send-queue.mjs` 通过真实 RPC 插队/FIFO、带引用编辑、
+  撤回、中断、IME/重复键、diff 移位及窄窗验收。
+- 最终 `verify-speech.mjs` 通过，7 次 ASR 请求均拦截到 loopback。
+  保留连续分段、取消、归属切换、慢服务及凭据持久化等验证，
+  新增原生 CSS 动画取样、输入框位置/尺寸不变、居中/等分、
+  引用/队列/diff/回到底部同屏、亮暗窄窗、完整焦点轮廓及减少
+  动画断言。截图已检查。
+
+最终回执、布局数值和截图位于
+`D:\DFSC-Preview-QA\native-speech-context-20261109\final`。
+父目录保留日志及先前尝试：一次误将转写新增换行带来的正常增高
+算作状态增高，已改为同一草稿前后比较；一次发现并修复主按钮问题；
+一次模拟 history 的选段没有产生待发送引用，布局 fixture 改用真实
+composer CAS 显式安装引用，不降低引用可见性断言。真实选段引用
+交互仍由独立通过的队列验收覆盖，不修改产品引用逻辑。
+
+只读盘点：`Desktop/dist` 12.10 MiB，`Desktop/terminal-runtime`
+62.96 MiB，本轮语音日志/fixture/证据 69.85 MiB，队列 fixture
+13.09 MiB。排除依赖/runtime 共享 junction，未删除产物或 profile。
+未生成安装包、提交、推送、修改日用快捷方式或重启用户预览。
+现有独立启动快捷方式指向最新构建；已运行的窗口需显式退出应用
+后再打开。上述结果不代表完整套件、真实 ASR 权益/计费、物理
+麦克风、识别准确率、安装包或 macOS 验收。
+
+## 连续分段听写与输入交互（2026-11-09）
+
+在同一原生语音工作树上，将停止后整段转写改为录音期间连续分段写入。
+AudioWorklet 连续采集单声道 16 kHz PCM，按约 700 ms 停顿或最多
+4 秒切段；各段不重叠，仍使用原有账户/模型和 HTTP ASR 通道。
+这是近实时分段听写，不宣称双向 WebSocket 或逐字流式。
+同意记录升级为版本 2，旧的停止后上传确认不能授权录音期间上传。
+停止会处理剩余片段，取消保留已写入文字；状态行置于 composer
+底部，不浮在正文上。主进程限制顺序、单段/累计时长及累计文字，
+renderer 队列上限为四段，服务阻塞会停止而非继续发送或重试。
+
+本轮 Windows 源码验证：
+
+- 类型检查和最终生产构建通过，保留既有 Vite 指令与 chunk 提示。
+- 语音分段、真实 worklet 算法、实际 main IPC、账户、BVR、通用宿主、
+  composer 和导航定向回归 171 项全部通过。
+- runtime/会话/模型/草稿协议回归 120 项：118 项通过，
+  2 项 POSIX 专属场景跳过，没有失败。
+- 最终真实源码 Electron 验收通过，7 次 ASR 请求全部拦截到隔离
+  loopback，覆盖未点结束前出字、保留手动编辑、仅发送短片段、
+  取消、真实会话归属切换、慢服务队列满后停止且不追加请求、
+  独立模型、海外账户、加密凭据和确认持久化。首个无 worker 的
+  听写阶段不启动 Agent、不发 prompt；导航 fixture 随后显式创建
+  空闲会话以验证不同 owner，不将该 fixture 行为归因于听写。
+- 亮暗色、窄窗长正文及设置焦点截图已检查；录音状态与编辑器、
+  工具栏不重叠且位于 composer 内有实际布局断言。
+
+成功回执和截图位于
+`D:\DFSC-Preview-QA\native-speech-continuous-20261109\final`；
+定向回归、协议、类型检查和构建日志位于其父目录。
+前两次 Electron 尝试的失败证据保留：首次错误假设新建会话不复用
+未提交草稿；修正为真实归属切换后，第二次遇到空编辑器 `innerText`
+含换行。只修正 fixture 前置和空白判断，未改产品导航或降低归属断言。
+不将失败尝试计为成功，也不沿用上一轮 188 项数字作当前回归结果。
+
+只读盘点排除共享 junction：`Desktop/dist` 12.10 MiB，
+`Desktop/terminal-runtime` 62.96 MiB，本轮三次 fixture 与日志截图
+共 41.35 MiB。没有删除产物、生成安装包、提交、推送或创建 PR。
+当前手动预览仍是旧进程，等待用户确认后再重启；没有操作日用安装
+或个人 profile。本轮不证明完整 Desktop 套件、真实账户权益/计费、
+物理麦克风、识别准确率或 macOS 已验收。
+
+## 原生语音输入与共享 ASR（2026-11-09）
+
+本轮基于 PR #220 的精确 head `3341e63d3313f548ac278849fd4490b726985dcf`，
+在独立 `codex/native-speech` 工作树实现主窗语音输入和通用设置。
+原生输入、通用插件宿主与旧 BVR 共用账户路由及 ASR 请求实现，
+不合并各自的用户同意、授权回执和生命周期边界。没有改动上游
+Step-Code 或固定 runtime pin。
+
+本轮 Windows 源码验证：
+
+- 类型检查和生产构建通过；构建保留既有 Vite 指令与 chunk 提示。
+- 语音服务、实际 main IPC、账户、BVR、插件宿主、composer 和导航
+  定向回归 188 项全部通过。
+- runtime、会话、模型和草稿协议回归共 120 项：118 项通过，
+  2 项 POSIX 专属场景跳过，没有失败。
+- 真实源码 Electron 验收通过，运行实际 main、preload、renderer
+  和已暂存 runtime，覆盖首次社区版告知、麦克风授权、草稿追加、
+  不启动 Agent/不自动发送、取消、导航失效、错误脱敏、独立服务、
+  密钥加密、登录退出保留、海外 API 路由及中英亮暗窄窗焦点。
+  5 次 ASR 请求均在启动前拦截到隔离 loopback fixture，
+  不访问真实账户或付费服务。
+- 手动预览脚本通过 PowerShell 语法检查并实际启动，核对新进程与可见
+  首次账号设置页；使用独立 D: profile，不复制账号或修改日用安装、
+  快捷方式和个人 profile。真实登录留给用户完成。
+
+证据位于 `D:\DFSC-Preview-QA\native-speech-20261109`，包含
+`verification.json`、定向回归、协议、构建和 Electron 日志及截图。
+不将以上结果描述为完整 Desktop 套件、真实账户 ASR 权益/计费、
+物理麦克风、识别准确率、安装包或 macOS 验收通过。
+本轮没有打包、提交、推送、创建/合并 PR 或清理历史产物。
+只读盘点排除依赖/runtime junction：本工作树 `Desktop/dist`
+12.09 MiB、`Desktop/terminal-runtime` 62.96 MiB，验收证据及五个
+fixture profile 共 67.74 MiB，手动预览 profile 首次启动约 12.32 MiB。
+当前预览使用构建产物；没有删除证据、profile 或共享 junction 目标。
+## Remote 非重启管理门控（2026-11-10）
+
+本分支将“Remote 已绑定”与“会话正在执行”分开：不重启的插件安装、更新、
+卸载、开关、MCP/技能与插件配置管理可以保留空闲 Remote；默认门控、
+登录/退出、provider 应用、历史修改和会话重启不因此放宽。
+写入期间仍阻止远端新增输入和审批，不排队、不重放被拒收消息。
+任务、审批、队列、Goal、后台工作、实际插件占用与 Cron 资源保护继续生效。
+
+子代理先审计划，再复审实现。修复自动解绑清除标志后可能漏掉断连的竞态，
+最终复核保留起始连接要求及 worker/RPC/session 身份。保留既有 StepPage
+固定指纹准备的已知就绪 Cron 待命例外，未知/畸形状态和重启仍拒绝，
+而不是通过修改旧原生验收预期来收紧已支持行为。
+
+本轮五组定向测试 797 项通过、4 项平台跳过、零失败；类型检查、
+生产构建和差异空白检查通过。Windows 源码 Electron 管理验收 18 项通过，
+包括实际市场可执行命令插件更新/卸载及 receipt/撤销记录、MCP 保存/开关、
+写入期间 Remote 拒收且不重放、忙碌保护、Windows 文件占用及确认清理。
+未修改的 StepPage 原生验收通过，Cron 宿主/任务保持，MCP 握手为
+13 个工具，停用并重启后为 0，重启保护及修复后的禁用仍在。
+
+证据位于 `Desktop/test-results/remote-management-*`，管理最终结果为
+`remote-management-native-final/results.json`，详细范围见
+[治理计划](REMOTE-MANAGEMENT-PLAN.md)。前两次原生夹具的市场名称和
+Git 换行问题已修正且保留失败记录，没有降低产品门禁或验收断言。
+
+使用隔离 profile、离线 Remote channel 和 loopback 模型；未验证真实飞书、
+付费账户、macOS、云端 CI 或安装包升级。StepPage 下载期间恰好 Cron 到期
+未单独原生自动化，不能宣称管理写屏障暂停了 native Cron。
+BVR 旧版配置/服务声明迁移仍是独立门禁，本轮不自动迁移。
+未打包、提 PR、发布市场、更新快捷方式、重启日用应用或变更真实 profile。
+
+## 主题组合对齐新 CI 主线（2026-11-10）
+
+#222 的 `62f673f` 已完成 Windows run `42642599418` 与 macOS
+run `42642599449` 的全部必需验收。随后为解决实际合并冲突并接入已合并的
+#231，先完成重启前保存的 `0d70ee0` 合并，再同步主线 `b78af40`。
+这不是仅修改文档：主线同时包含通知、MCP 账户隔离与插件宿主变更。
+
+冲突处理同时保留 `themeImage` 的被动只读路径、宿主设置读写分类、
+MiniChat 禁止插件管理/窗口操作、插件窗口拒绝主题读取，以及不输出完整
+快照或输入原文的权限失败诊断。Windows 汇总保留动画与 Cron 浏览器回归
+各自的阶段字段，公共检查凭据和新有界协议 runner 未被绕过。
+
+本次稳定合并候选的本地验证：
+
+- Node 24.16.0 下类型检查、生产构建及差异空白检查通过。
+- CI 策略、清单、执行器和汇总回归 67 项：66 通过、1 项既有平台跳过。
+- 八个定向协议文件共 86 项：85 通过、1 项文件符号链接权限跳过。
+  范围为实际主进程 IPC、插件窗口隔离、夹具关闭、运行时打包契约、
+  主题组合协议、资源与图片校验；不是完整协议清单。
+- Cron/动画浏览器回归 23 项通过。主题组合浏览器 10 项行为、
+  四组桌面/窄屏非空像素检查通过，四张截图已目视检查。
+
+证据在 `D:\Desktop For Step Code\output\theme-composition-main-sync-20261110`，
+定向协议通过新 runner 保留逐文件日志、独立 TAP 和明确标注范围的汇总。
+本机共享 runtime 仍为此前的只读复用目录，没有在其上覆盖新补丁；
+完整协议和新原生矩阵由云端重新构建、分组验收，不重复在本地跑全套。
+以上结果不替代新 head 的云端、原生 macOS、真实账户或发布验收。
+
+重启前的 `0d70ee0` 本地复验没有全绿：插件九组业务断言完成且零页面错误、
+零推理请求，但关闭超时；完整协议在 completion-review 文件报失败后挂起。
+未确认这两次失败的精确根因，不以重启后的进程消失或旧 head 绿灯算作修复。
+原日志保留在 `output\theme-composition-main-sync-20261109`，不放宽关闭断言、
+不加入自动重试。未合并 #222、未推进 #223，未打安装包、修改用户档案、
+运行客户端、快捷方式或本机运行时版本；本地 AGENTS.md 改动不提交。
+
+## 市场刷新诊断夹具的文件替换间隙（2026-11-10）
+
+#218 Windows interface run `42703156585` 在
+`verify-capability-diagnostics.mjs:390` 读健康市场的 manifest 时遇到
+`ENOENT`，此前单市场失败诊断和 Remote 保留检查均已完成。
+夹具直接轮询 Git 正在更新的文件，缺少文件暂时不存在这一等待状态。
+两个在途 manifest 轮询现在仅将 `ENOENT` 当作尚未发布；仍须读到指定
+新修订才通过，非法 JSON、权限和其他 I/O 错误继续立即失败。
+保留原 60 秒期限、100ms 间隔、Remote 身份和流式任务断言。
+
+受控回归真实移走旧文件，确认旧读法当场失败；在第一次空快照后发布新
+文件，确认轮询只在新描述出现后完成。56 项定向回归、类型检查及生产
+构建通过，完整 Windows 市场诊断 12 个场景通过且确认清理完成。
+日志为 `Desktop/test-results/goal218-manifest-native-20261110.log`。
+源码、包内与新 head 云端结果仍分别验收，不将该夹具修复当作任何
+产品刷新错误的豁免。
+
+## MiniChat 交接后的迟到保存保护（2026-11-10）
+
+#216 macOS run `42687909764` 的源码场景通过，但包内 MiniChat 在
+宿主发出交接事件后仍收到旧主窗的保存请求。渲染侧在收到事件后才暂停保存，
+不能阻止此前已发出的 IPC；仅调整测试计数边界不足以保证阅读位置。
+
+本轮在宿主提交交接时推进主窗阅读版本，快照和导航结果携带该版本，
+保存必须提交已安装视图的版本。旧版本、未来版本和非法版本直接拒绝，
+不更新缓存；MiniChat 自身的独立保存不受影响。相同会话的新版本也恢复
+交接位置，迟到的旧快照不能倒退视图。保留渲染侧暂停保存和 4px 锚点检查。
+
+原生回归在快照被挂起期间主动发送旧版本保存，验证实际拒绝和缓存不变，
+不再把“尝试发送”和“成功写入”混为一谈；提交前的正常保存仍须接受，
+随后由交接覆盖。新增实际宿主 handler / 渲染 installer 回归 5 项，
+连同草稿、共享输入和阅读相关测试共 37 项通过；类型检查、生产构建和
+完整 Windows MiniChat 原生验收通过。日志位于
+`Desktop/test-results/goal220-mini-revision-*-20261110.log`。
+
+这是阅读状态竞态修复，不改插件授权协议或 runtime pin；仍须新 head 的
+Windows/macOS 源码和包内云端验收，不宣称已合并或完成最终 main 包交付。
+
+## 通用宿主设置同步通知与市场信息（2026-11-10）
+
+PR #220 沿 #215 → #216 → #217 → #218 同步 main `c87f96b`。
+保留主线通知、插件作者/许可证/依赖展示与宿主来源设置，预览夹具同时
+保留市场信息模式和宿主设置模式；不变更公开协议、SDK 来源 pin 或 runtime pin。
+
+Windows 本地类型检查、生产构建及 294 项串行定向测试通过，
+覆盖协议、broker、启动与设置、配置修订、管理和恢复、Remote 保留、
+通知与严格退出。宿主设置浏览器矩阵和两组生产 Electron 验收通过，
+包括不回读秘密、并发写入、拒绝/批准、取消和换号撤销。
+日志位于 `Desktop/test-results/goal220-main-*-20261110.log`；
+provider 只连接隔离 loopback，不使用真实账户或付费模型。
+
+最新提交仍需各自 Windows/macOS 云端源码及包内验收。既有 `then_run`
+云端退出超时根因尚未确认，补充诊断但未放宽断言或期限。
+此记录不表示已合并、打包、更新 BVR/市场或切换日用应用。
+
+## SDK 示例提交产物同步（2026-11-09）
+
+`0a03b3f` 的 Windows SDK run `42613027311` 先通过 11 项测试，
+随后在重建比对门禁失败：公开协议已修复，但已提交的自包含
+`dist/server.mjs` 仍含旧媒体正则。本轮按原脚本重新生成，唯一代码差异
+为同步该校验行；11 项示例测试复验通过，重复构建字节一致。
+保留原 CI 比对、依赖锁定和全部断言，不把旧 head 的通过记作新 head 全绿。
+BVR 仍固定到包含公开协议修复的 `0a03b3f`，此后续提交不改公开接口或来源。
+
+## 大媒体校验与授权弹窗快照竞态（2026-11-09）
+
+公开宿主客户端的 Base64 正则在 4 MiB 媒体上触发栈溢出。
+改用既有解码后的规范重编码比对，继续严格检查字母表、补位及补位位；
+不改协议、MIME、非空与大小限制。回归覆盖 4–23 MiB、三种补位长度、
+非法 Base64、超限及真实 client/broker 的 ASR、视频转发。
+BVR 同步相同客户端修复，独立记录其来源提交，不发布市场更新。
+
+Desktop 自有确认请求的到达、取消/过期和回答此前不推进 runtime revision，
+迟到快照可能隐藏仍待批准的弹窗，或恢复已失效请求。本轮统一推进修订，
+增加三项顺序回归；完全访问仍须显式批准，不因重载自动授权。
+生产 Electron 验收确认到达事件有版本、重载只恢复原请求一次，
+批准前 provider 调用为零。
+
+Windows 验证与交付：
+
+- 五组定向回归 151/151 通过，类型检查及生产构建通过；
+  源码授权链和 BVR 组合 Electron 验收通过。
+- 已交付未签名、未发布的 Windows 修复候选，基于 Desktop `3341e63`
+  和 BVR `09e04cf` 加当时未提交修复，并非最新 main 或之后提交的精确构建。
+  安装包 SHA-256 为
+  `2f4dc21e79d864933080b4b70a107b54e3a94fb6fb47bad9c53f9c2b9790b0f4`。
+- 实包授权链通过；BVR 实包 8 个场景、6 次 loopback provider 请求通过，
+  包括原生安装/启动、拒绝/批准、取消、换号、独立表单及旧修订拒绝。
+  三份随包/已安装客户端与公开协议字节一致，并通过大媒体校验。
+  用户已反馈候选体验无问题，不据此扩大为所有真实模型链路验收。
+- 证据目录为
+  `D:\Desktop For Step Code\Desktop\release\plugin-host-large-media-20261109-preview`，
+  包含 `acceptance/package-integrity.json`、
+  `acceptance/authorization-r2.log`、`acceptance/bvr-packaged-r3/verification.json`、
+  `acceptance/media-client.json`、`source-receipt.json` 和 `handoff-summary.json`。
+
+首次封装遗漏两个正常 staging 生成的 runtime helper，已按既有构建规则
+补齐并重新打包、复验，未加产品绕过逻辑。一次较早的实包换号验收出现
+fixture 路由/凭据/负载断言失败；仅补充不含秘密的断言行号诊断后，
+完整复跑通过且断言未改。原失败证据保留，根因尚未确认；
+用户此前的超时也不能全部归因于弹窗竞态。
+
+本轮自动验收不使用真实账户或付费请求，未证明原生 ASR、安装器生命周期、
+旧版升级或 macOS 原生行为。候选依赖本机 BVR junction，不是跨机便携交付。
+主桌面快捷方式已备份、指向验收包并读回，保留启动参数；另有隔离 profile
+的 BVR 预览入口。未重启用户应用、复制凭据、修改个人 profile 或删除旧包。
+未合并 PR、发布插件/市场、升级 runtime pin 或改动 StepAudio。
+以下旧轮次记录及旧 head 云端绿项仅作历史证据，新提交 CI 须独立确认。
+
+## 宿主设置层同步主线保护（2026-11-09）
+
+设置层合入启动层 `6c4b6ed`，延续主线 `6edeb18` 的细分管理门控、
+Remote 保留、恢复隔离和 MiniChat 边界。宿主状态查询属于被动读取，
+不会应用待处理的 provider 设置；模式保存进入共享管理门控。
+恢复 journal 未完成或管理/运行时被隔离时，保存必须在撤销授权、
+独立配置和模式指针写入前拒绝，不改动恢复证据。
+宿主错误文案复用主线的中英双语诊断映射并保留诊断编号。
+
+本轮 Windows 源码验证：
+
+- 宿主协议、配置、代理、启动器、设置、管理策略、实际 main IPC、
+  Remote、恢复及停止回归 249 项全部通过，包含 4 项真实固定 runtime/SDK 集成。
+- SDK 自包含示例 11 项全部通过；CI 策略、准备和回执测试 49 项通过、
+  1 项 POSIX 专属场景跳过；Desktop 类型检查和生产构建通过。
+- 真实 Electron 设置验收通过，覆盖 receipt-backed IPC、显式来源、
+  并发 writer、独立 SDK 启动及撤销。生产确认链另通过拒绝/批准、
+  真实 MCP 待确认和在途取消、同次启动复用及账户替换。
+  provider 请求只走隔离 loopback，不使用真实账户或付费模型。
+- 设置浏览器矩阵通过：来源选择、秘密不回读、失败/冲突保留草稿、
+  开关和迟到响应失效、host-only/旧宿主、亮暗窄窗完整焦点及减少动态。
+  首次因缺少固定 Playwright headless shell 未启动浏览器，保留失败日志；
+  使用已安装 Edge 的同一 verifier 通过，未改断言或重装依赖。
+  成功日志为 `Desktop/test-results/plugin-host-settings-main-ui-edge-20261109.log`，
+  设置与确认日志为 `plugin-host-settings-main-electron-20261109.log`、
+  `plugin-host-settings-main-authorization-20261109.log`，
+  定向回归日志为 `plugin-host-settings-main-regression-20261109.log`。
+- 既有 Plugin Center 浏览器完整验收通过，继续覆盖更新、来源、标签、
+  文档、BVR 与通用配置，日志为 `plugin-center-main-browser-20261109.log`。
+- BVR 草稿 `09e04cf` 对本轮合并结果构建的真实源码 Electron 组合验收
+  8 项通过，6 次 provider 请求全部隔离到 loopback，覆盖原生安装与启动、
+  生产拒绝/批准、取消、换号、真实独立表单及旧修订拒绝。
+  回执位于 `D:\DFSC-Preview-QA\bvr-native-host-main-20261109\verification.json`；
+  执行时本分支处于未提交合并，回执的 `desktopCommit` 仍为 `fead991`，
+  实际构建 SHA-256 为 `8f5ac3de0802fc75cd88706af36522edf062e7ca27292cb0fdaed3f1ed8d0c72`。
+  不将该旧 HEAD 字段描述为本轮最终提交；原生 ASR 和实包升级未验收。
+
+本轮没有重跑完整 Desktop 全量套件，不沿用旧全量数字作为当前提交结果。
+#215 的 Windows 会话组仍在 MiniChat 返回阅读锚点检查超时；macOS runtime
+组另在 `verify-permission-tiers.mjs` 达到 300 秒外层期限。均未确认根因，
+未修改相关产品行为、断言或期限，不将本地通过当作云端全绿。
+后续叠加 PR 的云端结果必须按各自新 head 单独确认，继续保持草稿。
+
+可重建产物盘点排除 junction：本工作树 `Desktop/runtime` 124.19 MiB、
+`Desktop/dist` 12.03 MiB、设置截图 0.43 MiB、生产确认截图 0.17 MiB。
+没有生成安装包、删除旧包、改快捷方式、重启日用应用或修改个人 profile；
+没有发布插件/市场更新、合并 PR、升级 pin 或改动 StepAudio。
+
+## 宿主启动层同步管理保护（2026-11-09）
+
+启动层合入本轮代理分支，保留主线 `6edeb18` 的管理租约、Remote、
+恢复 journal 摘要校验、确认关闭及 MiniChat surface/诊断参数。
+宿主授权仅在通过 guard 后的运行时修改前撤销；市场发现和已证明的
+纯主题操作不撤销。隔离的管理或运行时状态不会恢复延后启动。
+RPC 同时保留关闭 ACK 和安全错误详情，并丢弃未知或迟到的私有响应。
+
+本轮 80 项代理、launcher、管理策略、实际 main IPC 和关闭回归全部通过，
+含 3 项新增组合边界测试；类型检查和生产构建通过。全新固定源码重放、
+构建及 staging 完成后，4 项真实原生 SDK 启动测试通过，覆盖实际 broker、
+确认、账户撤销、全局覆盖、初始化错误隔离和 opt-in 关闭兼容性。
+
+初次暂存虽通过源码后像检查，但 CLI 依赖 junction 解析到了旧 checkout，
+使 3 项原生测试报私有命令不存在；该次失败日志保留，不计入通过。
+仅在新建隔离目录重建 CLI 依赖链接、令 coding-agent 指向同一重放源码后
+重新构建及复验；没有改动原 checkout 或重新安装依赖。重放目录：
+`D:\Desktop Runtime Builds\plugin-host-stack-main-20261109\Step-Code`。
+成功日志为 `Desktop/test-results/plugin-host-launch-main-native-isolated-20261109.log`
+与 `plugin-host-stack-staging-isolated-20261109.log`。
+
+修正依赖后的同一暂存运行时还通过 RPC/模型/会话回归 122 项中的
+120 项（2 项 POSIX 跳过），以及默认 sandbox 下的真实 Electron
+启动、设置、MCP、主题、窄窗口和重开验收。日志为
+`plugin-host-launch-main-protocol-20261109.log` 与
+`plugin-host-launch-main-electron-isolated-20261109.log`。
+
+#215 新 head `21181d1` 的 Windows 会话组在
+`verify-mini-chat-electron.mjs:524` 的阅读锚点返回检查超时，根因未确认。
+不沿用旧 head 的绿项，也没有为此降低断言、增加超时或改动 MiniChat 产品逻辑。
+本层仍为草稿；没有打包、市场发布、真实付费请求或日用 profile 变更。
+
+## 宿主叠加 PR 的 CI 依赖准备（2026-11-08）
+
+#218 的 `9d5f0a3` 与 #220 的 `9914784` 在依赖准备阶段仍失败，
+尚未进入本轮授权验收。canvas 安装器没有取得预编译包，随后在 Windows
+回退编译时找不到支持的 Visual Studio，在 macOS 缺少 pangocairo。
+此前另有 Electron 下载 504；这些现象不能证明授权断言失败，也不能
+仅凭安装器的 “No prebuilt binaries found” 判断官方资产不存在。
+
+本轮只复用另一工作分支的公共 CI 修复（`585b359`、`32cd89a`、
+`4a69dc9`），不引入 #219 的产品改动及其验收记录。预取固定版本的
+官方 canvas 和 Electron 归档，Release 下载失败时只尝试同一官方资产
+的 GitHub API；每个下载有有限期限及重试，校验 SHA-256 后才交给
+原安装器。保留 frozen-lockfile、正常安装生命周期、测试及产物门禁，
+不改 runtime pin、Node 24.16.0、依赖版本或镜像。
+
+本地 CI 策略、Win/mac runner、产物回执、摘要和预取回归共 50 项：
+49 通过，1 项 POSIX 专属场景在 Windows 跳过。已从官方 Release
+metadata 独立核对两个平台的 canvas/Electron 资产 ID 和 SHA-256。
+该结果不等于本轮云端新下载或 macOS 原生验收通过，须按新提交单独确认。
+未安装依赖、构建安装包、触碰日用账户或快捷方式。
+
+## Windows 短路径测试夹具冷启动（2026-11-10）
+
+#217 Windows sessions run `42668131299` 在全量协议测试失败：
+`windowsShortPath` 为读取一个目录的 8.3 别名启动 PowerShell/COM，
+进程超过原有 10 秒期限且没有输出；尚未执行该组 Electron 验收。
+改用原生 `cmd /u` 的 `%~sI` 展开，路径只通过环境传入，关闭延迟展开，
+输出保留引号并按 UTF-16LE 解码；仍验证隔离根目录及别名的真实目标。
+不延长超时、不修改产品目录保护、不删除短路径和 dangling link 断言。
+新增中文、空格、shell 字符、junction、越界和不存在路径回归。
+本地类型检查及 32 项安装器/短路径测试通过、零跳过；原有三项
+短别名/dangling link 回归均实际执行。日志为
+`Desktop/test-results/goal217-short-path-native-20261110.log`。新 head
+云端仍待验证，不把该修正与此前 `then_run` 关闭事件超时混为同一问题。
+
+## 草稿创建顺序竞态与浏览器失败证据（2026-11-09）
+
+PR #218 macOS run `42507893917` 的权限验收在取消首次完全访问确认后，
+未能把待发送文本恢复到可见输入框。主进程的创建回包可能先于
+`desktop_draft_created` 发布事件到达：快照先选中新会话的另一条空 composer，
+后到事件只迁移缓存，导致已恢复的正文不在当前输入框引用中。
+创建回包带有 sessionId 时，先按现有 promote 路径认领，再安装快照；
+不改 CAS、冲突处理或其他窗口的草稿。
+
+原生回归暂扣真实提升事件，等创建回包后出现的风险对话框，再释放并确认
+renderer 已消费，随后取消。旧产品在该对照下稳定失败：存储正文正确而
+可见输入框为空；负对照退出另外触发了有界超时，原始失败日志保留。
+修后完整 Windows 权限验收通过，包括取消不发模型请求、不产生消息、
+保持 ask，以及高风险拒绝、单次/记忆授权、重载、中英和窄窗口检查。
+两种回包/事件顺序、重复提升和新输入保留均有单元覆盖；composer/input/
+MiniChat 草稿回归共 36 项通过，类型检查及生产构建通过。
+
+PR #217 macOS run `42507834617` 的包内浏览器验收中，已报告标题的原生
+网页在 Playwright 附着等待结束前消失。旧产物不足以确认销毁原因；
+本轮只补充有界原生页面生命周期、视图/标签状态及失败截图、JSON，
+保留原异常，不添加重试或降低断言。Windows 完整源码浏览器验收通过，
+不等于证明 macOS 根因已修复。
+
+本机源码验收沿用已暂存的最终组合 runtime：固定 pin 不变，包含 #218
+启动层标记；不能据此宣称 #217 单独层已完成精确 staging 验收。
+云端须以三个后续 PR 的新 head 分别确认。日志保存在
+`Desktop/test-results/ci-permission-promotion-*` 与
+`Desktop/test-results/ci-browser-lifecycle-20261109.log`。
+未打包、发布、合并 PR、调整钉点、访问真实账户或改动日用应用。
+## 指令分发的焦点与布局就绪验收（2026-11-10）
+
+#217 macOS run `42703158432` 的源码界面组通过，包内组在重复
+`/todos` 后的单次焦点/位置快照失败。旧断言没有输出哪一项不满足，
+本机原验收通过，现有证据不足以断言 macOS 的具体调度根因。
+
+共享夹具改为最多 5 秒等待原来的严格条件：标题必须获得真实焦点，
+且上下边界完全位于摘要滚动区；不加像素容差，不改产品滚动或焦点逻辑。
+超时仍失败并输出焦点、标题和滚动区坐标。保留不重挂载、历史/任务
+展开状态、轮询不抢焦点和只读命令断言，从底座同步各层。
+
+受控真实浏览器暂扣焦点，确认旧即时快照失败、等待实际就绪后通过；
+永久失焦及越界负控均须超时。新增四项与 manifest 等待合计九项回归、
+类型检查及完整 Windows 指令分发原生验收通过，日志为
+`Desktop/test-results/goal215-command-reveal-20261110.log`。
+该负控不证明原云端根因，新 head 的两个平台源码与包内验收仍须独立确认。
+
+## 市场刷新诊断夹具的文件替换间隙（2026-11-10）
+
+#218 Windows interface run `42703156585` 在 Git 刷新替换 manifest 的间隙
+读取文件，因 `ENOENT` 立即失败。共享夹具只将该错误视为等待状态，
+仍须读到指定新修订；非法 JSON、权限和其他 I/O 错误继续立即失败。
+保留 60 秒期限、100ms 间隔及 Remote 断言，并从依赖底座同步所有层。
+
+真实文件替换的旧读法负控、新逻辑回归、56 项定向测试及完整 Windows
+诊断 12 项通过；证据为 #218 的
+`Desktop/test-results/goal218-manifest-native-20261110.log`。
+这是共享夹具回补，不是产品刷新失败的豁免，新 head 云端仍须独立确认。
+
+## 将草稿提升修复补入依赖底座（2026-11-10）
+
+#216 macOS run `42696240175` 在权限确认取消后等待正文恢复超时，
+位置为 `verify-permission-tiers.mjs:108`；模型尚未调用、会话没有消息。
+核对层间差异发现，此前 #217 的创建回包 / 提升事件顺序修复未补入
+#215/#216。现将相同的 renderer promote、两种顺序单元回归及受控
+原生事件延迟回归补入 #215，再沿依赖链同步；不改权限策略或等待期限。
+
+旧云端没有 composer 缓存诊断，因此不把日志本身当作唯一根因证明；
+受控回归及此前新旧对照见后续层的草稿竞态验收记录。
+#215 本地类型检查、生产构建及草稿/阅读/退出 47 项回归通过；
+完整原生权限档位验收通过，含受控顺序、取消恢复、危险操作拒绝、
+单次/记忆授权、中英和窄窗口。日志为该工作区的
+`Desktop/test-results/goal215-permission-backport-20261110.log`。
+新 head 仍须各自完成 Windows/macOS 源码及包内 CI。
+
+## Windows 验收控制器退出与原生进程分离（2026-11-10）
+
+#217 Windows run `42696239500` 再次在 then_run 业务断言通过后关闭超时。
+该次 Node inspector 为 61125，残留连接却是原生 Electron 的 Chromium
+调试端口 61127；旧守卫只认 Node 端口，漏掉了 Playwright 的第二条连接。
+夹具现在从本次隔离 profile 的 `DevToolsActivePort` 严格解析 Chromium
+端口，分别捕获两个唯一 loopback 端点。释放条件仍为 launcher 正常退出、
+所有页面关闭、真实主 PID 已不存在；含糊端点不处理，其他连接不触碰。
+
+新增格式边界、双连接释放及歧义端点回归，23 项退出测试通过；类型检查、
+生产构建及完整 Windows then_run / 原生命令 / 后代取消探针通过。
+日志为 `Desktop/test-results/goal217-cdp-*-20261110.log`。
+本次暂停 Chromium 接收的尝试未能稳定复现旧助手超时，不作新旧原生对照
+成功的声明；本地通过不代替新 head 云端验收，内核端点保留来源仍未确认。
+
+#216 Windows runtime run `42683351410` 的 then_run 业务断言通过后退出超时。
+诊断确认启动器已正常退出、页面为零，实际 Electron 主 PID 已不在
+进程清单中，但它的调试 TCP 端点仍未结束。仅释放启动器管道不够，
+不能把 launcher 退出或 context.isClosed 当作控制器已完成关闭。
+
+Windows 夹具在关闭前读取实际主 PID 和 inspector 端口，捕获唯一匹配的
+loopback 客户端 socket。只有启动器 exit=0、所有页面关闭且实际主 PID
+经 signal 0 核实不存在时，才释放该次启动的已失效调试连接；进程仍活着、
+失败退出、端点不明或存在多个匹配时不处理。不杀进程、不触碰任意 socket，
+不主动伪造 context close 事件，不改产品、30 秒期限或原退出断言。
+
+受控真实 Electron 对照暂停该 inspector 的接收：旧夹具在正常进程退出后
+仍于 30 秒失败，新夹具约 0.5 秒完成且实际 context close 事件到达。
+31 项相关夹具测试和完整 Windows then_run（含原生命令/后代取消探针）通过。
+对照证明已退出进程的控制连接可以阻塞退出；底层为何保留旧 TCP 端点仍未确认，
+不将受控对照表述为对旧云端内核句柄来源的证明。新 head 云端须独立验收。
+
+## 原生浏览器夹具的异步等待（2026-11-10）
+
+#220 macOS run `42675772685` 的 interface 源码验收发现原生标签仍处于
+初始空白状态、未发生导航。核对固定 Playwright 1.60.0 的实现后确认：
+浏览器侧 `waitForFunction` 把异步谓词返回的 Promise 当作真值，不会持续
+等待 IPC 结果成立。该夹具的十处异步查询因此可能过早结束。
+
+改为 Node 侧逐次等待实际 browserList 结果，并在输入前确认选中标签已渲染，
+Enter 定向发给地址输入框。保持原有 15 秒期限、真实页面加载、隔离、
+原生层级、布局及清理断言。回归覆盖空列表、空白/加载中标签、异步谓词、
+超时和 IPC 错误，并防止十处等待重新使用 Promise 真值。
+本机固定 Playwright 实测异步谓词始终返回 false 时只执行一次便结束，
+与源码实现一致。修正后的 Windows 完整原生浏览器验收、11 项相关回归及
+类型检查通过；未修改浏览器产品实现。
+这确认了夹具缺陷，但不把它宣称为旧 macOS 失败的唯一根因；
+新 head 的 Windows/macOS 源码及包内验收仍须分别完成。
+
+## MiniChat 交接回归的提交边界（2026-11-10）
+
+#216 macOS sessions run `42667852733` 在包内 MiniChat 回归检测到一次旧视图
+保存。原夹具从收到 `miniChatReturn` 调用就开始记录违规写入，包含宿主尚未
+提交交接的位置保存；这类写入会被随后的小窗位置覆盖，不能等同于提交后回写。
+
+夹具现在通过真实 `desktop_view_changed` 交接事件划定提交边界，仍暂停主窗
+恢复快照并检查提交后的零写入及原有 4px 阅读锚点。额外受控暂停提交，主动
+注入一条旧的 `follow: true, top: 0` 保存，确认它确实被之后的交接覆盖。
+未修改产品逻辑、等待期限、锚点精度或删除断言。
+
+Windows 完整原生 MiniChat 验收连续三次通过，日志为
+`Desktop/test-results/goal215-mini-transfer-boundary-20261110.log`、
+`goal215-mini-transfer-boundary-2-20261110.log` 和
+`goal215-mini-transfer-boundary-3-20261110.log`。原 macOS 失败未含提交边界
+诊断，不据此断言其唯一根因；新提交仍须重新通过 macOS 源码与包内门禁。
+另已独立确认 GitHub Actions/Checks API 事件 `tp8cghg7tlc4`，不将调度前
+内部错误当作产品测试失败，也不绕过未完成检查合并。
+
+## 宿主依赖链同步通知与市场信息（2026-11-10）
+
+PR #215 同步 main `c87f96b`。MiniChat 阅读位置交接统一使用一个
+`pendingPresentationRestores` 计数器，保留同步安装快照、恢复布局及主线的
+受控快照等待回归；通知和插件元数据采用主线实现，双方验收历史均保留。
+
+Windows 本地类型检查、生产构建及通知、完成音、市场元数据、依赖声明、
+退出助手共 49 项测试通过。完整 MiniChat Electron 与 `then_run` 源码验收
+通过，后者包括真实上下文关闭事件、驱动和启动器结束及后续原生命令探针。
+日志为 `Desktop/test-results/goal215-main-mini-20261110.log` 和
+`goal215-then-run-debug-20261110.log`。
+
+云端两次 `then_run` 退出超时尚未证明根因：业务断言完成、启动器成功退出，
+但未观察到浏览器上下文关闭事件。本次补充失败时的 TCP 端点和端口进程
+诊断，不输出环境、凭据或请求正文；没有放宽退出断言或 30 秒上限。
+本地重跑通过不等同于该云端问题已经修复。新提交仍需 Windows/macOS
+云端源码和包内验收；本节不声明合并、打包、真实模型或日用配置变更。
+
+## 宿主依赖链同步主线底座（2026-11-09）
+
+PR #215 同步 main `12d054e`，纳入已合并的插件工作区、全局指令和
+MiniChat 最小化/交接同步。权限验收冲突同时保留主线的 RPC 就绪等待、
+Node 侧快照轮询与隔离回归，以及本分支的失败阶段诊断和有界退出助手；
+验证文档保留双方完整历史。未放宽权限策略、断言、精度或超时。
+
+本地类型检查和生产构建通过；会话、全局指令、MiniChat、插件工作区与
+主进程边界回归 176 项全部通过，原生 MCP 凭据隔离、staging 与 fixture
+退出回归 26 项全部通过。CI 策略、执行器、准备及回执测试共 50 项，
+49 通过、1 项既有 POSIX 平台跳过。未重跑全部协议测试。
+
+经未修改的有界 CI runner 串行执行，真实 Windows 源码权限档位验收
+通过（24.019 秒），完整 MiniChat 原生验收通过（85.592 秒），包括
+最小化/恢复、原生交接、4px 阅读锚点、审批、流式输出和退出。
+日志为 `Desktop/test-results/host-stack-main215-native-20261109.log`。
+使用隔离档案与本地 provider fixture，保持默认 sandbox；不代表真实
+付费模型、原生 macOS、旧安装升级或新提交的云端 CI 已验收。
+
+固定 runtime pin、依赖和公开宿主 SDK 均未变；未打包、发布、合并 PR、
+访问日用档案或改变快捷方式。旧 head 的绿项仅为历史结果，新提交须重新
+跑云端检查；#215 继续保持草稿，不单独发布破坏性凭据隔离升级。
+
+## MiniChat 交接保存竞态与权限验收诊断（2026-11-09）
+
+PR #215 的 Windows sessions run `42500598172` 在 MiniChat 返回主窗后
+阅读锚点断言超时。新增原生回归暂停主窗恢复快照，再触发真实失焦保存路径；
+修前稳定检测到主窗旧的 `follow: true` 位置覆盖了小窗阅读位置。
+交接期间暂停展示状态保存，快照安装、展开状态恢复及阅读布局在同一提交中
+完成后才恢复保存。修后完整原生 MiniChat 验收通过，保留原有 4px 锚点断言。
+
+macOS runtime run `42500598090` 的包内权限验收留下高风险审批请求，
+随后退出挂起并被 300 秒外层超时终止。旧日志没有输出原始异常，不能据此
+认定审批按钮或产品逻辑的根因。本轮先接入已有的有界退出助手，响应 typed
+quit review，并在收尾之前记录原始异常与失败阶段；不放宽审批或危险命令
+断言。Windows CI 同时收集子目录中的原生失败截图，避免漏掉 MiniChat 证据。
+macOS 原始失败仍须以新云端结果诊断，不能用本机通过替代。
+
+本地类型检查、生产构建、36 项阅读/滚动/退出回归、15 项 CI 策略和 runner
+测试均通过；真实 Windows 源码 MiniChat 与权限档位完整验收串行通过。
+失败对照与修后日志分别保存在 `Desktop/test-results/ci-mini-handoff-repro-*`
+和 `ci-*-fixed-*`。未打包、升级钉点、访问日用档案或改变账户。
+
+后续 macOS #217 run `42505882733` 的新增回归误收了交接之前、Remote
+仍隐藏正文时的 `top: 0` 保存；失败诊断中主窗与小窗的实际锚点偏移均为
+`-44.75px`，传入位置没有被覆盖。回归改为仅记录主窗恢复快照已挂起期间
+的保存，且明确断言快照确实处于等待；不删除保存隔离断言或 4px 精度检查。
+
+## MCP 隔离候选同步主线（2026-11-09）
+
+PR #215 同步 main `6edeb18`，保留凭据隔离补丁、显式独立 Key
+及双方完整验收历史。新主线中的管理 worker、恢复与 MiniChat 边界一并保留；
+固定 runtime pin 不变，不将后续宿主协议、broker 或 BVR 迁移提前合入这一层。
+
+旧 macOS run `42401622834` 的源码会话组通过，包内组在
+`verify-send-queue.mjs:126` 点击“返回队列”时被演示页正文阻挡并超时。
+本机在原 `0479c93` 源码上限制窗口最高 684px 后，同一整套队列验收通过。
+这不是原生 macOS 复现，也不能证明根因已修复；没有改变队列实现、
+断言或超时。新组合的本地检查与云端结果另行记录，不沿用旧 head 的绿项。
+
+本轮类型检查、生产构建及 CI 策略/准备/回执回归通过：后者 50 项中
+49 通过、一项 POSIX 跳过。11 个定向协议测试文件共 194 项，
+192 通过、两项 POSIX 跳过、零失败；覆盖实际 OAuth/API Key MCP 隔离、
+管理租约、实际 main IPC、Remote 保留、更新恢复与进程停止。
+当前组合的真实 Windows 源码 Electron 启动/重开、八类 StepPage 注册场景，
+以及最高 684px 窗口下完整队列验收均通过，保持默认 sandbox。
+
+首轮管理回归使用了旧辅助文件，触发 `capability:management-uncertain`；
+该轮已中止，保留失败日志，仅停止已核对归属的测试子进程，不计为通过。
+原有 Step Code checkout 的后像不匹配 staging 门禁，未覆盖其既有改动。
+另建同一钉点的干净源码，完整重放补丁并重新构建/暂存成功：
+51 项后像、24 个能力标记及 Node 24.16.0 实际 SHA-256 均匹配。
+日志在 `Desktop/test-results/mcp-credentials-main-*-20261109.log`；
+成功复验使用 `*-ready-*`，原失败记录未覆盖。
+
+新增隔离重放源码约 48.4 MiB，下载的原 macOS 诊断解压后约 131.9 MiB，
+盘点排除依赖 junction；未生成安装包，未擅自删除验收资料。
+云端检查仍须以新提交为准。#215 继续保持草稿，不单独发布破坏性隔离升级；
+后续宿主层仍需同步新基线，再单独完成组合包、旧安装升级及真实账户验收。
+
+## MCP 凭据默认隔离候选（2026-11-08）
+
+候选基于 main `6995910`，是宿主能力计划 #212 的一个独立实施切片，
+不是整个阶段 [Ⅰ] 或通用授权桥的完成声明。固定 runtime pin 仍为
+`29eb460780489801ce8afc8bffc1a2efae7cbded`。新增补丁只关闭 stdio MCP
+在环境白名单之后读取 Step 登录存储、自动补入 `STEPFUN_API_KEY` 的兜底，
+保留服务显式配置的独立 Key，并使管理诊断遵守同一策略。
+
+全新隔离 checkout 完整重放补丁链成功，全部 51 项共享后像匹配；
+实际 staging 校验同一组源文件哈希，声明 24 个能力标记，其中包含
+`desktop-mcp-credential-isolation`。Node 为 24.16.0，其实际 SHA-256 与
+runtime manifest 匹配。隔离源码的离线构建、上游根目录 `check`、
+Desktop 类型检查与生产构建通过，依赖锁文件和上游 pin 均未改动。
+根目录检查没有改写本轮源文件或其他既有补丁的后像。
+
+本地 Desktop 全量串行协议回归正常结束：1,480 项，1,467 通过、
+13 项平台跳过、零失败、零取消，耗时 608.8 秒。随后针对最新管理诊断断言，
+重跑实际 MCP、staging、runtime 与 BVR：共 43 项，41 通过、两项 POSIX
+跳过、零失败。新增用例使用假 OAuth/API Key 和一次性配置，实际完成六种
+服务声明的 MCP 握手，验证父进程及后代不获得宿主账户、显式独立 Key 保留、
+账户文件不变、事件/摘要无凭据、模型请求为零；真实管理 worker 不再提示
+通过 `/login` 补足插件环境。相同 native 用例在未修改的 runtime 上两项
+均失败，检测到 `accountPresent` 和 `stepfunPresent`，未输出原始凭据。
+
+上游 MCP 源码测试单独运行 15 项全部通过；相关 doctor 源码测试定向运行
+两项通过。此前两文件合跑的候选结果为 39 通过、三项失败，未修改源码对照
+为 38 通过、相同三项失败，分别涉及 Windows 路径、用户技能发现和 CRLF。
+该合跑不是全绿，未修改或过滤这些无关测试来获得通过结果。
+本机 Node 24.15.0 的 Vitest 启动遇到 `#module-evaluator` 导入错误，
+改用已有的 24.16.0 可正常执行；没有为此更新依赖或修改测试框架。
+
+真实 Windows 源码 Electron 默认启动验收通过，包括真实 RPC、MCP、
+renderer 隔离、设置、窄窗口、新旧 profile 和关闭后重开；
+StepPage 注册验收八类场景全部通过。没有使用 `--no-sandbox`、
+修改产品沙箱设置或访问日用 profile。CI 策略与 runner 测试共 40 项，
+39 通过、一项平台跳过。日志在本隔离工作树的 `Desktop/test-results/`
+下，以 `mcp-credentials-` 开头；补丁重放目录也保留用于复核。
+
+云 CI、原生 macOS、打包与真实账户调用仍是独立门槛。本轮未打包、
+更换快捷方式、重启日用应用或调用真实模型，也未实现 SDK、授权界面、
+通用 broker、BVR 迁移或首次安装风险确认。旧的 StepPage 准备进程和远程
+MCP 环境引用仍需后续审查；本轮不是完整宿主环境隔离或本地代码沙箱。
+依赖隐式 Step 登录的服务有兼容风险，不能将本草稿单独作为破坏性升级发布；
+组合发布前必须完成通用授权入口、迁移和可操作的升级提示。
+
+## 通知 PR 文档冲突解决与本地回归（2026-11-10）
+
+同步主线 `0d70ee0`（MiniChat 最小化和插件市场信息），仅
+`docs/VERIFICATION.md` 产生冲突；双方验收记录均保留，产品代码采用自动合并结果。
+合并后的 Windows 本地类型检查、生产构建和 234 项相关测试全部通过。
+完整 MiniChat Electron 验收、通知 7 组原生验收、插件市场信息 20 组浏览器
+交互检查及提示条时序回归通过；原生测试使用隔离 profile 并正常退出。
+新增回归日志位于 `Desktop/test-results/notifications/main-0d70ee0-*-local.log`。
+
+此前 `afdedff` 的 Windows 和 macOS 云端检查已全部通过，对应运行
+`42638705403`、`42638705546`。经维护者明确同意，本次同步提交使用
+`[skip ci]` 避免再次执行云端全量验收，不修改 CI 规则。旧提交的全绿不代表
+当前最终组合已通过云端或 macOS 重验；本次未打包、发布、安装或改动快捷方式。
+
+## Desktop Notifications Mainline Integration (2026-11-09)
+
+The approved notification preview is integrated on main baseline `9e493eda`,
+without importing the old shared workspace's provider, speech or other edits.
+Settings > General adds independent approval notifications (on), completion
+notifications (off) and completion sound (off). Native notices stay silent;
+muting completion audio retains the existing completion animation. See
+[the behavior contract](NOTIFICATIONS.md).
+
+Local Windows source evidence:
+
+- Typecheck, production build and whitespace checks passed.
+- Notification, completion audio/review, session-runtime and staging regressions
+  passed 127 tests, including stale-notice removal after worker replacement.
+- A serial broad regression excluding `terminal-sessions.test.ts` completed
+  1,814 tests: 1,801 passed, 13 existing platform skips, no failures.
+  The known local terminal process-tree cleanup problem was not retested or
+  declared fixed. The final notification-save rollback and fixture follow-ups
+  were covered by the focused rerun and actual Electron acceptance.
+- Shared CI inventory/policy/runner checks passed 24 tests with one existing
+  platform skip. The new verifier is assigned to the shared interface group;
+  this is not a cloud CI result.
+- The production-main/preload/renderer notification verifier passed seven
+  groups with isolated profiles and a local HTTP model. It checks defaults,
+  persistence/reload, strict booleans, actual filesystem save-failure rollback,
+  Chinese/light and English/dark/narrow layouts, keyboard focus bounds,
+  independent sound, main/MiniChat de-duplication and foreground suppression,
+  timed-out-notice click routing, tray restoration and draft retention.
+  A real runtime write approval opens its source drawer without approving or
+  creating the requested file. No renderer errors were recorded; fixture
+  shutdown confirmed launcher exit code zero and no remaining windows.
+- Existing real Electron task-progress, session-concurrency and
+  session-navigation acceptance passed, including completion sound/animation,
+  targeted abort, scoped approvals, draft recovery, reduced motion and narrow
+  layouts. The two sound fixtures explicitly opt in to the new default-off
+  setting rather than weakening their audio assertions.
+
+Build, focused/broad logs and the final notification acceptance JSON/screenshots
+are under
+`D:\Desktop For Step Code\Desktop\release\notifications-mainline-source-20261109`.
+Light/dark settings and the scoped approval screenshots were visually inspected.
+The source build reuses the existing `plugin-workspaces-runtime` through a
+junction without restaging it: commit `29eb4607`, Windows/x64, all 47
+patched-source hashes, Node v24.16.0/SHA-256, 20 helper files and two current
+helper bundles were checked against this branch before reuse. No upstream
+runtime pin or source was changed.
+
+Notification show/close and OS focus are controlled in the deterministic
+verifier. It establishes application routing and policy, not visible native
+banners, physical notification-center clicks, installer registration or native
+macOS behavior. The optional native-smoke mode was not run for this integration.
+Windows Do Not Disturb and notification settings remain respected.
+No installer, release, shortcut change, real-account inference or cloud CI
+acceptance is claimed; the owner's running app, profile and prior packages
+remain untouched.
+
+## Notification CI Fixture Follow-up (2026-11-09)
+
+The first PR #226 cloud run failed both Windows and macOS sessions jobs at
+`verify-mini-chat-electron.mjs:477`: the existing one-sound assertion waited
+30 seconds, but its isolated profile had not opted into the new default-off
+completion sound. The two aggregate checks failed because those jobs failed.
+The MiniChat fixture now explicitly sets `completionSound: true`, matching the
+concurrency and task-progress fixtures. Product defaults, sound de-duplication
+assertions, deadlines and CI coverage are unchanged.
+
+The local Windows rerun passed the full MiniChat verifier (nine local fixture
+model requests, zero renderer errors, orderly shutdown), all seven notification
+verifier groups, 14 notification/audio unit tests, and 24 CI runner/policy tests
+with one existing platform skip. Evidence is under
+`Desktop/test-results/mini-chat-native/` and `Desktop/test-results/notifications/`.
+`git diff --check` passed. These source checks do not establish a cloud rerun,
+macOS native behavior or packaged acceptance.
+
+The Windows cloud rerun on `5276154` passed the sound assertion but later timed
+out at the provider-refresh completion assertion. Its recorded reply was
+`Completed Keep provider-refresh draftMINI-PROVIDER-REFRESH.` rather than the
+exact expected new prompt. The replacement step now follows the existing
+composer-editing verifier's keyboard select-all, delete and typing sequence
+instead of relying on `fill()`'s DOM selection. Before sending, it checks the
+ProseMirror value, rendered text, controlled empty state and persisted draft.
+The exact completion assertion remains, with added checks for exactly one
+request and its exact user text. No product code or timeout was changed.
+
+Three consecutive full MiniChat source reruns passed locally, each with nine
+local fixture model requests and no renderer errors. The composer-editing
+verifier, 35 notification/audio/editor/shared-draft unit tests, and 24 CI
+runner/policy tests also passed, with one existing platform skip in the latter.
+The failed cloud log is retained at
+`Desktop/test-results/notifications/ci-5276154-windows-sessions.log`.
+These local results do not establish the new commit's cloud or macOS outcome.
+
+## MiniChat Return Presentation Race (2026-11-09)
+
+PR #226 on `281da75` passed all Windows groups and the macOS interface/runtime
+groups, but macOS source sessions timed out at the MiniChat return reading-anchor
+assertion. A delayed main-window snapshot reproduces the same failure locally:
+the mini window transfers `follow: false` at scroll top 180, then the revealed
+main view saves its old `follow: true` bottom position before reading the
+transferred snapshot. This is a product race, not a deadline or tolerance issue.
+
+The renderer now suspends presentation persistence while a requested
+presentation-restoring snapshot is pending, releasing the guard on success or
+failure. The Electron verifier holds that snapshot at the real IPC boundary,
+dispatches old-view scroll/blur events, drains the IPC queue and checks that no
+old presentation was written before releasing it. The original exact reading
+anchor check remains. No fixed sleep, longer deadline or wider tolerance was
+added.
+
+The controlled regression fails against the prior production renderer with
+old main-window bottom-position writes, and the complete MiniChat verifier
+passes with the repaired production renderer. Typecheck, the isolated renderer
+production build, 56 related unit tests and 24 CI policy/runner tests passed
+(one existing platform skip in the latter). Diagnostics are under
+`Desktop/test-results/notifications/`, including the original macOS log and
+artifact, the delayed-snapshot reproduction, and the controlled before/after
+logs. These local Windows checks do not establish macOS or packaged acceptance.
+
+## Replacement Notice Pause Ordering (2026-11-09)
+
+The next run on `8103bcd` passed every Windows group, but macOS source runtime
+timed out at `verify-electron.mjs:995` waiting for the restored-session success
+toast to disappear. The artifact confirms a stuck replacement toast, not the
+internal hook ordering. The local timer-instrumented full native run passed.
+
+A controlled real-React/browser regression establishes a compatible race:
+deliver mouse-leave between the replacement commit and its passive effect,
+while `:hover` still reflects the preceding pointer position. The old passive
+effect overwrites that newer leave event and never starts a dismiss timer.
+The regression fails on the old component. Sampling hover/focus during the
+synchronous layout effect instead preserves subsequent leave/blur events;
+the regression then passes, including ordinary hover, keyboard-focus and
+actually-hovered replacement pauses and their resumed deadlines.
+
+The new verifier belongs to the shared interface inventory on both platforms.
+It uses the actual component and React lifecycle, with the Playwright clock
+advancing deadlines and no stubs for component state or timer registration.
+Existing success durations, pause caps and the original native
+10-second assertion are unchanged. The original cloud log/artifact and local
+timer/before/after logs are retained under `Desktop/test-results/notifications/`.
+The corrected component verifier passed three consecutive reruns. The complete
+native Electron/proposed-home verifier passed with the new production renderer,
+as did typecheck, the renderer build and 24 CI runner/policy tests (one existing
+platform skip). This establishes the controlled race and local fix, not a
+completed macOS rerun or proof of the original cloud process's internal timing.
+
+On `4e427b2`, Windows passed the original native Electron/proposed-home verifier,
+then the added component verifier could not launch: the runtime job does not
+install Playwright Chromium. Its assignment is corrected to the interface
+group, which already provisions browsers for component fixtures. No browser
+download step, product change or assertion change is required for this correction.
+
+## MiniChat 交接验收时序（2026-11-09）
+
+PR #228 的 Windows sessions 在裸 `/workflows` 的目录与详情互斥断言失败。
+连续打开同一条工作流或子代理记录时，主窗口已有的相同内容不能证明新一轮
+交接完成。验收现在先等待原生 MiniChat 窗口实际隐藏，再检查目标内容；
+关闭详情后等待面板卸载，才进行下一次交接。仍保留目录不能误开详情、
+重复交接不切错记录和零模型请求等原有断言，不修改产品逻辑或放宽超时。
+
+本地 Windows 类型检查、生产构建、43 项相关测试和完整 MiniChat Electron
+验收通过，包含原生最小化恢复、流式输出、审批与关闭退出。日志为
+`Desktop/test-results/pr228-ci-native-fixed.log`。这不替代修复提交的云端、
+macOS 或打包验收；未打包、改快捷方式或操作用户配置。
+
+## MiniChat Minimize (2026-11-09)
+
+The shared MiniChat header now invokes the existing sender-scoped native
+Minimize action. Typecheck, build, 38 focused unit tests and browser MiniChat
+acceptance pass, including retained editor identity, draft, reading position,
+disclosures and streaming. Light/dark and narrow screenshots were inspected.
+Native Windows assertions confirm that only MiniChat minimizes, its entry
+restores the same window/runtime, and streaming continues.
+
+The full native verifier did not pass: its later runtime-restart step reports
+`Runtime process-tree termination failed (1)`, followed by a shutdown timeout.
+Host CIM process queries also fail. Only this fixture's verified processes were
+stopped. No package, shortcut, cloud or macOS acceptance is claimed.
+
+## Performance PR Integration (2026-11-09)
+
+The owner-accepted performance implementation is committed as `58fd3b7`, with
+product-source hashes checked against the accepted package's frozen receipt.
+Documentation and explicit CI inventory registration are the only allowed
+differences at that checkpoint. The subsequent selection-fixture correction
+uses a visible custom focus outline and settled paint; exact text, computed
+color and screenshot assertions remain in force. All 24 cases pass three
+consecutive runs on the installed Playwright Chromium.
+
+Before integrating main, typecheck and production build pass. The complete
+serial protocol suite has 1,583 passes, 13 platform skips and zero failures;
+motion-helper browser tests have 15 passes. The initial missing runtime,
+shared-dependency mismatch and absent browser failures are retained in the
+evidence directory, not counted as successful runs.
+
+The branch then integrates main `9e493ed`, preserving its MiniChat, shared
+composer, plugin workspace and capability safety changes. A native navigation
+check caught expanded cold-preview disclosures closing on presentation
+restoration. The shared hook now adopts actual preview choices but still
+restores saved state for untouched previews; dedicated open, close and
+untouched cases pass alongside remount and explicit-reset coverage. Native
+session navigation and MiniChat checks pass with the integrated renderer.
+Integrated typecheck and production build pass; the complete serial protocol
+suite records 1,930 passes, 13 platform skips and zero failures. CI policy and
+acceptance inventory tests record 40 passes and one platform skip.
+
+The final local integration pass completes thirteen checks: native session
+navigation, MiniChat, chat quotes, BTW, stream motion, summary resize,
+conversation scrolling, viewport code highlighting, streaming Markdown,
+selection inheritance, sidebar interaction, panel gestures and the complete
+long-session interaction fixture. Typecheck and all seventeen shared-composer
+tests pass again. The quote failure fixture now rejects through native
+submission ownership so real receipt rollback restores input; the long-session
+fixture supplies the current plugin catalog bridge. Neither correction changes
+product behavior or removes assertions. Initial failed runs remain in the
+evidence directory. Light/dark desktop and narrow highlighter captures are
+produced; the dark narrow capture is inspected.
+
+The first cloud Windows interface run completes every update-installer UI
+assertion but times out during Electron shutdown. The fixture now waits for
+the native first-run renderer and its startup snapshot before creating the
+separate test window, uses bounded orderly shutdown, and reports acceptance
+only after closure. No UI assertion or product behavior changes. Five normal
+local runs and an instrumented five-second native-renderer load delay pass,
+along with all 24 readiness/shutdown regressions and Desktop typecheck.
+This addresses a fixture startup/shutdown race risk; the original cloud
+timeout does not establish its exact cause. Replacement cloud checks remain
+required.
+
+The replacement Windows run confirms update UI acceptance, including orderly
+shutdown, in 3.486 seconds. It then exposes an immediate capability-search
+assertion reading the retained plugin view before the navigation effect applies
+its filter. The fixture now awaits the exact expected filter without removing
+the equality assertion. A local run also catches commands reading the retired
+runtime after restart; all six restart checks now await a different runtime ID
+in the connected state before inspecting commands or MCP state. The complete
+native capability acceptance, 43 focused regressions and typecheck pass locally.
+The latest full local protocol run records 1,931 passes and 13 platform skips
+before the new restart-readiness regression is added. No product source changes,
+model requests, skipped assertions or relaxed timeouts are introduced.
+
+The next Windows sessions run exposes a MiniChat reading-handoff race. A
+500 ms delayed main-window snapshot reproduces the failure locally: the mini
+window transfers its historical anchor at scrollTop 180, but a main-window
+scroll persistence event overwrites it with the old tail at scrollTop 6938.
+The renderer now suspends presentation persistence during handoff reads and
+until the restored position has been applied to layout. Four production-closure
+regressions cover delayed reads, overlapping reads, failure recovery and ordinary
+refreshes; all 62 focused layout/navigation/readiness/shutdown tests pass.
+Typecheck and build pass; the complete serial protocol suite records 1,936 passes,
+13 platform skips and zero failures. The delayed complete native MiniChat check
+passes twice with its original 4 px anchor tolerance; native navigation and
+conversation scrolling also pass. CI policy/runner tests record 30 passes and
+one platform skip. The preceding cloud Windows interface and runtime groups
+pass, confirming both earlier fixture repairs. Windows failure screenshot
+collection now includes nested fixture directories so native MiniChat failures
+retain their screenshots. Replacement cloud checks remain required.
+
+Cloud Windows CI then passes all three groups. macOS sessions passes both its
+source and packaged inventories, including the delayed MiniChat handoff.
+macOS interface reaches file-preview acceptance but its native restart meets a
+transient session-operation refusal immediately after renderer reload. The
+fixture now waits only for that specific refused preflight, verifies that the
+original runtime still exists after each refusal, and fails immediately on any
+other error or changed identity. Its deadline and the old-RPC-process-exit
+assertion are preserved. Four focused regressions cover refusal, identity,
+deadline and the retained native assertion. The browser-refresh wait also uses
+the existing awaited browser-state poller rather than an async browser predicate.
+All 33 focused tests and typecheck pass; normal native file preview passes.
+Temporarily enabling the native restart branch on Windows also passes, including
+actual old-child exit; the platform condition is restored before commit.
+This does not substitute for replacement macOS source/package checks.
+The preceding macOS runtime job never receives a hosted runner and is cancelled
+with explicit ARM64 capacity annotations; it executes no test.
+The complete local serial protocol rerun then records 1,940 passes, 13 platform
+skips and zero failures before integration with main `4308435`. This main update
+adds global instructions and its lifecycle acceptance; both lines' TODO entries
+and verification histories are retained. Integrated typecheck/build and CI
+inventory/policy checks pass (40 passes, one platform skip). Native global
+instructions, file preview, MiniChat and session navigation pass with isolated
+profiles; MiniChat retains its historical anchor under the 500 ms snapshot delay.
+The integrated complete serial protocol run records 1,949 passes, 13 platform
+skips and zero failures (1,962 tests).
+Replacement cloud Windows/macOS acceptance remains required.
+
+The integrated Windows sessions group passes. Its runtime group reaches
+workflow persistence, but the first planned application relaunch reports a
+disconnected startup and times out. The original verifier passes locally, so
+that startup failure's exact cause is not established. The verifier had used
+`app.exit(0)` for a normal relaunch, bypassing orderly native cleanup. Planned
+relaunch and final cleanup now use the existing bounded fixture close helper;
+the separate forced-tree-crash recovery case and every workflow assertion remain.
+A source regression pins both orderly close sites and the real forced crash.
+Lifecycle failures now retain a screenshot and only allowlisted, sanitized
+CrashLog fields, not child stderr or configuration contents. All 30 focused
+readiness/shutdown regressions and typecheck pass; the complete native workflow
+verifier passes three consecutive runs with the new orderly close. Replacement
+cloud acceptance is still required.
+
+Both Windows and macOS cloud workflows then pass on `533d65d`, including all
+three Windows groups, all macOS source/package groups and both final gates.
+Main advances during that run with MiniChat Minimize PR #228 (`12d054e`).
+Its native minimize and handoff-readiness changes are retained alongside the
+delayed presentation guard; only the verification history conflicts.
+Those passing cloud runs remain evidence for `533d65d`, not the subsequent
+integrated head. Integrated typecheck/build, 82 focused regressions and the
+complete native and browser MiniChat verifiers pass. Native verification retains
+the delayed historical anchor while also checking minimize/restore, streaming
+and repeated workflow/subagent handoffs. Replacement cloud checks remain required
+for this integrated head.
+
+2026-11-10 复核确认 `85198e6` 的 Windows 和 macOS 云端门禁均已通过。
+此时 main 已推进到 `5beaa5d`，再次产生七个冲突文件。集成保留新版
+CI 调度、插件 Host 启动与环境隔离、通知入口、主题组合，以及已验收的
+性能实现。MiniChat 同时保留 Host presentation revision 校验、前端交接保护、
+布局恢复前禁止持久化和 500 ms 延迟快照原生回归；更新安装器同时保留
+首屏就绪等待与正常退出码断言。
+
+集成后的类型检查、生产构建和 52 项相关回归通过；CI 策略与调度回归
+为 66 项通过、1 项平台跳过。运行时从与当前 manifest 全部 53 项源文件
+哈希匹配的隔离源码重新暂存，钉点仍为 `29eb460`。完整协议测试、
+原生窗口验收与新提交的云端门禁尚待完成，不能复用旧提交的绿灯。
+本轮不打安装包、不改快捷方式，也不合并 PR 或操作用户配置。
+
+本地六项原生验收随后通过：MiniChat、会话导航、更新安装器、文件预览、
+通知和插件 Host 授权。首次完整协议回归在 `session-fixture.test.ts`
+发现旧测试只接受 `finally` 第一层直接关闭调用，而新 main 将关闭及
+退出码检查包在诊断 `try` 中。该测试改为执行真实清理块，检查确实等待
+异步关闭、拒绝未退出或非零退出码，并保留关闭异常。46 项相关回归通过；
+完整协议回归与修复后提交的云端门禁仍需重跑，前次失败日志保留。
+
+`91b13d1` 的本地完整协议回归随后完成：224 个文件、2,129 项通过、
+14 项平台跳过，零失败；同一提交的 Windows 三组与最终门禁均通过。
+macOS run `42806256203` 的构建、协议测试通过，但两个验收组尚未取得
+runner 就因 ARM64 容量不足取消；interface 组另在侧栏重定位验收中被
+`Session operation in progress` 拒绝，不能将整轮归为基础设施失败。
+
+侧栏验收现等待原 runtime 的拒绝前置检查收尾：只有目录对话框尚未打开、
+计数有效且 runtime 身份未变时才重试；对话框后失败、其他错误、身份变化
+和超时均保留失败，取消对话框也不会重试。不修改产品代码或延长原时限，
+保留重定位、会话身份、历史、取消与缺失目录恢复断言。新增五项回归覆盖
+这些边界，63 项相关回归和类型检查通过，完整 Windows 原生侧栏验收
+连续两次通过。日志为 `ci-macos-sidebar-readiness-r{1,2}.log`，但不替代
+修复后提交的 macOS 原生和打包版云端验收。
+
+This source combination has its own verification logs under
+`D:\Desktop Runtime Builds\performance-pr-20261109`. It does not replace the
+fourteen-check package or owner-experience evidence below. No new installer,
+shortcut change, owner application restart, package cleanup, runtime pin
+upgrade, merge or release is performed. Cloud checks and macOS acceptance
+are not inferred from these local Windows results.
+
+## Performance Baseline Accepted (2026-11-09)
+
+After the new Windows package handoff below, the owner confirms a noticeable
+speed improvement and asks to adopt this round as the formal performance
+baseline, leaving further optimization for later. Record the implemented
+performance work, fourteen packaged checks and owner-experience acceptance as
+complete; stop adding changes to this baseline.
+
+The accepted artifact is `selection-style-20261109-preview`, from performance
+branch `e419143` plus the frozen uncommitted changes. Executable and installer
+hashes are rechecked against the existing receipts and still match. At that
+acceptance checkpoint the source remained uncommitted; PR, cloud checks, merge
+and release are not implied by the owner's acceptance. No version bump, retag,
+install, restart or package cleanup
+is performed. Deeper first-mount/layout work is a separate unscheduled TODO,
+not a blocker for the accepted implementation.
+
+The handoff's original receipts and timing limits remain historical evidence.
+No exact production-history latency or universal speedup is inferred from the
+owner's experience, and unrelated real-account/installer/macOS gates remain open.
+
+## Native Selection Windows Preview (2026-11-09)
+
+The new Windows x64 preview at
+`D:\Desktop For Step Code\Desktop\release\selection-style-20261109-preview`
+includes the native selection inheritance follow-up below and the preceding
+cold-loading changes. It uses performance branch `e419143` plus its uncommitted
+changes, not latest main. All 1,187 frozen source files and 1,538 packaged
+build/resource files are verified; the measured renderer/Worker hashes match.
+The v0.1.7 runtime pin remains `29eb460780489801ce8afc8bffc1a2efae7cbded`.
+Executable and installer Authenticode status is `NotSigned`; the installer is
+not executed.
+
+All fourteen packaged checks pass with isolated profiles and the actual new
+executable: heavy-history opening, bundled Worker parity/fallback/cancellation,
+summary-resize, stream-motion, conversation-scroll, session-concurrency,
+plan-review, terminal-panel, general Electron, session-navigation,
+navigation-performance, native fulltext search, native BTW and chat quotes.
+The packaged native-selection comparison preserves 12,514 selected characters,
+206 sampled nodes and their computed colors when restoring the previous
+conversation selection rules. The first attempt incorrectly included xterm's
+unrelated accessibility selection rule; the driver now checks the six minified
+conversation/composer/Stellar rules explicitly. Initial failure evidence is
+retained. No product change or relaxed content assertion was needed.
+
+The final single packaged Stellar sample retains all 360 articles, 2,160 full
+code blocks, matching first/middle/last source and actual scroll height
+1,586,835 pixels. Cold first/full-history DOM detection is 4061.3/4299.1 ms
+and execution readiness is 4930.5 ms; resident full-DOM/readiness is
+3488.5/3904.6 ms. Trusted input and wheel movement pass. Cold cumulative
+script/style/layout is 1890.7/888.4/946.7 ms, with a 2712 ms longest task.
+These overlapping counters are not disjoint wall-clock phases. This single
+sample is not a matched median, compositor-confirmed paint or owner-history
+acceptance; it does not replace the six source comparison runs below.
+At that handoff checkpoint, owner acceptance was pending. It is now recorded
+above; integration and deferred optimization have separate TODO entries.
+
+Inspected captures include the heavy Stellar transcript, Worker navigation,
+dark narrow session navigation/search and main/BTW quotes. All seventeen
+successful packaged launches have exited without leaving fixture processes.
+Receipts, hashes, initial/repeat logs and captures are in the package directory;
+the frozen source and packaging drivers are under
+`D:\Desktop Runtime Builds\selection-style-package-20261109`.
+
+The primary desktop shortcut is backed up and updated to this package.
+Readback verifies target, working directory and icon while preserving arguments,
+hotkey, window style and description. At handoff the owner was still running the
+preceding cold-loading package; it was not stopped or restarted. No old package is deleted,
+and no installer lifecycle, cloud CI, macOS, real-account acceptance, commit or
+push is included.
+
+## Native Selection Style Follow-Up (2026-11-09)
+
+This source verification preceded the new package handoff above. It replaces
+descendant-universal native selection styles with highlight inheritance while
+preserving the existing light/dark/Stellar colors and semantic code/table/error
+overrides. No transcript nodes, source text, scroll heights, loading gates,
+runtime pins, credentials or session data change.
+
+Typecheck, production build and 194 focused unit tests pass. Eleven UI checks
+also pass: native selection inheritance, conversation scroll, session navigation,
+stream motion, summary resize, native fulltext search, annotations, BTW, viewport
+syntax highlighting, long-session interaction and Stellar chrome. The new
+selection check compares selected text, descendant computed colors and screenshot
+bytes with the preceding rules in 24 cases across three themes and desktop/narrow
+widths; every comparison is identical. Inspected captures include light desktop
+and Stellar narrow native selections. Existing checks retain search location,
+copy/quote, annotation ownership, actual scrolling, focus, reduced motion and
+message/source identity assertions.
+
+Six serial alternating-order Electron runs use isolated profiles and identical
+180-turn / 1,440-message histories. All retain 360 articles, 2,160 complete code
+blocks, matching first/middle/last code and real scroll height 1,586,835 pixels;
+draft input, trusted wheel movement and normal fixture shutdown pass.
+Cold full-history DOM detection medians are 3511.4 -> 2995.3 ms; cumulative style
+898.8 -> 524.1 ms; longest task 2129 -> 1652 ms. Resident full-DOM detection is
+2657.1 -> 2449.2 ms. This does not prove compositor paint, real-account behavior
+or acceptance on the owner's 5-10-second history. Script cost does not improve
+and multi-second blocking remains; the performance TODO stays open.
+
+The measured renderer/Worker asset hashes remain unchanged through regression
+checks. Evidence, immutable source/build snapshots, matched reports, screenshots,
+verification logs and a final source receipt are under
+`D:\Desktop Runtime Builds\selection-inheritance-20261109`.
+Rejected 12/48-article progressive-mount experiments are isolated under
+`D:\Desktop Runtime Builds\history-batching-20261109`, not in product source:
+they improve input responsiveness but delay complete history.
+
+To rerun the focused native selection comparison from `Desktop/`:
+
+```powershell
+$env:DESKTOP_BROWSER_CHANNEL = 'msedge'
+node scripts/verify-selection-inheritance.mjs
+```
+
+At that source-only checkpoint, the existing package and shortcut were unchanged.
+The later packaging and shortcut handoff are recorded above; install, commit,
+push, cloud CI, macOS and owner-history acceptance remain separate.
+
+## Cold-Loading Windows Preview (2026-11-09)
+
+The Windows x64 acceptance package at
+`D:\Desktop For Step Code\Desktop\release\cold-loading-20261109-preview`
+contains the verified performance branch `e419143` plus its uncommitted
+changes, including all cold-loading follow-ups below. It is not latest main.
+The v0.1.7 runtime pin remains `29eb460780489801ce8afc8bffc1a2efae7cbded`.
+The 1,186-file source snapshot, measured renderer/Worker assets and 1,538
+packaged build/resource files are checked against their hashes. Runtime
+patch metadata, Node, native terminal resources, installer SHA-256 and update
+metadata are verified; the installer is unsigned and is not executed.
+
+Fourteen packaged checks pass in isolated profiles: heavy-history opening,
+bundled Worker parity/fallback/cancellation, summary-resize, stream-motion,
+conversation-scroll, session-concurrency, plan-review, terminal-panel,
+general Electron, session-navigation, navigation-performance, native fulltext
+search, native BTW and chat quotes. Every launch records the actual packaged
+executable and isolated profile. Screenshots include Stellar heavy history,
+dark narrow navigation, search location and main/side quotes and annotations.
+
+One packaged 180-turn, 1,440-message, 5,495,514-byte Stellar sample retains
+360 articles, 2,160 complete code blocks, matching first/middle/last code
+source and the actual 1,586,835-pixel scroll height. Cold first/last body
+DOM detection is 3412.4/3606.9 ms; execution readiness is 3610.7 ms.
+Resident last-body DOM detection/readiness is 2725.7/3054.5 ms. Trusted
+draft input and wheel movement pass. Cold cumulative script/style/layout
+measurements are 1291.7/818.8/786.1 ms; these are not disjoint wall-clock
+phases and must not be added. Cold/resident longest tasks remain
+2113/2699 ms. This single package sample is not a median, confirmed paint
+or acceptance on the owner's 5-10-second history. The performance TODO
+remains open.
+
+Evidence is in the package's `source-receipt.json`, `package-integrity.json`,
+`package-acceptance.json`, `packaged-heavy-opening.json`, screenshots and
+`handoff-summary.json`; packaging drivers and the frozen source are under
+`D:\Desktop Runtime Builds\cold-loading-package-20261109`.
+The first build driver rejected a copied old-path assertion before packaging;
+the corrected attempt passes. The initial acceptance supervisor omitted the
+terminal verifier's successful native-quit completion because it observed
+only `app.close()`. The driver now records both native controller closure
+and launcher exit; the unchanged terminal check passes again. Initial logs
+are retained and are not counted as successful aggregate runs.
+
+Primary shortcut backup/readback is recorded separately in
+`shortcut-handoff.json`; no owner application is closed or restarted.
+No old package is deleted. This is not an installer lifecycle, cloud CI,
+macOS, real-account or owner-history acceptance, and no commit or push is
+included. Earlier source-only sections describe their historical boundary;
+their cold-loading changes are now included in this new preview.
+
+## Idle Custom Highlight Styles (2026-11-09)
+
+This source-only follow-up activates each of the five search/annotation custom
+highlight styles only while its named ranges are nonempty. The shared helper
+keeps document attributes and `CSS.highlights` registrations synchronized,
+preserves priority/combined main-and-BTW ranges and protects a replacement
+registration from stale cleanup. Unmatched searches keep the existing location
+fallback without registering an empty highlight. Colors, native selection,
+Markdown, source text and real transcript geometry are unchanged.
+
+Final isolated Windows checks pass:
+
+- Typecheck, production build and 194 focused unit tests, including named
+  highlight activation/cleanup, stale owners, empty ranges, priority and
+  unsupported-API fallback, plus the previous Markdown/layout/quote/scroll
+  checks and fulltext unit coverage.
+- Nine Electron checks: bundled Worker parity/fallback/cancellation,
+  conversation-scroll, turn-artifacts, session-navigation, stream-motion,
+  summary-resize, session-concurrency, plan-review and native fulltext search.
+- Five browser checks: annotations, BTW, viewport syntax highlighting,
+  long-session interaction and Stellar chrome. Search checks verify actual
+  highlight color and scope activation, no-match deactivation and dismissal.
+  Annotation checks cover selection/marks/focus, final-range cleanup,
+  Chinese/English and light/dark desktop/narrow layouts. BTW checks retain
+  both owners' ranges and keep main styles active when the side panel closes.
+  Existing selection/copy, source identity, navigation, motion, focus and
+  reduced-motion assertions remain enabled.
+- Six serial alternating-order matched runs exit normally, retaining every
+  article/code block, identical sampled source and actual scroll height,
+  trusted draft input and wheel movement. The final regression renderer and
+  Worker asset hashes exactly match those used for measurement.
+- Visual inspection includes Stellar heavy history, narrow light annotation
+  entry, narrow dark search location and simultaneous main/BTW annotations.
+  `git diff --check` passes.
+
+Cold first-body DOM medians change 4021.2 to 3265.2 ms; last-answer DOM changes
+4228.1 to 3462.4 ms, about 18%. Style calculation changes 1501.2 to 783.6 ms,
+about 48%. Cold longest-task medians remain 2799/2089 ms, with maximum renderer
+probe delays 3058.1/2255.9 ms. Resident readiness changes 4082.6 to 3133.4 ms,
+but its longest-task median still reaches 2796 ms. Full ranges and limitations
+are in `RENDERER_PERFORMANCE.md`. DOM/animation-frame observations do not
+establish compositor-confirmed paint or usability on the owner's history;
+the performance TODO remains open.
+
+Failed setup/cleanup attempts are retained rather than counted as passes.
+The first copied Worker verifier referenced an old receipt filename; its
+input now comes from this run's isolated corpus. The initial stream-motion
+check completed every content/animation assertion but timed out on direct
+`app.close()`. That verifier now restores its original IPC handler after
+simulating events and uses the existing orderly-close helper, including
+launcher-exit confirmation. Its repeat passes without weakening assertions
+or changing product quit behavior. The failed isolated process tree was
+verified before stopping it. Two exploratory profiling runs also timed out
+during cleanup; they are excluded from the six matched successes.
+
+Evidence: `D:\Desktop Runtime Builds\cold-layout-20261109`, including raw
+selector/CPU diagnostics, matched receipts/ranges, initial/final verification
+logs, screenshots and source/build hashes. The artifact inventory excludes
+runtime/dependency/baseline junctions. No artifact is deleted.
+No package, shortcut update, installer execution, owner-app restart, commit
+or push is included. The delivered twelfth-pass package is unchanged and
+contains none of the cold-loading follow-ups. Full unit-suite, cloud CI,
+macOS, active-highlight timing and real-account acceptance remain separate.
+
+## Repeated Artifact Parsing And Scroll Metrics (2026-11-09)
+
+This source-only follow-up starts from the preceding verified Worker candidate.
+Output attachment inference skips a second Markdown parse only for sources
+that definitely contain no supported artifact or local preview. Existing kind,
+URL, Markdown, output-path, platform and access rules remain authoritative.
+Encoded/escaped destinations, reference links, every supported extension and
+normalized numeric/IPv6 loopback previews retain the original parsing path.
+
+The scrollbar uses one captured metric set for geometry and ARIA percentage,
+without rereading layout during React rendering. Identical measurements keep
+their state identity. Initial measurement, scroll tracking and keyboard/pointer
+controls are not delayed. A frame-scheduled initial-measurement experiment was
+rejected because it relocated layout work without a clear cold-load benefit.
+
+Final isolated Windows source checks pass:
+
+- Typecheck, production build and 177 focused units, including artifact
+  inference, scroll geometry/percentage, navigation, scrolling, layout,
+  Markdown preparation/math/highlight/reveal, quotes, revisions and themes.
+- Eight native Electron checks: bundled Worker parity/fallback/cancellation,
+  conversation-scroll, turn-artifacts, session-navigation, stream-motion,
+  summary-resize, session-concurrency and plan-review.
+- The scroll acceptance now checks real thumb position and ARIA percentage
+  against actual viewport geometry after reading/following scenarios, including
+  hidden/tabindex state without overflow. Existing pointer, keyboard, wheel,
+  marker, animated-disclosure, nested-output and reduced-motion gates remain.
+- Four browser checks: full annotations fixture, viewport highlighting,
+  long-session interaction and Stellar chrome. Existing selection/copy/quote,
+  navigation, drag cleanup, focus and light/dark/narrow gates remain intact.
+- Six successful serial alternating-order matched runs retain all 360 articles,
+  2,160 complete code blocks, matching sampled source and actual scroll height,
+  trusted draft input and post-open wheel movement.
+
+Cold first-body DOM medians change 4632.1 to 4015.1 ms; last-answer DOM changes
+4855.7 to 4220.6 ms. Renderer script changes 1793.4 to 1283.1 ms, but style and
+layout do not improve. Maximum probe delay remains 3563.1/2980.3 ms.
+Resident readiness changes 4533.2 to 4119.9 ms, with overlapping ranges.
+These are local synthetic DOM observations, not compositor-confirmed paint,
+owner-history timings or a guarantee of usable transcript latency. About three
+seconds of continuous blocking remain; the performance TODO stays open.
+Full phase/range details are in `RENDERER_PERFORMANCE.md`.
+
+The first focused run exposed two exact-shape assertions that had not included
+the new percentage field; their expected values now explicitly test it while
+retaining the original geometry assertions. Initial failure logs are preserved.
+One rejected scroll-scheduling exploratory run completed its content checks
+but timed out during orderly shutdown after 60 seconds. Only its verified
+isolated test process tree was stopped. It is not counted as passed and no
+shutdown fix is claimed; all six matched runs and final native checks exit
+successfully through their existing shutdown paths.
+
+Evidence: `D:\Desktop Runtime Builds\cold-render-20261109`, including
+`matched-receipts.json`, raw samples/ranges, initial/final verification logs,
+screenshots and source/build hash receipts. The measured renderer/Worker
+hashes match the final tested build; only TODO/performance/verification
+documentation differs from the final source snapshot.
+No package, shortcut change, installer execution, owner-app restart, artifact
+deletion, commit or push is included. The delivered twelfth-pass package remains
+unchanged and contains none of these cold-loading follow-ups. Full unit-suite,
+cloud CI, macOS and real-account acceptance remain separate.
+
+## Background Markdown Preparation (2026-11-09)
+
+Eligible cold-history Markdown now uses bounded renderer-Worker preparation
+in parallel with runtime startup, retaining the complete source, parser
+positions and existing react-markdown transforms/components. The current-session
+map is exact-text keyed. Cached readings skip preparation; cancellation, failure,
+unsupported Workers and a five-second deadline retain the original synchronous
+fallback. Execution readiness still requires the authoritative runtime snapshot.
+The runtime pin, approvals, credentials and owner profile are unchanged.
+
+Final source checks pass:
+
+- Typecheck and production build; 156 focused units cover Markdown preparation,
+  block reuse, math, highlight/reveal, quotes, viewport scheduling, message
+  revisions, navigation/layout, render cache and theme behavior.
+- The actual bundled Worker runs in isolated Electron, with exact MDAST parity
+  for entities, GFM/references/footnotes and math. It terminates after success,
+  falls back when Worker construction is blocked, and cannot install old history
+  after a superseding navigation. Unit cases include parser nonmutation,
+  bounded work, malformed replies, errors, timeout and cancellation.
+- Seven native Electron regressions pass: session-navigation,
+  conversation-scroll, stream-motion, summary-resize, session-concurrency,
+  plan-review and the dedicated Worker check. Concurrency retains background
+  streams, targeted abort, scoped approvals and drafts across worker recycling.
+  Plan review retains expiry, stale-snapshot protection and fresh-review reentry.
+- Four browser checks pass: the full annotations fixture, viewport highlighting,
+  long-session interaction and Stellar chrome, retaining their light/dark/narrow,
+  reduced-motion, focus, selection, copy/quote and historical-navigation gates.
+- Three serial alternating-order measured runs per side use new isolated
+  profiles, identical heavy histories and Stellar motion. Every heavy sample
+  retains 360 articles, 2,160 complete code blocks, original source, draft text
+  and actual trusted-wheel movement.
+
+Cold last-answer DOM medians change 4161.2 to 4478.8 ms, slightly slower.
+Execution-wait clearance is 4776.3/4482.0 ms; renderer script is
+2401.9/1646.3 ms. The input request queued around 200 ms after clicking waits
+4306.8/11.0 ms additionally, not 11 ms from clicking to a ready conversation.
+Maximum renderer-probe delay remains 4170.1/3319.8 ms, and resident readiness
+is unchanged at 4170.4/4171.9 ms. **Cold-body usability is not resolved.**
+Complete mounting, transforms and layout still block for seconds. These local
+synthetic results are not paint confirmation, owner-history timing or a universal
+speed-up claim. Details are in `RENDERER_PERFORMANCE.md`.
+
+Evidence: `D:\Desktop Runtime Builds\cold-mount-20261109`. The source manifest
+and `handoff-summary.json` bind implementation/build hashes, per-check logs,
+six matched receipts and a junction-excluding artifact inventory. Only the three
+performance/TODO/verification documents differ from the tested source snapshot.
+No new package, shortcut update, installer execution, owner-app restart, artifact
+deletion, commit or push is included. The delivered twelfth-pass package contains
+neither this Worker change nor the preceding cold-loading follow-up. Full unit
+suite, cloud CI, macOS and real-account acceptance remain unconfirmed.
+
+## Heavy-First Cold Loading Follow-Up (2026-11-09)
+
+Owner feedback still reports 5-10 seconds or more before the first long
+conversation feels usable. Earlier nonresident-heavy measurements opened a
+short conversation first; they did not establish first-conversation latency
+in a fresh application. This follow-up opens heavy, short, then resident heavy,
+using isolated synthetic profiles without reading owner histories or settings.
+
+Empty `QuoteAnnotations` overlays now skip viewport measurements, layout
+observers and pointer hit tests. Nonempty annotations retain existing behavior.
+Stellar activity colors are localized to the composer pseudo-element instead
+of changing an inherited root variable across the complete transcript.
+The same colors, indicators, theme motion, original text and real heights remain.
+
+Three serial alternating-order native source Electron runs per side compare
+the delivered twelfth-pass source and this follow-up with Stellar motion on:
+
+| Median Phase | Twelfth Pass | Follow-Up |
+| --- | ---: | ---: |
+| First heavy: last answer detected in DOM | 4279.4 ms | 4144.1 ms |
+| First heavy: execution-wait indicator cleared | 6263.5 ms | 4700.6 ms |
+| First heavy: early input acknowledgement wait | 5796.7 ms | 4255.2 ms |
+| First heavy: cumulative style calculation | 2795.1 ms | 1365.7 ms |
+| Four post-load activity changes: style calculation | 4314.2 ms | 18.0 ms |
+
+All samples retain the same 5,495,514-byte history, 360 articles and 2,160
+complete code blocks, an editable draft and trusted-wheel movement. First-body
+DOM detection remains 4081.4/3946.5 ms: cold loading is not resolved.
+These DOM/input observations are not compositor-confirmed paint, owner-history
+measurements or a general loading-time bound. Full Markdown/React mounting and
+initial layout remain the next investigation, not a completed optimization.
+
+Final local checks pass: typecheck, production build, 116 focused units,
+the complete annotations browser fixture, Stellar chrome, viewport highlighting
+and native Electron session navigation. The annotations fixture verifies zero
+empty-layer viewport reads and cleanup after the final annotation, retaining
+editing, hover, highlighting and copy/quote checks. Two stale verifier assumptions
+were corrected: a removed CSS Highlight counts as empty, and the settings button
+uses its current `.sidebar-settings` selector. Neither change relaxes UI behavior.
+
+Evidence: `D:\Desktop Runtime Builds\cold-navigation-20261109`, including six
+matched receipts, `matched-summary.json`, `verification.json` and per-check logs.
+The source-only follow-up is not in the delivered twelfth-pass package.
+No new package, shortcut update, owner-app restart, artifact deletion, commit
+or push is included. Full-suite, cloud, macOS and real-account acceptance remain
+unconfirmed; the performance TODO stays open.
+
+## Viewport-First Code Highlighting (2026-11-09)
+
+The twelfth local performance pass displays complete fenced-code source first
+and adds syntax tokens near the viewport using the same shared highlighter.
+It keeps every message, original code, real height and existing copy control.
+No Worker, row virtualization, parser replacement, runtime pin/startup change or
+execution/approval-gate relaxation is included. Search/annotation Range objects
+are retained; native selection and pointer dragging postpone token insertion.
+
+Local verification on the final source:
+
+- Typecheck and production build pass. 189 focused unit tests pass across
+  navigation, scroll/layout, presentation/render-cache, timing, artifacts,
+  patches, Markdown/math/highlight/reveal, questions and viewport scheduling.
+  The full unit suite is not run.
+- Five isolated source Electron checks pass: session-navigation,
+  conversation-scroll, stream-motion, summary-resize and turn-artifacts.
+  The shared disclosure-summary browser fixture also passes.
+- Four actual-production-component browser checks pass in Edge 157.0.4341.42:
+  viewport-highlight, long-session-interaction, sidebar-interaction and
+  streaming-markdown. Existing light/dark/narrow, reduced-motion, streamed reveal,
+  authoritative replacement and navigation tests remain active.
+- The new coloring fixture retains 360 articles and 180 complete code blocks;
+  just one block is initially colored using one shared observer. Offscreen copy
+  works before coloring. The same code node retains its source and exact
+  820 x 136.3125 px block geometry after coloring. Native selection remains intact
+  until Quote is used; the saved CSS Highlight Range still selects `chosen` on
+  connected nodes afterward. Stale queued source cannot overwrite a new answer.
+- Fourteen browser cases compare exact token markup for complete/partial code,
+  unknown/text languages and escaped Unicode/HTML-like text. Unit cases also
+  exercise additional grammars and explicit highlight opt-outs. The streaming
+  structural comparison unwraps only code-token spans and the diagnostic
+  attribute, since coloring is intentionally viewport-dependent; exact token
+  parity is checked separately, not discarded.
+- All verify scripts remain explicitly inventoried. The new visual/stress fixture
+  is local-only alongside the existing long-session fixtures; deterministic
+  highlighting/scheduler tests are in the normal unit suite. Four root CI policy
+  suites report 30 passed, one platform-specific skip and no failures. They run
+  from the hash-matched Git worktree: an initial snapshot-only attempt cannot
+  satisfy their Git-identity precondition because the snapshot has no `.git`.
+- Six serial alternating-order real source Electron measurements pass, using the
+  same 5,495,514-byte heavy histories, runtime and dependencies as the eleventh
+  pass. Every heavy sample retains 360 articles and 2,160 code blocks, code-source
+  samples, an editable draft and actual post-open trusted-wheel movement.
+
+Cold last-answer DOM medians change from 6186.1 to 3948.8 ms, renderer script
+from 3729.0 to 2492.2 ms, and early input wait from 6057.1 to 3712.1 ms.
+Initial descendants change from 204480 to 103007 because only 47 of the original
+101520 syntax-token spans are initially needed; source text and rows are not
+removed. The following-frame opportunity is 6816.0/4352.0 ms, not confirmed paint.
+Resident DOM medians are 5818.9/3456.4 ms. See `RENDERER_PERFORMANCE.md` for
+ranges, post-open wheel results and limitations. Multi-second waits remain;
+these code-heavy local results do not establish the owner's real-history latency
+or a universal five-second upper bound.
+
+Evidence root: `D:\Desktop Runtime Builds\viewport-highlight-20261109`.
+`verified-build-*`, `verified-correctness-*`, `verified-matched-*`, source
+manifests, `matched-summary.json` and the new browser receipt retain the results.
+`final-receipt.json` binds the final source hashes, changed-file allowlist,
+policy results and a junction-excluding artifact inventory.
+
+At the source-only checkpoint, no owner history/profile/account or live
+application was changed, and the runtime junction was not restaged. Packaging
+and shortcut handoff were not part of that checkpoint; the subsequent Windows
+delivery is recorded below. The performance TODO remains open.
+
+### Windows Preview Package
+
+The owner requested a combined acceptance package on 2026-11-09. Output:
+`D:\Desktop For Step Code\Desktop\release\performance-twelve-20261109-preview`.
+It contains the twelve local performance passes, including the previously
+unpackaged tenth/eleventh passes, from branch
+`codex/long-session-interaction-performance`, base `e419143435dcbc8e1519085a1c60e7054e24144d`
+plus the recorded uncommitted changes. This is not a latest-main or release build.
+Desktop remains 0.6.0; runtime remains v0.1.7
+`29eb460780489801ce8afc8bffc1a2efae7cbded`.
+
+- `DFSC.Performance.Twelve.e419143.Setup.0.6.0.exe` is 149,044,975 bytes.
+  `SHA256SUMS.txt`, `package-integrity.json` and `source-receipt.json` record its
+  hash, all 1,178 source input hashes, runtime patch/Node hashes and metadata.
+  All 1,537 checked construction/runtime resources match; no junction ships.
+  Windows reports the installer as unsigned; no installer is executed.
+- Ten packaged checks pass using isolated test profiles: summary-resize,
+  stream-motion, conversation-scroll, session-concurrency, plan-review,
+  terminal-panel, electron, session-navigation, session-navigation-performance
+  and the heavy-history opening profiler. The latter retains all 360 articles
+  and 2,160 code blocks, limits initial token coloring, retains the typed draft
+  and verifies trusted-wheel movement. It is not a new matched speed-up claim.
+- The existing primary `Desktop for Step Code.lnk` is backed up under
+  `shortcut-backup`, then its target, working directory and icon are updated and
+  read back. Arguments, hotkey, window style and description are preserved.
+  The ninth-pass owner process remains running; updating the shortcut does not
+  switch an existing single-instance app. The owner must explicitly quit it to
+  try the new build. No owner profile/account/configuration is changed.
+- `package-acceptance.json`, `packaged-heavy-opening.json`, screenshots,
+  `acceptance-evidence`, `shortcut-handoff.json` and `handoff-summary.json` retain
+  the evidence. Post-build edits are limited to these verification/performance
+  notes and TODO; implementation bytes remain bound to the frozen build snapshot.
+  Large artifacts are inventoried without traversing dependency/runtime
+  junctions; no old package or other artifact is deleted.
+
+Real-account/model acceptance, the owner's real-history experience, installer
+upgrade/lifecycle, macOS and cloud CI remain unconfirmed. No commit, push or PR
+is included in this package request.
+
+## Tool-Heavy Opening Stalls (2026-11-09)
+
+The eleventh local performance pass batches the main transcript's child layout
+notifications and memoizes unchanged `TurnArtifacts` candidate parsing. It does
+not upgrade runtime v0.1.7 `29eb460780489801ce8afc8bffc1a2efae7cbded`, hide or
+virtualize transcript rows, alter Markdown/highlight/URL policy, or relax
+authoritative execution, approval and preview gates. Parent layout effects and
+resize observers remain immediate; explicit scrolling and unmount cancel pending
+child notifications.
+
+Local verification:
+
+- Typecheck and production build pass. 173 focused unit tests pass across
+  navigation, layout/scroll, presentation/render-cache, timing, artifacts,
+  patches, Markdown/highlight/reveal and questions. The full unit suite is not run.
+- Five isolated source Electron checks pass: session-navigation,
+  conversation-scroll, stream-motion, summary-resize and turn-artifacts.
+  Existing exact DOM/selection/caret handoff, stale-target, runtime recycling,
+  authoritative changed-answer, action/approval and error gates remain in force.
+- The production actual-App long-session and sidebar browser checks pass in Edge,
+  alongside the shared disclosure-summary fixture. The long-session check adds
+  a 50-turn tool/thinking/patch history, retaining 100 articles and 50 highlighted
+  blocks. It isolates mounting from width animations, asserts fewer than 30
+  viewport writes, preserves an editable but non-executable navigation draft,
+  verifies trusted wheel scrolling, and exercises normal-motion tool/thinking
+  expansion/collapse afterward. Existing streaming, selection/quote,
+  search/navigation, light/dark/narrow, reduced-motion and timestamp gates remain.
+- Artifact regressions change only the write path while retaining the same final
+  prose, then change the prose's explicit file link. Old candidates disappear and
+  the current candidates appear; native runtime-specific file actions also pass.
+- Six serial alternating-order real source Electron measurements use identical
+  short/heavy/heavy histories in fresh local test profiles, with no model calls.
+  Heavy histories contain 180 turns, 1,440 messages, 540 tool calls/results and
+  2,160 highlighted blocks. Both sides retain all 360 articles/204,480 descendant
+  elements at real heights, and every sample verifies the typed draft and an
+  actual post-open trusted-wheel scroll.
+
+Cold cumulative script medians change from 4810.9 to 3715.9 ms, resident from
+8641.7 to 3331.5 ms; viewport writes decrease from about 1086 to 6. These are
+not usability-completion times. Cold last-answer DOM detection changes only
+6391.7 to 6280.8 ms. The following-frame opportunities are 7735.0/6930.7 ms cold
+and 11326.0/6659.0 ms resident; early input still waits 5928.2/6747.7 ms in the
+candidate. A frame opportunity is not compositor-confirmed paint. See
+`RENDERER_PERFORMANCE.md` for ranges, phase definitions and diagnostic limits.
+**The owner's occasional five-second usable-body delay remains open.** A heavier
+synthetic reproduction now exists; first complete-history Markdown mounting and
+browser style/layout remain substantial, and the owner's actual corpus is not read.
+
+Evidence root: `D:\Desktop Runtime Builds\transcript-usability-20261109`.
+`matched-summary.json`, six `matched-{baseline,candidate}-{1,2,3}.json` receipts,
+source manifests, `verified-build-*` and `verified-correctness-*` logs record the
+results. The new mount-counter test initially included legitimate summary-width
+transition writes; it now isolates mounting, without changing the production
+width behavior or raising the assertion limit. The verifier also uses the
+project's contenteditable composer value and standard grouped-tool selectors.
+Earlier failed/exploratory logs are not acceptance. Final input hashes and a
+junction-excluding artifact inventory are in `final-receipt.json`.
+
+No owner profile/history/account or live app is changed. Snapshot dependency and
+runtime junctions are not restaged. No package, shortcut update, owner-app restart,
+artifact deletion, commit, push, PR, cloud CI or native macOS acceptance is included.
+The delivered ninth-pass package is unchanged and the performance TODO stays open.
+
+## Long-History Opening Handoff (2026-11-09)
+
+The tenth local performance pass changes only renderer handoff hierarchy and
+conversation timestamp formatter sharing. It preserves the ninth-pass runtime
+v0.1.7 `29eb460780489801ce8afc8bffc1a2efae7cbded`, full transcript DOM,
+authoritative content replacement, read-only preview boundaries and send gates.
+
+Local results:
+
+- Typecheck and production build pass; 156 focused unit tests pass across session
+  navigation, presentation/cache, layout, scroll, Markdown, reveal and questions.
+  The full suite is not rerun.
+- Four isolated source Electron acceptance checks pass: session-navigation,
+  conversation-scroll, stream-motion and summary-resize.
+- The expanded native navigation gate retains the exact prose, paragraph,
+  highlighted code and text-range nodes through a deliberately held cold handoff.
+  It preserves an expanded thinking disclosure and composer focus/caret, replaces
+  an existing answer changed on disk and appends newer authoritative messages once.
+  Existing stale-target, recycling, approval/action and failure gates also pass.
+- Actual-App production browser long-session and sidebar acceptance pass in Edge.
+  The new gates check a selected transcript paragraph across handoff, inert preview
+  questions and restored live questions; 360 correct timestamps with bounded
+  formatter construction in English/New York and Chinese/Shanghai, changed OS zone
+  on the next render, and hidden invalid timestamps. Existing light/dark/narrow,
+  reduced-motion, streaming, drag, selection/quote and search/navigation gates pass.
+- Six serial real source Electron profiler runs pass, three per side in alternating
+  order, using 3/180/180-turn local histories and real isolated pinned RPC, without
+  model requests. The full 360-article/180-highlighted-block long histories stay
+  mounted and visible. All candidate opens retain the first prose node.
+
+Cold long first-readable/ready medians change from 463.0/1167.1 ms to
+443.9/811.0 ms; resident long medians change from 380.2/798.2 ms to
+370.9/466.5 ms. Initial readability gains are small; the larger reduction is in
+handoff work. See `RENDERER_PERFORMANCE.md` for phase definitions and limitations.
+The owner's reported occasional five-second delay concerns usable transcript
+reading/scrolling/actions, not just runtime readiness. These synthetic histories
+do not reproduce it, so this pass does not claim that symptom is fixed.
+
+Evidence root:
+`D:\Desktop Runtime Builds\session-opening-performance-20261108`.
+`matched-summary.json`, six `matched-{baseline,candidate}-{1,2,3}.json` receipts,
+`verified-build-*`, `verified-units-*`, `verified-native-*` and
+`verified-browser-final-*` logs retain the successful results. Browser reports and
+screenshots live in the candidate's `Desktop/test-results/long-session-interaction/`.
+The first new browser assertion incorrectly selected the retained hidden search
+preview; scoping it to `#conversation-scroll` fixed the verifier without weakening
+the identity/selection gate. Failed diagnostic logs are not acceptance.
+All 1,174 final source inputs match the tested candidate; `final-receipt.json`
+records hashes and a junction-excluding artifact inventory (about 87.7/99.5 MiB
+for baseline/candidate). The four local CI-policy tests and whitespace checks pass.
+
+These tests use independent temporary profiles, never the owner's account,
+conversations or workspace files. Source snapshots share dependencies/runtime
+read-only through junctions; no runtime restaging or upstream modification occurs.
+No new package, shortcut change, owner-app restart, deletion, commit/push/PR,
+cloud, native macOS or real-account acceptance occurs in this pass. The delivered
+ninth-pass package is unchanged; the performance TODO stays open.
+
+## Runtime Compile Cache (2026-11-08)
+
+The ninth local performance pass starts from the eighth-pass source, preserving
+runtime v0.1.7 `29eb460780489801ce8afc8bffc1a2efae7cbded`. Main enables
+Node's module compile cache only at a Desktop-owned profile path. Generic
+isolated environments strip inherited cache paths and portability overrides
+while retaining the explicit disable switch. A staged Desktop-only extension
+flushes once during native session initialization, before a forced Windows
+process-tree stop can discard the generated bytecode. No upstream source,
+runtime entry, transport shutdown, permission/approval semantics, worker
+ownership, authoritative readiness or task-send gates change.
+
+Three serial alternating-order Electron pairs use independent fresh profiles,
+the same source dependencies and unchanged staged upstream modules. Each run
+opens three cold histories, returns to a resident session and rapidly requests
+three new targets. Cache-established cold readiness has a median of
+979.1/866.2 ms, with ranges 911.5-1009.6/815.2-907.0 ms, approximately 11.5%
+lower. The process-ready portion changes from 844.2 to 725.0 ms; restoration
+is essentially unchanged at 50.2/49.5 ms. First cold readiness with an empty
+cache is 1045.0/1068.9 ms, not an improvement. Resident readiness is
+28.3/26.7 ms; rapid-latest readiness is 1040.0/921.0 ms. Earlier readable history
+and editable navigation drafts remain separate from permission to send.
+
+An additional uninstrumented direct-runtime experiment runs three fresh
+profiles per side and two forced-stop restarts per profile. First-use medians
+are 757.3/814.8 ms and cache-established medians are 732.5/625.2 ms.
+Diagnostic CPU profiles separately attribute 150.7/23.2 ms to source-module
+compilation. Instrumented samples are not mixed into production medians.
+Each measured App cache is about 2.36 MiB; no first-install, whole-app startup,
+cross-version reuse or cross-platform speed claim is made. Remaining Git
+environment reads stay fresh rather than being cached.
+
+Final local checks:
+
+- 179 focused tests pass, with two POSIX-only lifecycle cases skipped on
+  Windows and no failures. Coverage includes cache persistence while alive and
+  after forced stop, corrupt-cache fallback before/after a source change,
+  unusable cache destinations, explicit disable, actual upstream restoration
+  of changed saved messages, staging, environment isolation, lifecycle races,
+  latest-target navigation, permissions, Plan review, Cron recovery, completion
+  review, auth-vault and keyless transport. The full suite is not rerun.
+- Typecheck and both baseline/candidate production builds pass.
+- Six real source Electron navigation-profiler runs pass against real isolated
+  RPC, three per side, with individual command-name and startup-phase receipts.
+- Candidate session-concurrency, session-branching, session-navigation,
+  Plan-review and general Electron acceptance pass. They cover scoped approvals,
+  targeted abort, current drafts/caret, actual restoration, latest-target
+  commits, failure recovery, source-history preservation, reviewed Plan
+  snapshots, stale approval rejection, reduced motion and renderer isolation.
+- An early exploratory diagnostic-preload run reached its probe-only 15-second
+  deadline. Later direct comparisons and native acceptance complete with the
+  existing production readiness limit unchanged. That probe timeout is not
+  claimed to be diagnosed or fixed by compilation caching.
+
+Evidence root:
+`D:\Desktop Runtime Builds\runtime-startup-performance-20261108`.
+`summary.json`, `matched-runs.json`, `direct-runs.json`, `probe.json` and the
+separate CPU profiles retain results; `snapshot.mjs`, `compare-process.mjs`,
+`run-native.mjs`, `summarize.mjs` and `final-checks.mjs` reproduce the local
+experiment. `candidate-focused-final.log`, `candidate-typecheck-final.log`,
+the two build logs and `candidate-acceptance-*.log` retain acceptance.
+The candidate has a private Desktop runtime overlay, reusing unchanged
+upstream/node/remote directories via junctions; staging never writes through
+those junctions. Final source hashes and a junction-excluding artifact inventory
+are recorded separately. No package, shortcut change, owner-app restart,
+Git commit/push/PR, cloud, native macOS or real-account acceptance is performed.
+The performance TODO remains open for those separate boundaries.
+
+## Sidebar Render Isolation (2026-11-08)
+
+The eighth local renderer pass starts from the seventh-pass source and retains
+the v0.1.7 runtime pin. It extracts the existing sidebar tree without changing
+its DOM vocabulary or CSS, memoizes the tree/rows and narrow preference/activity
+inputs, preserves unchanged session identities and uses current committed action
+delegates. It keeps complete session lists and transcript DOM, actual heights,
+immediate streaming, existing motion, selection/copy/quotes and navigation.
+
+Three serial alternating-order production pairs use identical final fixtures,
+dependencies and Edge `157.0.4341.42`, 1440 x 900, with 180 completed turns and
+60 paragraph updates at nominal 40 ms. Script-time medians change from
+735.8 to 503.9 ms with 180 sidebar sessions and 1572.4 to 522.3 ms with 1,000,
+approximately 32% and 67% lower. Layout does not materially improve; style time
+is slightly higher with 180 and about 18% higher with 1,000. At 1,000 sessions,
+sampled frames over 32 ms change from a median of 26 to two; final catalog
+refreshes and long frames remain. The diagnostic title-render gate fails on the
+baseline and passes on the candidate; diagnostic timings are not mixed with
+uninstrumented production measurements. Neither version loses sidebar rows or
+mutates their DOM in the measured stream. Unrelated host activity is uncontrolled.
+
+Separate frontend navigation samples use explicit 35/220 ms fixture delays;
+they do not prove faster backend startup. The real source Electron profiler
+uses eight short local histories and actual isolated RPC, without model calls.
+In the candidate's three cold samples, history is readable in 15.5-37.3 ms
+while authoritative readiness takes 798.7-849.7 ms. Recorded process readiness
+accounts for 674.6-720.8 ms and session restoration for 38.3-40.6 ms.
+A resident return is readable in 12.1 ms and ready in 22.6 ms. Editable isolated
+navigation drafts are distinct from task-send readiness. Both source snapshots
+pass this profiler; their single native pair is attribution, not a repeated
+runtime speed-up benchmark. See [Renderer Performance](RENDERER_PERFORMANCE.md)
+for complete timing medians/ranges, reproduction and remaining costs.
+
+Final-source local checks:
+
+- 203 focused tests pass without skips/failures, including ten new sidebar
+  state/markup cases and existing order/search/navigation, renderer, Markdown,
+  layout, reading and streaming coverage. Typecheck and production build pass.
+  The full unit suite is not rerun.
+- The new actual-App sidebar verifier passes activity/unread transitions,
+  drag locks, stable DOM through rename, current copy-reference/navigation
+  actions, updated keyboard sibling order, rapid latest selection,
+  light/dark 1440/760/390 px, keyboard focus and reduced motion.
+  Desktop-dark and narrow-light screenshots are visually inspected.
+- The untraced actual-App long-interaction verifier passes full mounted history,
+  historical reading anchors, inspector/sidebar gestures, streamed resizing,
+  selection/copy/quotes, search/navigation, providers and responsive gates.
+- Eight real source Electron checks pass and exit: navigation profiling,
+  sidebar order, sidebar search, session navigation, session move, sidebar
+  scrollbar, stream motion and conversation scroll. They use isolated profiles,
+  not the owner's app or real-account sessions.
+- CI inventory/policy/platform-runner/summary tests report 39 passed and one
+  platform skip. The four new renderer stress/visual verifiers are explicitly
+  registered local-only; existing cloud acceptance assignments are unchanged.
+  Source whitespace checks pass.
+
+Evidence root:
+`D:\Desktop Runtime Builds\sidebar-interaction-performance-20261108`.
+`matched-summary.json`, `shared-harness.json`, gate logs and six
+per-snapshot `Desktop/test-results/sidebar-interaction/matched-*.json` receipts
+retain the comparison. `candidate-focused-final.log`,
+`candidate-typecheck-final.log`, `candidate-sidebar-acceptance.log`,
+`candidate-build-final.log`, `candidate-verify-*.log` and
+`ci-policy-final.log` retain acceptance. Each source build also retains its
+`Desktop/test-results/session-navigation-performance-eighth-*.json` RPC trace;
+the actual-App long-history receipt is
+`candidate/Desktop/test-results/long-session-interaction/eighth-final.json`.
+The final manifest compares tested candidate inputs with current source.
+No package, shortcut change, owner-app restart, deletion, Git commit/push/PR,
+cloud, macOS or real-account acceptance is performed. The performance TODO
+remains open for those separate acceptance boundaries.
+
+## Shared Highlight Grammars (2026-11-08)
+
+The seventh local renderer pass starts from the sixth-pass source and keeps the
+v0.1.7 runtime pin. A lazily shared `rehype-highlight` transformer retains
+language registration/compiled grammars across Markdown processors. Document
+trees, source output and unfinished token state are not cached or shared.
+The complete parser/highlighter, safe URL/math policies, existing components,
+immediate streaming and progressive reveal remain unchanged.
+
+Three serial alternating-order baseline/candidate pairs run identical production
+fixtures and dependencies in Edge `157.0.4341.42`, 1440 x 900, with six corpora
+and nominal 40 ms, 180-character updates. Growing-code script medians are
+328.7/256.4 ms, single-paragraph 146.4/121.2 ms and mixed 460.7/344.9 ms.
+Layout/style are essentially unchanged; this is not a parser rewrite, full-app
+speed-up, response-latency or FPS claim. Separate Node pipeline diagnostics
+identify repeated highlighter setup/grammar compilation; their totals are not
+added to the browser savings. No compiler/other acceptance from this task runs
+alongside profiling, but unrelated shared-host activity is uncontrolled.
+See [Renderer Performance](RENDERER_PERFORMANCE.md) for medians, ranges and commands.
+
+Final-source local checks:
+
+- 162 focused tests pass with no skips or failures. Twelve new highlighter
+  cases compare fresh upstream output across partial/complete multi-line tokens,
+  nested/unknown/plain languages, code/math and alternating independent messages.
+  The reuse regression fails before the change and passes afterward.
+- Typecheck, production build and source whitespace checks pass. The full
+  unit suite is not rerun.
+- All six production-browser profiles pass immediate partial/final full-render
+  parity, late definitions, footnotes, stable code/math DOM, native selection,
+  code copy feedback, completion, light/dark 1440/760/390 px and reduced motion.
+  Sample desktop-dark and narrow-light screenshots are visually inspected.
+- The untraced actual-App long-session verifier passes historical-anchor,
+  streamed-resize/tail, complete mounted history, selection/copy/quotes,
+  search/navigation, cancellation, providers and responsive/visual checks.
+- Six real source Electron verifiers pass and exit: stream motion, conversation
+  scroll, BTW, file preview, Plan review and chat quotes. The Plan run uses an
+  isolated loopback provider, not a real account. Shared Markdown surfaces
+  retain their actual production components and existing interactions.
+
+Evidence root:
+`D:\Desktop Runtime Builds\streaming-tail-performance-20261108`.
+`matched-summary.json`, six `pipeline-matched-*.json` files and each snapshot's
+three `Desktop/test-results/streaming-markdown/matched-*.json` files retain the
+comparison. `focused-final.log`, `typecheck-final.log`, `build-final.log` and
+the seven `final-verify-*.log` files retain local acceptance.
+The actual-App receipt is
+`candidate/Desktop/test-results/long-session-interaction/seventh-final.json`.
+`source-candidate-manifest.json` checks tested files against current source;
+`artifact-inventory.json` excludes dependency/runtime junctions. Outputs are
+isolated and no artifact is deleted. No new package, shortcut update, owner-app
+restart, Git commit/push/PR, cloud, macOS or real-account acceptance is performed.
+
+## Panel Gesture Style Isolation (2026-11-08)
+
+The sixth local renderer pass builds on the fifth-pass source, retaining the
+v0.1.7 pin and complete historical DOM. Drag cursor/selection styles stay on
+the captured handle instead of changing the app root. The handle keyboard
+outline now uses the actual theme primary token.
+
+Full production acceptance also reproduces a 79 px paused-reading drift in
+both the old and new CSS snapshots. Native layout scrolling sometimes precedes
+its width ResizeObserver and was misclassified as manual scrolling. The
+controller now reconciles a pending, actually changed viewport width against
+the original anchor; stable-width unexpected scrolling and direct real-input
+cancellations remain. Viewport geometry precedes anchor geometry/current
+scroll-position reads. Native anchoring remains enabled. New regressions
+demonstrate failures before the geometry-order and width-scroll fixes, then
+pass after them. See [Renderer Performance](RENDERER_PERFORMANCE.md).
+
+Final-source matched production comparisons use three serial alternating-order
+pairs per harness, identical dependencies, Edge `157.0.4341.42`, 1440 x 900 and
+180 completed turns, without tracing or injected CSS. This task runs no compiler
+or other acceptance concurrently with profiling; unrelated shared-host activity
+is not controlled.
+Acquire style medians are 110.3/70.1 ms and maximum frame medians
+174.9/104.1 ms. Release style medians are 159.3/83.4 ms and maximum frame
+179.2/95.9 ms. Genuine final layout/script work does not improve. Another three
+pairs check all three 60-paragraph streaming scenarios; while dragging, style
+medians are 529.5/377.0 ms and maximum frame 187.5/145.9 ms. No universal
+sub-100-ms, constant-FPS, non-drag or operating-system claim follows.
+
+Final-source local checks:
+
+- 150 focused tests pass, including all 21 layout-controller cases; no skips
+  or failures. Typecheck and production build pass. The broad unit suite is
+  not rerun.
+- The actual-App gesture verifier passes captured pointer targets and resize
+  cursor outside the handle, native selection prevention/retention, unchanged
+  root styles, click and keyboard menus, focus outline, preset navigation,
+  Escape, pointer cancellation and actual capture release. Light/dark,
+  1440/760/390 px and reduced motion pass; settled screenshots are inspected.
+- Two untraced actual-App long-interaction passes retain the paused anchor
+  and tail through live deltas, completion, release and full reflow. Existing
+  save races, current JSON/providers, selection/copy/quotes, search/turn
+  navigation, settings layering, DOM identity and visual gates also pass.
+  The final shared-Text production verifier passes its semantic/visual matrix.
+- Final source Electron stream motion, conversation scrolling, native summary
+  resize and BTW verifiers pass and exit normally. The summary verifier also
+  exercises a captured handle drag over other content in a real Electron
+  window, retaining the resize cursor and selection/root-style boundaries.
+
+Evidence root:
+`D:\Desktop Runtime Builds\panel-gesture-isolation-20261108`.
+Final timing summaries are `gesture-final-matched-summary.json` and
+`streaming-final-matched-summary.json`; individual receipts use the
+`final-matched-{baseline|candidate}-{1|2|3}` prefix. Earlier CSS-only timing
+and failed old-source anchor runs remain separately labeled.
+`focused-final.log`, `typecheck-final.log`, `build-final.log` and the seven
+`final-verify-*.log` files record the final acceptance. App receipts are
+`candidate/Desktop/test-results/long-session-interaction/sixth-scroll-race-fixed.json`
+and `sixth-final.json`; gesture and shared-Text receipts use `sixth-final`
+under their respective `test-results` directories.
+
+Optional scroll-accessor diagnostics are disabled in final acceptance:
+instrumentation that adds position reads can mask browser event ordering.
+`source-candidate-manifest.json` checks the final source against the tested
+snapshot, and `artifact-inventory.json` inventories physical outputs without
+following dependency/runtime junctions. No output is deleted. This remains
+local, uncommitted branch work. The final actual-App preview uses port 5218;
+older previews are unchanged. No package is built, shortcut changed, application
+restarted, or Git commit/push/PR performed. Cloud, macOS and real-account
+acceptance are not performed.
+
+## Streaming Drag Protection (2026-11-08)
+
+The fifth local renderer pass builds on the fourth-pass source, retaining the
+v0.1.7 runtime pin. It coordinates automatic tail scrolling with the existing
+measured-width controller, distinguishes real indexed-article membership changes
+from working-indicator removal, and preserves the gesture anchor through final
+reflow without using a scroll position read before the final geometry. It does
+not throttle live output, hide or virtualize history, or disable native anchoring.
+
+Three serial matched production pairs use Edge `157.0.4341.42`, 1440 x 900,
+identical harness/dependencies, 180 initial turns and 60 additional paragraphs.
+Every run retains all 362 articles and 60 paragraphs. Flowing-response drag
+layout medians are 890.0/147.4 ms, with ranges 876.2-1029.9/131.9-178.7 ms.
+Frames over 32 ms are 64/17 and p95 frame intervals 66.7/25.0 ms. Style/script
+medians do not improve, non-drag medians are somewhat higher in these samples,
+and maximum frame medians remain 208.3/225.0 ms. There is no universal-speed,
+constant-FPS, non-drag or Windows/macOS causal claim. See
+[Renderer Performance](RENDERER_PERFORMANCE.md) for complete results and limits.
+
+The final source passes 154 focused tests, including 18 controller tests,
+typecheck and production build. New unit cases cover clamped live tail
+corrections versus real uncoordinated scrolling; live content and indicator
+removal; indexed article insertion/replacement/reordering; settlement anchors;
+and geometry reads that themselves cause native scroll anchoring. The full
+actual-App production verifier holds drags across deltas and completion while
+reading history and following the tail, checks protection survives, verifies
+all paragraphs, checks the paused article/offset and actual tail, and requires
+all widths to clear afterward. Existing save races, text selection/copy/quotes,
+current context JSON, search focus, deferred navigation, session replacement,
+usage/question providers, settings closing/layering, light/dark 1440/760/390,
+asset and reduced-motion gates pass. Desktop/light and narrow/dark screenshots
+are visually inspected.
+
+The shared-Text production verifier passes complete-render equivalence,
+definitions/footnotes, code/math identity, selection, copy feedback, completion,
+reduced motion and its visual matrix. Four final source Electron verifiers
+pass and exit normally: stream motion, conversation scrolling, native summary
+resizing and side-question behavior. The broad unit suite is not rerun for this
+pass. These results do not establish macOS, cloud, packaged or real-account
+acceptance, or the cause of earlier intermittent native shutdown hangs.
+
+Evidence and isolated snapshots:
+`D:\Desktop Runtime Builds\streaming-drag-performance-20261108`.
+Matched reports live under each snapshot's
+`Desktop/test-results/streaming-interaction/`; the root `matched-summary.json`
+records medians/ranges and protection lifetime. Diagnostic reports separately
+identify the premature scroll-triggered release. Final logs are
+`focused-final.log`, `typecheck-final.log`, `build-final.log`,
+`verify-final.log`, `verify-markdown.log` and `final-verify-*.log`.
+Actual-App receipts are
+`candidate/Desktop/test-results/long-session-interaction/fifth-final.json`
+and `fifth-geometry.json`; shared-Text evidence is
+`candidate/Desktop/test-results/streaming-markdown/fifth-final.json`.
+`source-candidate-manifest.json` compares source hashes with the tested snapshot;
+`artifact-inventory.json` inventories physical files without following shared
+dependency/runtime junctions. No artifacts are deleted. The final actual-App
+preview uses port 5217; earlier previews remain untouched. No package is
+produced, shortcut changed, installed application restarted, commit/push or PR
+performed. Shared junctions and a source snapshot are not an acceptance package.
+
+## Streaming Update Isolation (2026-11-08)
+
+The fourth local renderer pass builds on the third-pass source, without a
+runtime pin change. It replaces the settings ancestor `:has()` selector with
+explicit open/closing state, stabilizes the user-turn projection within a
+runtime/session/draft, and memoizes usage/question provider values. This does
+not isolate the entire App or replace the state store, throttle streaming,
+virtualize history or hide changed content.
+
+Three serial matched production comparisons use Edge `157.0.4341.42`,
+1440 x 900, identical harness/dependencies, 180 initial turns and exactly
+60 streamed paragraphs. Every run retains all 362 articles and 60 paragraphs.
+Streaming-only median style time changes from 1466.4 to 248.2 ms and script
+time from 1197.6 to 803.1 ms. With context open those medians are
+1473.1/289.3 ms and 1217.4/869.7 ms. Historical turn queries are
+11,041/181 in every scenario and repeat. Dragging still has expensive layout:
+the median is 886.8/921.6 ms; no layout improvement or constant-FPS claim is
+made. See [Renderer Performance](RENDERER_PERFORMANCE.md) for ranges, diagnostic
+limits, methodology and reproduction.
+
+The final source passes 140 focused tests, typecheck and production build.
+The actual-App production verifier passes the existing reading/resize,
+selection/copy/quotes, current expanded JSON, delayed-save races, cancellation,
+search focus, navigation, assets and reduced-motion gates. Additional checks
+require no repeated turn-node queries during settled assistant-only deltas,
+reacquisition and correct navigation in another session with identical turn
+previews, saved command-icon usage updates, question reopening/expiry/replacement,
+and settings window-bar layering throughout open/closing/closed states in
+light/dark 1440/760/390 layouts and reduced motion. Final desktop/light and
+narrow/dark screenshots are visually inspected.
+
+The final shared-Text production verifier passes complete-render DOM equivalence,
+late/nested/duplicate definitions, footnotes, code/math identity, copy feedback,
+selection, completion, reduced motion and the visual matrix. Its timings are
+not another matched comparison. Four final source Electron verifiers pass and
+exit normally: stream motion, conversation scrolling, native summary resizing
+and independent side-question rendering/quoting/copying/cancellation/history
+boundaries. This does not establish the cause or a fix for earlier intermittent
+native shutdown hangs. The broad unit suite is not rerun for this fourth pass;
+earlier broad-run counts below must not be described as final fourth-pass results.
+
+Evidence and isolated snapshots:
+`D:\Desktop Runtime Builds\streaming-isolation-20261108`.
+Matched JSON receipts live in each snapshot's
+`Desktop/test-results/streaming-interaction/`; their medians/ranges are in
+`matched-final-summary.json` at the evidence root. Final logs include
+`focused-final.log`, `build-final.log`, `streaming-markdown-final.log` and
+`final-verify-*.log`. The actual-App receipt is
+`candidate/Desktop/test-results/long-session-interaction/isolation-regression.json`;
+the shared-Text receipt is
+`candidate/Desktop/test-results/streaming-markdown/isolation-final.json`.
+Diagnostics include larger invalidation traces, not just final benchmark JSON;
+`artifact-inventory.json` inventories about 896 MiB excluding shared junctions,
+mostly the three baseline diagnostic traces. No cleanup is performed without
+authorization. `source-candidate-manifest.json` verifies all 1,164 source files
+against the tested snapshot. The actual-App preview is served on port 5216.
+Shared dependency/runtime junctions are not independent packages. No package is
+produced, shortcut changed, installed application restarted, artifact deleted,
+commit/push or PR performed. macOS, cloud, packaged and real-account acceptance
+remain separate.
+
+## Streaming Markdown Block Reuse (2026-11-08)
+
+The third local performance pass retains complete-source Markdown parsing and
+reuses unchanged top-level rendering blocks. It does not split on blank lines,
+throttle output, upgrade the runtime or replace the shared message components.
+Global reference definitions include nested lists/quotes with first-definition
+precedence; footnotes retain the original complete-document renderer. Non-append
+replacement invalidates caches. The existing large-message pagination boundary
+and new-text-only fade remain unchanged. See
+[Renderer Performance](RENDERER_PERFORMANCE.md) for architecture and limitations.
+
+The final serial production comparison uses Edge `157.0.4341.42`, 1440 x 900,
+identical dependencies and six fixed-prefix scenarios. The 16,194-character
+mixed reply, across 91 updates including completion, records script time of
+2218.1/570.3 ms, layout of 409.8/36.7 ms and style of 1008.2/126.9 ms.
+Its p95 synchronous update work changes from 43.1 to 10.2 ms; sampled frames over
+32 ms change from 58 to zero. These are local single-run observations, not an
+FPS, operating-system or universal performance guarantee. One growing paragraph
+has about 8% extra script cost; a growing code block still requires whole-block
+highlighting despite a smaller observed reduction.
+
+The final candidate passes 112 focused tests, typecheck and production build.
+Forty-two block tests compare complete/partial Markdown, nested and duplicate
+definitions, footnotes, code/math/currency, commands, unsafe HTML/URLs, cache
+invalidation, tree nonmutation and UTF-16 reveal offsets. The other focused tests
+cover existing math/reveal, commands, render-cache, layout, navigation, scrolling
+and full-text contracts. The production browser verifier additionally checks
+normal-render DOM parity, nested/late definitions, first-definition precedence,
+footnotes, code copy, retained code/math nodes, selection and copy feedback
+through stream completion, reduced motion and light/dark 1440/760/390 layouts.
+Final light/desktop and dark/narrow screenshots are visually inspected.
+
+The broad serial run immediately before the final nested-reference correction
+reports 1,512 tests: 1,499 passed, thirteen platform skips, zero failures or
+cancellations, 526.2 seconds. Its receipt is `broad-before-reference-fix.log`.
+The final correction adds eight cases and is verified by the 112-test focused
+run and final browser/native checks, not another full final-source run. Do not
+report a complete 1,520-test pass. An earlier incomplete snapshot omitted root
+plugin/theme examples and historical patch/document inputs; its failures are
+not counted as acceptance, and no product tests are weakened to repair it.
+
+The final actual-app production fixture passes inspector/sidebar/save races,
+selection/copy/quotes, paused reading, streaming during width changes, updated
+expanded context, cancellation, full-text focus, distant navigation during
+transitions, assets, reduced motion and the light/dark/narrow matrix without
+renderer exceptions. Four final source Electron checks exit normally:
+`verify-stream-motion.mjs`, `verify-conversation-scroll.mjs`,
+`verify-summary-resize.mjs` and `verify-btw-electron.mjs`. These cover the real
+fade/fold/tail behavior, scroll/resize and independent side-question quoting,
+copying, cancellation and history boundaries. This does not claim a root-cause
+fix for the previous pass's intermittent shutdown hang.
+
+Evidence and source snapshots live under
+`D:\Desktop Runtime Builds\streaming-markdown-performance-20261108`; matched
+receipts are `matched-final-baseline.json` and `matched-final-candidate.json`
+under each snapshot's `Desktop/test-results/streaming-markdown/`. Final tests
+and build logs are alongside them; the actual-app receipt is
+`test-results/long-session-interaction/streaming-regression.json`.
+Physical QA files occupy about 114 MiB excluding shared dependency/runtime
+junctions. No installer is produced or executed, old package deleted, shortcut
+changed, installed application restarted, commit pushed or PR created.
+macOS, cloud, packaged and real-account acceptance remain separate.
+
+## Measured-Width History Reflow (2026-11-08)
+
+The second local performance pass builds on the first-pass renderer changes,
+not a new runtime pin. `conversation-layout.ts` temporarily retains measured
+widths for distant mounted history during inspector dragging and actual
+transcript-width transitions. Nearby, live, last-two and focused articles stay
+responsive. Existing selections bypass it; all widths are released together
+with an anchored reading/tail correction. History/session changes and user
+input release it; overlapping/canceled transitions and disposal clean up.
+Search, quote and turn navigation use final settled geometry and obsolete
+deferred navigation is canceled.
+
+The final production fixture/verifier runs serially against the first-pass
+snapshot and candidate on Windows Edge `157.0.4341.42`, 1440 x 900, 180 turns.
+Cumulative drag layout changes from 758.0 to 117.2 ms, including settlement;
+style time is 282.2/290.2 ms and script time 23.8/28.5 ms. This does not mean
+all rendering is 85% faster: acquisition/release long tasks remain, and streamed
+resize still has substantial style/script work. Sidebar spare-space animations
+do not acquire widths; no additional sidebar improvement is claimed.
+
+All 360 original article nodes remain mounted and visible. The reading test
+changes transcript width from 780 to 452 px while preserving article 81 with
+a 0.25 px offset difference. The final verifier passes temporary-width cleanup,
+selected text/copy/quotes, different final reading width, rapid reversals,
+streaming, latest expanded JSON, drag cancellation, full-text focus, distant
+navigation during a real width transition, light/dark 1440/760/390 layouts,
+assets, reduced motion and absence of renderer errors. The first-pass snapshot
+misses the new mid-animation navigation target; that is reported as a baseline
+failure, not candidate acceptance.
+
+The full serial suite reports 1,478 tests: 1,465 passed, thirteen platform
+skips, zero failures/cancellations, 533.0 seconds. Final lifecycle cleanup is
+also covered by 78 passing focused tests, including thirteen controller tests.
+Final typecheck and production build pass. A candidate Electron scroll run
+exits normally. Its final repeat passes every functional assertion and writes
+its receipt, but hangs in `app.close()`; only the verified isolated test tree
+is forcibly cleaned up. That repeat is not counted as orderly shutdown
+acceptance, and no shutdown root-cause fix is claimed.
+The final source Electron native-window-resize check exits normally: all three
+Restore cycles have one settled transcript width, retain composer alignment and
+paused history, honor reduced motion and report no renderer exceptions.
+
+Evidence and isolated snapshots are under
+`D:\Desktop Runtime Builds\long-session-layout-20261108`; production receipts
+are `matched-first-pass.json` and `matched-layout-final.json` beneath each
+snapshot's `Desktop/test-results/long-session-interaction/`.
+See [Renderer Performance](RENDERER_PERFORMANCE.md) for the method and tradeoffs.
+The candidate and comparison occupy about 114 MiB excluding shared dependency
+and unchanged runtime junctions. The new fixture preview is intentionally served
+on port 5214. No package, installer execution, shortcut change, app restart,
+commit, push or PR is part of this pass. macOS, cloud, packaged and real-account
+acceptance remain separate.
+
+## Long-Session Interaction Performance (2026-11-07)
+
+The performance branch starts at main `e419143`. A production browser fixture
+mounts the actual app with short/180-turn history, 180 sidebar sessions and
+delayed preference writes. Unchanged history and file actions remain reusable;
+navigation geometry is logarithmically bounded; inspector drag writes are
+frame-coalesced; context rows/formatters are reused; workspace disclosure is
+optimistic with serialized saves and latest-intent rollback.
+
+Matched Windows Edge traces reduce inspector-open script time from 264.2 to
+36.1 ms, drag geometry reads from 7200 to 360 and drag layout from 1454.8 to
+862.7 ms. Delayed-save disclosure DOM feedback changes from 482.8 to 9.7 ms,
+before persistence completes. These observations do not establish stable FPS.
+Long-history live reflow and streaming resize still produce long tasks.
+Transcript estimated-height containment was rejected after a distant-navigation
+regression; the final transcript retains its complete DOM and real heights.
+Method, results and remaining scope are in [Renderer Performance](RENDERER_PERFORMANCE.md).
+
+Local full serial tests exit normally: 1,465 tests, 1,452 passed, thirteen
+platform skips, zero failures/cancellations. Final typecheck, production build
+and thirty focused render-cache/navigation/scroll/Markdown/reveal tests pass.
+The final production fixture passes delayed-save/race/rollback, historical
+copy/quote/highlighting, paused reading, streaming and current expanded JSON,
+drag cancellation, full-text open/focus, distant turn navigation, asset loading,
+light/dark 1440/760/390 layouts and reduced motion, without renderer exceptions.
+Existing source Electron conversation-scroll and native-window-resize checks
+also pass after the final transcript containment removal.
+
+Evidence lives under
+`D:\Desktop Runtime Builds\long-session-performance-20261107`.
+The first broad attempt lacked a prepared runtime and failed; it is not counted
+as acceptance. The successful native snapshot reuses the unchanged v0.1.7
+`29eb460` Node/Step/Remote dependency directories read-only and builds/copies
+current Desktop-owned adapters into its own runtime directory. No upstream
+checkout, shared runtime, installed app, shortcut, installer or profile is
+modified. macOS, cloud, packaged and real-account acceptance remain separate;
+no PR, push or package is created by this local performance pass.
+The QA inventory is about 214 MiB of physical files, excluding shared junction
+targets: baseline/source snapshots, current build/terminal outputs and receipts.
+No old package is deleted. The candidate production fixture is served locally
+on port 5213; its background preview is intentional, not an unfinished verifier.
+
+## 全局指令 PR 验收脚本修复（2026-11-09）
+
+PR #224 的 Windows/macOS sessions 验收严格比较路径时，把临时目录的
+别名当作预期值：Windows 短路径与长路径、macOS `/var` 与 `/private/var`
+表示同一个目录。验收现在先对新建的隔离 profile 调用 `realpath`，
+仍严格比较界面、IPC 和复制结果的完整路径，不修改产品路径选择。
+本机用目录 junction 复现了旧脚本的失败，修复后在同一别名环境通过。
+
+Windows runtime 验收在权限菜单点击返回、原生权限 RPC 尚未完成时提交了
+任务，被现有 `Session operation in progress` 保护拒绝。发送助手现在同时
+等待权限按钮恢复和原有 Send 就绪条件。受控回归保持真实风险确认未回答，
+明确验证 Send 虽已启用、权限事务仍未完成时助手必须阻塞；旧条件在此失败。
+快照等待复用 Node 侧的已解析值轮询，关闭复用现有有界 fixture 关闭助手。
+没有修改产品权限策略、worker 并发保护、原有断言或通过超时。
+
+提交 `4f1f01b` 的 Windows sessions/runtime 全组通过；interface 在已有插件
+验收的卸载关闭步骤失败：原生窗口已关闭，但该页面的 `evaluate` 回包随之
+中断。脚本现在并行等待真实 close 事件和关闭 RPC，仅接受页面销毁对应的
+Playwright 错误，其他错误仍抛出，并保留主窗口存活断言。
+
+本地 Windows 验证结果：
+
+- 源码全局指令验收在 junction 临时目录下通过；权限验收连续三次通过。
+- 同一目录别名环境下，两项脚本也通过现有免安装包
+  `global-instructions-20261109-preview-r2`（产品提交 `4d28ad5`）。
+  均经现有串行 CI runner 执行，仅限定这两项，不声称全组已执行。
+- 类型检查通过；CI 清单、执行器、策略和汇总测试 41 项中 40 项通过、
+  1 项既有 POSIX 平台跳过；fixture 关闭回归 16 项全部通过。
+- 插件完整源码验收连续两次通过八组检查，均确认零推理请求、零渲染器错误、
+  启动器退出码 0 和零剩余窗口。额外的现有 Windows 包执行通过八组业务断言，
+  但最后退出整个 fixture 超时 30 秒，结果仍记为失败，不算包验收通过。
+  后续未发现该 r2 包的残留进程；未据此修改产品或放宽退出判定。
+
+日志为 `Desktop/test-results/pr224-ci-targeted-source.log` 和
+`Desktop/test-results/pr224-ci-targeted-package.log`，插件追加执行日志为
+`Desktop/test-results/pr224-ci-plugin-close.log`，详细结果在对应
+`pr224-plugin-close-{source-1,source-2,package}/verification.json`。
+以上是隔离 profile、
+本地 HTTP/SSE fixture 验证，不替代新提交的云端 CI、原生 macOS 或付费模型
+验收。未重新打包，也未改用户应用、快捷方式、个人配置或共享 runtime。
+
+## Global Instructions File Transparency (2026-11-09)
+
+The settings editor now displays the actual native context file selected by
+the main process, including an existing override or fallback, and provides a
+copy-path action through the existing clipboard bridge. A missing profile shows
+the future `AGENTS.md` path without creating the file. Read, unchanged-save,
+changed-save and clear responses retain that same trusted path; no arbitrary
+filesystem API is added.
+
+Status copy distinguishes a missing file, a loaded local file and a completed
+file save. It does not claim that a resident conversation has loaded the saved
+instructions. The lifecycle note explicitly requires a new conversation or a
+manual runtime restart; saving still does not interrupt or hot-update existing
+workers.
+
+Local typecheck/build passed. The focused store, runtime, session ownership,
+MiniChat catalog and plugin-window policy run passed 123 of 125 tests, with two
+existing POSIX-only skips and no failures. The production Electron verifier
+passed through an isolated local HTTP/SSE provider, inspecting actual system
+requests before and after saving, new sessions, manual restart and cold restore.
+It additionally checks actual/default/override paths, exact clipboard payloads,
+copy failure without draft loss, override-only saves, light/dark/640px English
+layout and four-sided editor/copy-button focus visibility. Clipboard writes are
+stubbed only in the fixture's main process, leaving the user's clipboard intact.
+The light and narrow dark screenshots were inspected.
+
+Evidence is in `Desktop/test-results/global-instructions-results.json` and the
+matching light, dark-narrow, conflict and override-path screenshots. This is
+local Windows source acceptance, not paid-model obedience, native macOS,
+current cloud CI, package acceptance or a public release.
+
+## Cron 管理页读写协调（2026-11-09）
+
+`6a50595` 的 Windows 三组及最终汇总通过；macOS runtime 在源码 Cron
+验收中，点击恢复后等待“暂停任务 Beta”超时。截图显示任务仍暂停，自动恢复
+授权已失效。旧日志没有操作拒绝原因，不能仅凭超时确定云端根因。
+
+受控浏览器测试挂载真实 `CronManager`，保持事件触发的列表读取未完成，
+稳定复现了管理页仍发送修改、被宿主读取锁拒绝的竞争；也确认写入尚未完成时
+事件会再次启动读取。这两项在修复前失败。管理页现在等待自己的读取结束后
+只发送一次写入，写入期间合并刷新，确认或失败后再读取列表。并行快照先失败
+时也等待列表读取结束；此边界单独先复现失败，再验证修复通过。
+
+后端忙碌锁、任务 revision、自动恢复授权失效规则与原生断言不变；
+不自动重试不确定的写入，不将等待期间的新任务版本套到旧操作上。
+关闭管理页会取消仍在等待读取的写入。失败现场增加仅含固定界面状态的诊断，
+不输出任务原文、完整快照、凭据或环境变量。
+
+六项协调回归与原有十七项动画／搜索回归共二十三项通过，已接入两平台 CI。
+CI 执行器、策略及 Windows 汇总回归四十二项：四十一项通过、
+一项既有平台跳过；Windows 汇总能单独标记浏览器协调测试失败。
+类型检查与工作树生产构建通过。完整原生 Cron 十四场景在普通高度和限制
+684px 内容高度下均通过，搜索原生验收通过；这是本地隔离 Windows 源码验收，
+不是完整 CI 分组、原生 macOS、付费模型、安装包或发布验收。
+Node 24.16 完整协议测试 1,855 项：1,841 项通过、14 项条件跳过、零失败。
+
+证据在共享 D: 的 `output/theme-composition-main-sync-20261109`：
+`cron-manager-before-serialization.log`、`cron-manager-snapshot-before-drain.log`、
+`browser-cron-serialization-final.log`、`ci-cron-serialization-final.log` 及
+`native-cron-serialization*.log`。新提交仍须等待云端完整验收；
+未合并 PR、生成安装包、改变运行时或用户配置，#223 保持草稿且未同步。
+
+## 主题组合与全局指令主线同步（2026-11-09）
+
+- 合入主线 `4308435`（PR #224 全局指令）。仅验收文档有文本冲突，
+  保留主线原有记录及主题分支的完整记录；自动合并的 IPC、preload、
+  设置界面、权限验收和 CI 清单已复查。
+  `themeImage`、`pluginWindowOpen` 的只读路径及 MiniChat／插件窗口边界保留。
+- 类型检查和工作树生产构建通过。Node 24.16 完整协议测试 1,855 项：
+  1,841 通过、14 项条件跳过、0 失败。
+  CI 执行器／策略测试 40 项：39 通过、1 项既有平台跳过。
+- 经现有串行 CI runner 定向执行搜索、全局指令、权限、插件窗口及 Remote
+  五项源码原生验收，全部通过；这不是执行完整 CI 分组。
+  插件检查八组，零推理请求、零页面错误、退出码 0、窗口归零；
+  Remote 包含真实退出／重启恢复。
+- 主题组合浏览器十项行为及四组桌面／窄屏像素检查通过；
+  四组主题截图及全局指令明暗／窄屏截图已检查。
+  新日志位于共享 D: 证据目录中的 `*-main4308435*` 文件。
+- 新提交仍需云端 Windows/macOS 完整验收。
+  未合并 PR、打包、改动个人档案、运行客户端、快捷方式或运行时版本；
+  自定义背景 PR #223 仍保持草稿且未同步。
+
+## 会话搜索焦点验收的动画等待（2026-11-09）
+
+- `47008c4` 的 Windows 三组及汇总通过；macOS 候选构建、会话组和运行时组
+  通过，但界面组包内验收在搜索焦点检查失败：
+  `outline: '2px'` 和无横向溢出通过，`contained` 为 false。
+  原脚本在边界断言之后才等待侧栏动画，测量可能发生在侧栏仍滑入视口时。
+- 受控浏览器回归执行原验收脚本的几何检查，使用真实侧栏和搜索框 CSS，
+  将入口动画停在视口之外，修复前稳定复现同一个失败。
+  验收现在等待原生内容尺寸同步和实际动画完成后再测量；四侧完整焦点环、
+  2px 宽度和无溢出断言不变，没有改产品样式、动画、时限或自动重试。
+  回归还人为制造动画完成后仍然裁切的情况，确认原断言继续拒绝真实裁切。
+- 动画辅助器浏览器回归 17 项通过，类型检查通过。
+  CI 执行器／策略回归 36 项：35 通过、1 项既有平台跳过。
+  隔离 Electron 的会话搜索验收连续 3 次通过明暗、宽窄窗口、键盘焦点、
+  搜索排序、临时展开、输入法 Escape、草稿／运行时隔离和结果导航。
+  四组截图已检查；窄窗口实际采用原生最小内容宽度，不假定外框请求尺寸等于视口。
+  本次提交仍需新的 Windows/macOS 云端 CI，旧 head 的通过项不能替代它。
+
+## Remote 重启验收的页面导航等待（2026-11-09）
+
+- `5707525` 的 Windows attempt 2 在 Remote 重启后读取状态时失败：
+  `firstWindow()` 返回后正式页面仍在导航，`page.evaluate()` 的执行上下文被销毁。
+  共享测试启动器现在等待实际 `renderer/index.html` 加载完成才返回；
+  保留原有启动时限、状态轮询及恢复断言，导航失败仍会关闭隔离应用并报错。
+- 源码／包内启动等待与导航失败清理共 3 项回归，修复前全部失败、修复后通过。
+  连同会话夹具和关闭门禁共 26 项通过，类型检查通过。
+  本机 Node 24.16 的完整原生 Remote 验收通过真实退出／重启恢复、队列撤回、
+  图片授权、Plan 审批及断开后不重连。日志位于共享 D: 证据目录
+  `output/theme-composition-main-sync-20261109/remote-after-navigation-fix.log`。
+- 同一旧 head 的 Windows attempt 1 在更新界面及 `then_run` 功能断言完成后
+  关闭超时；原样重跑已越过这些检查。本机 12 次隔离关闭、更新界面及完整
+  `then_run` 复测均通过，未修改关闭策略、时限或断言，关闭间歇失败根因仍未确认。
+  该旧 head 的 macOS 全部候选构建、源码／包内验收及最终汇总通过，
+  不代表本次验收修复提交的云端结果。
+- 本机 Node 24.15 的完整复测在既有 `terminal-sessions.test.ts` 的进程树
+  清理中失败并留下夹具进程；已核对 PID、父进程及精确夹具路径后停止，
+  未修改终端逻辑或降低断言。该次失败日志独立保留，不能算作完整测试通过。
+
+## 主题组合与主线插件工作区同步（2026-11-09）
+
+- 同步主线 `9e493ed`，合并只读 IPC 白名单中的 `themeImage` 与
+  `pluginWindowOpen`，保留双方的测试和验收记录。
+  MiniChat 仍拒绝打开插件窗口；插件窗口仍拒绝主题场景、海报和图片读取，
+  不扩大独立窗口的权限。
+- 类型检查及 D: 隔离生产构建通过。完整协议测试 1,843 项：
+  1,829 通过、14 项平台／资源条件跳过、0 失败。
+  CI 清单、策略与执行器测试 31 项：30 通过、1 项既有平台跳过。
+- 主题组合浏览器检查 10 项、桌面／窄屏非空与色彩像素检查 4 组通过；
+  插件工作区 14 组和实际渲染器注入 bridge 验收 11 组通过。
+  检查了桌面、390px 窄屏及四侧焦点截图。
+  插件浏览器验收复用已安装 headless shell 1243，非默认预期版本；
+  主题组合浏览器验收使用本机 Chrome，不替代云端同版本验收。
+- 隔离 Electron 主题验收通过 PNG/JPEG 原生解码、主题切换、UI 保留、
+  动效偏好、重启及缺包回退。真实本地 Git 市场的插件主／侧／独立窗口
+  验收通过 8 组，0 推理请求、0 页面错误，启动器退出码 0、窗口归零。
+- 证据在 `output/theme-composition-main-sync-20261109`，浏览器证据在
+  `output/playwright/theme-composition-main-sync-20261109`，均位于共享 D: 目录。
+  新提交仍需云端 Windows/macOS 完整 CI；旧 head 的绿灯不代表同步后通过。
+  未合并 PR、生成安装包、修改运行时版本、个人档案、客户端或快捷方式。
+
+## 主题组合 CI 后续焦点检查（2026-11-09）
+
+`082e773` 的 Windows runtime 组已通过协议测试，随后在
+`verify-cron-management.mjs` 的矮窗口原始坐标点击后，报告文本框未聚焦。
+测试现在等待前一个输入框的原生聚焦滚动和人工滚动各自跨过两帧，
+再确认文本框确实部分裁切、点击点确实命中它，然后点击并保留原来的
+完整四侧焦点边框断言。没有自动重试点击、再次聚焦或改变产品焦点行为。
+本机隔离 Electron 在 684px 高度完成四组明暗／宽窄焦点矩阵并生成截图。
+这不代表完整 Cron、默认进程关闭或替换提交的云端 CI 已通过。
+
+后续完整 Cron 本机重跑通过 14 项。`f17f93b` 的云端窄窗口检查又证明
+684px 下文本框可能自然完整容纳，因此不能假定人工滚动必然制造裁切。
+保留原有 684px 明暗／宽窄检查，并增加 540px 两组专门验证真实部分裁切
+后的原生聚焦及鼠标点击；命中检查和完整四侧边框断言继续保留。
+扩展后的六组窗口矩阵与完整 Cron management 隔离验收再次通过 14 项。
+
+## Theme Composition Foundation (2026-11-09)
+
+The version 2 source contract separates host-owned UI adapters from default
+backgrounds and declares opt-in image replacement. Version 1 remains a closed
+Stellar composition; the published Stellar package is unchanged. This phase
+supports packaged static PNG/JPEG backgrounds and an internal replacement slot,
+not the personal image-import/editor plugin. WebP was excluded after a native
+Electron probe returned an empty image for both buffer and data-URL decoding.
+No HTML, JavaScript, custom CSS or arbitrary engine execution is introduced.
+
+Local typecheck and the isolated production build pass. The 11 focused
+contract, loader, image, theme, worker, race and IPC test files report 103 passes
+and one Windows file-symlink privilege skip, with no failures. A real directory
+junction rejection test still runs. The final runtime-backed Remote and
+marketplace suites pass all 76 cases; CI inventory/policy tests pass all 15.
+The authoring Schema accepts seven valid examples and rejects 14 invalid ones.
+
+The new browser verifier passes ten behavior cases, including closed v1,
+scene replacement/disposal/restoration with retained UI and layout, stale async
+loads, same-ID resource updates, static-theme controls, reduced motion and
+cleanup. Desktop and 390-pixel canvas/image checks are nonblank and chromatic;
+1440, 760 and 390-pixel screenshots were inspected. The isolated Electron
+verifier passes actual PNG/JPEG decoding, first-frame selection, theme switching,
+Stellar UI with image/solid backgrounds, motion preference persistence, invalid
+ID rejection, restart and missing-pack fallback, without renderer errors.
+
+The unchanged legacy composition verifier had one initial reduced-motion
+pixel-equality failure. An independent full rerun and two instrumented final
+motion workflows passed. Both instrumented screenshot pairs were pixel-identical
+and background draw counts remained fixed. No deterministic defect or cause for
+the initial failure has been established; it remains an intermittent observation.
+
+Machine-local evidence is under
+`D:\Desktop For Step Code\output\theme-composition-20261109`
+(`electron-final/results.json`, `runtime-regressions.log` and
+`legacy-review/diagnostic`) and
+`D:\Desktop For Step Code\output\playwright\theme-composition-contract`.
+The two isolated verification builds under the shared D: release directory
+each contain about 7.37 MiB of owned files and link three immutable runtime
+directories. No installer was produced and no existing artifact was deleted.
+The owner's checkout, running package, profile, Remote binding and shortcuts
+are unchanged. These checks do not establish cloud CI, native macOS, installer,
+real-model or release acceptance.
+
+## 通用插件市场信息（2026-11-09）
+
+通用市场卡片与详情页新增作者、DFSC 语义化版本要求、必需/可选外部准备项，
+并将作者与适配维护者分开。缺省依赖声明不等于无需依赖；没有可信下载统计时
+显示「暂无统计」，不使用作者自报数字或 GitHub Star 替代。
+发现页候选的版本、作者、要求和文档保持同一来源，已安装版本另行标注；
+配置和工作区入口仍绑定实际安装副本。此轮不是 Hermes 业务适配，
+没有新增依赖检测、安装脚本、执行权限或统计遥测。
+
+本地已确认：
+
+- 类型检查、生产构建和 `git diff --check` 通过。
+- 元数据、包投影、工作区声明、文档与展示的 7 个定向测试文件共 54 项全部通过，
+  使用 Node 24.16.0 串行运行，没有跳过。
+- 元数据浏览器验收 17 组通过，包括中英文、明暗主题、1440/900/390px、
+  长作者/依赖换行、真实键盘焦点四边可见、安全链接和候选/安装副本分离。
+  完整插件中心浏览器验收通过；新增检查由既有 CI 验收入口调用。
+- 实际主渲染器注入桥接的 11 组验收通过；CI 清单、运行器和策略测试共 31 项，
+  30 项通过、1 项既有平台跳过。
+- 生产 Electron 主进程、preload、渲染器与真实本地 Git 市场的 9 组验收通过，
+  其中 8 项元数据断言覆盖四个通用资源插件的市场/安装投影、真实客户端
+  `0.6.0` 版本、必需/可选/空数组/未声明、作者缺省与未知下载统计。
+  原有主视图、侧栏、独立窗口、配置引用、更新和卸载断言保留并通过。
+  渲染错误与模型请求均为 0，退出码 0，确认剩余窗口 0；截图已目视检查。
+
+同日按反馈完成徽标组件复验：作者署名仅保留人形图标与名称，
+DFSC 版本和外部依赖摘要改为可复用的非交互徽标，版本徽标由卡片与详情共用。
+声明来源与未检测本机环境的边界保留在提示、无障碍标签和详情中。
+类型检查、生产构建、7 个定向文件的 58/58 项测试通过；
+中英文、明暗主题和 1440/900/390px 的 17 组元数据检查、
+完整插件中心浏览器验收及上述生产 Electron 9 组验收均重新通过。
+本次没有重跑全量协议测试，原有全量失败仍保留如下。
+复验证据位于同一证据目录的 `chip-polish\`：
+`plugin-focused.log`、`browser\market-info\verification.json` 和
+`electron\verification.json`。该目录共 20.63 MiB，未生成安装包或删除产物。
+
+### 紧凑信息与依赖展开
+
+同日参考市场信息层级调整：符合声明的版本仅显示 DFSC 与版本范围，
+不再常驻绿色「版本符合」，不符合或无效声明仍明确警示。
+外部依赖摘要改为独立按钮，就地打开锚定弹层；弹层与详情共用必需/可选
+清单、安全链接和「作者声明，未检测本机环境」边界，不新增检测或安装行为。
+卡片不再显示缺失下载量的占位，详情仍明确显示「暂无统计」。
+
+- 类型检查、生产构建及 Node 24.16.0 下 7 个定向文件的 58/58 项测试通过。
+- 完整插件中心浏览器验收与 19 组元数据检查通过，覆盖中英文、
+  明暗主题、1440/900/390px、弹层上下翻转与边界、卡片布局不跳动、
+  必需/可选清单、安全链接、四边焦点、Escape 焦点返回、再次点击、
+  外部点击、焦点离开、关闭按钮、实际滚动及保留挂载时的停用清理。
+- 生产 Electron 9 组、8 项元数据断言再次通过，版本为 `0.6.0`；
+  渲染错误与模型请求均为 0，退出码 0、剩余窗口 0，确认干净退出。
+  更新和卸载仍经过真实本地 Git 市场；卸载清理包含已展开的依赖弹层。
+- 验收脚本等待原生弹层与触发器状态同步；直接后端卸载的用例使用既有
+  「检查插件更新」路径刷新目录后核对移除，没有增加产品自动同步或放宽断言。
+
+复验证据在 `D:\DFSC-Preview-QA\plugin-market-info-20261109\compact-revision`：
+`plugin-focused.log`、`browser\market-info\verification.json`、
+`electron-final\verification.json` 及截图。首次原生验收的失败证据保留在
+`electron\`，最终通过结果以 `electron-final\` 为准。截图已目视检查。
+该目录共 36.97 MiB；当前 dist 为 11.96 MiB，runtime 与 terminal-runtime
+大小未变。本次没有重跑全量协议测试，也未生成安装包或删除产物。
+
+随后完成统一标签视觉复验：版本与依赖使用相同高度、内边距、圆角和轻底色，
+移除版本内部的分隔线、独立底色与等宽代码样式。警告仅保留一个前置图标，
+整枚轻红提示并保留可见结论；依赖入口保留展开箭头和完整键盘焦点。
+类型检查、生产构建、7 个定向文件的 58/58 项测试、完整插件中心浏览器验收
+与 19 组元数据检查通过。中英文、明暗主题、1440/900/390px 矩阵新增
+内部无分段边框/底色/内边距及两种标签尺寸一致的断言，截图已目视检查。
+此轮未重跑原生 Electron 或全量协议验收，不将之前的原生结果计作本轮复验。
+证据位于同一根目录的 `unified-chips\`，包括 `plugin-focused.log`、
+`browser\market-info\verification.json` 与截图，共 7.20 MiB。
+runtime、terminal-runtime 和 dist 大小未变；预览服务器保留，未生成安装包或删除产物。
+
+**全量协议回归没有全绿。** 最初因新工作区未准备 runtime 而失败；
+准备独立普通文件 runtime 后，使用本机 Node 24.15.0 的全量尝试挂在
+`terminal-sessions`，仅核对并停止该次运行的进程。使用项目要求的 Node 24.16.0，
+该文件单独运行 6/6 通过；随后有界全量重跑共 1821 项，
+1807 通过、1 失败、13 项显式平台跳过。唯一失败为未修改的
+`terminal-sessions.test.ts:84`：重试终止时报告
+`Terminal did not exit after termination`。未放宽测试或修改终端逻辑，
+独立运行通过不能替代全量结果，失败原因未在此轮确立。
+
+证据位于 `D:\DFSC-Preview-QA\plugin-market-info-20261109`：
+`browser-final\market-info\verification.json`、`electron\verification.json`、
+`protocol.log`、`protocol-runtime.log`、`protocol-runtime-node2416.log`、
+`plugin-focused.log` 和 `terminal-sessions-node2416.log`。
+验收结束后未发现本轮测试进程遗留，
+本地预览服务器有意保留。当前可重建产物为独立 runtime 124.07 MiB、
+terminal-runtime 62.96 MiB、dist 11.95 MiB；未生成安装包或擅自删除产物。
+未提交、推送、发布、替换快捷方式，也未修改日常客户端、个人档案、
+共享依赖或上游 checkout。本地结果不代表云端 Windows/macOS 或发布验收。
+
+### 独立 PR 提交前复验
+
+在主分支 `430843520acb182acb2cd01df185a6941169e0ec` 上完成整合，
+保留上游的全局指令验收与插件窗口关闭时序修复。完整安装要求现在仅位于
+「使用说明」标签页；配置齿轮直接进入配置，不被长声明挤下。
+浏览器回归实际点击配置齿轮，再切回使用说明核对完整清单的位置。
+
+先前全量运行的终端失败没有被单文件通过掩盖。检查发现两条故障注入测试的
+真实重试固定使用 3 秒，绕过了生产已有的 Windows 10 秒终止预算。
+这两处改用生产默认值，保留 50 毫秒故障注入、真实退出确认、ownership
+保留和关闭去重断言；未修改生产终端逻辑。Node 24.16.0 下单文件 6/6 通过，
+其中实际退出确认用例整体耗时约 5.8 秒。
+
+本次已完成：
+
+- 类型检查、生产构建和差异空白检查通过。
+- 完整插件中心浏览器验收通过；元数据检查增加至 20 组，覆盖配置直达、
+  候选/安装副本分离、统一标签、原生依赖弹层及关闭清理。
+  中英文、明暗主题与 1440/900/390px 矩阵通过，窄屏详情与浅色弹层截图已目视检查。
+- 完整生产 Electron 验收通过 9 组及 8 项元数据断言，使用真实本地 Git 市场、
+  隔离 profile 和客户端版本 `0.6.0`，未加载 Hermes 包。
+  渲染错误和推理请求均为 0，启动器退出码 0，剩余窗口 0，确认干净退出。
+- CI 分类、清单、运行器、预构建及汇总测试共 50 项：49 项通过、
+  1 项既有平台跳过，无失败。
+- Node 24.16.0 下完整串行协议测试共 1834 项：1821 项通过、13 项显式平台跳过、
+  0 失败，退出码 0，约 628 秒。两条终端真实重试及既有慢清理回归均通过。
+  此结果取代前述失败运行作为当前提交的全量结果，原失败证据仍保留。
+
+证据位于 `D:\DFSC-Preview-QA\plugin-market-info-20261109\pr-closeout`：
+`typecheck.log`、`build.log`、`terminal-focused.log`、`protocol-full.log`、
+`ci-policy.log`、`browser\market-info\verification.json`、
+`electron\verification.json` 与对应截图，共 21.32 MiB。
+测试父子进程及本轮原生/终端 fixture 均已退出，未发现遗留。
+
+可重建产物盘点：当前工作区 `Desktop/runtime` 124.07 MiB、
+`Desktop/terminal-runtime` 62.96 MiB、`Desktop/dist` 11.97 MiB，均为普通目录，
+不是 junction。预览服务器有意保留，未生成安装包、删除产物、替换快捷方式、
+重启日常客户端或修改个人配置。以上是本机 Windows 源码与隔离 fixture 验证，
+不替代新 PR 的云端 CI、原生 macOS、真实账户或发布验收。
+
+## 插件工作区验收就绪时序修复（2026-11-09）
+
+PR #221 的 macOS 界面验收在 `verify-plugin-workspace.mjs:27` 失败：
+按钮数预期为 4，实际为 0。测试页面在顶层等待图标 fetch 和 FileReader，
+完成后才挂载 React；`page.goto()` 返回不代表这一步已完成。
+本地拦住图标响应可稳定重现：导航已完成时按钮数为 0，
+放行并等待插件按钮区挂载后为 4。
+
+验收脚本新增这一受控慢加载回归，首次打开和单插件页面均等待按钮区可见，
+损坏图标的回退断言也等待实际 SVG 出现。按钮数量、布局、隔离和错误检查
+保持不变，未增加固定休眠、放宽断言或修改产品代码。
+
+本地工作区验收 14 组、实际渲染器界面验收 11 组及类型检查通过；
+CI 清单、执行器和策略测试共 31 项，30 项通过、1 项既有平台跳过；
+`git diff --check` 通过。证据截图位于
+`D:\DFSC-Preview-QA\plugin-ci-readiness-20261109`。
+本机使用现有 Chromium headless shell 1243，未下载浏览器；
+这不替代修复提交的云端 macOS 和打包验收。
+
+## Generic Plugin Workspace Interaction Closeout (2026-11-09)
+
+This closes the generic data-only workspace interaction layer, not a Hermes
+business frontend or an arbitrary third-party frontend SDK. Main-view shortcuts
+now toggle their visible workspace. Opening transfers keyboard focus into the
+selected tab, or restores a still-visible enabled control when reopening.
+Side panels and native windows expose correctly named Close actions instead of
+claiming to return to the workspace. Native window launchers are not announced
+as pressed main-view toggles. Conversation drafts and reading state are retained.
+
+Local evidence on the updated source:
+
+- Typecheck, production build and whitespace checks passed.
+- The complete protocol rerun passed 1,794 of 1,807 tests, with 13 platform
+  skips and no failures. The first attempt had one Windows `UNKNOWN: read`
+  failure in `plugin-configuration.test.ts`; its isolated eight-test rerun and
+  the subsequent complete run passed without source changes to that module.
+  The initial failure remains recorded; its underlying cause is not established.
+- Component-browser and actual-shell injected-bridge verifiers passed.
+  Light/dark, desktop/narrow and reduced-motion layouts were inspected, and
+  keyboard tab focus outlines were measured on all four sides inside the
+  clipping tab scroller. Reopening preserves the selected page, scroll and
+  page-local focus; returning restores direct or overflow entry focus.
+- The isolated native window verifier passed seven groups. The full production
+  Electron verifier passed eight groups with a real local Git marketplace and
+  four generic fixture plugins, not a Hermes package. It covers install,
+  main/side/window routing, toggle/close/focus behavior, keyboard overflow entry,
+  exact installed configuration routing, update/uninstall reference invalidation,
+  denied unrelated IPC, native close/reopen independence and draft retention.
+  It recorded zero inference requests, no renderer errors, exit code zero and
+  zero remaining windows. Production light/dark main and narrow side screenshots
+  were inspected.
+
+Evidence is under
+`D:\DFSC-Preview-QA\plugin-generic-closeout-20261109`, with final production
+results in `electron-final\verification.json`, complete test results in
+`protocol-recheck.log` and the first failure in `protocol.log`. The separate
+native manager result is
+`D:\DFSC-Preview-QA\plugin-windows-H0lTuE\verification.json`.
+
+The prior PR head's Windows checks passed, but its macOS sessions acceptance
+timed out in `verify-mini-chat-electron.mjs:675`. Those historical results do not
+establish cloud acceptance of this new source. No native macOS, installed-client
+upgrade, installer, release or Hermes/Feishu business-flow acceptance is claimed.
+The owner's running application, personal profile, credentials, shortcut and
+upstream runtime checkout were not changed.
+
+## Global Instructions (2026-11-09)
+
+Settings > Global instructions edits native global context in the Desktop-owned
+`step-runtime/agent/` directory, normally `AGENTS.md`. Reads and saves follow
+native context-file precedence, preserve existing fallback files, validate UTF-8
+and size, reject linked files/directories, serialize app writes, and compare an
+opaque revision before atomic replacement. Conflicts retain the local editor
+draft. The default is empty; Clear requires Save. These plaintext instructions
+are model-visible preferences, not credential storage or permission enforcement.
+
+Saving does not interrupt or hot-reload resident conversations. Newly started
+runtime processes load the current native global context, including restarted
+and cold-restored histories; resident navigation retains its existing context.
+Changed saves exclude older empty workers from new-session reuse. Product,
+Desktop collaboration and project rules remain present, and user messages and
+permissions are unchanged. No new enforced instruction hierarchy or
+model-obedience guarantee is claimed.
+
+The implementation was isolated from the old shared release worktree, adapted
+to main `6edeb18`, then rebased onto the plugin-workspace merge `9e493ed`.
+The editor state is retained above the keyed settings content,
+preserving the single content container, existing category transitions and
+unsaved text across tabs. The dedicated acceptance is registered in the shared
+Windows/macOS CI session inventory; only local Windows execution is claimed.
+
+On the initial `6edeb18` base, typecheck, production build and 104 focused
+store/runtime tests passed. The full serial unit/protocol run completed 1,797 tests: 1,784 passed, 13
+platform-specific tests skipped and none failed. CI inventory/runner regression
+completed 25 tests: 24 passed and one POSIX-only test skipped. Electron checks
+passed for global instructions, proposed new sessions, settings-dialog layout
+(including the new category), concurrent sessions and account settings.
+The build retains existing bundler warnings.
+
+After rebasing onto `9e493ed`, typecheck/build, 123 focused store/runtime/IPC/plugin
+tests and the same CI runner regression passed again. The five Electron checks
+above were repeated against the rebuilt source. The complete unit/protocol suite
+was not repeated after that rebase; its 1,797-test result belongs to the prior
+base and does not cover the newly merged plugin-workspace tests.
+
+The isolated Electron acceptance uses the existing staged v0.1.7 Step runtime
+and a local HTTP/SSE provider. It inspects actual system requests for global,
+project, product and Desktop rules and unchanged user text. It covers old empty
+workers, unchanged running sessions, cross-project/new independent sessions,
+restart with preserved identity, clearing, strict IPC validation, external-edit
+conflicts, full app relaunch with cold history restoration, keyboard focus and
+light/dark/640px English layout. Four-sided focus indicators are checked against
+clipping ancestors. Screenshots and results are in
+`Desktop/test-results/global-instructions-{light,conflict,dark-narrow-en}.png`
+and `global-instructions-results.json`.
+
+This is source-only local fixture acceptance, not paid-model instruction-following
+acceptance, native macOS execution, installer validation or a public release.
+Upstream source, personal CLI profiles, the user's application/shortcuts and
+existing packages were not changed. No installer was generated or deleted.
+
+Artifact inventory: this isolated worktree's `Desktop/dist` totals 12,511,607
+bytes (about 11.93 MiB). The six instruction acceptance profiles created during
+PR preparation total about 53.87 MiB. Small screenshot/JSON/log evidence and test
+profiles were retained; existing packages were neither duplicated nor deleted.
+## 管理 worker 异常退出后的应用关闭回归（2026-11-08）
+
+PR #219 的 P2 已复现：管理 worker 缺少有效 shutdown 确认时，
+即便进程已经退出，后续 `CapabilityService.stop()` 仍会失败，
+导致 `before-quit` 无法执行 `app.quit()`。
+
+仅在服务关闭路径接受 `RpcManagementStopError.exitConfirmed === true`，
+释放已退出 worker 的所有权；不改严格的 `stopManagement()` 确认规则，
+不清除管理写入隔离或 runtime 保护。仍存活、退出未确认或仅伪造同名字段
+的错误继续阻止关闭，并保留所有权以便重试。
+
+退出、管理策略、Remote 保持、主题证明、诊断与运行时门禁共
+9 个测试文件的 203 项回归全部通过，类型检查及空白检查通过。
+真实隔离 Node 子进程覆盖意外退出、错误确认 ID、无确认、非零退出，
+以及错误确认后仍存活、随后实际退出再重试的场景。
+这是本地源码证据，不代表新提交的云端 CI、打包客户端或真实账号验收；
+未改作者运行包、档案、Remote 绑定和快捷方式。
+
+## CI Electron Download Preparation (2026-11-08)
+
+On `32cd89a`, both platforms passed canvas preparation and normal upstream
+installation. macOS's candidate job passed all upstream tests, typecheck,
+protocol tests, packaging and resource checks. This is not a complete macOS
+acceptance: its separate runtime acceptance job failed while freshly
+downloading Electron with HTTP 504. Windows sessions stopped at the same
+Electron download; the other Windows groups passed protocol tests and started
+their Electron acceptance.
+
+The next CI-only correction prepares the unchanged Electron 44.4.5 official
+archive through the same finite Release/API downloader. It reads the installed
+package's checksums and uses the actual `@electron/get` cache implementation,
+then keeps the original installer and its checksum validation enabled.
+No dependency version, mirror, product behavior or acceptance gate changes.
+
+The combined local CI/preparation regressions pass 49 tests with one existing
+POSIX-only skip. YAML parsing and whitespace checks pass. An initial local
+fresh-download probe encountered unauthenticated API rate limiting. After the
+observed reset, a new official API download into an isolated Windows cache
+matched the published package checksum. The real `@electron/get` validates and
+returns that cache entry without another downloader call. This does not
+establish fresh cloud download, archive extraction or app acceptance. Evidence is in
+`Desktop/test-results/host-closeout-electron-prebuild.log`,
+`Desktop/test-results/host-closeout-electron-cache-smoke.log` and
+`Desktop/test-results/host-closeout-ci-prebuild-regression.log`.
+Both platforms must still complete acceptance on the newly pushed head.
+
+## CI Official Canvas Prebuild Preparation (2026-11-08)
+
+The repaired #219 head's two cloud attempts stopped before protocol tests:
+the installer did not obtain `canvas@3.2.3` prebuilts, then native fallback
+failed on Windows Visual Studio discovery and missing macOS `pangocairo`.
+The matching official Windows x64 and macOS ARM64 assets exist. The
+install site does not establish the underlying reason for their failed
+retrieval, and this is not evidence of a global GitHub outage.
+
+Both CI setups now prepare the same official archive with finite HTTPS
+download deadlines, two retries per endpoint and the official asset's pinned SHA-256.
+The `585b359` cloud attempt explicitly confirmed repeated Release HTTP 504
+on macOS. A fallback uses the same fixed official GitHub API asset ID and
+digest, not a mirror; both API assets were independently downloaded locally
+and matched the original digests.
+The original frozen-lockfile install and its normal native installation
+lifecycle use the supported local-prebuild directory. A corrupt cache,
+failed download or mismatched checksum fails preparation. Dependencies,
+runtime pins, mirrors and acceptance requirements are unchanged; Windows
+diagnostics name this preparation stage.
+
+Local policy, runner, receipt, diagnostic and preparation regressions pass
+47 tests with one existing POSIX-only skip. Both official archives were
+downloaded and their SHA-256 values verified. A separate Windows fixture
+using the actual `prebuild-install@7.1.3` installed from this archive without
+an HTTP request, loaded `canvas@3.2.3`, rendered the exact expected RGBA pixel
+and encoded a PNG. Evidence is in
+`Desktop/test-results/host-closeout-ci-prebuild-regression.log` and
+`Desktop/test-results/host-closeout-canvas-smoke-20261108.log`.
+
+This establishes local preparation and Windows native loading only, not
+fresh cloud installation, macOS execution, full protocol or package acceptance.
+Those must pass on the new pushed commit. The owner's application, shortcut,
+real configuration and Remote binding are untouched; no installer is built.
+
+## Capability Management MiniChat Main Synchronization (2026-11-08)
+
+Main advanced to `35e2322` with #211 while the temporary-path repair was being
+pushed. PR #219 then conflicted and no repaired-head Actions run was scheduled.
+The merge retains main's MiniChat sender allowlist, renderer-generation checks,
+navigation guard and one-shot composer submission, together with this branch's
+management leases, passive-read boundaries, retained runtime barriers and
+sanitized diagnostics. Surface selection remains the third `handle` argument;
+the optional capability phase marker is the fourth.
+
+The 112 focused worker, library, actual-main IPC, MiniChat draft/session and
+composer regressions pass. New actual-source IPC cases cover rejected MiniChat
+management, rejected subframes, passive theme reads, surface/marker forwarding,
+one submission per receipt, renderer reload and shared-settings navigation
+guards. Typecheck and another isolated production build pass. No runtime pin,
+running package, real profile, Remote binding or shortcut is changed.
+
+An additional local full protocol attempt is not a pass: native background
+fixtures encountered `Runtime process-tree termination failed (1)` and remained
+open. A single-case probe confirmed the same Windows cleanup failure; only
+verified test-owned descendants were stopped, and the broad run was aborted.
+Evidence is in `Desktop/test-results/host-closeout-native-background-probe.log`
+and `Desktop/test-results/host-closeout-protocol-repaired.log`. The failure is
+kept separate from the now-passing temporary-path regression. Cloud full-suite
+and packaged acceptance must still complete on this integrated head.
+
+## Capability Worker Temporary-Path CI Repair (2026-11-08)
+
+PR #219's first Windows run `42461106594` and macOS run `42461106591`
+failed the same 15 new VM harness scenarios before packaged acceptance.
+The fixture used an uncanonicalized temporary profile, which existing linked
+path guards correctly rejected. A differently cased Windows temporary path
+reproduced the same `capability:invalid-path` failure locally.
+
+Only the test harness changes: canonicalize its owned temporary profile and
+parent cleanup boundary, preserve the platform's `TMPDIR`, and exercise reads,
+initialization, theme replacement and cleanup through a real temporary-directory
+alias. The new regression fails before the correction and passes afterwards.
+All 28 worker/library tests pass, including rejection of aliased product file
+access, and all 16 worker tests pass with differently cased Windows temporary
+paths. Typecheck passes. No product path guard, runtime source, assertion or CI
+workflow is weakened or skipped. Cloud Windows/macOS acceptance still requires
+a successful run on the repaired head; these local results do not establish it.
+
+## Capability Management Main Synchronization (2026-11-08)
+
+The closeout combines the local capability-management and Remote cleanup
+repairs with main `20774ca`, retaining #213 crash-log redaction and #214 linked
+path guards. Both branches' earlier evidence remains below; those dated
+entries are historical observations, not statements that supersede this
+combined verification.
+
+The combined source `71f4c74` passes typecheck, an isolated production build,
+691 focused capability/plugin/Remote/path/log regressions, and 148 additional
+runtime ownership, background, Cron, side-question, provider and quit tests.
+The separate native RPC suite passes 11 tests with two POSIX-only skips,
+including confirmed process exit/restart and streamed-session restoration.
+CI policy, inventory and runner self-tests pass 39 cases with one platform
+skip. A new regression preserves correlated Git metadata through main's
+crash-log redaction without publishing the original failure payload.
+
+The isolated Electron verifier passes all 12 scenarios with no renderer
+errors and confirmed owned-process cleanup. Single and partial Git failures
+retain their real exit code and elapsed time; a healthy market advances and
+an explicit refresh after source restoration succeeds. Native/Remote worker
+identity and the binding survive theme/market maintenance, including while a
+peer streams; executable-plugin removal is still refused. Desktop and narrow
+screenshots are inspected.
+
+Evidence is in `Desktop/test-results/host-closeout-focused.log`,
+`Desktop/test-results/host-closeout-runtime-guards.log`, and
+`Desktop/test-results/host-closeout-electron-20261108/results.json`.
+Native RPC evidence is `Desktop/test-results/host-closeout-rpc.log`.
+The isolated build has about 7.6 MB of its own files and links immutable
+runtime directories; no shared runtime is restaged. The owner's running r2
+package, real profile, Remote binding and shortcut are not switched or
+modified. No new distributable, cloud CI, native macOS, real-account or release
+acceptance is established by these local checks. The original occasional
+market-refresh failure and Windows process-tree termination failure remain
+unresolved as root-cause claims.
+
+## Marketplace Refresh Failure Evidence (2026-11-08)
+
+The owner's earlier `marketplace-update` diagnostic `6ad7692a50bd` identifies
+the mutation phase but predates structured Git diagnostics. Its underlying
+cause remains unknown. Later terminal, worker-environment and actual-app
+refreshes succeeded; that does not establish whether the original failure
+was connectivity, locking, permissions or another transient condition.
+
+Git discovery refresh now retains fixed failure categories for network, DNS,
+proxy, certificate, authentication, unavailable source, missing Git, cache
+permissions, locks, non-fast-forward/local-change conflicts, timeouts,
+cancellation and output limits. Unknown output stays generic. The Desktop
+worker executes the existing `git -C <cache> pull --ff-only --quiet` command
+with its 120-second deadline and bounded output. It neither retries
+automatically nor changes proxy settings, credentials or the runtime pin.
+Callback completion alone cannot release a cancelled child: actual process
+close is required, including when the abort callback arrives first.
+
+Only allowlisted metadata crosses the worker/main diagnostic boundary:
+operation, integer elapsed milliseconds, actual Git exit code, permitted
+signal and permitted system code. Raw subprocess output is used locally for
+classification, not sent to the renderer or capability logger. Main rewraps
+errors without losing these validated fields. Existing crash-log application
+paths and stack metadata are unchanged; this is not a claim that every field
+in the existing crash format is anonymous.
+
+Single-market failures retain a localized message and correlated diagnostic
+ID. Check-all continues refreshing healthy sources, logs each failed source
+separately and replaces its internal failure payload with a localized warning
+and diagnostic ID. Installed plugin packages are not updated by either
+discovery operation. Remote/runtime ownership, journal protections and
+management-worker shutdown barriers remain in force.
+
+Typecheck and the isolated production build pass. The final serial focused
+suite passes 439 tests with two POSIX skips (441 total), covering native
+market/plugin management, Remote ownership, staged-copy races, process
+shutdown, classification, privacy and RPC/main transport. It includes real
+missing-Git, child exit/timeout/cancel, local Git fast-forward, dirty-worktree
+preservation and held-index-lock cases. The exact main IPC rewrap has a
+regression for validated metadata retention and rejection of extra fields.
+The final log is `Desktop/test-results/marketplace-refresh-focused.log`.
+CI policy, inventory and platform-runner self-tests pass 39 cases with one
+native-platform skip; this is local CI-tooling verification, not a cloud run.
+
+The source Electron verifier passes all 12 scenarios with no renderer errors
+and confirmed exit of every owned fixture process. A deliberately unavailable
+local Git source produces localized diagnostics for both single refresh and
+check-all; their logged exit code matches the independently observed Git
+status, not an assumed 128. The healthy source advances, installed theme bytes
+remain unchanged, and an explicit refresh succeeds after restoring the source.
+The native and Remote child objects, PIDs, session/model/permission identity
+and single binding remain intact through failures and subsequent streaming
+management operations. Unrelated executable removal is still refused.
+Desktop and narrow screenshots are inspected. Evidence is
+`Desktop/test-results/marketplace-refresh-source/results.json`.
+
+Verification uses an isolated source build, temporary profiles, local Git
+repositories, a loopback model and synthetic Remote transport. The running
+owner package and real profile are not switched or rewritten. These source
+changes are not yet in the owner's running r2 package; no new package,
+shortcut update, push, cloud CI, native macOS or real-account acceptance is
+claimed.
+
+## Independent Capability Management Phase 1 (2026-11-08)
+
+This section supersedes the source-policy and temporary host-blocker statements
+in the earlier 2026-11-08 entries below. Controlled Windows child-process probes
+can terminate successfully, but packaged acceptance also observed an intermittent
+process-tree termination failure recorded below. No host service was changed.
+
+The host selects an exhaustive trusted action policy. Marketplace discovery
+maintenance and independently proven data-only theme install/update/remove use
+a management lease without acquiring the global runtime settings lock or
+requiring idle sessions. Executable plugins, runtime settings and unknown
+capabilities retain conservative idle, Remote and resource-usage checks.
+Renderer hints never authorize an exception. The native worker revalidates the
+complete package; updates require proof for both installed and candidate copies.
+Builtin-market initialization no longer creates or flushes runtime configuration.
+
+Catalog, document and configuration reads do not initialize or recover storage,
+nor trigger pending provider application. Recovery is separately guarded for
+the actual journal owner, rechecks idle after asynchronous resource observation
+and binds writes to the exact journal digest. Market discovery does not refresh
+theme packs or persist appearance fallback. Management-worker shutdown requires
+both a matching acknowledgment and observed clean exit; unconfirmed cleanup
+quarantines further management operations. An uncertain executable writer or
+unfinished admitted runtime recovery also retains the runtime barrier for the
+rest of this process, including when its worker has exited normally. Recovery
+failure is not permission to retry blindly or continue runtime input.
+
+Typecheck and the isolated production build pass. The final focused run passes
+164 policy, gate, asynchronous-race, worker-proof, lifecycle, finalization,
+read-only, document, snapshot, usage, error and staging tests. The separate native
+capability-management and Remote-preservation run passes 91 tests, including
+Windows directory locks, busy-state matrices and a proven theme update retaining
+worker/RPC/session and installation identity. Earlier broader session, background,
+Goal, side-question, Remote and settings regressions also pass.
+
+Source Electron acceptance passes all nine scenarios, with no renderer errors
+and confirmed cleanup of every owned fixture process. It installs a theme and
+reads its guide with Remote bound, refreshes both discovery paths without
+updating the installed package, then performs UI market refresh/removal and
+theme removal/reinstallation while the original peer streams. Executable
+plugin removal remains disabled and the backend independently refuses it.
+Windows directory locks report a bounded diagnostic and permit retry after
+release. The original native/Remote child objects, PIDs, native generation,
+session, model, permission and single binding remain unchanged, and Remote
+subsequently submits a new loopback task. Desktop and narrow screenshots are
+checked; the report is
+`Desktop/test-results/capability-phase1-source/results.json`.
+
+The fixture uses a temporary profile, a local Git market, a loopback provider
+and synthetic Remote transport; it cannot establish real-account Feishu
+permissions or cloud-platform behavior.
+
+The unsigned, unpublished Windows directory package
+`Desktop/release/capability-management-phase1-20261108-preview-r2/` now contains
+these changes. Its 107 bundled files pass build-time verification; all 1,427
+resource files and the executable pass hash verification again after acceptance.
+The actual packaged executable passes the same nine scenarios with no renderer
+errors and confirmed fixture cleanup. Packaged terminal acceptance also passes
+real PowerShell/ConPTY, Chinese paths, environment isolation, light/dark/narrow
+screenshots, motion and owned child-process cleanup. The package contains
+`source-receipt.json`, `SHA256SUMS.txt` and `acceptance/summary.json`.
+
+The predecessor package's first attempt completed all nine functional scenarios,
+but failed cleanup when `taskkill` for its synthetic Remote helper exited with
+code 1. Its failed report is preserved, and identity-checked retry followed by
+orderly fixture exit was confirmed. Investigation exposed a separate ownership
+defect: Remote discarded its helper reference before stop confirmation. Remote
+now revokes authorization immediately but retains cleanup ownership after a
+failed stop, retries that same transport, and blocks replacement pairing/resume
+until cleanup and disconnect persistence finish. Failure publishes
+`error/transport` without restoring the binding, keeping the existing runtime
+status page's disconnect retry reachable. In-flight stop calls are joined.
+The final Remote/quit regression run passes 309 tests, including deterministic
+stop rejection, repeated failure, concurrent shutdown, late input/approval and
+delayed persistence cases. Another focused management run passes 137 tests.
+This does not claim to fix Windows' intermittent process-tree termination
+failure. The final r2 packaged run completes cleanup on its first attempt.
+
+No installer, shortcut change, real-profile mutation or owner-application
+restart was performed. This independent repair package does not include
+MiniChat PR #211. Cloud CI, native macOS, installer and real-account Remote
+acceptance remain unestablished.
+
+## Remote-Preserving Theme Installation (2026-11-08, Pending Native Acceptance)
+
+Owner diagnostic `3ac953dbd02a` is `plugin-install`, refused as
+`remote-attached` at `idle-check` by the refresh preview. It is not a repeated
+market-refresh failure, nor evidence of a filesystem error.
+
+The source now classifies an issued, recorded available-package reference
+using the same bounded data-only theme proof as removal. The source and
+fingerprint are frozen before the guard; the management worker rechecks the
+staged copy before writing receipts or publishing the installation. Missing
+references, unknown/executable declarations and pending recovery fail closed.
+An interrupted update appearing after the guard is refused without catalog
+recovery. Existing all-session idle checks are retained.
+
+The plugin detail reader is unmounted during its own mutations and reloaded
+afterward. A failed mutation also refreshes the catalog without clearing its
+diagnostic, since a management failure may invalidate document references.
+The owner's screenshot alone does not establish the document failure's cause.
+
+Typecheck, the isolated production build and 42 focused classification,
+diagnostics, usage and synthetic-filesystem snapshot regressions pass. The
+native staged-copy snapshot test also exercises runtime-preserving pure-theme
+installation and refusal of executable, non-theme and replaced candidates.
+Native process regressions currently cannot complete: the host's
+`taskkill.exe /PID <controlled-child> /T /F` returns exit 1 with an operation
+canceled error even for a synthetic child. Tests fail during management-worker
+termination, not a confirmed theme classification assertion. Only identified
+task-owned test processes are stopped; the owner's running app, real profile,
+Remote binding, shortcuts and host services remain untouched. This source
+change is not yet packaged or accepted for handoff.
+
+## Remote-Preserving Market Refresh (2026-11-08)
+
+The next owner diagnostic is `marketplace-update`, refused as `remote-attached`
+at `idle-check` by the preceding removal-only preview. Market refresh was
+omitted from that preview; this is not evidence of a filesystem failure.
+
+The Remote-preserving classification now includes explicit market add,
+refresh, removal and check-all-updates actions. None installs a candidate or
+restarts a session. The existing all-session idle and shared-settings guards
+remain. Pending, unreadable or ambiguous plugin-update recovery state denies
+the exception; the native worker also refuses recovery that appears after
+the guard, before changing any installation. Renderer-supplied flags do not
+authorize executable plugin mutations.
+
+Typecheck, 98 distinct focused tests, production build and source Electron
+acceptance pass. The isolated
+native fixture uses an offline Git market, binds Remote, verifies both explicit
+refresh and check-all advance the discovery copy without changing the installed
+theme, then retains the existing removal, file-lock, busy-session and subsequent
+Remote-input coverage. Renderer errors are empty. The owner's current app,
+profile and shortcut are untouched. These additions are not yet repackaged
+or integrated into the separately running MiniChat preview; the earlier
+portable package must not be presented as containing this refresh correction.
+
+Subsequently, the unsigned, unpublished independent Windows directory package
+`Desktop/release/remote-market-refresh-20261108-preview/` is built from this
+repair checkout. Its 107 bundled files and 1,427 resource files pass integrity
+checks. The same verifier passes against the actual packaged executable with
+`app.isPackaged === true`, including both Remote-bound market refresh paths,
+the removal checks and subsequent Remote submission through the same worker.
+Renderer errors are empty. Acceptance uses a temporary profile, an offline Git
+market and a loopback provider, not a real account. This package does not
+include MiniChat PR #211. No shortcut is changed, no owner application is
+restarted, and no real profile or Remote binding is modified. Cloud CI, native
+macOS, installer and real-account Remote acceptance remain unestablished.
+
+## Remote-Preserving Theme Removal (2026-11-07)
+
+The owner's diagnostic build identifies both failed actions (`plugin-remove`
+and `marketplace-remove`) as `remote-attached` at `idle-check`, before resource
+checks or filesystem mutation. This establishes the current refusal's cause;
+the earlier controlled Windows directory lock was not its diagnosis.
+
+Capability mutations now retain Remote only when removing a marketplace
+discovery copy or a uniquely identified, data-only `stellar-v1` theme. The theme
+proof reads bounded, link-free files, rejects executable, nonempty resource and
+unknown declarations, and freezes the package fingerprint. The management
+worker revalidates that fingerprint before revocation or deletion. The guard
+and mutation share the capability-service queue and the existing main-process
+shared-settings lock; incoming Remote submissions cannot start during it.
+No runtime is restarted or detached. Host-stopping operations cannot opt out
+of Remote ownership, and ordinary plugin changes remain protected.
+
+Task, queue, approval, background, side-question, Goal and MCP-observation
+guards remain in force. Focused regressions cover those negative cases,
+ambiguous installations, links, stale files and renderer-supplied flags.
+Typecheck, production build and portable package integrity checks pass.
+The actual packaged Electron verifier binds an isolated offline Remote,
+refuses unrelated resource changes and busy-session deletion, exercises real
+Windows file-lock failures and retries, removes both resources without
+dropping the binding, then receives a new Remote input through the same worker
+and a loopback model. Renderer errors are empty.
+
+The unsigned, unpublished replacement is
+`Desktop/release/plugin-removal-remote-fix-20261107/`; evidence and source
+receipt accompany it. The owner's application, binding, profile and shortcut
+are untouched. Real-account Remote, current cloud CI and macOS acceptance are
+not established by these local results.
+
+## Plugin Removal Failure Diagnostics (2026-11-07)
+
+Capability mutations retain the existing trusted-sender, shared-settings,
+all-session idle and plugin-resource guards. Failures now expose allowlisted
+blocker or filesystem codes and a diagnostic ID instead of collapsing every
+refusal into the same generic message. Correlated local logs contain a fresh
+sanitized error, the allowlisted action, operation phase and code; original
+errors, plugin inputs, source URLs, credentials and session content are not
+forwarded to the logger. Existing crash-log metadata is unchanged.
+
+Local Windows verification passes typecheck, an isolated production build and
+172 distinct focused tests covering diagnostics, native capability management,
+session ownership, plugin configuration, races, marketplace themes and runtime
+staging. The staged runtime includes the new failure classifier. No upstream
+runtime pin or patch manifest changes.
+
+The production Electron verifier uses a temporary profile and a loopback
+provider. A task in another session disables both removal buttons; direct IPC
+removal requests are still refused and correlate with local diagnostics.
+Windows child processes holding plugin or marketplace directories reproduce
+filesystem failures through the real management worker and UI. Both operations
+succeed after releasing the holder, and removing a marketplace preserves its
+installed theme. Desktop and settled narrow-window screenshots, text bounds,
+diagnostic correlation and zero renderer errors pass. The verifier is assigned
+to the shared interface CI group.
+
+Evidence is under `Desktop/test-results/native-build/Desktop/test-results/`
+`capability-diagnostics/` in the isolated repair checkout. The full suite,
+current cloud CI, native macOS and installer acceptance are not established.
+The owner's live profile and running preview are unchanged. Its earlier removal
+failure remains unexplained: controlled reproduction of a directory lock does
+not identify the cause in that profile. The running build needs a separately
+authorized update before it can produce these diagnostics.
+
+An unsigned, unpublished Windows portable diagnostic preview is subsequently
+built from `e419143435dc` plus the uncommitted repair changes. Its 107 bundled
+files and 1,427 resource files pass package integrity checks against the
+isolated source build. The fixed upstream runtime and reviewed manifest are
+reused, and Desktop management adapters are synchronized with this checkout.
+The same diagnostics verifier passes against the actual packaged executable
+with `app.isPackaged === true`, a temporary profile and a loopback provider.
+Package evidence is in `acceptance/capability-diagnostics/` beside its source
+receipt. This is not a full release or proof of the owner's earlier failure.
+The packaged native PowerShell terminal verifier also exits successfully,
+including its light/dark/narrow and motion checks. CI policy and inventory
+regressions pass 39 cases with one native-platform skip.
+The running application, primary shortcut and real profile are not switched
+or modified. Manual launch without the test override uses the normal profile;
+the temporary-profile guarantee applies only to automated acceptance.
+## PR #211 First-Run IPC Polling (2026-11-08)
+
+Head `95997df` passes the Windows runtime and sessions groups, but macOS
+interface job `128660255985` still reads the first session before it exists.
+The event ordering predicate alone was insufficient: Playwright 1.60 browser
+polling treats its async callback's Promise as truthy and resolves even when
+the eventual predicate result is false. The awaited event condition therefore
+was not actually being polled.
+
+First-run acceptance now waits for the completed run with a synchronous browser
+predicate and uses the existing `waitForSessionFixtureSnapshot` Node poller for
+resolved IPC state, both before reading the saved reply and when restoring Ask
+permissions. No sleep, file-read retry, weakened history assertion or expanded
+timeout is added. A TypeScript-AST regression rejects async browser pollers in
+this verifier and requires awaited snapshot polls. The existing helper tests
+cover false async results, delayed snapshots, timeout and IPC failure.
+
+All 35 focused shutdown/onboarding/polling tests pass. The immediately preceding
+full suite on Node 24.16.0 with `CI=true` reports 1,511 passes and 19 platform or
+resource skips, with zero failures; the added AST guard has separate evidence.
+The corrected first-run verifier passes three consecutive native Windows runs
+through `runGroup` / `executeScript`, with the same Node version and `CI=true`
+(81.19, 79.51 and 74.83 seconds). Each includes durable reply, exact restored
+session identity, permissions and the remaining onboarding scenarios.
+Replacement cloud checks remain required for the final commit.
+
+## PR #211 Windows Shutdown Wait Cycle (2026-11-08)
+
+The first lifecycle repair did not resolve Windows run `42454598542`.
+Running the verifier directly passes locally, but running the same verifier
+through `runGroup`/`executeScript`, with CI's Node 24.16.0 and `CI=true`,
+reproduces the 30-second shutdown timeout. The launcher exits 0 and no owned
+application processes or windows remain, while every inherited launcher pipe
+stays open and the actual browser-context close event has not arrived.
+`context.isClosed()` is true here because closure has started, not completed.
+
+Requiring context closure before releasing exited-launcher pipes creates a wait
+cycle. Pipe release now requires successful launcher exit and closed windows,
+and remains deferred until page/exit event delivery finishes. Separately,
+`closeDesktopFixtureAndWait` explicitly awaits the real context close event
+alongside driver completion and process exit. A successful exit or an already
+closing context cannot substitute for that event. Driver errors, missing close
+events and the unchanged 30-second deadline still fail.
+
+The same launcher also reproduces a first-run read before the session file
+exists, despite the earlier runtime-only settled checkpoint. The fixture now
+tracks `agent_start`, the expected reply's `message_end`, and a subsequent
+`agent_settled` for that runtime. A prior idle event or a streamed message whose
+temporary stop reason is already `stop` cannot satisfy completion. The saved
+header/reply and exact session identity after relaunch remain mandatory.
+
+The new inherited-pipe/context wait-cycle regression fails with the previous
+helper and passes with this repair. All 28 shutdown/onboarding tests and
+typecheck pass. Four native `then_run` checks through the actual CI launcher
+pass, including RPC/UI, orderly controller/context/process closure and
+subsequent native shell probes. First-run native acceptance through that
+launcher also passes with the ordered completion checkpoint.
+Cloud verification for the final head remains required. Diagnostic logging
+contains only fixture PIDs, process names/parent IDs and pipe lifecycle state,
+not command lines, credentials or environment values. No production behavior,
+runtime pin, package, shortcut or running user application changes.
+
+## PR #211 Acceptance Lifecycle Repair (2026-11-08)
+
+Merged head `35f4b73` failed macOS source `verify-first-run.mjs` at history
+restoration and Windows `verify-then-run.mjs` during controller shutdown after
+all functional assertions passed. Windows reported launcher exit 0, a closed
+context and zero windows, but the driver close did not settle within 30 seconds.
+
+The fixture pipe guard now defers disposal until the close event has finished
+dispatching, then rechecks the successful launcher exit, actual context close
+event and all closed windows. The original implementation fails the new
+remaining-close-listener regression; the repaired implementation passes it.
+Cancellation of a scheduled release also has a regression. Driver errors and
+stalls remain failures, and neither the 30-second bound nor CI inventory changes.
+
+First-run acceptance now observes the matching runtime's `agent_settled`,
+checks the saved JSONL header and completed reply, and waits for both controller
+closure and successful launcher exit before reusing the profile. Relaunch must
+still list exactly one session with the original identity. These checkpoints
+distinguish incomplete persistence from shutdown or discovery failure instead
+of relying only on visible text and a streaming flag.
+
+Local typecheck, all 27 shutdown/onboarding unit tests, source first-run native
+acceptance and source `then_run` RPC/UI plus native command probes pass.
+The unmodified native verifiers also passed locally, so those local results
+alone do not establish the cause or resolution of every intermittent cloud
+failure. Replacement Windows/macOS cloud checks remain required. No production
+behavior, runtime pin, package, shortcut or running user application changes.
+
+## PR #211 Main Synchronization (2026-11-08)
+
+Merge main `20774ca` after #214's linked-path guards and fixture cleanup.
+The only conflict is concurrent top-level additions to this document; retain
+both complete histories. Mechanical section checks preserve all 260 sections
+from the previous MiniChat head and all 255 sections from main without altering
+their text. Runtime pin and MiniChat behavior are unchanged by this resolution.
+
+Typecheck, production build and whitespace checks pass. The focused suite
+reports 70 tests: 56 pass and 14 capability-worker failures at Windows process
+termination. An isolated catalog retry has the same termination failure.
+CI policy/inventory tests report 14 pass and one Windows process-tree cleanup
+failure. These are failed local runs, not acceptance passes: native `taskkill`
+against an exact owned fixture also exits 1 with `Unspecified error`, and
+independent WMI process queries fail with the same diagnostic. Only verified
+test-owned leftover processes are stopped to drain the failed test runners;
+no product/test workaround or Windows service change is made.
+
+Previous head `bb6e088` passed both full Windows and macOS cloud gates; those
+results do not establish this merged candidate's status. New-head cloud and
+native acceptance remain separate. No package, installer, shortcut change,
+runtime restaging or user-application restart is part of this conflict fix.
+
+## MiniChat Project Picker (2026-11-08, Local)
+
+The titlebar conversation picker now uses an anchored native popover with
+project groups, cross-project search and a separate independent-session group.
+Current-project expansion, counts, duplicate project paths and project-specific
+Plus actions use existing catalog/typed IPC. Search and disclosure state are
+local to MiniChat; archives, session order and pinned project order are retained.
+Retargeting an unsubmitted draft preserves its identity, input and options.
+Popover dismissal only handles its own `toggle` event, not nested project
+`details` events. Browser regressions collapse both current and other projects,
+then select another project's session using mouse and keyboard in light/dark,
+narrow/short and reduced-motion layouts. Native Electron repeats current-project
+mouse collapse, another-project keyboard collapse and cross-project selection.
+
+Shared text tooltips now use a manual native popover, keeping project Plus
+hints above the picker without changing focus or intercepting clicks. Layer
+acceptance compares decoded screenshot pixels with/without the tooltip over
+the actual parent popover. Browser coverage includes light/dark, narrow/short
+windows, hover/keyboard focus, duplicate-project paths, Esc, programmatic parent
+closure, trigger removal and successful Plus clicks. Native checks repeat the
+paint probe for hover and a keyboard-focused long temporary-project path.
+Intrinsic width remains stable when switching from short to multiline hints;
+focus-driven scrolling settles before tooltip placement. The shared Context
+inspector regression also exercises ordinary multiline hover/focus hints.
+
+Local typecheck, production build, 32 focused unit tests and the complete browser
+and native MiniChat acceptance pass. The native fixture registers three actual
+temporary projects (two named `web-app`) and independent history, selects a
+same-title session by its project, creates a draft in an exact project, retargets
+it to independent, and verifies the main worker and sidebar preferences remain
+unchanged without invoking the model. Browser acceptance adds searchable long
+lists, temporary expansion/restoration, empty results, keyboard/IME, outside/Esc
+dismissal, light/dark/English, narrow/short windows and complete search focus
+gutters. Screenshots are under `Desktop/test-results/mini-chat-preview/` and
+`Desktop/test-results/mini-chat-native/`. These are local source receipts, not
+packaged, cloud-CI, native macOS or real-account acceptance.
+
+## MiniChat Navigation Geometry (2026-11-08, Local)
+
+The native verifier reproduces the old scroll handle extending over the composer.
+The fixed MiniChat keeps its scroll handle and turn ruler at the full-width
+transcript's right edge, reserves space for text and bounds the session switcher
+without consuming the header's drag region.
+Native acceptance covers 360-, 900- and 1600-pixel windows, light/dark appearance,
+wheel input over prose/markers/handle, handle dragging, exact turn location and
+session-menu placement. Existing native MiniChat and main-conversation scroll
+acceptance pass, alongside typecheck, build and 14 focused unit tests.
+The browser fixture now includes the actual shared navigation components; its
+complete acceptance passes using installed Chrome because the matching Playwright
+headless-shell revision is unavailable. These are local source receipts, not a
+new package, cloud-CI result or macOS acceptance.
+
+## MiniChat Review And CI Follow-up (2026-11-07)
+
+HTTP(S) message links in MiniChat now transfer its conversation, reading state
+and pending draft to main before opening the existing native browser. MiniChat
+does not gain browser listing/layout IPC. Reopening the same link explicitly
+reveals the panel instead of toggling it closed. The real-runtime verifier uses
+a loopback page and checks main navigation away from Remote, exact selected
+session, retained input, native view visibility, repeated opening and no model
+request caused by the handoff.
+
+Specific workflow cards transfer their tool-call identity and reveal that run's
+overview, including historical runs and repeated clicks. Bare `/workflows` still
+opens the read-only saved catalog. Native verification checks both paths after
+main navigates to another conversation. Its simultaneous-send check gates the
+real draft-consumption IPC until both clicks arrive, preventing an automation
+click from accidentally hitting a button that has already changed to Stop.
+
+Returning from MiniChat also restores an expanded bottom terminal to its dock
+before revealing requested content. Native workflow, `/todos` and web-link
+handoffs verify the requested panel is visible, the conversation is not inert,
+and the existing terminal process remains running.
+Repeated file and individual subagent handoffs also explicitly reveal their
+selected content; they do not inherit the main-window click-to-collapse behavior.
+Native verification opens the same real Markdown file and subagent record twice.
+MiniChat can read validated installed theme scenes and posters, but cannot mutate
+plugins. Native acceptance copies the repository's Stellar pack into its isolated
+profile, verifies both loaders, a ready scene or decoded poster, and rejected
+uninstalled themes and plugin changes.
+Side-question commands use the same availability and length checks in both
+windows before clearing shared input. Native checks retain rejected new-session
+and oversized questions, then exercise a valid main-window side-question handoff.
+Provider refresh updates each distinct main/MiniChat draft and rebinds shared
+identities after restoring options. Unit cases cover shared, MiniChat-only and
+separate drafts; native acceptance deletes a selected loopback provider while
+only MiniChat holds a draft and checks replacement models, input, task options
+and successful first submission after an explicit model-picker selection,
+without moving the main conversation or silently changing the billing route.
+Project relocation refuses drafts held only by MiniChat until they return to
+main, retaining their project, input and launch options. Unit cases cover an
+independently selected main conversation or draft; native acceptance verifies
+the actual IPC rejection without opening a folder dialog.
+Cron authorization replacement retries transient file-sharing errors a bounded
+number of times without deleting the previous file. Injected filesystem tests
+cover successful retry, exhausted locks and non-retryable errors; failures still
+surface and cannot start a host.
+
+Windows startup now uses the same native `normal` topmost level as MiniChat;
+source startup acceptance verifies the actual OS topmost state and disposal.
+
+The old CI assertions now distinguish a restored nonempty draft (which pauses
+the greeting) from an empty draft's per-character animation, hold both RPC and
+event preference acknowledgements, and allow the macOS MiniChat button while
+still rejecting Windows-style window controls. No script is excluded and no
+runtime pin, product animation or preference synchronization is disabled.
+The draft-clear check waits for the actual editor state and main-owned value
+before reload, using editor keyboard transactions rather than DOM-only clearing;
+the animation sample includes a complete greeting cycle.
+Command dispatch retains mouse submission coverage, using Enter while overlay
+inspectors may cover the send button on constrained native displays.
+First-run acceptance waits for an idle runtime and committed assistant response
+before relaunch, rather than an obsolete stop-button selector; its local provider
+deliberately separates visible text from the final completion frame.
+MiniChat resolves its temporary profile and session workspace before checking
+fixture-only file writes, preserving containment across platform path aliases.
+Fixture shutdown releases inherited launcher pipes only after the browser context
+has delivered its close event, all pages have closed and the launcher exited
+successfully. A merely closing context is insufficient; controller errors and
+shutdown timeouts remain failures.
+The browser-only MiniChat reading scenario holds its simulated completion until
+the verifier releases it, so close/reopen-during-streaming assertions do not
+depend on the machine finishing UI actions inside a short response timer.
+
+Local typecheck, production build, browser MiniChat, native MiniChat,
+new-session and appearance checks pass. All 28 draft/composer/greeting tests
+pass; the 21 CI-runner tests have 20 passes and one platform skip. The complete
+unit suite after main synchronization finished with 1,469 passes, 19 platform
+skips and zero failures (1,488 tests). Workflow handoff and startup follow-ups
+have additional native checks; that complete run predates those final edits.
+These receipts do not substitute for current-head cloud, native macOS,
+packaged or real-account acceptance.
+
+## MiniChat Main Synchronization (2026-11-07, Local Candidate)
+
+The candidate integrates main `e419143`, retaining Remote, Stellar presentation,
+plugin recovery and both Remote/MiniChat runtime retention guards. Explicit
+MiniChat Return now reveals the main conversation even when Remote, settings or
+another full-page tool was open. Native acceptance covers Remote-to-conversation
+Return and retains the message reading anchor.
+
+Typecheck, production build, native MiniChat and command-dispatch acceptance pass
+after synchronization. The shared CI inventory now includes the self-contained
+MiniChat preview and native MiniChat verification. Native verification honors
+`DESKTOP_VERIFY_EXE`, so packaged CI launches the candidate executable rather
+than silently retesting source. The 27 Windows/macOS CI-policy tests have
+26 passes and one platform skip; this is not native macOS acceptance.
+
+The first integrated complete unit run finished 1,488 tests: 1,460 passes,
+19 platform skips and nine failures. Eight were the extracted draft-setup
+fixture missing main's newly added `capabilityService.recover` dependency; one
+used the old locally staged admin adapter without compaction-settings RPC.
+After updating that fixture and the worktree-local generated adapters, the
+25 draft/composer tests and native compaction-settings test all pass. The full
+integrated suite has not been rerun after those repairs; the earlier 1,136-test
+complete pass below belongs to the pre-synchronization candidate. Cloud CI,
+packaged/native macOS and real-account acceptance remain pending.
+The synchronized browser-preview rerun could not launch because the local
+Playwright headless-shell revision was absent. Its download did not complete
+and was stopped; the pre-synchronization browser pass is not a new receipt.
+
+## Native MiniChat (2026-11-07, Local Candidate)
+
+The titlebar entry now opens one native, frameless Electron window with real
+resize, drag and OS pinning. It loads the same application, conversation,
+composer, tool cards, queue and approval components. Navigation and transient
+editor UI remain independent; the selected session has one runtime, including
+simultaneous cold opens from both windows. Closing only hides the view.
+Reopening resumes its selection; explicit Return transfers selection,
+message-anchored reading position and disclosure choices to main. Larger tools
+and settings hand off to the main window instead of duplicating their surfaces.
+
+Main owns revision-checked draft text, references/annotations and attachments.
+Two-window sends consume a draft once. Genuine concurrent edits retain the
+local version for an explicit conflict choice; failed delivery restores sent
+input alongside newer input, even after renderer reload. Text-only updates
+omit unchanged image payloads. Draft creation promotes both views to the same
+session without losing pending input or selected task options. Unsubmitted
+takes belong to the issuing renderer and are restored on reload/crash; already
+submitted receipts remain main-owned and cannot be restored twice. First-send
+setup locks changes to that shared draft's project/options, while independent
+navigation remains possible. Failure cleanup rechecks selection after removal.
+
+Runtime work and approvals are not owned by the window. Hide/reload cannot
+approve, cancel or restart them. Pending decisions still use the current
+runtime request, and completion sound is delivered only by the primary
+renderer. MiniChat-selected workers are not reused/recycled behind the view;
+viewed-session deletion is guarded and runtime replacement reconciles the
+mini selection. Account changes that retire its transport retain readable
+history and input but do not label a missing transport connected or successful.
+That conversation requires an explicit reopen before further execution.
+
+The mini renderer remains sandboxed with context isolation and no Node access.
+Its IPC surface is allowlisted; account/configuration changes and unrelated
+browser/terminal layout operations stay in main. Window geometry/pin is saved
+under Desktop userData, clamped to display bounds; conversation drafts and
+reading/disclosure memory survive window hide/reload, not application exit.
+Editor caret/undo remains local to each editor. Windows pinning uses native
+topmost placement without taskbar-relative repositioning; default floating
+placement lost topmost status in the local minimal-window probe.
+
+`scripts/verify-mini-chat-electron.mjs` uses an isolated profile and a loopback
+model provider with the pinned real runtime. It covers coalesced startup,
+independent navigation, shared drafts/references/options, once-only send/sound,
+stream/stop, real write-file approval, hide/reopen/reload, anchor transfer,
+restart, deletion guards, first-message promotion, OS pin state and a focused
+380x400 English/light layout. Native screenshots and the result receipt are in
+`Desktop/test-results/mini-chat-native/`. This does not establish cloud,
+macOS native, packaged/installer or real-account acceptance.
+
+Local verification passed typecheck, production build and `git diff --check`.
+The complete test suite ran with concurrency 2: 1,136 tests, 1,123 passed,
+13 platform skips and no failures. Native MiniChat, session navigation,
+composer editing/menu, command dispatch and task-progress Electron checks
+passed, as did the browser MiniChat and disclosure/summary regressions.
+The initial high-concurrency suite hit an unrelated terminal cleanup timeout;
+its unchanged six-test terminal suite and the bounded complete rerun passed.
+Local review added eleven regressions for rejected concurrent writes,
+abandoned/claimed submissions and draft setup/promotion/failure interleavings.
+
+## MiniChat Frontend Preview (2026-11-07)
+
+`Desktop/tests/fixtures/mini-chat.html` previews the titlebar entry immediately
+before Minimize and a compact conversation window. `WindowBar` uses an
+optional action; the native candidate now wires that action in the normal app.
+The reusable frame uses existing tokens, icons and the native shared menu.
+Conversation bodies, tool/thinking disclosures, timestamps, selection actions,
+quotes, composer, permission and model/effort pickers are the real components.
+
+The isolated fixture uses synthetic sessions and replies, with no model,
+profile or filesystem access. Browser-local dragging, resizing and pin state
+do not establish native-window or OS always-on-top support. Switching the mini
+selection leaves the main selection alone; return explicitly selects the mini
+conversation in the main surface, retaining its draft and pending quotes.
+The isolated preview itself does not change the runtime pin, preload or main;
+native integration is recorded separately above.
+
+Reading continuity reuses `session-reading` message anchors. Each surface/session
+keeps its own reading position and opt-in disclosure memory; return explicitly
+transfers the mini position and disclosure choices even when main already shows
+that conversation. Closing/reopening resumes the mini selection. Thinking,
+tool/group and nested input/output choices survive remounting without retaining
+mounted transcripts. Disclosure memory is bounded to 512 entries per surface/session;
+records without stable message/call identity are not matched by array position.
+Streaming and settlement do not pull an older reader to the tail, while readers
+at the tail continue following. Position memory is browser-session-local, not
+cross-launch persistence or native-window geometry support.
+
+The main conversation and preview now share `ScrollToBottomButton` and its
+existing composer-context-row style. It appears while reading older content,
+resumes following the moving tail on activation, restores editor focus and
+honors reduced motion. Wheel, keyboard and touch intents reuse the main
+conversation's scroll policy; an upward gesture pauses even near the bottom.
+Stopping a simulated response does not reset reading position.
+
+The local-review fixes preserve manual disclosure choices when a live message
+first receives its saved entry ID, including without opt-in memory. Different
+known identities and explicit settings resets still invalidate old choices.
+Preview retry-editing refuses to overwrite pending text or reference-only
+drafts. Quote and annotation removal uses the latest shared state; clearing one
+kind preserves the other. Whole-message Markdown references locate their saved
+source identity rather than trying to match rendered text to Markdown offsets.
+Composer menus have instance-specific option/ARIA IDs and only the focused
+editor discovers a synchronized draft token. Moving between the add-reference
+button and editor retains explicit reference keyboard navigation.
+
+Typecheck, production build and `scripts/verify-mini-chat-preview.mjs` pass.
+Browser verification covers entry placement/no-drag behavior, session switching,
+draft/reference handoff, simulated streaming, menu and quote interaction,
+dragging, focus restoration, reduced motion, light/dark and Chinese/English at
+1440, 760, 440 and 390px. Four-sided composer focus gutters and picker widths
+are checked. Low-height 900x400 light/dark and 390x400 dark cases cover eight-line
+drafts plus a quote, visible Send/Stop and header, real send/stop clicks and
+drag-then-resize recovery. The editor height follows the mini frame's available
+block size; normal-window dimensions remain unchanged.
+`?stress=reading` exercises long transcripts, independent disclosure
+choices, same-session main handoff, per-session scroll restoration, close/reopen
+during streaming, no duplicate requests, return-to-bottom with keyboard focus,
+gesture-aware pause/resume, stopped-response reading position and tail following.
+The button is checked in light/dark, narrow, English and reduced-motion layouts.
+The shared `verify-disclosure-summary.mjs` regression and 61 focused navigation,
+presentation, scrolling, grouping, command and quote unit tests also pass.
+The rebuilt isolated Electron composer-menu verifier passes, including reference
+selection at the attachment limit after focus returns to the editor.
+`verify-project-instructions-preview.mjs` also passes against the main application
+at 1280/390/320px in Chinese/English, light/dark and the Wine palette.
+Screenshots are in `Desktop/test-results/mini-chat-preview/`.
+An additional real-RPC timing test was attempted but failed at Windows runtime
+cleanup with `Runtime process-tree termination failed (1)` and was interrupted
+after its test server remained open. It is not counted as passing runtime acceptance.
+This is a design preview, not native Electron, installer, cloud or account
+acceptance. The existing `/todos` work remains a separate implementation.
+
+### MiniChat State Ownership
+
+The native candidate implements this contract within the local acceptance
+boundary above; the synthetic preview independently exercises presentation.
+
+| State | Ownership and restoration |
+| --- | --- |
+| Messages, thinking/execution/compaction, stopped/failed/completed results | One authoritative runtime per session, observed by both windows. Reopen reads the current snapshot; a disconnected or missing runtime is not inferred to be successful or still running. |
+| Pending tool/Plan approvals | Keep the real request and reviewed version. Closing a view neither approves nor cancels; a decision is validated once against the current request. |
+| Draft text, quotes/annotations, attachments | Main-owned session draft, not a second independent task. Revision-checked writes and once-only submission receipts protect newer input and recover rejected delivery. |
+| Selected conversation, scroll/follow, expanded details | Per window/session presentation memory. Explicit return transfers the reading state; casual background updates do not steal it. Saves during navigation cannot attribute a target preview to the previous session. |
+| Window bounds/pin and editor caret/undo | Native geometry/pin preferences survive application restart. Caret/undo belong to each editor; opaque editor history is not copied between windows. Browser preview pinning is only a simulation. |
+| Menus, hover, selection toolbar, copied checkmark | Transient UI closes when its view closes; pending quoted text/annotations remain draft data. |
+| Completion motion/sound/notifications | Event-owned and deduplicated per real run. Remounting or restoring historical UI must not replay completion signals. |
+
+## Desktop Task-plan Shortcut (2026-11-07, Local Candidate)
+
+Based on main `7fdfc76` (merged PR #208), standalone `/todos` now opens the
+existing Summary board and reveals its task heading. The request is scoped to
+the current worker, session and draft, then consumed once. Repeating it on an
+open board retains task/history disclosures and the mounted progress animation;
+ordinary polling cannot steal the composer's focus. No runtime pin, IPC or
+canonical task/history storage is changed.
+
+Typecheck and the production build pass. All 44 focused tests pass, covering
+command recognition/catalog deduplication, source icons, composer behavior,
+native slash handlers and task/agent history projection. Parameters, prose,
+code, attachments and quotes do not acquire the new local shortcut.
+
+The rebuilt isolated Electron command-dispatch verifier passes a real fresh
+draft with no worker/session creation, then controlled summary data for empty
+plans, folded history, current counts, repeated focus/scroll, retained manual
+disclosures and failed-read retries. Four Chinese/English, light/dark and
+desktop/narrow combinations include reduced-motion checks and complete focus
+outline bounds. Screenshots under `Desktop/test-results/todos/` were inspected.
+The expanded verifier uses keyboard submission in narrow overlays, where the
+existing Summary surface can cover the main composer's send button.
+
+The pinned real-runtime task-progress verifier passes through `/todos` both
+before and during a task. It confirms no shortcut message in native history,
+no queued input or premature sound/settlement, and the existing completion
+impact, green sweep, sound, next-turn retirement and renderer-reload behavior.
+All model responses are from an isolated deterministic loopback provider.
+The existing Electron composer-menu verifier also passes filtering, icons,
+selection, IME, cancellation, quotes, model controls and narrow layouts.
+
+No acceptance installer, shortcut update, installed-app change, public release
+or paid-model test is part of this work. Cloud/native macOS and packaged
+acceptance remain separate; the complete Desktop suite was not rerun for this
+renderer-only shortcut. Excluding junction targets, current QA inputs occupy
+10.13 MiB in `dist`, 62.96 MiB in `terminal-runtime`, 0.10 MiB in the runtime
+facade and 2.60 MiB in `test-results`; no historical package is deleted.
+
+## Artifact Fixture Link Cleanup (2026-11-07, separate local candidate)
+
+Main synchronization note (2026-11-08): this branch now merges main `6995910`,
+which landed the CrashLog redaction as #213; the sections below keep each
+candidate's own verification history. The complete-run receipt in this section
+describes the pre-merge combination on `e419143`; CI reruns on the merged
+combination and its receipt covers exactly that.
+
+This test-only candidate starts at main `e419143`. It does not contain the local
+CrashLog patch or change product artifact access, runtime, dependencies or owner
+MiniChat work. Product assertions remain intact. The original full-run failure
+left a dangling Windows junction at a test-owned workspace/escape path: parent
+Dirent classified it as a link, PowerShell identified the junction and its deleted
+target, while lstat/realpath reported ENOENT. The original residue is preserved.
+
+Fresh diagnostic fixtures execute the actual artifactFile helper from candidate
+and unmodified main. All access assertions pass. Controlled target-first removal
+then reproduces ENOTEMPTY with the same residue in both trees; explicit link-entry
+removal before recursive fixture cleanup succeeds while preserving live target
+marker files. This confirms a dangling-junction cleanup mechanism, not the
+original trigger ordering or proof that every original assertion had passed.
+A finally cleanup error could mask an earlier failure.
+
+The mapped-workspace test now records only successfully created links and removes
+escape before the workspace alias. Windows uses rmdir for junction entries;
+POSIX uses non-recursive rm for symlinks. Only ENOENT is tolerated. No retry,
+blanket catch, timeout increase, failure filter or relaxed access assertion is
+introduced. The fixture helper is not a general-purpose deletion/security API.
+
+The original recursive-only behavior fails the dangling-link regression. Current
+checks cover live target preservation, non-link error visibility, the actual
+two-link topology after moving its target away, and interruption after only one
+alias was created. The latter retains the exact primary error after successful
+cleanup. All 21 artifact/cleanup/StepPage focused tests pass and typecheck passes;
+a bounded independent review finds no blocking issue.
+
+The separate candidate's complete serial run executes 175 files: 167 pass and
+eight fail. Its five cleanup regressions and nine original artifact tests pass.
+The remaining failures are capabilities (180-second file timeout), compaction
+linked-root rejection, native execution-outcomes (`null` versus exit 7), plugin
+Git-marketplace update, project-trust cleanup, theme linked-plugin cleanup,
+turn-undo linked classification and workflow-catalog cleanup. Their signatures
+match the preceding unmodified-main observations; their causes are not resolved
+by this patch. All results and nonzero suite exit are retained, without filtering.
+Runtime and dependencies are identity-checked against the validated latest-main
+tree; no concurrent installation or staging occurs during this run.
+
+The theme-packs failure is then traced to its own cleanup ordering, not product
+access: an exact fixed-input run fails identically on the candidate and the
+unmodified control, the preserved residue is a junction whose target the test
+itself deletes first, and the fixture's recursive rm then fails on the dangling
+entry. The linked test now removes its link entry before deleting the target,
+tracking only successful creation; Windows rmdir and POSIX non-recursive rm
+semantics come from the shared fixture helper. Product refresh/lstat assertions
+are unchanged.
+
+The same evidence pattern resolves the remaining non-environment failures. The
+capabilities file's 180-second timeout stalled in fixture cleanup on its own
+junctions (a step probe shows all product operations finishing in six seconds);
+both junction sites now remove their link entries and the file completes. The
+DFSC icon read, the linked-skills rejection, the turn-undo classification and
+the compaction linked-root guard all share one machine-level lstat blindness
+(probe: Dirent classifies the junction, lstatSync does not). Product path
+classification is strengthened additively with the parent-Dirent signal in
+`capability-settings.mjs` (`plainPath`, `rejectLinks`), `turn-undo.ts`
+(`guardedPath`) and `compaction-configuration.ts` (`checkProfile`, with a new
+linked `config.toml` test). Only rejections are added; no assertion is relaxed
+and no allowlist is introduced. The staged runtime's verbatim copy of
+capability-settings.mjs is refreshed to match the staging recipe before the
+focused run; that copy step is recorded here and is not a release artifact.
+
+Two failures are machine environment boundaries with direct probes: every msys
+process spawned from node crashes with `NtCreateDirectoryObject(msys-2.0S5):
+0xC0000022` (consistent with the local security software), so node-spawned
+`git clone` and `bash` cannot run on this machine. This explains and retains
+the Git-marketplace failures (capabilities, plugin-skeleton-native) and the
+native `then_run` `exitCode: null`. The upstream's detailed git warning is
+discarded by the service layer when converting to `marketplace-failed`; that
+diagnosability gap is documented, not changed.
+
+Focused suites (artifact/cleanup/theme/workflow/trust/capabilities/steppage)
+pass 61 of 62; the single failure is the msys Git marketplace boundary.
+Typecheck and production build pass.
+
+A bounded independent review of the three product files and six test files
+finds no blocking item: all prior lstat checks are retained, rejection sets
+only grow, no legitimate alias (casing, 8.3) can newly be rejected, error
+types and ENOENT tolerances are preserved, no owner assertion was weakened,
+and the Dirent walks handle single-component and nested paths correctly. Its
+one actionable residual gap is closed with evidence: `marketplace-add` did
+not classify the marketplace source root itself, so a junctioned source was
+read before failing later; a new test first fails with the read-through
+signature (`capability:marketplace-failed`), then passes with the upfront
+`capability:invalid-path` rejection after `plainPath` classifies the root.
+The staged runtime copies are refreshed with the staging recipe's exact steps
+verbatim for capability-settings.mjs and the same esbuild step for
+compaction-configuration.mjs; a direct probe of the staged compiled module
+rejects a linked root with `compaction:profile`. These are test-environment
+refreshes, not release artifacts.
+
+The final complete serial run executes 175 files; its counts come from actual
+output only. The suite exit is nonzero; no full-green claim is made. No native
+POSIX/macOS, package, installer, real-account or release acceptance is claimed.
+No commit, push, PR, merge, old-tree cleanup or personal-profile operation is
+performed.
+
+## Windows CI Workflow Failure Forensics (2026-11-08)
+
+The first CI run of this branch failed once in the Windows runtime group at
+`verify-workflow-runtime.mjs`: the child-B model stream failed client-side
+before reaching the fixture (the fixture's `childHeld` flag is set the moment
+a child-B request arrives, so the failure means the request never arrived),
+FINAL then asserted with a null output, and the one-slot wait timed out. The
+same commit passes the identical verifier on macOS source and package
+acceptance, the same Windows group passes for #211 and #213 on the same base,
+and the verifier plus workflow runtime are untouched by this diff. Local
+verification on this machine required restoring the shared node_modules'
+missing Electron 44.4.5 binary (a local install artifact that had triggered
+a binary download) and an assertion-preserving external `--no-sandbox` copy,
+because the unmodified executable's default-sandbox launch exits on this
+machine. With those local-only provisions the verifier passes end to end:
+parallel/chain, restart, stop/drain/resume, content-addressed replay,
+forced-crash recovery, partial failure with selective retry, structured
+errors and real HTTP 429 recovery, with both child requests served.
+
+The evidence supports a single runner-environment or timing failure, not a
+regression from this branch: no assertion is relaxed, no deadline is extended
+and the verifier is unchanged. This documentation update retriggers CI.
+
+The preceding CrashLog result (175 files, 166 pass/nine fail) remains intact.
+These equal file counts are different inventories: this separate tree adds
+artifact-cleanup.test.ts and does not contain the uncommitted crash-log.test.ts.
+No native POSIX/macOS, package, installer, real-account or release acceptance is
+claimed. No commit, push, PR, merge, old-tree cleanup or personal-profile operation
+is performed. Exact receipts are retained in the local artifact-cleanup evidence.
+
+## CrashLog Latest-Main Synchronization (2026-11-07, local candidate)
+
+The previous CrashLog candidate starts at `a8533cf`. This combination starts at
+main `e419143`, after #210 themes, #194 Remote and #209 explicit plugin updates.
+The full main diff leaves the CrashLog writer and existing startup verifier
+unchanged. The implementation and disk regressions are carried forward without
+rewriting owner code; this document preserves all owner verification histories.
+The standalone acceptance entry remains `verify-crash-log.mjs`. Its imported
+helper is named `crash-record-fixture.mjs`, matching other non-entry helpers rather
+than creating an unregistered `verify-*.mjs` entry.
+
+The log boundary redacts structured sensitive fields before traversal, including
+decoded authentication containers. Text filters cover labelled credentials,
+authentication headers and HTTP(S) URL authentication data, including userinfo
+or quoted values cut off before their terminator. Accessors, custom serializers
+and Proxy traps are not invoked. Projection limits remain 256 nodes per detail,
+eight levels, 64 top-level fields and 16,000 characters per text input. Own-key
+enumeration precedes the field cap; this is not constant-memory enumeration of
+arbitrarily large objects. Final output, including its marker, is at most 64 KiB
+UTF-8 without splitting a multibyte character. Arbitrary unlabelled secrets,
+every encoding/authentication convention and replaced built-in APIs are outside
+this guarantee.
+
+Ordinary error descriptions, credential-conflict explanations, exit codes and
+safe frames remain useful. A synchronous trusted V8 formatter avoids the global
+`Error.prepareStackTrace` callback and restores its exact descriptor. Reading a
+native lazy stack may cache diagnostic frames on the Error; message and details
+stay unchanged. Immutable formatters and untrusted stack accessors fail closed.
+UUID temporary writes, rename, never-throwing record and exit semantics remain.
+
+Historical verification at `a8533cf`: original eight actual disk tests produced
+six failures and two passes; the final implementation passed 18 disk cases and
+57 focused projection/staging tests, typecheck and production build. Exact
+staging verified pin `29eb460`, 47 postimages, 23 capability IDs and Node 24.16.0
+SHA-256. Real Windows Electron main disk and production startup-conflict
+acceptance passed with an external local `--no-sandbox` copy. The unmodified
+executable's default-sandbox launch exited before inspector initialization.
+No checked-in script or product sandbox setting changed. Those receipts do not
+prove this later main combination.
+
+The historical bounded all-file run executed 156 files: 150 passed, six failed.
+An unmodified same-base control reproduced compaction linked-root rejection,
+native `then_run` null versus exit 7 (same staged runtime), project-trust junction
+cleanup, turn-undo linked classification and workflow-catalog cleanup. The
+capabilities timeout control lacked its default runtime, so was not equivalent;
+the timeout cause remains unknown. The complete result was not green and none
+of these failures is labelled flaky or silently filtered.
+
+Current-combination focused checks pass 184 cases (including 18 actual disk
+cases and the new Remote session/queue boundaries), typecheck and production
+build. CI policy/inventory/runner checks pass 39 cases with one platform skip.
+The current staging recipe rebuilds from pin `29eb460` with all 47 postimages,
+23 capability IDs and Node 24.16.0 hash verified; Remote/Lark notices, SDK license
+and plugin-update/configuration adapters are present. The underlying pin is not
+changed. Real Windows source Electron disk, vault migration and startup conflict
+acceptance pass against this tree's rebuilt `dist/main.cjs`, using the already
+installed executable of the exact locked Electron 44.4.5. Only the external local
+acceptance copy adds `--no-sandbox`; no product/checked-in setting changes.
+
+Locked normal dependency installation completes successfully: 508 packages,
+postinstall scripts enabled, frozen lockfile unchanged. Initial installs used a
+different local pnpm store and missed the 72.5 MB app-builder archive; the existing
+store had that package but denied new writes. Sixteen existing content-addressed
+cache entries were copied to the writable store only after SHA-512 and size
+verification. The final offline normal install exits zero. Earlier timed-out and
+`--ignore-scripts` diagnostics are not counted as successful installation. The
+first all-file run was contaminated by a diagnostic rebuilding node_modules
+while a test loaded tsx; it is retained but not a stable-input complete receipt.
+A fresh complete run uses stable dependencies and executes all 175 files:
+166 pass, nine fail. The unmodified `e419143` control
+has identity-checked access to the exact same dependencies and staged runtime;
+it reproduces the capabilities 180-second file timeout, compaction linked-root
+failure, native `then_run` null-versus-7 assertion, project-trust cleanup, turn-
+undo classification and workflow-catalog cleanup. Separate control checks also
+reproduce the new native plugin Git-marketplace failure and theme linked-plugin
+cleanup failure; session-fixture passes, unlike its dependency-disrupted earlier
+result. These observations do not establish the causes or safety of those
+failures, and no unrelated owner implementation is changed. The ninth failure,
+turn-artifacts mapped-workspace link cleanup, reports ENOTEMPTY in the candidate
+complete run but passes one exact focused run on each unchanged tree. A later
+local-only investigation preserves the original dangling escape junction and
+uses fresh fixtures to separate access assertions from cleanup. Controlled
+removal of its target reproduces the same ENOTEMPTY/residue in both trees;
+explicit link-entry removal before recursive cleanup succeeds and preserves live
+target markers. This establishes a dangling-junction cleanup mechanism, not the
+original trigger order or proof that every original assertion had passed.
+A separate `test/artifact-junction-cleanup` tree contains only test cleanup and
+three regression cases; its artifact/cleanup/StepPage checks pass 19 cases and
+typecheck. It is not merged into this CrashLog candidate. The original nine
+full-run failures and non-green result remain intact. Investigation evidence is
+in the local `artifact-cleanup-investigation.md`; no native POSIX/macOS,
+packaged/installer, default-sandbox or real-account acceptance is claimed.
+This work contains no commit, push, PR, version change, installer, shortcut
+change or old-tree cleanup.
+
 ## PR #194 Compaction Settings Main Synchronization (2026-11-07)
 
 Head `b735139` passes Windows run `42351838942` and macOS run `42351839100`,
@@ -9042,3 +13761,571 @@ The active staged runtime and replay evidence are isolated under
 and existing installer are unchanged. This is local source acceptance, not
 real-account/billing, native macOS, current cloud CI or installer acceptance.
 See [the implementation contract](COMPLETION_REVIEW.md).
+
+## 插件宿主协议候选与 SDK 示例 (2026-11-08)
+
+本轮实现未接入生产的声明解析、主进程模式提交参考、窄 host client，
+以及使用官方 MCP SDK 的自包含作者示例。没有修改 runtime pin，
+没有接入启动器、通用 broker、确认 UI、提供商接口或真实账户。
+候选说明见 [插件宿主模型协议](PLUGIN_HOST_CONTRACT.md)。
+
+本地 Windows 源码验证通过：
+
+- 56 项插件相关测试全部通过，其中 14 项为新增候选协议测试。
+  覆盖无独立 Key 跟随、独立配置修订、过期与撤销、并发保存、
+  孤立快照、损坏或带多余字段的指针/快照、安装身份及 junction 越界。
+- SDK 示例冻结依赖安装通过，5 项测试全部通过。
+  可安装快照复制到不含 `node_modules` 的新目录后，由官方 MCP client
+  完成真实 stdio 握手和工具调用；缺少宿主时明确不可用，不回退环境 Key。
+  离线授权前拒绝、授权后结果、撤销及原生后代环境删除均已验证。
+- 连续两次作者构建生成相同 bundle 和许可证 SHA-256；
+  发布物包含 8 份实际打包依赖的许可证记录。
+- Desktop 类型检查、生产构建通过；CI 策略和平台 runner 测试
+  39 项通过、1 项平台跳过。新增 Windows/macOS 示例工作流 YAML 已解析。
+
+模拟宿主的 provider 调用数始终为零；音频 MIME 测试不证明真实语音可用。
+本轮未运行完整 Desktop/Electron 验收，未生成安装包、更新桌面快捷方式，
+也未修改用户账户或日用 profile。本地检查不替代新 PR 的云端 CI、
+原生 macOS 验收、市场固定 SHA 同步或真实模型/计费验收。
+
+### 协议层同步当前主线 (2026-11-09)
+
+候选协议分支合入凭据隔离分支 `21181d1`，继承主线 `6edeb18`
+的管理进程、Remote、恢复保护和 MiniChat 边界；没有改写既有协议或
+升级 runtime pin。合并后 22 项协议与独立配置测试、5 项官方 SDK
+自包含示例测试通过。此处只记录协议层的本地回归，不沿用旧提交的
+云端通过状态，也不表示后续 broker、启动器、设置页已完成组合验收。
+
+### 协议层同步新主线底座（2026-11-10）
+
+合入凭据隔离分支 `c177dc9`，继承 main `12d054e` 的插件工作区、
+全局指令与 MiniChat 更新。仅验证文档发生冲突，双方历史完整保留；
+协议、公开 SDK、固定 runtime pin 和依赖均未修改。类型检查、32 项
+协议/独立配置/工作区元数据回归及 5 项官方 SDK 自包含示例测试通过。
+新 head 的云端检查另行确认，不将后续层或旧提交的通过结果计入本层。
+
+## 插件宿主代理服务与实际 SDK 子进程 (2026-11-08)
+
+本轮在协议候选上增加独立的主进程 `PluginHostBroker` 和 Step adapter，
+没有将它们接入生产 `main.ts`、启动器、preload 或 renderer。
+服务说明见 [插件宿主模型代理服务](PLUGIN_HOST_BROKER.md)。
+BVR 仅提取并共用原有官方账户路由选择器，仍使用旧桥。
+
+本地 Windows 源码验证通过：
+
+- 75 项插件相关测试全部通过，其中 19 项 broker 测试覆盖逐能力确认、
+  独立模式不读宿主账户、真实账户/模型修订检查、异步读取期间 runtime 变更、
+  Origin/Host/路由拒绝、并发上限、跨租约取消隔离、撤销/过期、
+  排队/确认/provider 截止时间、输入输出上限及进行中关闭。
+- 官方 SDK 示例 7 项测试全部通过；新增 2 项使用真正 SDK 子进程、
+  无依赖安装副本、实际 broker/Step adapter 和隔离 fetch，
+  验证固定 Plan 路由、明确同意/拒绝、撤销及不回显账户 Key 或租约 token。
+- 连续两次作者构建的 bundle 和第三方许可证 SHA-256 相同；
+  SDK 安装快照仍是自包含单文件和 8 份依赖许可证记录。
+- Desktop 类型检查、生产构建通过；CI 策略和平台 runner 测试
+  39 项通过、1 项平台跳过；SDK 工作流 YAML 结构已解析检查。
+
+所有账户、模型响应和消费者核验均为测试 fixture；没有发送真实付费请求。
+本轮没有正式消费者发现/启动身份验证、管理队列或生命周期主动失效接线、
+生产确认 UI、TTS 适配和真实账户权益验收，不宣称完整计划 [Ⅱ]/[Ⅲ] 已完成。
+未运行完整 Desktop/Electron 验收，未生成安装包、修改桌面入口或用户 profile；
+本地检查不替代新 PR 的云端 CI、原生 macOS 或市场发布验收。
+
+### 代理层同步当前主线 (2026-11-09)
+
+代理分支合入本轮协议层同步，类型声明同时保留完整安装凭据类型和
+主线的纯主题包指纹函数。合并后 41 项协议、代理与独立配置测试、
+7 项官方 SDK 测试及 Desktop 类型检查通过。没有接入生产启动器，
+没有真实模型请求或安装包交付；新提交仍需独立云端验收。
+
+### 代理层同步新主线底座（2026-11-10）
+
+合入协议分支 `b970008`，继承 main `12d054e`；仅合并验证记录冲突，
+保留原有草稿提升、权限等待和 MiniChat 修复。类型检查及 145 项协议、
+代理、配置、会话和全局指令测试通过，官方 SDK 示例共 7 项通过。
+未改变账户路由、租约边界、公开 SDK、固定 runtime pin 或依赖，
+未接入生产启动器、调用真实模型或生成安装包；新云端检查另行确认。
+
+## 插件宿主原生启动绑定与生命周期 (2026-11-08)
+
+本轮基于代理服务候选 `6203e1b`，接通生产主进程的能力门控启动链，
+没有增加用户模式选择界面或升级 pin。运行时仍固定
+`29eb460780489801ce8afc8bffc1a2efae7cbded`。
+只有声明了宿主消费者、安装 receipt/包指纹/模式有效、真实原生记录唯一，
+并且会话和实际模型恢复完毕时才签发；上下文只注入这一次 stdio 启动。
+没有模式或存在全局覆盖、来源冲突时保持延后，不默认继承账户授权。
+
+账户持久化、实际模型应用、transport 退出、插件/配置管理和全局 MCP 保存
+均主动撤销。供应商、登录及额度凭据刷新事务结束后只恢复等待中的新启动；
+中途门控再次关闭可以继续等待，已签发后失败或撤销的记录不透明重签。
+原生关闭等待进行中的延后启动；单个失败只释放自己的租约。
+私有 RPC 未进入 preload/renderer allowlist，超时迟到和未匹配响应直接丢弃，
+hosted 初始化/目录失败不回显原始 launch 上下文。
+
+本地 Windows 源码验收：
+
+- Desktop 全量串行回归 1,530 项：1,517 通过、13 项平台跳过，
+  零失败、零取消，耗时 974.2 秒。日志：
+  `Desktop/test-results/plugin-host-launch-full-20261108.log`。
+- launcher 与原生 SDK 集成 12 项全部通过，使用真实固定 runtime、原生发现、
+  私有 RPC、安装 receipt、管理目录及自包含 SDK 子进程。
+  测试专用 MCP proxy 调用同一子进程工具，provider 为隔离 fixture；
+  验证门控释放、逐能力确认、实际 broker 调用、账户撤销、全局覆盖、
+  初始化错误回显隔离及关闭 opt-in 的兼容行为，不向模型发送 prompt。
+- 原生 `desktop-plugin-host.test.ts` 和 `src/step/mcp.test.ts` 共 22 项通过，
+  包括来源/策略/声明变化、重复启动、session 变化和关闭交错。
+  五份改动原生文件 Biome 检查、原生根目录及 coding-agent 构建配置的
+  `tsgo --noEmit`、`check-no-secret-leak` 通过；没有声称执行完整根 `check`。
+- Desktop 类型检查、最终生产构建通过。最终构建上的真实 Electron
+  基础启动及模型切换验收通过，使用隔离 profile 和假模型返回；
+  覆盖真实 RPC、renderer 无 Node 权限、设置、窄窗口、重载、
+  会话独立模型、队列换模及缺失模型保护。日志：
+  `plugin-host-launch-electron-20261108.log`、`plugin-host-launch-models-20261108.log`。
+- CI 策略、清单及 runner 40 项：39 通过、1 项平台跳过。
+  Windows/macOS 工作流已纳入原生 22 项回归，YAML 解析通过。
+- 隔离源码和全新补丁重放后像匹配：共享 53 项、Darwin 组合 54 项；
+  所有补丁哈希、staging 源码哈希和 Node 24.16.0 SHA-256 匹配，
+  staged manifest 含 25 个能力标记。Darwin 补丁重放不是原生 macOS 执行。
+
+调试中曾以假 Key 命中上游接口并收到 401；最终集成不再走该模型驱动路径。
+没有使用个人账户或验证付费权益，不能将调试过程描述为全程无外连。
+现有 Step provider 路由单独由 broker/SDK 隔离测试覆盖，原生集成的假 provider
+不证明真实 Step 权益。生产 IPC 中连续设置事务、多消费者交错及付费确认
+尚缺完整端到端覆盖；基础 Electron 验收不能替代这一点。
+
+模式/授权设置界面、未来模式写入的管理队列接入、真实账户权益、
+TTS、BVR 旧桥迁移、Cron 恢复自动接线、实包和跨仓库发布仍未交付。
+本轮未打包、修改快捷方式、重启日用应用或更改用户 profile。
+新 PR 的云端 CI 与原生 macOS 结果分别确认，不把本地通过写成云端通过。
+
+可重建产物已盘点，未删除：本工作树 `Desktop/runtime` 约 124 MiB、
+`Desktop/dist` 约 12 MiB，隔离源码的 coding-agent/CLI dist 合计约 29 MiB；
+`D:\Desktop Runtime Builds\plugin-host-launch-20261108` 下保留源码、
+新补丁重放目录及必要验收证据。没有生成或囤积新的安装包。
+
+## 插件宿主通用设置与授权观察 (2026-11-08)
+
+基于原生启动候选 `a65a0a5` 增加插件中心通用模式设置，
+并以 `f0ff40b` 将 macOS 构建 Node 对齐示例要求的 24.16.0。
+不升级 Step Code pin，不修改 BVR 旧桥、插件发布物或用户 profile。
+有效宿主声明的已记录消费者可选择跟随；兼容的独立 schema 复用现有字段。
+默认未选择，不把保存、安装、服务开关或 Full Access 当作付费授权。
+
+模式写入复用管理队列和共享 IPC 门控。独立配置与模式指针不是同一原子提交，
+第二步或回读失败必须报告结果未确认，旧启动失效，草稿保留。
+主进程只投影实际会话的连接、模型、地区、Plan/API 和逐能力授权快照，
+不向 renderer 提供 worker 选择、私有 RPC、receipt、路径或租约。
+状态观察不因临时设置门控永久撤销健康租约，也不签发或续租。
+保存失败、管理操作、重启和会话切换清除旧观察；迟到响应不恢复旧授权。
+
+本地 Windows 源码验收通过：
+
+- 宿主协议/设置/代理/launcher/实际原生 runtime、配置与资源 76 项；
+  其中 4 项实际固定 runtime/SDK 集成，provider 为隔离 fixture。
+- 插件设置/快照竞态、文档与展示 36 项；自包含 SDK 示例另 7 项。
+- CI 策略、清单和 Windows/macOS runner 31 项：30 通过、1 项平台跳过。
+- 类型检查、最终生产构建、`git diff --check`。
+- 新通用设置浏览器验收：未选择、跟随无需 Key、独立秘密不回读、
+  保存失败及提交后回读失败、revision 冲突、草稿保留、开关失效、
+  跨会话迟到响应、读失败不循环、host-only/不支持宿主、亮暗窄窗、
+  完整焦点边界及减少动态效果。使用实际 React 组件和模拟桥。
+- 既有生产 Plugin Center 浏览器验收通过，覆盖抽出的共用配置字段。
+- 真实 Electron 宿主设置验收：receipt-backed typed IPC、读/保存不创建 worker、
+  并发 writer 门控、独立 SDK 原生启动、切跟随后撤销且不自动重启。
+- 基础 Electron 完整运行含末尾 profile 重开检查通过，日志
+  `Desktop/test-results/plugin-host-settings-core-20261108.log`；
+  此前一次只打印主体通过后以 1 退出，不能视为通过，也未宣称查明该次根因。
+  首次启动生产验收另已通过，包含新保存 IPC 的共享设置门控，日志
+  `Desktop/test-results/plugin-host-settings-first-run-20261108.log`。
+  宿主设置日志为 `Desktop/test-results/plugin-host-settings-electron-20261108.log`，
+  浏览器截图位于 `Desktop/test-results/plugin-host-settings-ui/`。
+
+云端边界：#218 初次 macOS 失败源于 24.15.0 与 SDK 的最低 24.16.0 不匹配；
+修正后两项 SDK 原生启动通过。重跑记录 `42461995514` 首次尝试仍因
+`background-runtime.test.ts` 的 complete 场景在 process 阶段 60 秒超时取消：
+1,530 项中 1,522 通过、7 跳过、1 取消。已保留证据并对同提交重跑，
+不把重跑成功当作该偶发原生启动问题的根因修复；云端结果单独确认。
+
+本轮没有真实账户或付费请求、完整生产付费确认、安装器/实包体验，
+不证明 TTS、Cron 自动接线、BVR 迁移、市场同步或组合发布完成。
+预览只模拟状态，不能据此宣称模型权益可用。未生成安装包或更新快捷方式。
+可重建产物盘点：本工作树 `Desktop/runtime` 124.17 MiB、`Desktop/dist`
+11.82 MiB、新界面截图 0.42 MiB；均保留，未删除旧包或修改其他预览服务。
+
+## 插件宿主生产确认链路隔离验收（2026-11-08）
+
+`verify-plugin-host-authorization-electron.mjs` 已加入共享 interface 验收清单。
+它将实际 SDK 插件安装到新建的隔离 profile，保留原生发现、主进程 broker、
+Step provider、typed IPC 和生产 renderer，不注入确认结果或私有 renderer RPC。
+主进程与原生子进程的官方模型网络请求在保存测试账户前即改接 loopback，
+其余外部模型地址拒绝；测试不读取个人 profile 或真实账户凭据。
+StepPage bundle 固定为隔离目录内不存在的路径，并断言没有额外启用的
+StepPage server，避免 Windows 启动回退发现个人安装。
+
+本地 Node.js 24.16.0 / Windows 源码 Electron 验收通过：
+
+- 来源保存、启动、可用性查询不发送模型请求；
+- 生产确认展示插件、能力、模型、API 渠道、地区及费用边界；
+- 拒绝后返回 `DENIED`，没有 provider 调用或授权；
+- 实际 MCP `notifications/cancelled` 撤下未批准弹窗，不授予权限；
+- 点击批准后才收到 loopback 模型请求，同次启动同能力复用授权；
+- 在途取消实际中断 provider HTTP 请求，不声称撤销已发生费用；
+- 经生产登录入口换到另一地区账户，旧启动及授权失效，新账户重新确认；
+- 测试专用原生代理保留旧假租约，换号后重放旧 `/context` 和 `/invoke`，
+  均返回 `STALE_CONTEXT`，不新增确认或 provider 请求；租约不经过 renderer；
+- renderer 保持 Node 隔离，公开快照和界面不含凭据、启动密钥或租约。
+
+SDK 示例修正了未转发 MCP 取消信号的问题，两个工具的上下文查询和
+模型调用均传递 `extra.signal`。新增四项真实 MCP 取消回归，旧 bundle 上
+四项均失败，重建后完整 11 项通过，取消回归连续三轮通过。
+截图保存在 `Desktop/test-results/plugin-host-authorization/`，已检查生产确认图。
+
+设置页 verifier 的模式选择与密钥清空改为等待实际 DOM 状态，
+原断言保留，不通过固定睡眠或放宽断言处理 React 更新竞态。
+修复后浏览器矩阵通过。CI 策略及 Win/mac runner 共 31 项：
+30 项通过，1 项仅 macOS 的进程组场景在 Windows 跳过。
+
+云端仍单独验收：`d458e77` 的 Windows run `42467361509` 和 macOS run
+`42467361479` 在依赖安装阶段遇到 GitHub 发布资源 504，
+涉及 Electron、Node 与 canvas 预编译下载；并非本轮授权断言失败，
+也不能据本地通过宣称云端已绿。保留所有结果与产物上传门禁。
+早先 #218 的八槽位重试准备超时尚无已证实根因，诊断增强不算根因修复。
+
+本轮没有真实账户/付费请求、安装包、市场同步、BVR/StepAudio 迁移、
+合并或发布；未切换快捷方式，也未清理旧包。
+
+### 信任命令与更新器验收竞态修正 (2026-11-09)
+
+本轮针对 #218 Windows 更新器退出超时和 #220 macOS 包内信任审批失败。
+macOS 失败截图实际包含 `Session operation in progress`，不是已经证实的
+菜单或 Enter 故障。受控延迟普通快照读取后，旧代码稳定无法产生审批；
+修正后普通快照不再阻止信任命令，审批、原生空闲检查、真正操作互斥、
+transport/目录复查、取消不写入和不调用模型的边界不变。
+
+更新器断言通过后卡在收尾；本地旧验收的诊断显示收尾时仅有测试窗口，
+真实主窗口尚未创建。现在先等待真实主窗口及 typed 退出桥就绪再运行
+UI 验收，正常收尾同时等待 controller、进程退出与 context close，
+沿用 30 秒有界等待，不强杀、不延长外层 300 秒期限。云端原始卡点
+没有更细的退出现场，因此不将这一启动竞态描述为已排除其他可能。
+
+#218 本地 130 项定向测试全部通过，包含快照在命令前/审批中交错、
+非快照操作保留拒绝、退出控制器和会话池回归；Desktop 类型检查及
+生产构建通过。真实源码 Electron 信任完整流程、命令菜单和两次
+更新器正常收尾验收串行通过，profile 与模型均为隔离 fixture。
+本轮未重跑全量测试，未在本机执行原生 macOS 或生成安装包；
+#220 合并后组合复验及新 head 云端状态需分别确认。
+
+#220 合入 #218 `29c4132` 后，139/139 定向回归、类型检查和生产构建通过；
+真实源码 Electron 更新器正常退出、完整信任流程、宿主模式设置和
+生产授权确认链串行通过。授权验收仅向 loopback fixture 发送请求，
+没有真实账户或付费模型。新 head 云端结果仍需独立确认。
+
+### 文件预览原生改窗同步与诊断 (2026-11-09)
+
+#220 `3900439` 的 macOS run `42575933065` 在包内文件预览验收失败：
+点击 HTML 链接后，30 秒内浏览器仍为 revision 0、空标签列表。
+同轮源码文件预览及包内宿主设置、授权确认均通过；现有产物没有失败时
+点击或 IPC 现场，不能据此认定宿主授权或本地页面服务故障。
+
+该脚本从窄窗恢复后立即点击链接，未同步 renderer 视口和布局。
+现改为等待实际原生 content size 对应的 renderer 视口，再等待有限动画完成；
+保留真实链接点击、30 秒浏览器等待以及所有隔离、资源、动画与刷新断言。
+失败时分别保留 source/package 截图及 JSON，记录最近的指针/点击/改窗事件、
+实际 fileOpen 调用结果、错误提示、标签和原生视图。不记录环境或账户数据。
+这是一处已确认缺失的验收同步点，不将其宣称为已复现的云端故障根因。
+
+本机 Windows 原脚本及修改后脚本均通过；修改后完整文件预览与原生浏览器
+验收串行通过，使用隔离 profile 和本地页面，未用真实账户或付费模型。
+文件/浏览器/产物单测及 CI 策略、Win/mac runner 合计 42 项：
+40 通过、2 项平台跳过；脚本语法及 diff 检查通过。
+仅改验收和本文，不改产品、运行时 pin、CI 清单或期限，不生成安装包，
+不更新快捷方式、不重启日用应用。新 head 的 macOS 源码及包内结果另行确认。
+
+### 启动层同步新主线底座（2026-11-10）
+
+合入代理分支 `5ef63a6`，继承 main `12d054e`。主进程冲突同时保留
+原生宿主消费者挂载与全局指令空会话复用钩子，退出边界测试同时保留
+宿主启动器和插件窗口桩；验证记录保留双方历史。未改变启动签发、
+账户撤销、隔离、权限或固定 runtime pin。
+
+类型检查及 160 项启动器、真实原生 runtime、会话、全局指令、
+实际主进程 IPC/退出、能力门控和插件窗口策略测试全部通过。
+组合 Electron 与新 head 云端验收另行确认；未打包、访问日用档案、
+调用真实模型或合并发布。
+
+### 设置层主线同步与 BVR 组合复验（2026-11-10）
+
+#220 合入启动层 `18158ea`，继承 main `12d054e`。冲突保留通用宿主设置、
+插件窗口的只读 IPC 白名单、`pluginSaveHostSettings` 的共享变更门控，
+以及宿主设置 UI、设置 Electron、授权 Electron、插件工作区、真实外壳、
+生产插件三种展示面的全部六项 CI 验收；设计与验证历史均保留。
+未升级 runtime pin、依赖、包版本或公开协议。
+
+本机 Windows / Node.js 24.16.0 的组合验证：
+
+- Desktop 类型检查与生产构建通过；284/284 项定向测试通过，覆盖宿主、
+  原生启动、凭据隔离、独立配置、主进程边界、全局指令与退出助手。
+- SDK 示例 11/11、BVR 53/53 项测试通过；CI 策略、runner、回执测试
+  49 通过、1 项 POSIX 场景跳过。未重跑完整 Desktop 单元测试。
+- 两仓库的六份公开客户端/配置读取源码与固定提交
+  `0a03b3f80b497cad3d55531171ace8c7cb381bb3` 的 Git blob 字节一致。
+- 串行真实源码验收中的宿主设置 UI、设置 Electron、授权 Electron、
+  插件三种展示面和全局指令通过。插件展示面为八组实际生产链路，
+  无模型请求、退出码零、无剩余窗口；MiniChat 独立完整复验通过。
+- BVR 通过生产市场安装、真实原生 MCP 启动和生产确认界面的八项验收：
+  拒绝、批准与复用、provider 失败、待确认/在途取消、换号、独立配置、
+  无宿主账户启动和旧修订拒绝。六次 provider 请求均为 loopback fixture，
+  不访问个人 profile 或真实账户，不调用付费模型。
+
+BVR 报告在 `Desktop/test-results/bvr-main-sync-20261110/verification.json`。
+验收在合并提交前执行，报告的 `desktopCommit` 因此仍为父提交 `bb74201`；
+实际运行的是已解决冲突的组合构建，`dist/main.cjs` SHA-256 为
+`fd8b8eef4d12302b864fd373f014cacf96ccd984951511165422e0ac34162db4`，
+BVR 为 `dcd4c5111289aca90f2d9f6e3aa3b123260bc402`。不把该报告称为
+合并提交的干净 checkout 构建或安装包验收。
+
+保留未决退出失败：首轮组合原生验收与权限单独复测均在 30 秒有界退出
+超时，首轮因此没有执行随后 MiniChat。临时安全事件诊断复测通过，
+再以未修改脚本串行复测权限和 `then_run` 均通过；后者包含真实原生
+命令取消及子进程树断言。没有强杀、延长时限、放宽 controller/launcher/
+context close 断言，亦没有把复跑通过当作已证明根因修复。
+
+#215 当前 `c177dc9` 的云端 run `42650285812` 另在 `then_run` 退出失败：
+业务断言通过、launcher exit 0、零窗口，但未观察到 context close。
+该日志的 `context.isClosed()` 为真也不能替代实际关闭事件；本机安装的
+Playwright 1.60.0 在进入 closing 时即可返回真。云端权限验收本身通过，
+不将其与本机权限退出卡住认定为同一根因。保留原始失败与后续成功日志；
+这些未决项、ARM64 排队及新组合云端检查仍阻止宣称整组全绿。
+
+本轮没有重新打包、改快捷方式、重启日用应用、修改真实账户或配置、
+市场同步、合并或发布；StepAudio 不在范围内。
+
+## Plugin Desktop Workspaces (2026-11-09, Local Source Verification)
+
+This source change adds an optional `dfsc.plugin.json.desktop` contract for one
+host-rendered workspace per recorded installed plugin. `main-view`,
+`side-panel` and `window` select a host surface, not arbitrary plugin frontend
+execution. Pages remain bounded, same-package Markdown behind opaque package
+references. Optional light/dark raster icons are signature-checked, bounded to
+128 KiB and 512px, and require native validation before projected data URLs.
+No package-name exception, new account permission, model request, dependency
+installation or released-client capability is implied.
+
+Completed local source evidence:
+
+- Metadata, library and plugin-window policy tests passed 24/24, with no failures
+  or skips. These cover bounds, raw page-ID validation, provenance, packaged
+  document existence and limits, linked-path rejection, stale references,
+  native image validation/fallback, schema consistency and the resource-starter's
+  actual package files. Invalid icon declarations reject the workspace;
+  valid declarations with missing or undecodable files retain the pages.
+- The integrated focused host run passed 29 tests, including execution of the
+  actual plugin-window IPC handler extracted from production `main.ts` with
+  mocked services. It checks owner/frame scoping, stale-reference revalidation,
+  configuration-only navigation, denied conversation operations and independent
+  window controls. This is not a full Electron application launch.
+- `scripts/verify-plugin-workspace.mjs` passed 13 browser check groups against
+  component fixtures; `scripts/verify-plugin-shell.mjs` passed 10 groups against
+  the actual `main.tsx` shell with an injected bridge. They cover independent
+  titlebar grouping, MiniChat order, icon fallback, retry, keyboard/focus and
+  overflow behavior, page/history/scroll retention, actual ProseMirror draft
+  preservation, side-panel replacement/Escape, theme/preferences refresh,
+  package-reference remounting and stale-response/unavailable cleanup.
+  Light/dark desktop and 390px narrow screenshots were manually inspected.
+  Evidence is under `Desktop/test-results/plugin-workspace/` and
+  `Desktop/test-results/plugin-shell/`. Injected bridges do not establish real
+  preload or production IPC acceptance.
+- `scripts/verify-plugin-windows.mjs` passed seven isolated native Electron
+  groups using production `PluginWindows`, production preload and production
+  method policy, but fixture state/documents rather than the full application.
+  It checks sandboxing, own-ref access, denied operations, exact projected
+  broadcast payloads, a dedicated configuration action, blocked navigation and
+  popups, credential-free HTTPS through a mocked opener, stale replacement,
+  maximize/state events, minimize/close independence, the eight-window bound,
+  released slots and failed-load cleanup. Latest evidence:
+  `D:\DFSC-Preview-QA\plugin-windows-et3Wq4\verification.json`.
+- The complete Desktop suite completed 1,807 tests: 1,794 passed, 13 platform skips,
+  no failures. Desktop typecheck and production build passed. The initial
+  attempt without a staged runtime failed with missing-file errors and is not
+  counted as passing evidence. CI policy/inventory verification passed 24
+  tests locally; this does not claim a cloud CI run. `git diff --check` passed.
+- `scripts/verify-plugin-surfaces-electron.mjs` passed eight groups through the
+  full production Desktop main, preload, renderer, capability service and
+  staged runtime, with an isolated profile and real local Git marketplace.
+  Actual install immediately exposes shortcuts; all three surfaces open;
+  main draft/transcript position and plugin tab/scroll survive; configuration
+  targets the exact installed plugin; the side panel yields to official tools
+  and restores focus; and the optional actual Hermes package displays all four
+  onboarding tabs and its decoded icon in light/dark/narrow screenshots.
+  The supplied 256px Hermes avatar's exact image bytes and decoded dimensions
+  are verified in marketplace catalog/detail, direct/overflow shortcuts and
+  workspace headers; the corresponding screenshots were manually inspected.
+  Production native IPC rejects conversation/model/mutation and foreign/private
+  document access. Actual marketplace refresh, update and uninstall invalidate
+  old references, clear stale native content and preserve the selected runtime;
+  stale plugin windows can still close independently. The run recorded zero
+  inference requests, no renderer errors, exit code zero and zero remaining
+  windows. Evidence:
+  `D:\DFSC-Preview-QA\plugin-surfaces-electron-20261109-020304\verification.json`.
+
+The application fixture uses an isolated runtime at
+`D:\Desktop For Step Code\Desktop\release\plugin-workspaces-runtime`, reached by
+this worktree's `Desktop/runtime` junction. Its reused bundle came from the
+existing `capability-management-phase1-20261108-preview-r2` package. Before
+reuse, its Windows/x64 commit and exact set of 47 patched-source hashes matched
+the current integration manifest, and the Node v24.16.0 binary matched its
+recorded SHA-256. The copied node/step/remote files were hash-checked, 20 current
+host helper files were copied and three helper bundles rebuilt. No shared
+runtime or upstream checkout was changed, and no upstream rebuild is claimed.
+
+The resource-starter's prior installation screenshot predates this feature.
+It is not evidence for the new titlebar group, side panel or native plugin
+window. No installer, public release, cloud CI, native macOS, real-account or
+Hermes/Feishu business-flow acceptance is claimed by this local source record.
+No live-model inference or active-model-task continuity was exercised.
+
+## Hermes x DFSC First-Run Guidance (2026-11-10, Local Source Verification)
+
+The Agent Bridge connection page now separates four preparation checkpoints:
+profile marker, companion configuration, read-only pairing/identity, and
+visible authorized directories. Package-declared setup, first-task and
+troubleshooting page IDs provide bounded navigation without additional IPC,
+document access, installation, pairing, authorization or task mutation.
+The titlebar remains the existing compact status popover.
+
+Completed local evidence:
+
+- Desktop typecheck and production build passed. The build retained existing
+  chunk-size and module-directive warnings. The focused metadata, preparation,
+  library, requirements and market-metadata run passed 58 tests, with no skips.
+- The final generic workspace browser run passed 24 check groups, including all
+  preparation states, missing roots, failed/loading evidence reset, declared
+  guide navigation, light/dark/narrow focus bounds, and forgetting a profile.
+  Held forget results do not steal guide or conversation focus after navigation;
+  reopening reads the updated unselected state. No page errors were recorded.
+- The Hermes preview passed 25 groups against the real packaged guides and
+  production components with simulated state. It covers first installation,
+  missing configuration, unavailable/mismatched connections, visible roots,
+  first-task navigation and preserved drafts. Desktop/narrow light and dark
+  screenshots were inspected. These fixtures do not establish a real service.
+- The final production Electron run passed 17 groups through the real main,
+  preload, renderer, capability service and staged runtime using an isolated
+  profile, local Git marketplace and controlled loopback Bridge. The actual
+  Hermes package displays its new brand, four guide pages and approved icons.
+  The run recorded zero inference requests, zero renderer errors, launcher
+  exit code zero and zero remaining fixture windows after orderly shutdown.
+- The initial Electron attempt failed because uninstall changed the number of
+  shortcuts and the verifier still expected an overflow anchor. The verifier
+  now asserts focus against the actual direct or overflow entry. That failed
+  attempt also timed out during shutdown and required removal of its verified
+  isolated fixture process tree; it is not passing evidence. The separate final
+  run completed without forced process cleanup.
+- The complete serial Desktop run finished 1,860 tests: 1,846 passed, one failed
+  and 13 platform skips. The original background Plan fixture failed during
+  Windows process-tree termination; its verified leftover fixture was stopped
+  so the suite could finish. An unchanged, isolated rerun of that exact Plan
+  case passed. This does not turn the complete run into an all-green result.
+  The test, runtime implementation and staged runtime were not changed to
+  accommodate that failure.
+- The companion source is unchanged. Its 49 tests completed with 48 passing and
+  one platform skip when run with `python -X utf8`; the initial default-codepage
+  invocation failed on a GBK read of UTF-8 fixture data. The resource package's
+  eight tests and both repositories' `git diff --check` passed. Confirmed icon
+  bytes and companion implementation have no diff.
+
+Evidence is under `D:\DFSC-Preview-QA\hermes-first-run-20261110`:
+`focused-tests.log`, `full-tests.log`, `background-plan-rerun.log`,
+`browser-final/browser-run.log`, `preview/verification.json`, and
+`electron-final/verification.json`. The earlier failed Electron record remains
+in `electron/verification.json`. The fixture-only preview server is intentionally
+kept available for UI review. No installer was produced, existing package
+deleted, desktop shortcut redirected, or owner application restarted.
+The current `Desktop/dist` is approximately 12 MiB; the existing runtime junction
+still points to the isolated `plugin-workspaces-runtime` staging directory.
+
+The Hermes resource continues to use version 0.3.0 and companion 0.2.0.
+New engineering grants in that companion still require a verified Feishu owner;
+resource installation and read-only viewing do not. Matching the declared DFSC
+version range does not prove that an older build implements the new protocol.
+No real Hermes/model/Feishu workflow, clean-machine installation, native macOS,
+current cloud CI, public marketplace update or release is accepted by this record.
+
+## Generic Local External Delegation (2026-11-10, Local Source Verification)
+
+The reviewed plan is `docs/EXTERNAL_CONNECTORS_PLAN.md`; operator and protocol
+details are in `docs/EXTERNAL_CONNECTORS.md`. Ordinary DFSC source now supplies
+the default-off `dfsc-external-v1` loopback entry, managed under
+Remote access -> Channels -> External agents. This is not a release record.
+Hermes companion has a new explicitly selected adapter, independent of its
+unchanged-default legacy mode. This supersedes the preceding record's statement
+that companion implementation was unchanged, not that earlier record's results.
+
+Completed evidence on the final implementation:
+
+- The 18-file serial unit regression passed 576/576 tests, with no failures or
+  skips. It covers the connector core/policy/gateway, plugin connection and
+  preparation, native queue/runtime, Remote stores/managers/channels/media,
+  desktop Remote and capability removal. The core has 32 tests; the gateway has
+  19, including real sockets, directory replacement while a read is queued,
+  bounded outstanding handlers, revocation and persistence failures.
+  This is a targeted regression, not a claim that the entire Desktop suite ran.
+- Desktop typecheck and production build passed. Existing theme-bootstrap,
+  module-directive and chunk-size warnings remain.
+- Companion tests completed 67 cases: 66 passed and one Unix-only case skipped.
+  Resource tests passed 9/9. Both used `python -X utf8 -B`; neither used real
+  account credentials, messages or engineering tasks. Versions and approved
+  icon bytes were not changed.
+- The browser verifier passed six groups with production components and an
+  injected bridge: pairing, explicit scopes, nonsecret path copy, revoke,
+  empty project list, held failed authorization, keyboard focus restoration
+  and shared focus bounds. It covers 1360px/390px, Chinese/English,
+  light/dark and reduced motion. Screenshots were manually inspected.
+- The final isolated Electron verifier passed seven groups through the actual
+  main, typed preload, renderer, staged runtime and Python companion CLI.
+  Local UI pairing creates an independent native Ask session without changing
+  the selected draft or its unsent text. Identical submissions run only once,
+  conflicting keys fail, frozen summaries exclude later local conversations,
+  and an old stop cannot stop a later local turn. External approval and policy
+  changes fail; local approval works. External stop, local takeover of a
+  waiting task, relocation/BTW guards, restart without replay, credential
+  revocation and disable all pass. Seven inference requests reached only the
+  controlled local model endpoint. There were no renderer errors, launcher
+  exit code was zero, and zero fixture windows remained after orderly exit.
+- The existing `scripts/verify-remote-access.mjs` passed its complete native
+  acceptance, including image delivery, questions, Plan approval, queued input,
+  deduplication, encrypted grants, local drafts, focus, narrow layouts and
+  quit/relaunch recovery. Its English Feishu selector was made channel-specific
+  because the new external channel also has a Manage button; assertions and
+  production Feishu behavior were not weakened.
+- Independent architecture, security and Hermes reviews completed. They led to
+  fixes for listener startup readiness, local abort ownership release, project
+  relocation and BTW protection, final directory identity revalidation, and
+  failed-operation focus restoration. Both repositories' `git diff --check`
+  passed.
+
+Earlier attempts are not counted as passing evidence: the initial browser run
+found the focus-restoration bug, which was fixed; native harness attempts used
+an asynchronous switch as a synchronous checkbox, read `app.process()` after
+Playwright disposal, or used `inputValue()` on the contenteditable composer.
+Those verifier errors were corrected, followed by separate successful runs.
+The initial Remote rerun failed only at the now-ambiguous English selector;
+the complete rerun passed.
+
+Final connector evidence is under
+`D:\DFSC-Preview-QA\external-connectors-20261110`:
+`browser-final/verification.json` and `electron-current/verification.json`.
+Earlier failed records and the preceding successful native run are retained
+separately. Remote screenshots are in `Desktop/test-results/remote-access/`.
+The current `Desktop/dist` is approximately 12.2 MiB. No installer or new
+runtime package was created, existing packages deleted, primary shortcut
+redirected, owner application restarted, or real profile/configuration edited.
+The existing fixture preview server remains available; no native fixture
+process is intentionally retained.
+
+This interface assumes a trusted single-user machine. It is not a filesystem
+sandbox or a mutually authenticated cross-user transport; Windows ACLs,
+mapped-network-drive detection and token rotation are not accepted by these
+tests. The descriptor contains a plaintext bearer in the isolated userData,
+never in renderer IPC. Actual Hermes gateway loading, real models/Feishu,
+clean-machine installation, macOS, cloud CI, public marketplace publication,
+release packaging and user engineering acceptance remain unverified.

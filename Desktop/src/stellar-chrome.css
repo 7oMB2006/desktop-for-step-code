@@ -5,10 +5,7 @@
   --stellar-section-rule: #bca98752;
   --stellar-frame: #65615a;
   --stellar-control: #131416;
-  --stellar-signal: var(--primary);
 }
-:root[data-theme-material=stellar][data-stellar-activity=waiting] { --stellar-signal: var(--stellar-gold); }
-:root[data-theme-material=stellar][data-stellar-activity=navigating] { --stellar-signal: var(--muted); }
 
 /* Session nodes form a chart rooted in the actual project, not a second status list. */
 :root[data-theme-material=stellar] .sidebar {
@@ -115,11 +112,12 @@
 :root[data-theme-material=stellar] .composer-action-button[data-action=stop]:not(:disabled) {
   background: var(--stellar-control); color: var(--primary); box-shadow: inset 0 0 0 1px var(--primary);
 }
+/* Keep activity colors local; inherited root variables restyle the full history. */
 :root[data-theme-material=stellar][data-stellar-activity=running] .composer::before {
-  background: var(--stellar-signal); opacity: 1;
+  background: var(--primary); opacity: 1;
 }
 :root[data-theme-material=stellar][data-stellar-activity=waiting] .composer::before {
-  background: var(--stellar-signal); opacity: 1;
+  background: var(--stellar-gold); opacity: 1;
 }
 :root[data-theme-material=stellar][data-stellar-motion=true][data-stellar-activity=running] .composer::before {
   animation: stellar-transmission 3.6s cubic-bezier(.65, 0, .35, 1) infinite;

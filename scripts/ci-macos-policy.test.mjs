@@ -7,7 +7,7 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { test } from 'node:test';
 import { macosAcceptanceGroups, macosGroupScripts } from './ci-acceptance.mjs';
-import { validateIdentity, validateOutcomes, validateReceipt, validateReceipts, validateReport, verifyCandidate } from './ci-macos-policy.mjs';
+import { validateIdentity, validateOutcomes, validateWorkflowOutcomes, validateReceipt, validateReceipts, validateReport, verifyCandidate } from './ci-macos-policy.mjs';
 
 const groups = Object.keys(macosAcceptanceGroups);
 const identity = { commit: 'a'.repeat(40), sha256: 'b'.repeat(64) };
@@ -25,6 +25,11 @@ const outcomes = () => ({
   ...Object.fromEntries(groups.map((group, index) => [group, {
     result: 'success', outputs: { group, complete: 'true', ...identity, 'receipt-id': String(101 + index) },
   }])),
+});
+const workflowOutcomes = () => ({
+  changes: { result: 'success', outputs: { 'docs-only': 'false' } },
+  documentation: { result: 'skipped' },
+  ...outcomes(),
 });
 const temporary = t => {
   const directory = mkdtempSync(join(tmpdir(), 'macos-ci-policy-'));
@@ -68,6 +73,44 @@ test('Mac gate requires exact successful dependencies with distinct artifact ide
     assert.throws(() => validateOutcomes(needs, identity.commit));
   }
   assert.throws(() => validateIdentity({ commit: 'x', sha256: 'x' }));
+});
+
+test('Mac documentation route requires successful checks, explicit native skips and no candidate promotion', () => {
+  const docs = () => ({
+    changes: { result: 'success', outputs: { 'docs-only': 'true' } },
+    documentation: { result: 'success' },
+    ...Object.fromEntries(['prepare', ...groups].map(key => [key, { result: 'skipped' }])),
+  });
+  assert.equal(validateWorkflowOutcomes(docs(), identity.commit), undefined);
+  assert.deepEqual(validateWorkflowOutcomes(workflowOutcomes(), identity.commit), identity);
+  for (const baseline of [docs, workflowOutcomes]) {
+    for (const key of Object.keys(baseline())) {
+      for (const state of ['failure', 'cancelled', undefined, 'unexpected']) {
+        const needs = baseline();
+        needs[key].result = state;
+        assert.throws(() => validateWorkflowOutcomes(needs, identity.commit));
+      }
+      const missing = baseline();
+      delete missing[key];
+      assert.throws(() => validateWorkflowOutcomes(missing, identity.commit));
+    }
+    for (const route of ['', undefined, true, 'unknown']) {
+      const needs = baseline();
+      needs.changes.outputs['docs-only'] = route;
+      assert.throws(() => validateWorkflowOutcomes(needs, identity.commit));
+    }
+    assert.throws(() => validateWorkflowOutcomes({ ...baseline(), extra: { result: 'success' } }, identity.commit));
+  }
+  for (const key of ['prepare', ...groups]) {
+    for (const state of ['success', 'failure', 'cancelled']) {
+      const needs = docs();
+      needs[key].result = state;
+      assert.throws(() => validateWorkflowOutcomes(needs, identity.commit));
+    }
+    const unexpected = docs();
+    unexpected[key].outputs = { commit: identity.commit };
+    assert.throws(() => validateWorkflowOutcomes(unexpected, identity.commit));
+  }
 });
 
 test('Mac source and package reports must complete the exact ordered inventory', () => {
@@ -193,6 +236,9 @@ test('Mac CLI grants receipts and concludes only with real parseable complete re
   assert.equal((readFileSync(env.GITHUB_OUTPUT, 'utf8').match(/complete=true/g) ?? []).length, 3);
   const needs = outcomes();
   for (const job of Object.values(needs)) job.outputs.commit = commit;
-  const result = run('conclude', receipts, { CI_MACOS_NEEDS: JSON.stringify(needs) });
+  const result = run('conclude', receipts, { CI_MACOS_NEEDS: JSON.stringify({
+    changes: { result: 'success', outputs: { 'docs-only': 'false' } },
+    documentation: { result: 'skipped' }, ...needs,
+  }) });
   assert.equal(result.status, 0, result.stderr);
 });

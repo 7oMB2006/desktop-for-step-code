@@ -184,8 +184,67 @@ try {
   await page.waitForFunction(() => document.querySelector('.sb-header-title'));
   assert.equal(await page.locator('.sb-header-title').innerText(), 'Summary');
   await page.getByRole('progressbar', { name: 'Task completion' }).waitFor();
+  for (const memory of [false, true]) {
+    await page.goto(url + (memory ? '?memory=1' : ''));
+    await page.waitForFunction(() => window.disclosureFixture);
+    await load('thought');
+    await page.waitForFunction(() => document.querySelector('.thinking')?.dataset.running !== 'true');
+    await thought.locator('summary').click();
+    await page.waitForFunction(() => document.querySelector('.thinking')?.dataset.expanded === 'true');
+    await page.evaluate(() => {
+      window.originalThought = document.querySelector('.thinking');
+      const f = window.disclosureFixture;
+      f.load([{ ...f.thought, entryId: 'saved-thought' }, f.command, f.result]);
+    });
+    await page.waitForFunction(() => document.querySelector('.compact-process')?.dataset.single === 'false');
+    assert.equal(await page.evaluate(() => window.originalThought === document.querySelector('.thinking')), true);
+    assert.equal(await thought.getAttribute('data-expanded'), 'true', 'adopting a saved ID keeps the same thought expanded');
+    assert.equal(await heading.getAttribute('aria-expanded'), 'true', 'adopting a saved group ID keeps the manual group choice');
+    await page.evaluate(() => {
+      const f = window.disclosureFixture;
+      f.load([{ ...f.thought, entryId: 'different-thought' }]);
+    });
+    await page.waitForFunction(() => document.querySelector('.thinking')?.dataset.expanded === 'false');
+    if (memory) {
+      await thought.locator('summary').click();
+      await page.evaluate(() => window.disclosureFixture.remount());
+      assert.equal(await thought.getAttribute('data-expanded'), 'true', 'a saved-ID disclosure survives remounting');
+      await page.evaluate(() => window.disclosureFixture.resetDisclosures());
+      await page.waitForFunction(() => document.querySelector('.thinking')?.dataset.expanded === 'false');
+      await page.evaluate(() => window.disclosureFixture.remount());
+      assert.equal(await thought.getAttribute('data-expanded'), 'false', 'explicit settings resets still invalidate old disclosure memory');
+    }
+  }
+  await page.goto(url + '?memory=1');
+  await page.waitForFunction(() => window.disclosureFixture);
+  const loadSavedThought = () => page.evaluate(() => {
+    const f = window.disclosureFixture;
+    f.load([{ ...f.thought, entryId: 'preview-thought' }], false);
+  });
+  await loadSavedThought();
+  await page.waitForFunction(() => document.querySelector('.thinking')?.dataset.running !== 'true');
+  const savedDisclosures = await page.evaluate(() => window.disclosureFixture.disclosures());
+  assert.ok(savedDisclosures.length > 0);
+  for (const [clicks, restored, expected] of [[0, true, true], [1, false, true], [2, true, false]]) {
+    await page.goto(url);
+    await page.waitForFunction(() => window.disclosureFixture);
+    await loadSavedThought();
+    await page.waitForFunction(() => document.querySelector('.thinking')?.dataset.running !== 'true');
+    for (let index = 0; index < clicks; index++) await thought.locator('summary').click();
+    await page.evaluate(({ entries, expanded }) => {
+      window.previewThought = document.querySelector('.thinking');
+      window.disclosureFixture.restoreDisclosures(entries.map(([key, value]) => [key, { ...value, expanded }]));
+    }, { entries: savedDisclosures, expanded: restored });
+    await page.waitForFunction(() => window.disclosureFixture.disclosures().length > 0);
+    await page.waitForFunction(expected => document.querySelector('.thinking')?.dataset.expanded === String(expected), expected);
+    assert.equal(await page.evaluate(() => window.previewThought === document.querySelector('.thinking')), true,
+      'Restoring presentation memory keeps the interactive preview mounted');
+    await page.evaluate(() => window.disclosureFixture.remount());
+    assert.equal(await thought.getAttribute('data-expanded'), String(expected),
+      'Untouched previews adopt saved state; explicit open/close choices survive handoff and remount');
+  }
   assert.deepEqual(errors, []);
-  console.log('Disclosure/Summary: singleton identity and focus, native details motion, lazy body, keyboard, record navigation, canonical progress, activity semantics, zh/en, themes and 320/390px passed.');
+  console.log('Disclosure/Summary: saved-ID adoption, remount and explicit-reset memory, singleton identity and focus, native details motion, lazy body, keyboard, record navigation, canonical progress, activity semantics, zh/en, themes and 320/390px passed.');
 } finally {
   await browser?.close();
   await server.close();

@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import assert from 'node:assert/strict';
 import { settleLayout } from './settle-layout.mjs';
+import { relocateIdleWorkspaceFixture } from './session-fixture.mjs';
 
 // Windows runner TEMP can use an 8.3 alias; match the main process's canonical paths.
 const profile = await realpath(await mkdtemp(join(tmpdir(), 'step-desktop-sidebar-')));
@@ -303,7 +304,13 @@ try {
   await app.evaluate(({ dialog }) => { dialog.showOpenDialog = async () => ({ canceled: true, filePaths: [] }); });
   await banner.getByRole('button', { name: '重新定位', exact: true }).click();
   assert.equal((await page.evaluate(() => window.desktop.snapshot())).preferences.workspaces.includes(projects[2]), true);
-  await app.evaluate(({ dialog }, path) => { dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [path] }); }, relocated);
+  await app.evaluate(({ dialog }, path) => {
+    globalThis.__sidebarRelocationDialogs = 0;
+    dialog.showOpenDialog = async () => {
+      globalThis.__sidebarRelocationDialogs++;
+      return { canceled: false, filePaths: [path] };
+    };
+  }, relocated);
   await banner.getByRole('button', { name: '重新定位', exact: true }).click();
   await banner.waitFor({ state: 'detached' });
   await page.waitForFunction(path => !!document.querySelector(`[data-reorder-id="${path}"]`), key(relocated));
@@ -316,7 +323,9 @@ try {
   await page.waitForFunction(() => document.querySelector('.session-row.selected')?.dataset.reorderId === 'sidebar-4');
   await page.waitForFunction(() => !document.querySelector('.new-chat')?.disabled &&
     !document.querySelector('.composer-wrap.session-navigation-pending'));
-  await page.evaluate(path => window.desktop.relocateWorkspace(path), relocated);
+  const beforeRelocation = await page.evaluate(() => window.desktop.snapshot());
+  await relocateIdleWorkspaceFixture(page, relocated, beforeRelocation.runtimeId,
+    () => app.evaluate(() => globalThis.__sidebarRelocationDialogs));
   const repaired = await page.evaluate(() => window.desktop.snapshot());
   assert.equal(repaired.state.sessionId, 'sidebar-4', 'the active original session is restored');
   assert.equal(repaired.preferences.workspace, relocated);

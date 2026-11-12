@@ -32,6 +32,22 @@ export function conversationEntries(messages: Message[]): ConversationEntry[] {
   return entries;
 }
 
+export function createConversationEntriesReader() {
+  let previous: ConversationEntry[] = [];
+  return (messages: Message[]) => {
+    previous = conversationEntries(messages).map((entry, index) => {
+      const saved = previous[index];
+      if (entry.type === 'user' && saved?.type === 'user'
+        && entry.item.message === saved.item.message && entry.item.index === saved.item.index) return saved;
+      if (entry.type === 'response' && saved?.type === 'response' && entry.items.length === saved.items.length
+        && entry.items.every((item, position) => item.message === saved.items[position].message
+          && item.index === saved.items[position].index)) return saved;
+      return entry;
+    });
+    return previous;
+  };
+}
+
 export type ResponseItem =
   | { type: 'completion-review'; result?: CompletionReview; index: number; key: string }
   | { type: 'auto-resume'; index: number; key: string }

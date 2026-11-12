@@ -1,0 +1,58 @@
+.mini-session-picker {
+  position: fixed; inset: auto; margin: 0; width: min(344px, calc(100vw - 16px));
+  display: none; flex-direction: column; min-height: 0; overflow: hidden; padding: 8px;
+  border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--ink);
+  box-shadow: var(--shadow); opacity: 0; transform: translateY(-4px);
+  transition: opacity 180ms cubic-bezier(.22, 1, .36, 1), transform 180ms cubic-bezier(.22, 1, .36, 1),
+    display 180ms allow-discrete, overlay 180ms allow-discrete;
+}
+.mini-session-picker:popover-open { display: flex; opacity: 1; transform: none; }
+.mini-session-picker::backdrop { background: transparent; }
+.mini-session-search-gutter { flex-shrink: 0; padding: 4px; }
+.mini-session-search {
+  display: flex; align-items: center; gap: 7px; min-height: 34px; padding: 0 8px;
+  border: 1px solid var(--border); border-radius: 5px; background: var(--side); color: var(--muted);
+}
+.mini-session-search:focus-within { outline: 2px solid var(--primary); outline-offset: 2px; }
+.mini-session-search input {
+  width: 100%; min-width: 0; padding: 7px 0; border: 0; background: transparent;
+  font-size: 12px; outline: none;
+}
+.mini-session-search input::-webkit-search-cancel-button { display: none; }
+.mini-session-search input:focus-visible { outline: none; }
+.mini-session-search .icon-button { width: 22px; height: 24px; min-height: 24px; }
+.mini-session-groups { min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 4px; scroll-padding: 4px; }
+.mini-session-group { position: relative; }
+.mini-session-group + .mini-session-group { margin-top: 5px; padding-top: 5px; border-top: 1px solid var(--border); }
+.mini-session-group summary {
+  display: flex; align-items: center; gap: 6px; min-height: 36px; padding: 6px 34px 6px 4px;
+  list-style: none; cursor: pointer; user-select: none; border-radius: 4px; font-size: 12px;
+}
+.mini-session-group summary::-webkit-details-marker { display: none; }
+.mini-session-group summary:hover { background: var(--surface); }
+.mini-session-group summary:focus-visible, .mini-session-option:focus-visible {
+  outline: 2px solid var(--primary); outline-offset: -2px;
+}
+.mini-session-chevron { display: flex; flex-shrink: 0; color: var(--muted); transition: transform 240ms cubic-bezier(.215, .61, .355, 1); }
+.mini-session-group details:not([data-expanded=true]) .mini-session-chevron { transform: rotate(-90deg); }
+.mini-session-project-copy { display: grid; gap: 3px; min-width: 0; flex: 1; }
+.mini-session-project-copy > span, .mini-session-project-copy > small,
+.mini-session-option-copy > span, .mini-session-option-copy > small { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.mini-session-project-copy small { font-size: 10px; font-weight: 400; color: var(--muted); }
+.mini-session-count { flex-shrink: 0; color: var(--muted); font-size: 10px; font-variant-numeric: tabular-nums; }
+.mini-session-new { position: absolute; top: 3px; right: 2px; width: 28px; height: 28px; min-height: 28px; color: var(--muted); }
+.mini-session-group + .mini-session-group .mini-session-new { top: 8px; }
+.mini-session-options { min-height: 0; padding: 2px 0; }
+.mini-session-option {
+  display: flex; align-items: center; justify-content: flex-start; gap: 8px; width: 100%; min-height: 34px;
+  margin: 1px 0; padding: 6px 8px; border: 0; border-radius: 4px; background: transparent;
+  text-align: left; font-size: 12px;
+}
+.mini-session-option > svg { color: var(--muted); }
+.mini-session-option[aria-selected=true], .mini-session-option:hover { background: var(--surface); }
+.mini-session-option-copy { display: grid; gap: 3px; min-width: 0; flex: 1; }
+.mini-session-option-copy small { font-size: 10px; color: var(--muted); }
+.mini-session-option > .mini-session-selected { color: var(--primary); }
+.mini-session-empty { margin: 0; padding: 12px 8px; font-size: 12px; color: var(--muted); }
+@starting-style { .mini-session-picker:popover-open { opacity: 0; transform: translateY(-4px); } }
+@media (prefers-reduced-motion: reduce) { .mini-session-picker, .mini-session-chevron { transition: none; } }

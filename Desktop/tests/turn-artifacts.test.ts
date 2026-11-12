@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { localReference, localPreviewUrl, turnArtifacts, turnOutputPaths } from '../src/turn-artifacts';
 import { artifactFile } from '../electron/artifact-files';
+import { removeArtifactFixture } from './fixtures/artifact-cleanup';
 
 test('artifact links parse through Markdown, deduplicate and exclude source and web links', () => {
   const outputs = turnArtifacts('[页面](</D:/项目/index.html>)\n\n[再打开](</D:/项目/index.html>)\n\n[源码](D:/项目/app.ts)\n\n[网站](https://example.com/)\n\n[报告][report]\n\n[report]: ./报告.pdf\n\n```md\n[伪引用](./hidden.pdf)\n```');
@@ -36,21 +37,25 @@ test('file access stays inside the session and refuses executable opening', asyn
 
 test('mapped workspace roots accept original and canonical paths but reject escaping links', async () => {
   const fixture = await mkdtemp(join(tmpdir(), 'artifact-mapped-'));
+  const root = join(fixture, 'workspace');
+  const alias = join(fixture, 'alias');
+  const escape = join(root, 'escape');
+  const links: string[] = [];
   try {
-    const root = join(fixture, 'workspace');
-    const alias = join(fixture, 'alias');
     await mkdir(root);
     await writeFile(join(root, 'report.doc'), 'Example');
     await symlink(root, alias, process.platform === 'win32' ? 'junction' : 'dir');
+    links.push(alias);
     const canonical = await artifactFile(root, './report.doc');
     assert.equal(canonical.canOpen, true);
     assert.deepEqual(await artifactFile(alias, join(alias, 'report.doc')), canonical);
     assert.deepEqual(await artifactFile(alias, canonical.path), canonical);
     await mkdir(join(fixture, 'outside'));
     await writeFile(join(fixture, 'outside/report.doc'), 'Outside');
-    await symlink(join(fixture, 'outside'), join(root, 'escape'), process.platform === 'win32' ? 'junction' : 'dir');
+    await symlink(join(fixture, 'outside'), escape, process.platform === 'win32' ? 'junction' : 'dir');
+    links.unshift(escape);
     await assert.rejects(artifactFile(alias, './escape/report.doc'), /points outside/);
-  } finally { await rm(fixture, { recursive: true, force: true }); }
+  } finally { await removeArtifactFixture(fixture, links); }
 });
 
 test('legacy Office artifacts support opening while executable types remain blocked', async () => {
@@ -104,6 +109,37 @@ test('preview inference does not turn remote citations, credentials or example c
   assert.equal(localPreviewUrl('http://name:password@localhost:8765/'), undefined);
   assert.equal(localPreviewUrl('javascript:alert(1)'), undefined);
   assert.deepEqual(turnArtifacts('[Reference](https://example.com/)\n\n`curl http://localhost:8765/`\n\n```bash\ncurl http://localhost:8765/\n```'), []);
+});
+
+test('artifact-negative prose still preserves recorded output paths', () => {
+  const text = '# Finished\n\n**Formatted prose**, `inline`, and [remote references](https://example.com/docs).\n\n'
+    + '```typescript\nexport function sample() { return { ready: true }; }\n```\n';
+  assert.deepEqual(turnArtifacts(text.repeat(100)), []);
+  assert.deepEqual(turnArtifacts(text, ['output/report.pdf']), [
+    { path: 'output/report.pdf', label: 'report.pdf', kind: 'document', inferred: true },
+  ]);
+});
+
+test('artifact preflight never excludes supported extensions, encoded destinations or loopback URLs', () => {
+  for (const ext of ['html', 'htm', 'png', 'jpg', 'jpeg', 'webp', 'gif', 'svg', 'pdf', 'doc', 'docx',
+    'md', 'txt', 'xls', 'xlsx', 'csv', 'ppt', 'pptx', 'wav', 'mp3', 'ogg', 'flac', 'mp4', 'webm', 'mov']) {
+    for (const spelling of [ext, ext.toUpperCase()]) {
+      const path = `output/report.${spelling}`;
+      assert.equal(turnArtifacts(`[Output](${path})`)[0]?.path, path);
+      assert.equal(turnArtifacts(`\`${path}\``)[0]?.path, path);
+    }
+  }
+  for (const [text, path] of [
+    ['[Encoded](./report%2epdf)', './report.pdf'],
+    ['[Encoded](./report.pd&#102;)', './report.pdf'],
+    ['[Encoded](./report&#x2e;pdf)', './report.pdf'],
+    ['[Escaped](./report\\.pdf)', './report.pdf'],
+    ['[Ref][r]\n\n[r]: ./report%2Epdf', './report.pdf'],
+    ['[Local](http://2130706433:8765/)', 'http://127.0.0.1:8765/'],
+    ['[Local](http://0x7f000001:8765/)', 'http://127.0.0.1:8765/'],
+    ['[Local](http://[::1]:8765/)', 'http://[::1]:8765/'],
+    ['[Local](http&#58;//localhost:8765/)', 'http://localhost:8765/'],
+  ]) assert.equal(turnArtifacts(text)[0]?.path, path, text);
 });
 
 

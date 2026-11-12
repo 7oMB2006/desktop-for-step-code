@@ -5,7 +5,7 @@ Audited against the staged Windows runtime pin
 The macOS preview still stages `3ba89e0cbfe6be78cccdafb5aeafd2592177cbb8`,
 which has no native Usage extension; the Desktop Usage mapping is shared.
 `get_commands` remains the authority for runtime extensions, skills and prompt
-templates. Desktop adds its own Status, trust and compact entries and the two
+templates. Desktop adds its own Status, trust, compact and task-plan entries and the two
 core CLM commands absent from that reply.
 
 ## Presentation
@@ -50,7 +50,7 @@ retains a selectable slash, so selecting transcript text does not remove it.
 | `/btw [question]` | Open the independent temporary right-rail side-question panel; arguments submit there | Dedicated structured RPC, not a main prompt; streaming, independent cancellation and transient history. Shared width modes and handle. [Boundaries](BTW.md) |
 | Model, permissions and MCP actions | Open their existing Desktop controls | Existing discovery acceptance retained |
 | `/compact [instructions]` | Call the `compact` RPC with `customInstructions` | Fixture covers success, failure retaining the draft, and busy rejection; actual model summarization is separate acceptance |
-| `/todos` | Upstream task-list notification | Empty list tested against the real bundle; a right-panel shortcut remains future work |
+| `/todos` | Open Summary and reveal the existing right-panel task plan | Local read-only shortcut; current progress and folded history retain the shared projection, with no prompt or task mutation |
 | `/workflows` | Desktop read-only top drawer for saved definitions and recent project runs | Bare command only; parameters retain upstream routing; not the current agent inspector |
 | `/clm` | Opens the CLM inspector after Context and Status | Read-only active-branch revisions, saved contents and runtime diff; no model request |
 | `/clm on\|off\|diff\|reset`, `/clm-compact [instructions]` | Existing core working-context handlers | Parameterized commands retain their native semantics; manual organization may use the model |
@@ -73,6 +73,17 @@ ordinary prose while a task is running.
 BTW requires a connected existing conversation, can run beside the main task,
 and never consumes launch choices or the main send queue. Its usage is shown
 separately and is not yet included in local Usage totals or cost estimates.
+
+Bare `/todos` is a Desktop navigation action, also discoverable in a new-session
+draft. It opens the existing Summary board and focuses/reveals its task heading.
+Repeating the command while Summary is open preserves manual task/history
+disclosures and the mounted progress animation. Ordinary summary refreshes and
+reopening through the rail do not replay the command's focus request.
+Empty drafts ask for a session; empty current plans remain distinct from folded
+history. Read failures retain the existing retry and last-known-data behavior.
+The command never starts a worker, submits model input, changes task records,
+consumes launch choices or adds to/steers the main queue. Parameters, quoted
+messages and attachments retain upstream routing; `/todo` is not a new alias.
 
 ### Project AI Working Rules
 
@@ -131,7 +142,7 @@ match remains navigable with a neutral unavailable-preview notice.
 
 | 指令 | 现状 | 待适配边界 |
 | --- | --- | --- |
-| `/todos` | 返回上游清单通知 | 映射到已有右栏清单；保留空状态与历史边界 |
+| `/todos` | 已映射到现有摘要栏的推进清单，支持重复定位与键盘焦点 | 沿用空态、历史折叠和完成动画；云端与安装包验收另行确认 |
 | `/workflows` | 裸命令已接只读顶部抽屉，展示项目／Desktop 保存项与近期项目运行 | 安装包及双平台验收待完成；运行详情、启动、重试与恢复不在本轮范围 |
 | `/clm`、`/clm-compact` | CLM 独立页已接真实分支修订查询；面板启停和手动整理复用上游命令 | Windows v0.1.5 增加只读 RPC；旧运行时明确显示接口不可用，尚未声明安装包验收 |
 

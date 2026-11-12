@@ -38,6 +38,78 @@ function fixture(hooks: ConstructorParameters<typeof SessionRuntimes>[2] = {}) {
   const open = (cwd = `workspace-${transports.length}`) => pool.open('node', 'step', cwd, {});
   return { pool, transports, events, open };
 }
+test('host plugins are attached only after model restore and never for gated Cron preparation', async () => {
+  const steps: string[] = [];
+  const f = fixture({ initializeModel: async worker => {
+    steps.push('model');
+    worker.state!.model = { provider: 'step', id: 'restored', name: 'Restored' };
+  }, pluginsReady: async worker => {
+    assert.equal(worker.state?.model?.id, 'restored');
+    assert.equal(worker.mutating, false);
+    steps.push('plugins');
+  } });
+  try {
+    await f.open();
+    assert.deepEqual(steps, ['model', 'plugins']);
+    await f.pool.prepare('node', 'step', 'cron-workspace', { DESKTOP_CRON_RECOVERY: '1' });
+    assert.deepEqual(steps, ['model', 'plugins']);
+  } finally { await f.pool.stopAll(); }
+});
+test('host plugins on refresh wait for the restored live model and released mutation lock', async () => {
+  const original = { id: 'original', provider: 'fixture', name: 'Original' };
+  const fallback = { id: 'fallback', provider: 'fixture', name: 'Fallback' };
+  let launches = 0, attachments = 0;
+  const pool = new SessionRuntimes(() => {}, receive => {
+    const transport = new Transport(receive, 'same-session');
+    let model = ++launches === 1 ? original : fallback;
+    const request = transport.request.bind(transport);
+    transport.request = async (type, args) => {
+      if (type === 'set_model') { model = original; return {}; }
+      if (type === 'get_state') return { sessionId: 'same-session', model, isStreaming: false };
+      if (type === 'get_available_models') return { models: [original, fallback] };
+      return request(type, args);
+    };
+    return transport;
+  }, { pluginsReady: async worker => {
+    assert.equal(worker.mutating, false);
+    assert.equal(worker.state?.model?.id, 'original');
+    attachments++;
+  } });
+  try {
+    const worker = await pool.open('node', 'step', 'workspace', {});
+    await pool.refresh(worker, 'node', 'step', {});
+    assert.equal(attachments, 2);
+  } finally { await pool.stopAll(); }
+});
+
+test('a MiniChat-selected empty runtime is not reused or recycled by main navigation', async () => {
+  let retained: string | undefined;
+  const { pool, open, transports } = fixture({ idleLimit: () => 0, retain: worker => worker.id === retained });
+  try {
+    const mini = await open('same-project');
+    retained = mini.id;
+    const main = await open('same-project');
+    assert.notEqual(main.id, mini.id);
+    assert.equal(pool.activeId, main.id);
+    mini.messages = [{ role: 'assistant', content: 'Persisted answer' }];
+    mini.touched = 0;
+    await pool.recycle();
+    assert.equal(transports[0].stopped, false);
+    retained = undefined;
+    await pool.recycle();
+    assert.equal(transports[0].stopped, true);
+  } finally { await pool.stopAll(); }
+});
+
+test('preparing a MiniChat runtime never activates it in the main window', async () => {
+  const { pool, open } = fixture();
+  try {
+    const main = await open('main-project');
+    const mini = await pool.prepare('node', 'step', 'mini-project', {}, 'saved-session.jsonl');
+    assert.notEqual(main.id, mini.id);
+    assert.equal(pool.activeId, main.id);
+  } finally { await pool.stopAll(); }
+});
 
 test('Remote retains its host, rejects history mutation and does not reuse an attached empty session', async () => {
   const f = fixture({ idleLimit: () => 0 });
@@ -1143,6 +1215,26 @@ test('concurrent new-session requests share the startup worker', async () => {
   await pool.stopAll();
 });
 
+test('a new session skips outdated empty workers without mutating or stopping resident sessions', async () => {
+  const transports: Transport[] = [];
+  const outdated = new WeakSet();
+  const pool = new SessionRuntimes(() => {}, receive => {
+    const transport = new Transport(receive, `session-${transports.length}`);
+    transports.push(transport);
+    return transport;
+  }, { canReuseEmpty: worker => !outdated.has(worker) });
+  try {
+    const old = await pool.open('node', 'step', 'workspace', {});
+    outdated.add(old);
+    const current = await pool.open('node', 'step', 'workspace', {});
+    assert.notEqual(current, old);
+    assert.equal(transports[0].stopped, false);
+    assert.equal(old.state?.sessionId, 'session-0');
+    assert.equal(await pool.open('node', 'step', 'workspace', {}), current);
+    assert.equal(transports.length, 2);
+  } finally { await pool.stopAll(); }
+});
+
 test('new-session requests wait for all ordinary snapshot reads and then reuse the empty worker', async () => {
   const { pool, transports, open } = fixture();
   const empty = await open('workspace');
@@ -1559,6 +1651,62 @@ test('workers keep separate histories and approvals across navigation and target
   assert.ok(events.some(event => event.type === 'message_start' && event.runtimeId === a.id));
   await assert.rejects(pool.assertAllIdle(), /Stop/);
   await pool.stopAll();
+});
+
+test('Desktop confirmation arrival prevents a delayed snapshot from hiding the live request', async () => {
+  const { pool, events, open } = fixture();
+  try {
+    const worker = await open();
+    worker.permissionPreset = 'full-access';
+    const revision = new MessageRevision();
+    const before = { runtimeId: worker.id, runtimeRevision: worker.revision, requests: [] };
+    assert.equal(revision.acceptSnapshot(before), true);
+    const pending = pool.confirm(worker, 'Plugin account authorization', 'Explicit approval is required');
+    const request = [...worker.pendingUI.values()][0];
+    const arrival = events.find(event => event.type === 'extension_ui_request' && event.id === request.id)!;
+    assert.equal(revision.acceptEvent(arrival), true);
+    assert.equal(arrival.runtimeRevision, worker.revision);
+    assert.equal(revision.acceptSnapshot(before), false);
+    assert.equal(worker.pendingUI.has(request.id), true);
+    pool.respondToRequest(worker, { id: request.id, confirmed: true });
+    assert.equal(await pending, true);
+  } finally { await pool.stopAll(); }
+});
+
+test('Desktop confirmation cancellation prevents a delayed snapshot from restoring an expired request', async () => {
+  const { pool, events, open } = fixture();
+  try {
+    const worker = await open(), controller = new AbortController();
+    const pending = pool.confirm(worker, 'Plugin account authorization', 'Explicit approval is required', controller.signal);
+    const request = [...worker.pendingUI.values()][0];
+    const revision = new MessageRevision();
+    const waiting = { runtimeId: worker.id, runtimeRevision: worker.revision };
+    assert.equal(revision.acceptSnapshot(waiting), true);
+    controller.abort();
+    assert.equal(await pending, false);
+    const expiry = events.find(event => event.type === 'desktop_ui_expired' && event.id === request.id)!;
+    assert.equal(revision.acceptEvent(expiry), true);
+    assert.equal(expiry.runtimeRevision, worker.revision);
+    assert.equal(revision.acceptSnapshot(waiting), false);
+    assert.equal(worker.pendingUI.size, 0);
+  } finally { await pool.stopAll(); }
+});
+
+test('Desktop confirmation answers advance snapshots without answering the native transport', async () => {
+  const { pool, transports, open } = fixture();
+  try {
+    const worker = await open();
+    const pending = pool.confirm(worker, 'Plugin account authorization', 'Explicit approval is required');
+    const request = [...worker.pendingUI.values()][0];
+    const waiting = { runtimeId: worker.id, runtimeRevision: worker.revision };
+    pool.respondToRequest(worker, { id: request.id, confirmed: true });
+    assert.equal(await pending, true);
+    const revision = new MessageRevision();
+    assert.equal(revision.acceptSnapshot({ runtimeId: worker.id, runtimeRevision: worker.revision }), true);
+    assert.equal(revision.acceptSnapshot(waiting), false);
+    assert.equal(worker.pendingUI.size, 0);
+    assert.deepEqual(transports[0].answers, []);
+  } finally { await pool.stopAll(); }
 });
 
 test('disposed workers cannot deliver late events or receive stale commands', async () => {

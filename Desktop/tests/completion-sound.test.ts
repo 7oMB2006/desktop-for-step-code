@@ -20,6 +20,9 @@ test('live completion feedback is scoped, non-replaying and cannot suppress the 
     assert.deepEqual(calls, ['load']);
     playCompletionSound({ runtimeId: 'runtime-a', sessionId: 'session-a' });
     assert.deepEqual(calls, ['load', 'bad', 'runtime-a:session-a', 'sound:0']);
+    playCompletionSound({ runtimeId: 'runtime-muted', sessionId: 'session-muted' }, false);
+    assert.deepEqual(calls.slice(-2), ['bad', 'runtime-muted:session-muted'], 'Muted completions retain visual feedback');
+    assert.equal(calls.filter(call => call === 'sound:0').length, 1, 'Muted completion must not play audio');
     first(); bad();
     const later = onTaskCompletion(() => calls.push('later'));
     assert.equal(calls.includes('later'), false, 'Mounting a panel cannot replay old completion');

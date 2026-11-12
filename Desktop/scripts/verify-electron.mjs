@@ -278,7 +278,9 @@ try {
   await page.keyboard.press('Escape');
   assert.equal(await page.getByRole('menu', { name: process.platform === 'darwin' ? '应用菜单' : '文件' }).count(), 0);
   if (process.platform === 'darwin') {
-    assert.equal(await page.locator('.window-controls').count(), 0);
+    assert.equal(await page.locator('.window-controls > button:not([aria-label="MiniChat"])').count(), 0,
+      'macOS keeps native traffic lights rather than Windows window controls');
+    assert.equal(await page.locator('.window-controls').getByRole('button', { name: 'MiniChat', exact: true }).count(), 1);
     assert.equal(await page.locator('.window-bar-macos').count(), 1);
     assert.deepEqual(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].getWindowButtonPosition()), { x: 20, y: 19 });
     assert.equal(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isFullScreenable()), true);
@@ -585,16 +587,20 @@ try {
   await page.getByText('未登录', { exact: true }).waitFor();
   await page.getByRole('button', { name: '通用', exact: true }).click();
   assert.equal(await page.evaluate(() => CSS.supports('appearance', 'base-select')), true);
-  const languagePicker = page.getByRole('dialog').getByLabel(/语言|Language/);
+  const languagePicker = page.getByRole('dialog').getByLabel(/^(语言|Language)$/);
+  assert.equal(await languagePicker.count(), 1);
+  const recognitionLanguage = await page.getByRole('dialog').getByLabel('识别语言', { exact: true }).inputValue();
   await languagePicker.click();
   await page.screenshot({ path: 'test-results/select-light.png' });
   await page.keyboard.press('Escape');
   await page.getByRole('button', { name: '外观', exact: true }).click();
   await page.getByRole('button', { name: '暗', exact: true }).click();
   await page.getByRole('button', { name: '通用', exact: true }).click();
-  await page.getByRole('dialog').getByLabel(/语言|Language/).selectOption('en');
+  await page.getByRole('dialog').getByLabel(/^(语言|Language)$/).selectOption('en');
   await page.getByRole('button', { name: 'Model and thinking level' }).waitFor();
   await page.getByRole('button', { name: 'Access permissions' }).waitFor();
+  assert.equal(await page.getByRole('dialog').getByLabel('Recognition language', { exact: true }).inputValue(),
+    recognitionLanguage, 'Changing the interface language must not change the ASR language');
   assert.equal(await page.locator('.permission-trigger span').textContent(), 'Ask');
   assert.equal(await page.getByRole('meter', { name: 'Context usage' }).getAttribute('title'), null);
   assert.equal(await page.locator('.model-effort-level').textContent(), 'off');
@@ -619,8 +625,9 @@ try {
   await page.getByRole('button', { name: 'Remove attachment', exact: true }).click();
   await page.getByRole('button', { name: 'Account settings', exact: true }).click();
   await page.getByRole('button', { name: 'General', exact: true }).click();
-  await page.getByRole('dialog').getByLabel(/语言|Language/).selectOption('zh');
+  await page.getByRole('dialog').getByLabel(/^(语言|Language)$/).selectOption('zh');
   await page.getByRole('button', { name: '模型与思考强度' }).waitFor();
+  assert.equal(await page.getByRole('dialog').getByLabel('识别语言', { exact: true }).inputValue(), recognitionLanguage);
   assert.equal(await page.locator('.permission-trigger span').textContent(), '请求批准');
   assert.equal(await page.locator('.model-effort-level').textContent(), '关闭');
   await languagePicker.click();
@@ -639,7 +646,8 @@ try {
   await page.mouse.move(0, 0);
   await tooltip.waitFor({ state: 'hidden' });
   const controlOrder = await composerTools.evaluate(element => [...element.children].map(child => child.getAttribute('aria-label') ?? child.className));
-  assert.deepEqual(controlOrder, ['添加附件', 'permission-picker', 'spacer', '上下文用量', 'model-effort', '发送']);
+  assert.deepEqual(controlOrder, ['添加附件', 'permission-picker', 'spacer', '上下文用量', 'speech-input', 'model-effort', '发送']);
+  assert.equal(await composerTools.getByRole('button', { name: '语音听写', exact: true }).locator('svg.lucide-mic').count(), 1);
   const permissionTrigger = composerTools.getByRole('button', { name: '访问权限' });
   assert.equal(await permissionTrigger.locator('svg.lucide-hand').count(), 1);
   await permissionTrigger.click();
@@ -1045,17 +1053,28 @@ try {
   await page.getByText('disabled-test', { exact: true }).waitFor();
   await page.screenshot({ path: 'test-results/settings-mcp.png' });
   await page.getByRole('button', { name: 'Close', exact: true }).click();
-  await app.evaluate(({ BrowserWindow }) => {
+  const resizeCompact = () => app.evaluate(({ BrowserWindow }) => {
     const window = BrowserWindow.getAllWindows()[0];
     if (window.isMaximized()) window.unmaximize();
     window.setSize(700, 620);
   });
-  await page.waitForFunction(() => document.querySelector('.app')?.classList.contains('sidebar-compact'));
+  await settleLayout(page.locator('.app'));
   if (!motionReduced) {
-    await page.waitForTimeout(65);
-    const track = await page.locator('.app').evaluate(element => parseFloat(getComputedStyle(element, '::before').width));
-    assert.ok(track > 0 && track < 244, `Sidebar track should animate at compact threshold: ${track}`);
-  }
+    const compactMotion = await sampleMotion(page, {
+      label: 'sidebar track at compact threshold',
+      state: { selector: '.app.sidebar-compact' },
+      targets: [{ name: 'app', selector: '.app', pseudoProperties: { '::before': ['flex-basis'] }, pseudoElements: ['::before'] }],
+      duration: 280, easing: 'cubic-bezier(0.65, 0, 0.35, 1)',
+    }, resizeCompact);
+    const tracks = compactMotion.frames.map(frame => frame.app.pseudo['::before'].width);
+    // The responsive width can change before the compact class is committed.
+    const startTrack = tracks[0];
+    assert.ok(startTrack > 0 && startTrack <= compactMotion.before.app.pseudo['::before'].width + 1 && tracks.at(-1) < 1,
+      `Sidebar track must collapse from its responsive width: ${tracks}`);
+    assert.ok(tracks.slice(1, -1).every(track => track > 0 && track < startTrack),
+      `Sidebar track should animate at compact threshold: ${tracks}`);
+  } else await resizeCompact();
+  await page.waitForFunction(() => document.querySelector('.app')?.classList.contains('sidebar-compact'));
   await page.locator('.sidebar').waitFor({ state: 'hidden' });
   assert.equal(await page.locator('.sidebar-identity').isVisible(), false);
   assert.equal(await page.getByRole('button', { name: '侧栏', exact: true }).getAttribute('aria-expanded'), 'false');

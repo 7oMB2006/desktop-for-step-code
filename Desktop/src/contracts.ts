@@ -3,7 +3,11 @@ import type { SessionImportBridge } from './session-import';
 import type { BtwBridge } from './btw';
 import type { LaunchState } from './launch-state';
 import type { BackgroundAgentClient } from './background-agents';
+import type { WindowConversationBridge, WindowPresentation } from './window-conversation';
 import type { RemoteBridge } from './remote';
+import type { ExternalConnectorBridge } from './external-connectors';
+import type { SpeechBridge } from './speech';
+export interface Snapshot { windowPresentation?: WindowPresentation; windowPresentationRevision?: number }
 export interface Message { desktopWorkflow?: WorkflowState; desktopToolPending?: boolean }
 export interface Message { desktopImported?: boolean }
 export interface Message { desktopInput?: { version: 1; text: string } }
@@ -27,6 +31,8 @@ export interface Model { id: string; provider: string; name: string; providerNam
 export interface Preferences { preferredModel?: Pick<Model, 'provider' | 'id' | 'name'> }
 export interface Preferences { favoriteModels?: import('./model-favorites').ModelIdentity[] }
 export interface Preferences extends Partial<import('./panel-preferences').PanelPreferences> {}
+export interface NotificationPreferences { approvalNotifications: boolean; completionNotifications: boolean; completionSound: boolean }
+export interface Preferences extends Partial<NotificationPreferences> {}
 export interface Content { type: string; text?: string; thinking?: string; id?: string; name?: string; arguments?: unknown; data?: string; mimeType?: string }
 export type ComposerAttachment = { kind: 'image'; name: string; content: Content } | { kind: 'file'; id: string; name: string; size: number };
 export interface PendingMessage { id: string; message: string; attachmentCount: number; version: number; sending?: boolean; steered?: boolean }
@@ -48,6 +54,7 @@ export type BackgroundLaneActivity = { status: 'known'; lanes: BackgroundLaneSum
 export interface RuntimeSummary { runtimeId: string; sessionId: string; cwd: string; name?: string; firstMessage?: string; backgroundCount?: number; background?: BackgroundLaneActivity; status: 'idle' | 'running' | 'waiting' | 'failed' | 'completed' | 'interrupted' }
 export interface Preferences { themeMotion?: boolean; themeBrightness?: number }
 export interface Snapshot { themePacks?: import('./theme-packs').ThemePack[] }
+export interface Snapshot { customBackground?: import('./custom-background').CustomBackgroundState }
 export interface Snapshot { preferences: Preferences; status: string; providerSettingsPending?: boolean; draftId?: string; runtimeId?: string; runtimeRevision?: number; runtimes?: RuntimeSummary[]; unreadSessionIds?: string[]; requests?: UIRequest[]; state?: RuntimeState; modelSelection?: ModelSelection; modelChanges?: ModelChange[]; permissionPreset?: PermissionPreset; launch?: LaunchState; messages: Message[]; models: Model[]; sessions: Session[]; independent?: boolean; stats?: SessionStats; pendingMessages?: PendingMessage[] }
 export interface Profile { id: string; title: string; description: string; credentialSource: string }
 export interface Account { loggedIn: boolean; validity: string; profile?: string; account?: string; userId?: string }
@@ -103,17 +110,37 @@ export interface CronCreateInput { runtimeId: string; cron: string; prompt: stri
 export interface CronUpdateInput {
   runtimeId: string; jobId: string; expected: string; cron?: string; prompt?: string; paused?: boolean;
 }
-export interface DesktopBridge extends SessionImportBridge, BtwBridge, BackgroundAgentClient, RemoteBridge {
+export interface PluginWindowSnapshot {
+  plugin: import('./capabilities').CapabilityPlugin;
+  preferences: Pick<Preferences, 'language' | 'theme' | 'accentColor' | 'appearance'>;
+}
+export interface DesktopBridge extends SessionImportBridge, BtwBridge, BackgroundAgentClient, WindowConversationBridge, RemoteBridge, ExternalConnectorBridge, SpeechBridge {
+  pluginWindowOpen(input: { ref: string }): Promise<void>;
+  pluginWindowState(): Promise<PluginWindowSnapshot>;
+  pluginWindowConfigure(): Promise<void>;
+  globalInstructions(): Promise<import('./global-instructions').GlobalInstructions>;
+  saveGlobalInstructions(content: string, revision: string): Promise<import('./global-instructions').GlobalInstructions>;
   projectInstructions(owner: import('./project-instructions').ProjectInstructionsOwner): Promise<import('./project-instructions').ProjectInstructionsStatus>;
   finishFirstRun(outcome: 'completed' | 'skipped'): Promise<Snapshot>;
   capabilityCatalog(): Promise<import('./capabilities').CapabilityCatalog>;
   pluginDocument(input: { ref: string; path: string }): Promise<import('./capabilities').PluginDocument>;
+  pluginConnectionState(input: { ref: string }): Promise<import('./capabilities').PluginConnection>;
+  pluginConnectionChooseProfile(input: { ref: string }): Promise<import('./capabilities').PluginConnection | null>;
+  pluginConnectionForgetProfile(input: { ref: string }): Promise<import('./capabilities').PluginConnection>;
   pluginRepositoryInfo(input: { ref: string; refresh: boolean }): Promise<import('./capabilities').PluginStarSnapshot>;
   pluginConfiguration(input: { ref: string }): Promise<import('./capabilities').PluginConfiguration>;
   pluginSaveConfiguration(input: import('./capabilities').PluginConfigurationInput): Promise<import('./capabilities').PluginConfiguration>;
+  pluginHostSettings(input: { ref: string }): Promise<import('./capabilities').PluginHostSettings>;
+  pluginSaveHostSettings(input: import('./capabilities').PluginHostSettingsInput): Promise<import('./capabilities').PluginHostSettings>;
   pluginChoosePath(input: { ref: string; field: string }): Promise<string | null>;
   themeScene(id: string): Promise<import('./theme-packs').StellarScene>;
   themePoster(id: string): Promise<string | undefined>;
+  themeImage(id: string): Promise<import('./theme-packs').ThemeImage>;
+  customBackgroundState(): Promise<import('./custom-background').CustomBackgroundState>;
+  customBackgroundImage(revision: string): Promise<import('./theme-packs').ThemeImage>;
+  customBackgroundImport(ref: string): Promise<import('./custom-background').CustomBackgroundState | null>;
+  customBackgroundSave(input: { ref: string; patch: Partial<import('./custom-background').BackgroundOptions> }): Promise<import('./custom-background').CustomBackgroundState>;
+  customBackgroundRemove(ref: string): Promise<import('./custom-background').CustomBackgroundState>;
   capabilityMutate(input: import('./capabilities').CapabilityMutation): Promise<import('./capabilities').CapabilityResult>;
   capabilityImportSkill(): Promise<import('./capabilities').CapabilityResult | null>;
   bvrConfiguration(): Promise<import('./bvr-settings').BvrConfiguration>;
@@ -278,6 +305,7 @@ export interface RepositoryFileDiff {
   reason?: 'binary' | 'too-large' | 'unsupported' | 'no-text-change' | 'changed' | 'sensitive';
 }
 export interface DesktopTheme {
+  customBackground?: import('./custom-background').CustomBackgroundState;
   themePacks?: import('./theme-packs').ThemePack[];
   themeMotion?: boolean;
   themeBrightness?: number;

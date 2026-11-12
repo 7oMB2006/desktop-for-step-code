@@ -2,6 +2,7 @@ import { app } from 'electron';
 import { randomUUID } from 'node:crypto';
 import { mkdir, rename, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { crashDetails, crashError, crashRecord, crashText } from './crash-log-format';
 
 /**
  * Startup and runtime crash log.
@@ -25,19 +26,6 @@ export interface CrashDetails {
 function attempt<T>(produce: () => T): T | undefined {
   try { return produce(); } catch { return undefined; }
 }
-function describeError(error: unknown): string {
-  if (error instanceof Error) return `${error.name}: ${error.message}`;
-  if (typeof error === 'string') return error;
-  try { return JSON.stringify(error) ?? String(error); } catch { return String(error); }
-}
-function stackOf(error: unknown): string {
-  return error instanceof Error && typeof error.stack === 'string' ? error.stack : '';
-}
-function formatValue(value: unknown): string {
-  if (typeof value === 'string') return value.trim() ? value : '(empty)';
-  try { return JSON.stringify(value) ?? String(value); } catch { return String(value); }
-}
-
 export class CrashLog {
   private phase = 'starting';
   private readonly root: string;
@@ -57,21 +45,22 @@ export class CrashLog {
       const time = new Date();
       const stamp = time.toISOString().replace(/[:.]/g, '-');
       const target = join(this.root, `crash-${stamp}-${randomUUID().slice(0, 8)}.log`);
+      const diagnostic = crashError(error);
       const lines = [
         `time: ${time.toISOString()}`,
-        `kind: ${kind}`,
-        `phase: ${this.phase}`,
-        `version: ${attempt(() => app.getVersion()) ?? 'unknown'}`,
+        `kind: ${crashText(kind)}`,
+        `phase: ${crashText(this.phase)}`,
+        `version: ${crashText(attempt(() => app.getVersion()) ?? 'unknown')}`,
         `packaged: ${attempt(() => String(app.isPackaged)) ?? 'unknown'}`,
-        `error: ${describeError(error)}`,
-        `stack: ${stackOf(error) || '(none)'}`,
-        ...Object.entries(details).map(([key, value]) => `${key}: ${formatValue(value)}`),
-        `userData: ${attempt(() => app.getPath('userData')) ?? 'unknown'}`,
-        `logs: ${this.root}`,
+        `error: ${diagnostic.message}`,
+        `stack: ${diagnostic.stack}`,
+        ...crashDetails(details),
+        `userData: ${crashText(attempt(() => app.getPath('userData')) ?? 'unknown')}`,
+        `logs: ${crashText(this.root)}`,
       ];
       const temp = `${target}.${randomUUID().slice(0, 8)}.tmp`;
       await mkdir(this.root, { recursive: true });
-      await writeFile(temp, lines.join('\n') + '\n', { flag: 'wx' });
+      await writeFile(temp, crashRecord(lines.join('\n') + '\n'), { flag: 'wx' });
       await rename(temp, target);
     } catch {
       // Losing the record is acceptable; a second crash from the handler is not.

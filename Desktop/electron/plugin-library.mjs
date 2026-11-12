@@ -1,9 +1,46 @@
 import { randomUUID } from 'node:crypto';
 import { lstat } from 'node:fs/promises';
-import { isAbsolute, relative, resolve, sep, posix } from 'node:path';
+import { isAbsolute, join, relative, resolve, sep, posix } from 'node:path';
 import { unified } from 'unified';
 import remarkParse from 'remark-parse';
-import { digest, object, optionalFile, packageFingerprint, packagePath, plainFile, PluginFileError } from './plugin-files.mjs';
+import semver from 'semver';
+import { digest, object, optionalFile, packageFingerprint, packagePath, plainFile, PluginFileError, readReceipts, scanInstalled } from './plugin-files.mjs';
+
+const backgroundPluginId = 'custom-background';
+const backgroundProvider = 'custom-background-v1';
+async function backgroundContext(root, descriptor, ref) {
+  const stale = () => { throw new PluginFileError('stale'); };
+  if (descriptor.id !== backgroundPluginId || descriptor.kind !== 'installed'
+    || descriptor.provenance !== 'recorded' || !descriptor.instance) stale();
+  const receipts = await readReceipts(root);
+  const matches = receipts.installations.filter(item => item.id === backgroundPluginId);
+  if (matches.length !== 1) stale();
+  const receipt = matches[0];
+  if (receipt.state !== 'installed' || receipt.instance !== descriptor.instance
+    || receipt.folder !== descriptor.name || receipt.fingerprint !== descriptor.fingerprint
+    || receipt.source !== descriptor.source || receipt.marketplace !== descriptor.marketplace
+    || resolve(descriptor.root) !== join(root, 'plugins', receipt.folder)) stale();
+  const installed = (await scanInstalled(root)).filter(item => item.id === backgroundPluginId);
+  if (installed.length !== 1 || installed[0].folder !== receipt.folder) stale();
+  if (await packageFingerprint(descriptor.root) !== descriptor.fingerprint) stale();
+  const marker = JSON.parse((await plainFile(descriptor.root, 'dfsc.appearance.json', 4096)).toString('utf8'));
+  const manifest = JSON.parse((await plainFile(descriptor.root, 'step.plugin.json', 32768)).toString('utf8'));
+  const metadata = new Set(['id', 'name', 'version', 'description', 'icon', 'repository']);
+  const resources = new Set(['skills', 'commands', 'agents']);
+  if (!object(marker) || Object.keys(marker).length !== 2 || marker.schemaVersion !== 1
+    || marker.provider !== backgroundProvider || !object(manifest) || manifest.id !== backgroundPluginId
+    || typeof manifest.name !== 'string' || !manifest.name.trim()
+    || typeof manifest.version !== 'string' || !manifest.version.trim()
+    || [...resources].some(key => !Array.isArray(manifest[key]) || manifest[key].length !== 0)
+    || Object.entries(manifest).some(([key, value]) => metadata.has(key) ? typeof value !== 'string'
+      : resources.has(key) ? !Array.isArray(value) || value.length !== 0
+      : key === 'mcpServers' ? !object(value) || Object.keys(value).length !== 0 : true)) stale();
+  const finalInstalled = (await scanInstalled(root)).filter(item => item.id === backgroundPluginId);
+  if (finalInstalled.length !== 1 || finalInstalled[0].folder !== receipt.folder
+    || await packageFingerprint(descriptor.root) !== descriptor.fingerprint
+    || JSON.stringify(await readReceipts(root)) !== JSON.stringify(receipts)) stale();
+  return { ref, instance: receipt.instance };
+}
 
 const bounded = (value, max = 160) => {
   if (typeof value !== 'string' || !value.trim() || value.length > max || /[\u0000-\u001f]/u.test(value))
@@ -32,6 +69,81 @@ const terms = (value, max, category = false) => {
     throw new PluginFileError('invalid-presentation');
   return items;
 };
+const desktopId = value => {
+  const id = bounded(value, 64);
+  if (id !== value || !/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/u.test(id)) throw new PluginFileError('invalid-presentation');
+  return id;
+};
+const onlyKeys = (value, keys) => {
+  if (!object(value) || Object.keys(value).some(key => !keys.includes(key)))
+    throw new PluginFileError('invalid-presentation');
+};
+function parseDesktop(value) {
+  onlyKeys(value, ['title', 'surface', 'symbol', 'icon', 'defaultPage', 'pages', 'connection']);
+  if (!['main-view', 'side-panel', 'window'].includes(value.surface)
+    || value.symbol !== undefined && !['plug', 'bot', 'book', 'wrench', 'sparkles'].includes(value.symbol))
+    throw new PluginFileError('invalid-presentation');
+  const pages = list(value.pages).map(page => {
+    onlyKeys(page, ['id', 'title', 'document']);
+    return { id: desktopId(page.id), title: bounded(page.title), document: markdownPath(bounded(page.document, 256)) };
+  });
+  if (!pages.length || new Set(pages.map(page => page.id)).size !== pages.length)
+    throw new PluginFileError('invalid-presentation');
+  const defaultPage = value.defaultPage === undefined ? undefined : desktopId(value.defaultPage);
+  if (defaultPage !== undefined && !pages.some(page => page.id === defaultPage))
+    throw new PluginFileError('invalid-presentation');
+  let connection;
+  if (value.connection !== undefined) {
+    onlyKeys(value.connection, ['protocol', 'guides']);
+    if (value.connection.protocol !== 'agent-bridge-v1' || value.surface !== 'main-view'
+      || pages.some(page => page.id === 'connection'))
+      throw new PluginFileError('invalid-presentation');
+    const guides = value.connection.guides;
+    if (guides !== undefined) {
+      onlyKeys(guides, ['setup', 'firstTask', 'troubleshooting']);
+      for (const id of Object.values(guides))
+        if (!pages.some(page => page.id === desktopId(id)))
+          throw new PluginFileError('invalid-presentation');
+    }
+    connection = { protocol: 'agent-bridge-v1', ...(guides !== undefined ? { guides: { ...guides } } : {}) };
+  }
+  let icon;
+  if (value.icon !== undefined) {
+    onlyKeys(value.icon, ['light', 'dark']);
+    const imagePath = value => {
+      const path = packagePath(bounded(value, 256));
+      if (!/\.(?:png|jpe?g|webp|ico)$/iu.test(path)) throw new PluginFileError('invalid-path');
+      return path;
+    };
+    icon = { light: imagePath(value.icon.light),
+      ...(value.icon.dark !== undefined ? { dark: imagePath(value.icon.dark) } : {}) };
+  }
+  return { title: bounded(value.title), surface: value.surface, pages,
+    ...(connection ? { connection } : {}),
+    ...(value.symbol !== undefined ? { symbol: value.symbol } : {}),
+    ...(icon ? { icon } : {}), ...(defaultPage !== undefined ? { defaultPage } : {}) };
+}
+function parseRequirements(value) {
+  onlyKeys(value, ['dfsc', 'external']);
+  const requirements = {};
+  if (value.dfsc !== undefined) {
+    const range = bounded(value.dfsc, 128);
+    if (!semver.validRange(range)) throw new PluginFileError('invalid-presentation');
+    requirements.dfsc = range;
+  }
+  if (value.external !== undefined) requirements.external = list(value.external, 12).map(item => {
+    onlyKeys(item, ['name', 'description', 'url', 'optional']);
+    if (item.optional !== undefined && typeof item.optional !== 'boolean')
+      throw new PluginFileError('invalid-presentation');
+    const url = item.url === undefined ? undefined : documentUrl(item.url);
+    if (item.url !== undefined && !url) throw new PluginFileError('invalid-presentation');
+    return { name: bounded(item.name),
+      ...(item.description !== undefined ? { description: bounded(item.description, 512) } : {}),
+      ...(url !== undefined ? { url } : {}),
+      ...(item.optional !== undefined ? { optional: item.optional } : {}) };
+  });
+  return requirements;
+}
 export function parsePresentation(value) {
   if (!object(value) || value.schemaVersion !== 1) throw new PluginFileError('invalid-presentation');
   const names = items => list(items).map(item => {
@@ -78,6 +190,8 @@ export function parsePresentation(value) {
     license: value.license === undefined ? undefined : bounded(value.license, 128), documentation, tutorials, links,
     ...(value.categories !== undefined ? { categories: terms(value.categories, 3, true) } : {}),
     ...(value.keywords !== undefined ? { keywords: terms(value.keywords, 5) } : {}),
+    ...(value.desktop !== undefined ? { desktop: parseDesktop(value.desktop) } : {}),
+    ...(value.requirements !== undefined ? { requirements: parseRequirements(value.requirements) } : {}),
     ...(Object.keys(locales).length ? { locales } : {}) };
 }
 async function fileExists(root, path) {
@@ -106,12 +220,22 @@ function imageType(bytes) {
   if (bytes[0] === 0xff && bytes[1] === 0xd8) return 'image/jpeg';
   if (bytes.toString('ascii', 0, 4) === 'RIFF' && bytes.toString('ascii', 8, 12) === 'WEBP') return 'image/webp';
 }
+function desktopImageType(bytes) {
+  const mime = imageType(bytes);
+  if (mime === 'image/png' && (bytes.readUInt32BE(16) > 512 || bytes.readUInt32BE(20) > 512)) return undefined;
+  if (mime) return mime;
+  if (bytes.length >= 22 && bytes.readUInt32LE(0) === 0x00010000) {
+    const count = bytes.readUInt16LE(4);
+    if (count > 0 && count <= 256 && bytes.length >= 6 + count * 16) return 'image/x-icon';
+  }
+}
 export class PluginLibrary {
   references = new Map();
   constructor(root, validateImage) { this.root = resolve(root); this.validateImage = validateImage; }
   invalidate() { this.references.clear(); }
   async project(catalog) {
     const current = new Set();
+    const uniqueBackground = catalog.plugins.filter(plugin => plugin.id === backgroundPluginId).length === 1;
     const project = async plugin => {
       const { packageDescriptor: descriptor, ...publicPlugin } = plugin;
       if (!descriptor) return publicPlugin;
@@ -135,7 +259,20 @@ export class PluginLibrary {
         let metadata = { documentation: {}, tutorials: [], links: [] }, warnings = [];
         try {
           const bytes = await optionalFile(root, 'dfsc.plugin.json', 65536);
-          if (bytes) metadata = parsePresentation(JSON.parse(bytes.toString('utf8')));
+          if (bytes) {
+            const value = JSON.parse(bytes.toString('utf8'));
+            if (!object(value)) throw new PluginFileError('invalid-presentation');
+            const { desktop, requirements, ...presentation } = value;
+            metadata = parsePresentation(presentation);
+            if (desktop !== undefined) {
+              try { metadata.desktop = parseDesktop(desktop); }
+              catch { warnings.push('Invalid or unsupported Desktop workspace contribution.'); }
+            }
+            if (requirements !== undefined) {
+              try { metadata.requirements = parseRequirements(requirements); }
+              catch { warnings.push('Invalid or unsupported Desktop requirements declaration.'); }
+            }
+          }
         } catch { warnings.push('Invalid or unsupported Desktop presentation metadata.'); }
         if (!metadata.documentation.readme && await fileExists(root, 'README.md')) metadata.documentation.readme = 'README.md';
         for (const documentation of [metadata.documentation, ...Object.values(metadata.locales ?? {}).map(locale => locale.documentation ?? {})])
@@ -143,9 +280,44 @@ export class PluginLibrary {
             if (!await fileExists(root, path)) delete documentation[kind];
             else reference.allowed.add(path);
           }
+        let hostConfiguration;
+        if (uniqueBackground && descriptor.id === backgroundPluginId) {
+          try {
+            await this.customBackgroundContext(reference.ref);
+            hostConfiguration = backgroundProvider;
+          } catch { /* An unproven package cannot expose host-owned appearance controls. */ }
+        }
+        if (metadata.desktop) {
+          if (descriptor.kind !== 'installed' || descriptor.provenance !== 'recorded') delete metadata.desktop;
+          else {
+            try {
+              for (const page of metadata.desktop.pages) await plainFile(root, page.document, 256 * 1024);
+              const icon = metadata.desktop.icon;
+              delete metadata.desktop.icon;
+              if (icon) {
+                const projectIcon = async path => {
+                  try {
+                    const bytes = await plainFile(root, path, 128 * 1024), mime = desktopImageType(bytes);
+                    if (mime && this.validateImage?.(bytes, 512)) return `data:${mime};base64,${bytes.toString('base64')}`;
+                  } catch {}
+                };
+                const light = await projectIcon(icon.light), dark = icon.dark ? await projectIcon(icon.dark) : undefined;
+                if (light) metadata.desktop.icon = { light, ...(dark ? { dark } : {}) };
+                if (!light || icon.dark && !dark) warnings.push('Invalid or unavailable Desktop workspace icon.');
+              }
+              for (const page of metadata.desktop.pages) reference.allowed.add(page.document);
+            } catch {
+              delete metadata.desktop;
+              warnings.push('Invalid or unavailable Desktop workspace document.');
+            }
+          }
+        }
         return { ...publicPlugin, package: { ...metadata, warnings, ref: reference.ref, provenance: descriptor.provenance,
           configurationAvailable: descriptor.kind === 'installed' && descriptor.provenance === 'recorded'
-            && await fileExists(root, 'dfsc.settings.json') } };
+            && await fileExists(root, 'dfsc.settings.json'),
+          hostSettingsAvailable: descriptor.kind === 'installed' && descriptor.provenance === 'recorded'
+            && await fileExists(root, 'dfsc.host.json'),
+          ...(hostConfiguration ? { hostConfiguration } : {}) } };
       } catch { return publicPlugin; }
     };
     const plugins = [];
@@ -164,6 +336,12 @@ export class PluginLibrary {
       if (await packageFingerprint(value.descriptor.root) !== value.descriptor.fingerprint) throw new PluginFileError('stale');
     } catch { this.references.delete(ref); throw new PluginFileError('stale'); }
     return value;
+  }
+  async customBackgroundContext(ref) {
+    try {
+      const { descriptor } = await this.reference(ref);
+      return await backgroundContext(this.root, descriptor, ref);
+    } catch { throw new PluginFileError('stale'); }
   }
   async document(input) {
     if (!object(input) || typeof input.path !== 'string') throw new PluginFileError('invalid-input');

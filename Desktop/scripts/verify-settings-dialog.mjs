@@ -11,13 +11,30 @@ await writeFile(join(profile, 'preferences.json'), JSON.stringify({ language: 'z
 const env = { ...process.env, DESKTOP_TEST_USER_DATA: profile, DESKTOP_TEST_NO_FOCUS: '1' };
 delete env.ELECTRON_RUN_AS_NODE;
 delete env.STEP_API_KEY;
-let app;
+let app, page;
 try {
   app = await electron.launch({
     ...(process.env.DESKTOP_VERIFY_EXE ? { executablePath: process.env.DESKTOP_VERIFY_EXE } : { args: [resolve('.')] }),
     env, timeout: 60000,
   });
-  const page = await app.firstWindow();
+  page = await app.firstWindow();
+  await app.evaluate(({ ipcMain }) => {
+    const original = ipcMain._invokeHandlers.get('desktop');
+    globalThis.settingsAcceptanceFailures = [];
+    ipcMain.removeHandler('desktop');
+    ipcMain.handle('desktop', async (event, method, ...args) => {
+      try { return await original(event, method, ...args); }
+      catch (error) {
+        if (['compactionSettings', 'saveCompactionSettings'].includes(method)) {
+          const message = String(error?.message ?? error);
+          const reason = /Shared settings operation in progress/.test(message) ? 'shared-settings-busy'
+            : /compaction:conflict/.test(message) ? 'conflict' : 'other';
+          globalThis.settingsAcceptanceFailures.push({ method, reason });
+        }
+        throw error;
+      }
+    });
+  });
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
   const capture = async name => {
@@ -55,7 +72,7 @@ try {
     const bounds = element.getBoundingClientRect();
     return document.elementFromPoint(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2)?.classList.contains('settings-backdrop');
   }), true, 'The entire titlebar is behind the settings backdrop');
-  for (const title of ['账户', '供应商', 'MCP', 'Skills', '通用', '外观', '版本更新', '已归档']) {
+  for (const title of ['账户', '供应商', 'MCP', 'Skills', '全局指令', '通用', '外观', '版本更新', '已归档']) {
     await page.getByRole('navigation', { name: '设置分类' }).getByRole('button', { name: title, exact: true }).click();
     const bounds = await dialog.boundingBox();
     assert.deepEqual(bounds, baseline, `${title}: same outer bounds across all categories`);
@@ -161,6 +178,12 @@ try {
   assert.equal(await page.getByRole('textbox', { name: 'Message', exact: true }).evaluate(element => element.value), 'Unsent settings fixture');
   assert.deepEqual(errors, []);
   console.log('Fixed settings dialog: all categories, provider editor, light/dark, narrow windows, English, reduced motion and draft retention passed.');
+} catch (error) {
+  const failures = await app?.evaluate(() => globalThis.settingsAcceptanceFailures).catch(() => []);
+  console.error('Compaction IPC failures:', JSON.stringify(failures));
+  await writeFile('test-results/settings-dialog-failure.json', JSON.stringify({ failures, error: String(error) }, null, 2));
+  await page?.screenshot({ path: 'test-results/settings-dialog-failure.png' }).catch(() => {});
+  throw error;
 } finally {
   if (app) {
     await app.evaluate(({ BrowserWindow }) => { for (const window of BrowserWindow.getAllWindows()) window.destroy(); }).catch(() => {});

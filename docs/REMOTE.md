@@ -56,6 +56,13 @@ fresh access confirmation; an unavailable session leaves no selected target,
 never a replacement chosen implicitly. Fatal transport errors retain saved
 credentials for a deliberate Retry.
 
+Disconnect revokes routing and approvals immediately, but retains ownership of
+an unconfirmed helper shutdown. Concurrent shutdown calls share the in-flight
+stop; a failed stop is retried against that same transport. Until cleanup and
+the remaining disconnect work finish, neither pairing nor automatic restoration
+may create a replacement helper. This barrier does not restore the old binding,
+accept late input or treat a failed process-tree termination as success.
+
 The confirmation allows listing session titles and selecting or creating
 sessions in the approved projects. Future assistant replies in attached
 sessions are forwarded, including locally initiated rounds. Existing transcript history,
@@ -73,7 +80,29 @@ authorization or other targets. At most eight runtime targets remain attached.
 Opening another target may release an older idle, noncurrent attachment, never
 a running or waiting one. Its saved conversation remains available for selection.
 Attached hosts are not reused for a new session or recycled as idle workers.
-History and configuration mutations require unbinding first.
+History changes and runtime replacement still require unbinding first.
+Non-restarting executable-plugin and runtime-configuration writes may retain
+healthy, idle attached targets. Their shared runtime write barrier refuses new
+Remote input and approval responses until the operation finishes; rejected input
+is not queued or retried. Active tasks, queued messages, pending approvals, Goal,
+side questions, background work and scheduled resource use remain protected.
+Connection observations and worker/RPC/session identity are revalidated before
+writes, including when process exit automatically clears a Remote attachment.
+Remote does not gain authority over unrelated files, and saving configuration
+does not mean an existing worker has hot-applied it.
+
+Marketplace maintenance uses a separate management lease, not the runtime
+settings lock, so it does not detach targets or block Remote input/approvals.
+Data-only theme installation, replacement and removal can also retain targets
+after host-side package proof and resource checks. Theme selection is a
+renderer preference, not a runtime restart. Unknown capabilities or occupied
+resources fail closed. Catalog/document/configuration reads never recover an
+interrupted plugin update; recovery separately checks the journal's actual
+plugin and revalidates its identity before writes. Unconfirmed management
+worker cleanup quarantines further management writes instead of retrying them.
+An unconfirmed executable writer or unfinished admitted runtime recovery also
+keeps runtime input blocked for the rest of the process; a clean worker exit
+alone does not prove that its on-disk update was recovered.
 
 ## Feishu Commands
 

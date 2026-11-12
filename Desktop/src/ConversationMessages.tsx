@@ -1,4 +1,4 @@
-import { memo, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { createContext, memo, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { CommandCatalog, CommandReference } from './CommandReference';
 import { remarkCommandReferences } from './command-references';
 import type { ComposerCommand } from './composer-commands';
@@ -6,13 +6,17 @@ import type { ComponentProps, Dispatch, ReactNode, SetStateAction } from 'react'
 import Markdown, { defaultUrlTransform } from 'react-markdown';
 import { ArrowLeft, ArrowRight, ArrowRightLeft, Bot, Brain, Check, CircleAlert, Copy, FilePenLine, FileText, FolderSearch, GitBranch, Globe, MessagesSquare, MessageSquare, Pencil, Search, Send, Terminal, Undo2, Wrench } from 'lucide-react';
 import type { Content, Message, ModelChange, PendingMessage } from './contracts';
-import { messageRemarkPlugins, messageRehypePlugins } from './markdown-math';
+import { messageRemarkPlugins, messageContentRehypePlugins } from './markdown-math';
+import { pendingCodeClassName, useViewportCodeHighlight } from './useViewportCodeHighlight';
+import type { Element } from 'hast';
 import { redactSensitiveText } from './subagent-redact';
-import { backgroundSubagentStates, conversationEntries, messageBlocks, messageText, projectBackgroundSubagentStates, responsePresentation, toolPresentation, toolSubject, subagentTasks } from './conversation-presentation';
+import { backgroundSubagentStates, createConversationEntriesReader, messageBlocks, messageText, projectBackgroundSubagentStates, responsePresentation, toolPresentation, toolSubject, subagentTasks } from './conversation-presentation';
 import { CompletionReviewNote } from './CompletionReviewNote';
 import type { BackgroundLaneActivity } from './conversation-presentation';
 import type { BackgroundSubagentStates, ResponseItem, SubagentDisplayTask } from './conversation-presentation';
 import { rehypeStreamReveal, updateReveal, REVEAL_DURATION, type RevealState } from './stream-reveal';
+import { blockRevealBatches, createMarkdownBlockReader, remarkPreparedBlock, sameRevealBatches } from './markdown-blocks';
+import type { MarkdownBlock } from './markdown-blocks';
 import { ThinkingDisclosure } from './ThinkingDisclosure';
 import { ProcessRowLabel } from './ProcessRowLabel';
 import { DisclosureChevron } from './DisclosureChevron';
@@ -43,8 +47,11 @@ import { AutoResumeMessage } from './AutoResumeMessage';
 import { searchTextMatch, type SearchTextTarget } from './fulltext-search';
 import './auto-resume-message.css';
 import { incompleteResponse } from './incomplete-response';
+import type { PreparedMarkdown } from './markdown-parser';
+import { useConversationDisclosure } from './ConversationDisclosureState';
 
 type Props = {
+  preparedMarkdown?: PreparedMarkdown;
   interfaceSettings?: InterfacePreferences;
   interfaceRevision?: number;
   runtimeId?: string;
@@ -65,6 +72,15 @@ type Props = {
 };
 type BodyProps = Pick<Props, 'openImage' | 'language' | 'onError' | 'onLayoutChange' | 'awaitingToolCalls' | 'interfaceSettings' | 'searchTarget'> & { disclosureReset?: string };
 type EditState = { entryId: string; text: string; submitting: boolean };
+const MessageTimeFormat = createContext<Intl.DateTimeFormat | undefined>(undefined);
+const MarkdownPreparation = createContext<PreparedMarkdown | undefined>(undefined);
+
+function useMessageTimeFormat(language: Props['language']) {
+  const shared = useContext(MessageTimeFormat);
+  const timeZone = shared ? undefined : new Intl.DateTimeFormat().resolvedOptions().timeZone;
+  return useMemo(() => shared ?? new Intl.DateTimeFormat(language === 'zh' ? 'zh-CN' : 'en-GB',
+    { hour: '2-digit', minute: '2-digit', hour12: false, timeZone }), [shared, language, timeZone]);
+}
 
 function CopyButton({ text, getText, language, onError, label }: { text: string; getText?: () => string; label?: string } & Pick<Props, 'language' | 'onError'>) {
   const [copied, setCopied] = useState(false);
@@ -103,13 +119,16 @@ function PreviewImage({ src, alt, openImage, language }: {
       event.preventDefault(); openImage(src, alt, event.currentTarget);
     } }}/>;
 }
-function Code({ children, className, language, onError }: Omit<ComponentProps<'code'>, 'onError'> & Pick<Props, 'language' | 'onError'>) {
+function Code({ children, className, node, language, onError }: Omit<ComponentProps<'code'>, 'onError' | 'className'> &
+  Pick<Props, 'language' | 'onError'> & { node?: Element; className: string }) {
   const code = useRef<HTMLElement>(null);
-  if (!className) return <code>{children}</code>;
+  const text = node?.children.every(child => child.type === 'text') ? node.children.map(child => child.value).join('') : undefined;
+  const highlighted = useViewportCodeHighlight(code, text, className);
   return <span className="code-block"><span className="code-header">
     {className.replace('hljs language-', '').replace('language-', '')}
     <CopyButton text={String(children)} getText={() => code.current?.textContent ?? ''} language={language} onError={onError}/>
-  </span><code ref={code} className={className}>{children}</code></span>;
+  </span><code ref={code} className={highlighted?.className ?? pendingCodeClassName(className)}
+    data-code-highlight={highlighted ? 'ready' : 'pending'}>{highlighted ? highlighted.children : children}</code></span>;
 }
 export function Text({ text, ...props }: { text: string; streaming?: boolean; commands?: ComposerCommand[] } & BodyProps) {
   return text.length > 32_768 ? <LargeText text={text} {...props}/> : <RevealedText text={text} {...props}/>;
@@ -144,6 +163,8 @@ function LargeText({ text, language, onError, searchTarget }: { text: string } &
 }
 function RevealedText({ text, streaming = false, commands, ...props }: { text: string; streaming?: boolean; commands?: ComposerCommand[] } & BodyProps) {
   const [reveal, setReveal] = useState<RevealState>({ text: '', active: false, nextId: 0, batches: [] });
+  const [segmented, setSegmented] = useState(streaming);
+  if (streaming && !segmented) setSegmented(true);
   if (text !== reveal.text || streaming !== reveal.active) {
     setReveal(updateReveal(reveal, text, streaming, performance.now()));
   }
@@ -153,26 +174,48 @@ function RevealedText({ text, streaming = false, commands, ...props }: { text: s
     return () => clearTimeout(timer);
   }, [reveal.batches]);
   const plugins = useMemo<ComponentProps<typeof Markdown>['rehypePlugins']>(() => reveal.batches.length
-    ? [...messageRehypePlugins!, [rehypeStreamReveal, { batches: reveal.batches }]]
-    : messageRehypePlugins, [reveal.batches]);
+    ? [...messageContentRehypePlugins!, [rehypeStreamReveal, { batches: reveal.batches }]]
+    : messageContentRehypePlugins, [reveal.batches]);
+  const readBlocks = useMemo(createMarkdownBlockReader, []);
+  const blocks = useMemo(() => segmented ? readBlocks(text) : undefined, [segmented, text, readBlocks]);
+  if (blocks) return <>{blocks.map(block => <MarkdownBlockText key={block.key} block={block}
+    batches={blockRevealBatches(block, reveal.batches)} language={props.language}
+    openImage={props.openImage} onError={props.onError} commands={commands}/>)}</>;
   return <MarkdownText text={text} language={props.language} openImage={props.openImage} onError={props.onError} plugins={plugins} commands={commands}/>;
 }
+type BlockTextProps = { block: MarkdownBlock; batches: RevealState['batches']; commands?: ComposerCommand[] }
+  & Pick<BodyProps, 'language' | 'openImage' | 'onError'>;
+const MarkdownBlockText = memo(function MarkdownBlockText({ block, batches, ...props }: BlockTextProps) {
+  const prepared = useMemo(() => [remarkPreparedBlock, block.tree] as [typeof remarkPreparedBlock, typeof block.tree], [block]);
+  const plugins = useMemo<ComponentProps<typeof Markdown>['rehypePlugins']>(() => batches.length
+    ? [...messageContentRehypePlugins!, [rehypeStreamReveal, { batches }]] : messageContentRehypePlugins, [batches]);
+  return <MarkdownText text={block.text} prepared={prepared} plugins={plugins} {...props}/>;
+}, (left, right) => left.block === right.block && left.commands === right.commands && left.language === right.language
+  && left.openImage === right.openImage && left.onError === right.onError && sameRevealBatches(left.batches, right.batches));
 // Layout-only parent updates must not parse the entire saved Markdown history.
-const MarkdownText = memo(function MarkdownText({ text, language, openImage, onError, plugins, commands }: {
+const MarkdownText = memo(function MarkdownText({ text, language, openImage, onError, plugins, commands, prepared }: {
   text: string; plugins: ComponentProps<typeof Markdown>['rehypePlugins']; commands?: ComposerCommand[];
+  prepared?: [typeof remarkPreparedBlock, MarkdownBlock['tree']];
 } & Pick<BodyProps, 'language' | 'openImage' | 'onError'>) {
-  const remarkPlugins = useMemo<ComponentProps<typeof Markdown>['remarkPlugins']>(() => commands
-    ? [...messageRemarkPlugins!, [remarkCommandReferences, commands]] : messageRemarkPlugins, [commands]);
+  const trees = useContext(MarkdownPreparation);
+  const tree = trees?.get(text);
+  const source = useMemo<typeof prepared>(() => prepared ?? (tree ? [remarkPreparedBlock, tree] : undefined), [prepared, tree]);
+  const remarkPlugins = useMemo<ComponentProps<typeof Markdown>['remarkPlugins']>(() => [
+    ...(source ? [source] : []), ...messageRemarkPlugins!,
+    ...(commands ? [[remarkCommandReferences, commands] as [typeof remarkCommandReferences, ComposerCommand[]]] : []),
+  ], [commands, source]);
+  const components = useMemo<ComponentProps<typeof Markdown>['components']>(() => ({
+    span: ({ node, children, ...props }) => typeof node?.properties['data-command'] === 'string'
+      ? <CommandReference name={node.properties['data-command']} source={String(node.properties['data-command-source'] ?? '')}/>
+      : <span {...props}>{children}</span>,
+    code: ({ children, className, node }) => className
+      ? <Code node={node} className={className} language={language} onError={onError}>{children}</Code> : <code>{children}</code>,
+    a: ({ children, href }) => localReference(href) ? <FileReference href={href!}>{children}</FileReference> : <MessageLink href={href} language={language}>{children}</MessageLink>,
+    img: ({ src, alt }) => src?.startsWith('data:image/')
+      ? <PreviewImage src={src} alt={alt ?? 'Image'} language={language} openImage={openImage}/> : <span>{alt}</span>,
+  }), [language, onError, openImage]);
   return <Markdown skipHtml urlTransform={url => localReference(url) ? url : defaultUrlTransform(url)} remarkPlugins={remarkPlugins} rehypePlugins={plugins}
-    components={{
-      span: ({ node, children, ...props }) => typeof node?.properties['data-command'] === 'string'
-        ? <CommandReference name={node.properties['data-command']} source={String(node.properties['data-command-source'] ?? '')}/>
-        : <span {...props}>{children}</span>,
-      code: ({ children, className }) => <Code className={className} language={language} onError={onError}>{children}</Code>,
-      a: ({ children, href }) => localReference(href) ? <FileReference href={href!}>{children}</FileReference> : <MessageLink href={href} language={language}>{children}</MessageLink>,
-      img: ({ src, alt }) => src?.startsWith('data:image/')
-        ? <PreviewImage src={src} alt={alt ?? 'Image'} language={language} openImage={openImage}/> : <span>{alt}</span>,
-    }}>{text}</Markdown>;
+    components={components}>{text}</Markdown>;
 });
 function Body({ blocks, ...props }: { blocks: Content[] } & BodyProps) {
   return <div className="message-body">{blocks.map((block, index) =>
@@ -226,9 +269,11 @@ export function PendingUserMessages({ messages, connected, busy, onRecover, ...p
   </div>;
 }
 function Timestamp({ value, language }: { value?: number; language: 'zh' | 'en' }) {
-  if (!value || !Number.isFinite(value) || Number.isNaN(new Date(value).getTime())) return null;
-  return <time className="message-time" dateTime={new Date(value).toISOString()}>
-    {new Date(value).toLocaleTimeString(language === 'zh' ? 'zh-CN' : 'en-GB', { hour: '2-digit', minute: '2-digit', hour12: false })}
+  const formatter = useMessageTimeFormat(language);
+  const date = new Date(value ?? NaN);
+  if (!value || !Number.isFinite(value) || Number.isNaN(date.getTime())) return null;
+  return <time className="message-time" dateTime={date.toISOString()}>
+    {formatter.format(date)}
   </time>;
 }
 export function Tool({ item, active, onExpandedChange, ...props }: {
@@ -236,13 +281,14 @@ export function Tool({ item, active, onExpandedChange, ...props }: {
   onExpandedChange?: (expanded: boolean) => void;
 } & BodyProps) {
   const defaultExpanded = props.interfaceSettings?.toolsExpanded ?? false;
-  const [expanded, setExpanded] = useState(defaultExpanded);
-  const [visited, setVisited] = useState(defaultExpanded);
+  const identity = item.call?.id ?? item.result?.toolCallId;
+  const stateKey = identity ? `tool:${identity}` : undefined;
+  const [expanded, setExpanded] = useConversationDisclosure(stateKey, defaultExpanded, props.disclosureReset);
+  const [visited, setVisited] = useState(expanded);
   const { details, body } = useAnimatedDisclosure(expanded, props.onLayoutChange);
   useLayoutEffect(() => {
-    setExpanded(defaultExpanded);
-    if (defaultExpanded) setVisited(true);
-  }, [defaultExpanded, props.disclosureReset]);
+    if (expanded) setVisited(true);
+  }, [expanded]);
   const zh = props.language === 'zh';
   const name = item.call?.name ?? item.result?.toolName ?? (zh ? '工具' : 'Tool');
   const subject = toolSubject(item.call);
@@ -266,17 +312,27 @@ export function Tool({ item, active, onExpandedChange, ...props }: {
       <span className="thinking-chevron"><DisclosureChevron/></span>
       {props.interfaceSettings?.compactProcess && !expanded && subject && <span className="process-group-preview">{subject}</span>}
     </summary>
-    <div ref={body} className="process-tool-body" aria-hidden={!expanded} inert={!expanded}>{visited &&
+    <div ref={body} className="process-tool-body" aria-hidden={!expanded} inert={!expanded}>{(visited || expanded) &&
     <div className="process-tool-content">
       <div className="process-tool-meta"><code>{name}</code>{subject && <span className="process-tool-subject">{subject}</span>}</div>
-      {item.call && <details className="tool-input"><summary>{zh ? '输入' : 'Input'}</summary><ToolText text={JSON.stringify(item.call.arguments ?? {}, null, 2)} {...props}/></details>}
-      {item.result ? <details className="tool-output" open><summary>{zh ? '结果' : 'Result'}</summary>
+      {item.call && <ToolDetails className="tool-input" stateKey={stateKey && `${stateKey}:input`} label={zh ? '输入' : 'Input'}>
+        <ToolText text={JSON.stringify(item.call.arguments ?? {}, null, 2)} {...props}/></ToolDetails>}
+      {item.result ? <ToolDetails className="tool-output" stateKey={stateKey && `${stateKey}:output`} label={zh ? '结果' : 'Result'} defaultExpanded>
         {messageText(item.result) ? <ToolText text={messageText(item.result)} {...props}/>
           : !messageBlocks(item.result).some(block => block.type === 'image') && <p className="process-pending">{zh ? '无输出' : 'No output'}</p>}
         {messageBlocks(item.result).filter(block => block.type === 'image').map((block, index) => <Image key={index} block={block} {...props}/>)}
-      </details> : null}
+      </ToolDetails> : null}
       <div className="process-tool-status">{state === 'done' && <Check size={12}/>}<span>{historical ? historicalStatus : status}</span></div>
     </div>}</div>
+  </details>;
+}
+
+function ToolDetails({ className, stateKey, label, defaultExpanded = false, children }: {
+  className: string; stateKey?: string; label: string; defaultExpanded?: boolean; children: ReactNode;
+}) {
+  const [expanded, setExpanded] = useConversationDisclosure(stateKey, defaultExpanded);
+  return <details className={className} open={expanded} onToggle={event => setExpanded(event.currentTarget.open)}>
+    <summary>{label}</summary>{children}
   </details>;
 }
 
@@ -307,11 +363,10 @@ function ToolText({ text, ...props }: { text: string } & Pick<BodyProps, 'langua
   return text.length > 32_768 ? <LargeText text={text} {...props}/> : <pre>{text}</pre>;
 }
 
-function ToolGroup({ items, active, ...props }: { items: ToolItem[]; active: boolean } & BodyProps) {
+function ToolGroup({ items, active, stateKey, ...props }: { items: ToolItem[]; active: boolean; stateKey?: string } & BodyProps) {
   const defaultExpanded = props.interfaceSettings?.toolsExpanded ?? false;
-  const [expanded, setExpanded] = useState(defaultExpanded);
+  const [expanded, setExpanded] = useConversationDisclosure(stateKey, defaultExpanded, props.disclosureReset);
   const id = useId();
-  useEffect(() => { setExpanded(defaultExpanded); }, [defaultExpanded, props.disclosureReset]);
   useLayoutEffect(() => { props.onLayoutChange?.(); }, [expanded]);
   const running = items.some(item => !item.result || item.result.desktopToolPending);
   const label = toolGroupLabel(items, props.language);
@@ -327,16 +382,15 @@ function ToolGroup({ items, active, ...props }: { items: ToolItem[]; active: boo
     </div>
   </section>;
 }
-function ProcessGroup({ group, children, ...props }: { group: ProcessGroupData; children: (onExpandedChange?: (expanded: boolean) => void) => ReactNode } & BodyProps) {
+function ProcessGroup({ group, stateKey, children, ...props }: { group: ProcessGroupData; stateKey?: string; children: (onExpandedChange?: (expanded: boolean) => void) => ReactNode } & BodyProps) {
   const defaultExpanded = props.interfaceSettings?.toolsExpanded ?? false;
-  const [expanded, setExpanded] = useState(defaultExpanded);
+  const [expanded, setExpanded] = useConversationDisclosure(stateKey, defaultExpanded, props.disclosureReset);
   const id = useId();
   const single = group.items.length === 1;
   const trigger = useRef<HTMLButtonElement>(null);
   const body = useRef<HTMLDivElement>(null);
   const [focused, setFocused] = useState(false);
   const open = single || expanded;
-  useEffect(() => { setExpanded(defaultExpanded); }, [defaultExpanded, props.disclosureReset]);
   useLayoutEffect(() => { props.onLayoutChange?.(); }, [expanded]);
   useLayoutEffect(() => {
     if (single && document.activeElement === trigger.current)
@@ -405,11 +459,11 @@ export function ModelChangeNote({ change, language }: { change: ModelChange; lan
     </span>
   </div>;
 }
-function HistoricalAgents({ count, language, children, onLayoutChange }: {
-  count: number; language: 'zh' | 'en'; children: ReactNode; onLayoutChange?: () => void;
+function HistoricalAgents({ count, stateKey, language, children, onLayoutChange }: {
+  count: number; stateKey?: string; language: 'zh' | 'en'; children: ReactNode; onLayoutChange?: () => void;
 }) {
-  const [expanded, setExpanded] = useState(false);
-  const [visited, setVisited] = useState(false);
+  const [expanded, setExpanded] = useConversationDisclosure(stateKey, false);
+  const [visited, setVisited] = useState(expanded);
   const { details, body } = useAnimatedDisclosure(expanded, onLayoutChange);
   return <details ref={details} className="process-tool historical-agents" data-expanded={expanded}>
     <summary aria-expanded={expanded} onClick={event => {
@@ -418,11 +472,11 @@ function HistoricalAgents({ count, language, children, onLayoutChange }: {
       <span className="thinking-chevron"><DisclosureChevron/></span>
       <span className="process-group-preview">{language === 'zh' ? `${count} 组调用` : `${count} calls`}</span>
     </summary>
-    <div ref={body} className="process-tool-body" aria-hidden={!expanded} inert={!expanded}>{visited && children}</div>
+    <div ref={body} className="process-tool-body" aria-hidden={!expanded} inert={!expanded}>{(visited || expanded) && children}</div>
   </details>;
 }
 
-  function Response({ items, active, historical, canBranch, branch, runtimeId, onOpenSubagent, onOpenWorkflow, background, modelChange, settledStatus, execution, searchTarget, ...props }: {
+  const Response = memo(function Response({ items, active, historical, canBranch, branch, runtimeId, onOpenSubagent, onOpenWorkflow, background, modelChange, settledStatus, execution, searchTarget, ...props }: {
     items: { message: Message; index: number }[]; active: boolean;
     historical: boolean;
     canBranch: boolean; branch: Props['branch'];
@@ -455,6 +509,15 @@ function HistoricalAgents({ count, language, children, onLayoutChange }: {
     const finalProse = finalItem?.type === 'text' ? finalItem.block.text ?? '' : '';
     const zh = props.language === 'zh';
     const stamp = [...items].reverse().find(item => item.message.timestamp)?.message.timestamp;
+    const disclosureKey = (item: ResponseItem) => {
+      const entryId = items.find(entry => entry.index === item.index)?.message.entryId;
+      const identity = item.type === 'tool' ? item.call?.id ?? item.result?.toolCallId : undefined;
+      return identity ? `tool:${identity}` : entryId ? `${entryId}:${item.key.slice(item.key.indexOf(':') + 1)}` : undefined;
+    };
+    const groupDisclosureKey = (kind: string, first: ResponseItem) => {
+      const key = disclosureKey(first);
+      return key ? `${kind}:${key}` : undefined;
+    };
     const actions = !active && content.length > 0 && <MessageActions text={text} language={props.language} onError={props.onError}
       timing={[...items].reverse().find(item => item.message.desktopTiming)?.message.desktopTiming?.run} timestamp={stamp}>
       <button type="button" className="icon-button branch-action" aria-label={zh ? '从这里分支' : 'Branch from here'}
@@ -486,6 +549,7 @@ function HistoricalAgents({ count, language, children, onLayoutChange }: {
                 })()
                 : <Tool key={item.key} item={item} active={active} onExpandedChange={onExpandedChange} {...props}/>
           : item.type === 'thinking' ? <ThinkingDisclosure key={item.key} index={item.index}
+            stateKey={disclosureKey(item)}
             elapsed={<ElapsedLabel timing={items.find(entry => entry.index === item.index)?.message.desktopTiming?.thinking[item.key.split(':')[1]]}
               active={item.key === liveThought} language={props.language}/>}
             autoOpen={Boolean(props.interfaceSettings?.thinkingExpanded && item.key === liveThought)}
@@ -500,11 +564,11 @@ function HistoricalAgents({ count, language, children, onLayoutChange }: {
       {modelChange && <ModelChangeNote change={modelChange} language={props.language}/>}
       <div className="response-content message-body">{presentation.map(item =>
         historicalKeys.has(item.key) ? item.key === historicalAgents[0]?.key
-          ? <HistoricalAgents key={`history:${item.key}`} count={historicalAgents.length} language={props.language} onLayoutChange={props.onLayoutChange}>
+          ? <HistoricalAgents key={`history:${item.key}`} stateKey={groupDisclosureKey('history', historicalAgents[0])} count={historicalAgents.length} language={props.language} onLayoutChange={props.onLayoutChange}>
             {historicalAgents.map(member => renderItem(member))}
           </HistoricalAgents> : null
-        : item.type === 'process-group' ? <ProcessGroup key={item.key} group={item} {...props}>{onExpandedChange => item.items.map(member => renderItem(member, onExpandedChange))}</ProcessGroup>
-          : item.type === 'tool-group' ? <ToolGroup key={item.key} items={item.items} active={active} {...props}/>
+        : item.type === 'process-group' ? <ProcessGroup key={item.key} group={item} stateKey={groupDisclosureKey('process', item.items[0])} {...props}>{onExpandedChange => item.items.map(member => renderItem(member, onExpandedChange))}</ProcessGroup>
+          : item.type === 'tool-group' ? <ToolGroup key={item.key} items={item.items} active={active} stateKey={groupDisclosureKey('tools', item.items[0])} {...props}/>
             : renderItem(item))}</div>
       {incomplete && <div className={`client-event-note incomplete-response${active ? '' : ' is-failed'}`} role="status">
         <CircleAlert size={14} aria-hidden="true"/><span>{incomplete}</span>
@@ -515,11 +579,11 @@ function HistoricalAgents({ count, language, children, onLayoutChange }: {
       {execution && <PlanExecution plan={execution.plan} state={execution.state} language={props.language}/>}
       {settledStatus}</div> : actions}
   </article></ArtifactContext.Provider>;
-}
-function UserMessage({ message, index, arriving, editState, setEditState, searchTarget, ...props }: {
+});
+const UserMessage = memo(function UserMessage({ message, index, arriving, editState, setEditState, searchTarget, ...props }: {
   message: Message; index: number; arriving: boolean;
   editState: EditState | null; setEditState: Dispatch<SetStateAction<EditState | null>>;
-} & Props) {
+} & BodyProps & Pick<Props, 'canEdit' | 'edit'>) {
   const article = useRef<HTMLElement>(null);
   const input = useRef<HTMLTextAreaElement>(null);
   const inputId = useId();
@@ -588,25 +652,41 @@ function UserMessage({ message, index, arriving, editState, setEditState, search
       {message.desktopSteered && <em className="message-steered">{zh ? '已插队引导' : 'Steered'}</em>}
     </UserMessageActions></>}
   </article>;
-}
+});
 export function ConversationMessages(props: Props) {
+  const timeFormat = useMessageTimeFormat(props.language);
   const interfaceSettings = useMemo(() => normalizeInterfaceSettings(props.interfaceSettings), [props.interfaceSettings]);
   // Snapshot object identities change during streaming; only settings or an explicit apply reset disclosure.
   const disclosureReset = JSON.stringify([interfaceSettings, props.interfaceRevision ?? 0]);
   const [editState, setEditState] = useState<EditState | null>(null);
-  const entries = useMemo(() => conversationEntries(props.messages), [props.messages]);
+  const readEntries = useMemo(createConversationEntriesReader, []);
+  const entries = useMemo(() => readEntries(props.messages), [props.messages, readEntries]);
   const executions = useMemo(() => planExecutionResponses(props.messages, props.busy), [props.messages, props.busy]);
   const background = useMemo(() => projectBackgroundSubagentStates(backgroundSubagentStates(props.messages), props.backgroundActivity), [props.messages, props.backgroundActivity]);
+  const emptyBackground = useMemo<BackgroundSubagentStates>(() => new Map(), []);
+  // Shell state changes must not invalidate every saved turn's event handlers.
+  const handlers = useRef(props);
+  useLayoutEffect(() => { handlers.current = props; });
+  const callbacks = useMemo(() => ({
+    edit: (message: Message, text: string) => handlers.current.edit(message, text),
+    branch: (message: Message) => handlers.current.branch(message),
+    onOpenSubagent: (task: SubagentDisplayTask) => handlers.current.onOpenSubagent(task),
+    onOpenWorkflow: (id: string) => handlers.current.onOpenWorkflow?.(id),
+  }), []);
+  const body: BodyProps = { language: props.language, openImage: props.openImage, onError: props.onError,
+    onLayoutChange: props.onLayoutChange, interfaceSettings, disclosureReset,
+    awaitingToolCalls: props.awaitingToolCalls?.length ? props.awaitingToolCalls : undefined };
   const latestUser = [...props.messages].reverse().find(isUserMessage);
   const lastEntry = entries.at(-1);
   const hasSettledFooter = !props.busy && lastEntry?.type === 'response' && responsePresentation(lastEntry.items).content.length > 0;
   let userTimestamp: number | undefined;
-  return <>{entries.map((entry, index) => {
+  return <MarkdownPreparation.Provider value={props.preparedMarkdown}><MessageTimeFormat.Provider value={timeFormat}>{entries.map((entry, index) => {
     if (entry.type === 'user') {
       userTimestamp = entry.item.message.timestamp;
       return <UserMessage key={entry.item.index} message={entry.item.message} index={entry.item.index}
-      editState={editState} setEditState={setEditState}
-      arriving={entry.item.message === props.arrivingUser} {...props}
+      editState={editState?.entryId === entry.item.message.entryId ? editState : null} setEditState={setEditState}
+      arriving={entry.item.message === props.arrivingUser} {...body} edit={callbacks.edit}
+      searchTarget={props.searchTarget?.entryId === entry.item.message.entryId ? props.searchTarget : undefined}
       canEdit={props.canEdit && entry.item.message.role === 'user' && entry.item.message === latestUser}/>;
     }
     if (cronMessage(entry.items[0].message)) userTimestamp = undefined;
@@ -615,7 +695,11 @@ export function ConversationMessages(props: Props) {
     const completedStatus = props.completedStatus?.responseIndex === entry.index ? props.completedStatus.content : undefined;
     return <Response key={entry.index} items={entry.items} active={props.busy && index === entries.length - 1}
       historical={index < entries.length - 1}
-      modelChange={modelChange} canBranch={props.canEdit && index === entries.length - 1} background={background} {...props} interfaceSettings={interfaceSettings} disclosureReset={disclosureReset} execution={executions.get(entry.index)}
+      modelChange={modelChange} canBranch={props.canEdit && index === entries.length - 1}
+      background={background.size ? background : emptyBackground} {...body} runtimeId={props.runtimeId} branch={callbacks.branch}
+      onOpenSubagent={callbacks.onOpenSubagent} onOpenWorkflow={props.onOpenWorkflow ? callbacks.onOpenWorkflow : undefined}
+      searchTarget={props.searchTarget?.entryId && entry.items.some(item => item.message.entryId === props.searchTarget!.entryId) ? props.searchTarget : undefined}
+      execution={executions.get(entry.index)}
       settledStatus={completedStatus ? <>{completedStatus}{settledStatus}</> : settledStatus}/>;
-  })}{props.settledStatus && !hasSettledFooter && <div className="working working-idle">{props.settledStatus}</div>}</>;
+  })}{props.settledStatus && !hasSettledFooter && <div className="working working-idle">{props.settledStatus}</div>}</MessageTimeFormat.Provider></MarkdownPreparation.Provider>;
 }

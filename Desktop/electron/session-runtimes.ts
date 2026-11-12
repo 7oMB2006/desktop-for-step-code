@@ -84,6 +84,18 @@ function workspaceKey(cwd: string) {
   const path = resolve(cwd);
   return process.platform === 'win32' ? path.toLowerCase() : path;
 }
+interface RuntimeIdleOptions {
+  stopHost?: boolean;
+  allowRemote?: boolean;
+  resources?: boolean;
+  allowWaitingCron?: boolean;
+}
+function cronBlocksResourceWrite(state: CronState | undefined, options: RuntimeIdleOptions) {
+  if (!options.resources) return false;
+  return options.allowWaitingCron && state
+    ? cronState(JSON.stringify(state))?.status !== 'ready'
+    : hasScheduledCron(state);
+}
 
 // A worker owns one session identity until disposal; edits move its history leaf.
 export class SessionRuntimes {
@@ -111,11 +123,13 @@ export class SessionRuntimes {
     private create: (receive: (event: RuntimeEvent) => void) => WorkerTransport = receive =>
       new RpcProcess(receive, 256 * 1024 * 1024),
     private hooks: { launch?: (worker: SessionRuntime) => { env: Record<string, string>; args: string[] }; dispose?: (worker: SessionRuntime) => void;
+      canReuseEmpty?: (worker: SessionRuntime) => boolean;
       event?: (worker: SessionRuntime, event: RuntimeEvent) => RuntimeEvent;
       messages?: (worker: SessionRuntime, messages: Message[]) => Promise<Message[]>;
       initializeModel?: (worker: SessionRuntime, restoring: boolean) => Promise<void>;
+      pluginsReady?: (worker: SessionRuntime) => Promise<void>;
       startup?: (diagnostic: RuntimeStartupDiagnostic) => void;
-      idleLimit?: () => number; backgroundAvailable?: () => boolean;
+      idleLimit?: () => number; backgroundAvailable?: () => boolean; retain?: (worker: SessionRuntime) => boolean;
       beforePrompt?: (worker: SessionRuntime, message: string) => Promise<void> } = {},
   ) {}
   get active() { return this.activeId ? this.workers.get(this.activeId) : undefined; }
@@ -217,7 +231,8 @@ export class SessionRuntimes {
       const candidates = [...this.workers.values()].filter(worker =>
         workspaceKey(worker.cwd) === key && worker.status === 'connected' && worker.state?.sessionId &&
         !worker.messages.length && !worker.state.isStreaming && !this.isBusy(worker) && !hasBackgroundWork(worker) && !worker.mutating &&
-        !worker.failed && !worker.interrupted && !worker.remoteAttached);
+        !worker.failed && !worker.interrupted && !worker.remoteAttached && !this.hooks.retain?.(worker) &&
+        (this.hooks.canReuseEmpty?.(worker) ?? true));
       const empty = candidates.find(worker => !worker.operations);
       if (empty) {
         const transport = empty.rpc;
@@ -235,8 +250,8 @@ export class SessionRuntimes {
     try { return await opening; }
     finally { if (this.openingEmpty.get(key) === opening) this.openingEmpty.delete(key); }
   }
-  prepare(node: string, entry: string, cwd: string, env: NodeJS.ProcessEnv, sessionPath?: string) {
-    return this.openWorker(node, entry, cwd, env, sessionPath, undefined, false);
+  prepare(node: string, entry: string, cwd: string, env: NodeJS.ProcessEnv, sessionPath?: string, branch?: BranchOperation) {
+    return this.openWorker(node, entry, cwd, env, sessionPath, branch, false);
   }
   private assertStartupOwner(worker: SessionRuntime, transport: WorkerTransport) {
     if (this.workers.get(worker.id) !== worker || worker.rpc !== transport || worker.status === 'disconnected')
@@ -513,6 +528,10 @@ export class SessionRuntimes {
       if (!existing && env.DESKTOP_CRON_RECOVERY !== '1')
         await this.hooks.initializeModel?.(worker, Boolean(sessionPath || branch));
       this.assertStartupOwner(worker, transport);
+      if (!existing && env.DESKTOP_CRON_RECOVERY !== '1') {
+        await this.hooks.pluginsReady?.(worker);
+        this.assertStartupOwner(worker, transport);
+      }
       const modelRestoredAt = performance.now();
       worker.startupTiming = {
         processReadyMs: processReadyAt - startedAt,
@@ -537,6 +556,9 @@ export class SessionRuntimes {
       if (this.workers.get(worker.id) === worker && worker.rpc === transport) this.workers.delete(worker.id);
       throw error;
     }
+  }
+  hasNonSnapshotOperations(worker: SessionRuntime): boolean {
+    return worker.operations > (this.reads.get(worker)?.size ?? 0);
   }
   read(worker: SessionRuntime): Promise<void> {
     if (worker.status !== 'connected') return Promise.resolve();
@@ -654,20 +676,32 @@ export class SessionRuntimes {
     this.launchReads.set(worker, read);
     return read;
   }
-  async assertIdle(worker: SessionRuntime, options: { stopHost?: boolean } = {}) {
+  async assertIdle(worker: SessionRuntime, options: RuntimeIdleOptions = {}) {
+    const rpc = worker.rpc, sessionId = worker.state?.sessionId;
+    const requireConnected = options.allowRemote && worker.remoteAttached;
     const assertHost = () => {
-      if (worker.remoteAttached) throw new Error('Unbind Remote before changing this session runtime');
+      if (this.workers.get(worker.id) !== worker || worker.rpc !== rpc || worker.state?.sessionId !== sessionId)
+        throw new Error('Session operation in progress');
+      if (worker.remoteAttached && !(options.stopHost === false && options.allowRemote))
+        throw new Error('Unbind Remote before changing this session runtime');
+      if ((requireConnected || worker.remoteAttached && options.allowRemote) && worker.status !== 'connected')
+        throw new Error('Runtime is not connected');
       if (worker.btwActive) throw new Error('Finish or cancel the side question first');
       if (hasBackgroundWork(worker)) throw new Error('Stop background agents before changing this session runtime');
       if (options.stopHost && hasScheduledCron(worker.cron)) throw new Error('Delete scheduled Cron jobs before restarting or changing this runtime; Cron state must be available');
+      if (cronBlocksResourceWrite(worker.cron, options)) throw new Error('capability:scheduled-work');
+      if (worker.launch?.goal?.status === 'active') throw new Error('Pause the active goal first');
+      if (worker.queued) throw new Error('Send or withdraw the pending messages first');
+      if (worker.stopping) throw new Error('Session operation in progress');
+      if (this.isBusy(worker)) throw new Error('Stop this session task first');
     };
     assertHost();
-    if (worker.launch?.goal?.status === 'active') throw new Error('Pause the active goal first');
-    if (worker.queued) throw new Error('Send or withdraw the pending messages first');
-    if (this.isBusy(worker)) throw new Error('Stop this session task first');
     if (worker.status === 'connected') {
       const state = await worker.rpc.request('get_state');
       assertHost();
+      if ((requireConnected || worker.remoteAttached && options.allowRemote)
+        && (state?.sessionId !== sessionId || typeof state?.isStreaming !== 'boolean'))
+        throw new Error('Runtime is not connected');
       if (state.isStreaming || state.isCompacting || state.pendingMessageCount) throw new Error('Stop this session task first');
     }
   }
@@ -716,11 +750,23 @@ export class SessionRuntimes {
       throw error;
     } finally { worker.submissions--; this.publish(); }
   }
-  async assertAllIdle(options: { stopHost?: boolean } = {}) {
-    for (const worker of this.workers.values()) {
+  async assertAllIdle(options: RuntimeIdleOptions = {}) {
+    const workers = [...this.workers.values()];
+    const owners = workers.map(worker => ({ worker, rpc: worker.rpc, sessionId: worker.state?.sessionId,
+      requireConnected: options.allowRemote && worker.remoteAttached }));
+    for (const worker of workers) {
       if (worker.mutating) throw new Error('Session operation in progress');
-      await this.assertIdle(worker, { stopHost: options.stopHost !== false });
+      await this.assertIdle(worker, { ...options, stopHost: options.stopHost !== false });
     }
+    if (workers.length !== this.workers.size || owners.some(({ worker, rpc, sessionId, requireConnected }) => this.workers.get(worker.id) !== worker
+      || worker.rpc !== rpc || worker.state?.sessionId !== sessionId
+      || worker.mutating || worker.stopping || worker.queued || this.isBusy(worker)
+      || worker.btwActive || hasBackgroundWork(worker) || worker.launch?.goal?.status === 'active'
+      || worker.remoteAttached && !(options.stopHost === false && options.allowRemote)
+      || (requireConnected || worker.remoteAttached && options.allowRemote) && worker.status !== 'connected'
+      || options.stopHost !== false && hasScheduledCron(worker.cron)
+      || cronBlocksResourceWrite(worker.cron, options)))
+      throw new Error('Session operation in progress');
   }
   async refresh(worker: SessionRuntime, node: string, entry: string, env: NodeJS.ProcessEnv,
     options: { allowUnavailableModel?: boolean } = {}) {
@@ -757,6 +803,7 @@ export class SessionRuntimes {
       }
       throw error;
     } finally { worker.mutating = false; this.publish(); }
+    await this.hooks.pluginsReady?.(worker);
   }
   async suspend(workers: SessionRuntime[] = [...this.workers.values()]) {
     // Keep history and navigation identities, but expose no usable mixed-config transport.
@@ -790,7 +837,7 @@ export class SessionRuntimes {
     return new Promise(resolve => {
       const cancel = () => {
         this.clearRequest(worker, id);
-        this.emit({ type: 'desktop_ui_expired', id, runtimeId: worker.id });
+        this.emit({ type: 'desktop_ui_expired', id, runtimeId: worker.id, runtimeRevision: ++worker.revision });
         this.publish();
       };
       this.confirmations.set(id, { worker, resolve: approved => { signal?.removeEventListener('abort', cancel); resolve(approved); } });
@@ -799,7 +846,7 @@ export class SessionRuntimes {
       worker.pendingUI.set(id, request);
       worker.uiTimers.set(id, setTimeout(cancel, 120000).unref());
       signal?.addEventListener('abort', cancel, { once: true });
-      this.emit({ ...request, sessionId: worker.state?.sessionId });
+      this.emit({ ...request, sessionId: worker.state?.sessionId, runtimeRevision: ++worker.revision });
       this.publish();
     });
   }
@@ -817,6 +864,7 @@ export class SessionRuntimes {
         worker.fullAccessCancellationRevision = (worker.fullAccessCancellationRevision ?? 0) + 1;
     }
     this.clearRequest(worker, id);
+    worker.revision++;
     this.publish();
   }
   async remove(worker: SessionRuntime) {
@@ -840,7 +888,7 @@ export class SessionRuntimes {
   }
   async recycle(retain: (worker: SessionRuntime) => boolean = () => false) {
     const recyclable = (worker: SessionRuntime) => this.workers.get(worker.id) === worker &&
-      !retain(worker) && !worker.remoteAttached && worker.id !== this.activeId && worker.status === 'connected' && !this.isBusy(worker) &&
+      !retain(worker) && !this.hooks.retain?.(worker) && !worker.remoteAttached && worker.id !== this.activeId && worker.status === 'connected' && !this.isBusy(worker) &&
       !hasBackgroundWork(worker) &&
       worker.launch?.goal?.status !== 'active' &&
       !hasScheduledCron(worker.cron) &&

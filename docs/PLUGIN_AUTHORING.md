@@ -12,7 +12,7 @@
 | 插件工作区 | 插件自己的仓库声明，宿主绘制 | 可选 `desktop`、包内 Markdown 页面与受限图标，需包含此功能的新宿主构建 |
 | 只读连接 | 宿主固定协议适配，插件声明 | 可选 `desktop.connection` / `agent-bridge-v1`，需用户主动选择本机 profile |
 | 基础配置 | 插件自己的仓库 | 可选 `dfsc.settings.json` 与 `json-file-v1` 原生 stdio 消费者 |
-| 特殊宿主适配 | DFSC 宿主 | BVR 账户桥、StepPage 准备等，不是可自报的通用能力 |
+| 特殊宿主适配 | DFSC 宿主 | BVR 账户桥、StepPage 准备、自定义背景等，不是可自报的通用能力 |
 
 没有第三方 HTML、iframe、React bundle 或 JavaScript 入口加载器。
 给清单添加 `frontend`、`entry` 或 `provision`，不会自动获得界面或安装能力。
@@ -26,6 +26,25 @@ BVR 的账户桥也不是可按插件名称自动继承的通用能力。
 [主题 JSON Schema](plugin-schemas/dfsc.theme.schema.json)。
 背景提供器只能接入主题明确开放的插槽，不获得前端执行或文件系统权限，
 也不要求 MCP 服务。一体化主题可以不开放背景替换。
+
+### 自定义背景宿主适配
+
+样例见 [自定义背景插件](../theme-marketplace/plugins/custom-background/README.md)。
+该包使用 `dfsc.appearance.json` 声明
+`{ "schemaVersion": 1, "provider": "custom-background-v1" }`，
+不是 `dfsc.settings.json` 的 MCP 配置消费者，也不是可上传的 React 或 HTML。
+当前宿主只支持固定的 `custom-background` 插件身份；未知 provider、未知声明字段、
+未知或冲突来源、缺失安装凭据、包内容被改写时均不开放配置。
+
+包必须显式声明空的 `skills`、`commands`、`agents`，且不能包含 MCP 服务或其他
+可执行能力。宿主逐次核对唯一安装、实例、完整包指纹及受限清单，再派生配置入口；
+同名、用途分类、市场展示文件和作者自报标记都不能单独授予该能力。
+它不获得纯数据主题的安装／卸载豁免，普通运行时空闲检查保持不变。
+
+安装不会自动启用背景。界面配置只修改宿主维护的本机图片与受限参数，不影响模型、
+MCP 或项目文件。启用后仍由主题的 `background.accepts` 决定是否生效。
+卸载时停止生效，个人图片与参数保留；新安装实例不会自动恢复旧实例的启用状态。
+这是一个具体的宿主适配器，不是第三方任意注册背景渲染器的通用 SDK。
 
 ### MCP 账户隔离候选
 

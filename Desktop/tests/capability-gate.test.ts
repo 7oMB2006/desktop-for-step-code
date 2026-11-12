@@ -61,6 +61,55 @@ test('run reserves synchronously and remains active through proof, mutation and 
   assert.equal(f.gate.active, false);
 });
 
+test('whenIdle waits for the entire current operation, not just its released runtime lease', async () => {
+  const f = fixture(), ready = deferred(), finish = deferred();
+  await f.gate.whenIdle();
+  let idle = false;
+  const operation = f.gate.run(async () => {
+    const release = await f.gate.guard({ scope: 'runtime' }, f.hooks);
+    release();
+    ready.resolve();
+    await finish.promise;
+  });
+  const completion = f.gate.whenIdle();
+  void completion.then(() => { idle = true; });
+  await ready.promise;
+  assert.equal(f.locked(), false);
+  assert.equal(f.gate.active, true);
+  assert.equal(idle, false);
+  await assert.rejects(f.gate.run(async () => {}), /capability:busy/);
+  assert.equal(f.gate.whenIdle(), completion, 'Rejected contenders cannot replace the current completion');
+  finish.resolve();
+  await Promise.all([operation, completion]);
+  assert.equal(idle, true);
+  assert.equal(f.gate.active, false);
+});
+
+test('whenIdle resolves after action or cleanup failure and is renewed by the next operation', async () => {
+  const f = fixture(), pending = deferred(), failure = new Error('write failed');
+  const operation = f.gate.run(async () => { await pending.promise; throw failure; });
+  const completion = f.gate.whenIdle();
+  const rejected = assert.rejects(operation, error => error === failure);
+  pending.resolve();
+  await Promise.all([completion, rejected]);
+  assert.equal(f.gate.active, false);
+  const nextPending = deferred(), nextReady = deferred();
+  const next = f.gate.run(async () => {
+    await f.gate.guard({ scope: 'runtime' }, { ...f.hooks, assertIdle: async () => {},
+      acquireRuntime: () => () => { throw failure; } });
+    nextReady.resolve();
+    await nextPending.promise;
+  });
+  const nextCompletion = f.gate.whenIdle();
+  const nextRejected = assert.rejects(next, error => error === failure);
+  assert.notEqual(nextCompletion, completion);
+  await nextReady.promise;
+  assert.equal(f.gate.active, true);
+  nextPending.resolve();
+  await Promise.all([nextCompletion, nextRejected]);
+  assert.equal(f.gate.active, false);
+});
+
 for (const policy of [
   { scope: 'discovery', pluginId: 'not-a-theme' },
   { scope: 'theme' },

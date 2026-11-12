@@ -14,19 +14,26 @@ interface OperationOwner {
 
 export class CapabilityGate {
   private owner?: OperationOwner;
+  private completion: Promise<void> = Promise.resolve();
 
   get active(): boolean { return this.owner !== undefined; }
+  whenIdle(): Promise<void> { return this.completion; }
 
   async run<T>(action: () => Promise<T>): Promise<T> {
     if (this.owner) throw new Error('capability:busy');
     const owner: OperationOwner = { closed: false };
+    let finish!: () => void;
+    this.completion = new Promise(resolve => { finish = resolve; });
     this.owner = owner;
     try {
       return await action();
     } finally {
       owner.closed = true;
       try { owner.release?.(); }
-      finally { if (this.owner === owner) this.owner = undefined; }
+      finally {
+        if (this.owner === owner) this.owner = undefined;
+        finish();
+      }
     }
   }
 

@@ -1,5 +1,30 @@
 # Verification
 
+## Ultra 合并候选的命令派发夹具加固（2026-11-12）
+
+PR #236 的 `4ecc342` 在 macOS run `43205867019` 中，仅 interface
+源码验收的 `verify-command-dispatch.mjs` 失败：响应式 `/todos` 场景在
+`prepareDispatchInput` 等待输入不变、ARIA 关闭和补全菜单卸载时超时。
+Windows 全组及 macOS 构建、协议、sessions/runtime 源码与包内组通过；
+macOS 最终汇总失败由 interface 失败导致。该夹具来自同步的主线
+`f96733b`，不是 Ultra 对 Todo 业务的修改。
+
+本机原脚本通过；真实编辑器/菜单探针正常和模拟未激活窗口各运行
+40 次也未复现。因此不能断言原云端根因，以下是夹具的定向加固：
+填入文本后等待 ProseMirror 值、React 空值标记及输入焦点就绪，
+再等待匹配补全；Escape 发送给已聚焦输入，不通过 locator 隐式重聚焦。
+超时输出阶段、预期/实际文本、焦点、补全、主题、语言和视口。
+保留原异常、五秒期限、文本不变及菜单关闭/卸载条件，不重试失败，
+不修改产品、Todo 断言或 CI 路由/门禁。
+
+新增契约测试先在旧夹具上失败，修正后四份定向测试 28/28 通过；
+Desktop 类型检查、三次独立完整命令派发原生验收和完整输入框菜单
+原生验收通过。日志为 `Desktop/test-results/ultra-ci-*-fixed*.log`，
+原失败片段保留于 `ultra-ci-macos-command-failure.log`。这些 Windows
+本地结果不能代替新 head 的 macOS 源码与包内云端验收，推送时仍待确认。
+本轮仅修改测试夹具、回归测试和本记录，未重新打包、绕过检查或合并 PR。
+现有 dist 约 12.7 MiB、验收证据约 5.2 MiB；未新增大型包或删除产物。
+
 ## Ultra 同步主线与冲突解决（2026-11-12）
 
 PR #236 正常合入主线 `ed7c6e4`，唯一文本冲突是本文件顶部并列

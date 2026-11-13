@@ -4,7 +4,8 @@ import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { createHash } from 'node:crypto';
-import { mkdtemp, mkdir, writeFile, readFile, rm } from 'node:fs/promises';
+import { mkdir, writeFile, readFile } from 'node:fs/promises';
+import { mkdtemp, removeTestProfile } from './test-profile.mjs';
 import { dirname, join, resolve } from 'node:path';
 import { tsImport } from 'tsx/esm/api';
 
@@ -84,5 +85,5 @@ try {
 } finally {
   await worker.stop();
   await admin.stop();
-  await rm(root, { recursive: true, force: true });
+  await removeTestProfile(root);
 }

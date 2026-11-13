@@ -1,5 +1,6 @@
 import { _electron as electron } from 'playwright';
-import { mkdir, mkdtemp, readFile, realpath, writeFile, utimes, rename, stat } from 'node:fs/promises';
+import { mkdir, readFile, realpath, writeFile, utimes, rename, stat } from 'node:fs/promises';
+import { mkdtemp } from './test-profile.mjs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import assert from 'node:assert/strict';

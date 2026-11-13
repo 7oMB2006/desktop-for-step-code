@@ -9,7 +9,8 @@
 import { _electron as electron } from 'playwright';
 import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
-import { mkdtemp, mkdir, writeFile, readFile, readdir, realpath, rm } from 'node:fs/promises';
+import { mkdir, writeFile, readFile, readdir, realpath } from 'node:fs/promises';
+import { mkdtemp, removeTestProfile } from './test-profile.mjs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { skipFirstRunFixture } from './session-fixture.mjs';
@@ -80,7 +81,7 @@ const writeFakeBundle = async (profile) => {
   return bundle;
 };
 const configOf = async (profile) => readFile(join(profile, 'step-runtime', 'config.toml'), 'utf8');
-const cleanup = async (profiles) => { for (const profile of profiles) await rm(profile, { recursive: true, force: true }); };
+const cleanup = async (profiles) => { for (const profile of profiles) await removeTestProfile(profile); };
 
 const profiles = [];
 

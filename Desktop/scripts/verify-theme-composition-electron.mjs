@@ -1,6 +1,7 @@
 import { _electron as electron } from 'playwright';
 import assert from 'node:assert/strict';
-import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { cp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp } from './test-profile.mjs';
 import { join, resolve } from 'node:path';
 
 const build = resolve(process.argv[2] || '');

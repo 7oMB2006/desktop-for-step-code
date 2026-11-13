@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, rm } from 'node:fs/promises';
+import { mkdir } from 'node:fs/promises';
+import { mkdtemp, removeTestProfile } from './test-profile.mjs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { chromium } from 'playwright';
@@ -130,4 +131,4 @@ try {
   assert.deepEqual(errors, []);
   console.log('Production transcript and summary MCP passed: source input, copy/edit/reload, exact server ownership, idle/save/restart/failure states, themes, narrow layouts and reduced motion.');
   console.log(output);
-} finally { await browser?.close(); await server.close(); await rm(cacheDir, { recursive: true, force: true }); }
+} finally { await browser?.close(); await server.close(); await removeTestProfile(cacheDir); }

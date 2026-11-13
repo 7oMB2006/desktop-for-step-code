@@ -1,7 +1,8 @@
 import { _electron as electron } from 'playwright';
 import { prepareSessionFixture, skipFirstRunFixture } from './session-fixture.mjs';
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir } from 'node:fs/promises';
+import { mkdir } from 'node:fs/promises';
+import { mkdtemp } from './test-profile.mjs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 

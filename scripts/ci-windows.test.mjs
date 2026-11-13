@@ -31,6 +31,8 @@ test('every acceptance script is assigned exactly once or explicitly remains out
   assert.ok(acceptanceGroups.runtime.includes('verify-plugin-update-electron.mjs'),
     'Plugin update release and restoration must run in Windows runtime acceptance');
   assert.ok(!localOnly.includes('verify-plugin-update-electron.mjs'));
+  assert.ok(acceptanceGroups.runtime.includes('verify-profile-lifecycle.mjs'));
+  assert.ok(!localOnly.includes('verify-profile-lifecycle.mjs'));
   for (const [script, timeout] of Object.entries(acceptanceTimeouts)) {
     assert.ok(Object.values(acceptanceGroups).flat().includes(script));
     assert.equal(timeout, 300000);

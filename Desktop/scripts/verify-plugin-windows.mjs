@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
-import { cp, mkdir, mkdtemp, readFile, realpath, writeFile } from 'node:fs/promises';
+import { cp, mkdir, readFile, realpath, writeFile } from 'node:fs/promises';
+import { mkdtemp } from './test-profile.mjs';
 import { join, relative, resolve } from 'node:path';
 import { build } from 'esbuild';
 import { _electron as electron } from 'playwright';
@@ -9,6 +10,11 @@ const approved = await realpath('D:/DFSC-Preview-QA');
 assert.equal(resolve(approved).slice(0, 3).toLowerCase(), 'd:\\', 'Native fixture artifacts must stay on D:');
 const output = await realpath(await mkdtemp(join(approved, 'plugin-windows-')));
 assert.ok(relative(approved, output) && !relative(approved, output).startsWith('..'));
+const evidence = resolve(process.env.DESKTOP_VERIFY_OUTPUT || 'test-results/plugin-windows');
+await mkdir(evidence, { recursive: true });
+const report = join(await realpath(evidence), 'verification.json');
+assert.ok(relative(output, report).startsWith(`..${process.platform === 'win32' ? '\\' : '/'}`),
+  'Verification evidence must be outside disposable scratch');
 const profile = join(output, 'profile');
 await mkdir(profile);
 await Promise.all([
@@ -147,11 +153,11 @@ try {
   assert.equal((await call('stats')).windows.length, 8);
   checks.push('eight-window bound, closing frees a slot, and failed document load leaves no extra native window');
   assert.deepEqual(errors, []);
-  await writeFile(join(output, 'verification.json'), JSON.stringify({
+  await writeFile(report, JSON.stringify({
     scope: 'Isolated production PluginWindows + production preload + production owner-ref policy; fixture state/documents, not full Desktop runtime acceptance.',
     checks, errors, stats: await call('stats'), noAccounts: true, noRuntime: true, noRealExternalBrowser: true,
   }, null, 2));
-  console.log(JSON.stringify({ output, checks: checks.length, passed: true }, null, 2));
+  console.log(JSON.stringify({ output: evidence, report, scratch: output, checks: checks.length, passed: true }, null, 2));
 } finally {
   if (app) await closeDesktopFixtureAndWait(app);
 }

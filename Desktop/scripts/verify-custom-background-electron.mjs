@@ -1,6 +1,7 @@
 import { _electron as electron } from 'playwright';
 import assert from 'node:assert/strict';
-import { cp, mkdir, mkdtemp, readFile, realpath, writeFile } from 'node:fs/promises';
+import { cp, mkdir, readFile, realpath, writeFile } from 'node:fs/promises';
+import { mkdtemp } from './test-profile.mjs';
 import { join, resolve } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { closeDesktopFixtureAndWait } from './close-desktop-fixture.mjs';

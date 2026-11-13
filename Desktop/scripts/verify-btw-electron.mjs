@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdtemp, removeTestProfile } from './test-profile.mjs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { _electron as electron } from 'playwright';
@@ -313,5 +314,5 @@ try {
 } finally {
   if (app) await closeDesktopFixture(app);
   server.closeAllConnections(); await new Promise(resolve => server.close(() => resolve()));
-  await rm(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+  await removeTestProfile(profile);
 }

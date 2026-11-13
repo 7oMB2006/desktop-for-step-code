@@ -3,7 +3,8 @@ import { terminateFixtureTree } from './fixture-runtime-children.mjs';
 // Uses fixture credentials in an isolated profile; no real account is involved.
 import { _electron as electron } from 'playwright';
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, writeFile, readFile, readdir, rm } from 'node:fs/promises';
+import { mkdir, writeFile, readFile, readdir } from 'node:fs/promises';
+import { mkdtemp, removeTestProfile } from './test-profile.mjs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { verifyCrashRecords } from './crash-record-fixture.mjs';
@@ -110,7 +111,7 @@ assert.ok(!crash.includes('fixture-conflicting-key'), 'the log must not echo cre
 // 5. The conflicting plaintext file is left untouched for the user to inspect.
 assert.equal((await readFile(join(dataRoot, 'auth.json'), 'utf8')).includes('fixture-conflicting-key'), true);
 
-await rm(profile, { recursive: true, force: true });
+await removeTestProfile(profile);
 console.log(`Crash log acceptance passed: ${crashName}`);
 console.log('--- crash log content ---');
 console.log(crash.trim());

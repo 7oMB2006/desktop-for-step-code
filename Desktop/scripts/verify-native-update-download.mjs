@@ -1,6 +1,7 @@
 import { _electron as electron } from 'playwright';
 import { build } from 'esbuild';
-import { mkdtemp, mkdir } from 'node:fs/promises';
+import { mkdir } from 'node:fs/promises';
+import { mkdtemp } from './test-profile.mjs';
 import { tmpdir } from 'node:os';
 import { resolve, join } from 'node:path';
 import assert from 'node:assert/strict';

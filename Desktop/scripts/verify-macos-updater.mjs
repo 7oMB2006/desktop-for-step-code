@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 import { build } from 'esbuild';
 import { createHash } from 'node:crypto';
 import { execFileSync, spawn } from 'node:child_process';
-import { mkdtemp, mkdir, readFile, writeFile, copyFile, chmod, realpath, rm, stat } from 'node:fs/promises';
+import { mkdir, readFile, writeFile, copyFile, chmod, realpath, stat } from 'node:fs/promises';
+import { mkdtemp, removeTestProfile } from './test-profile.mjs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
@@ -70,4 +71,4 @@ try {
   await mkdir('test-results', { recursive: true });
   await writeFile('test-results/macos-updater.json', JSON.stringify({ status: 'passed', version, bytes: bytes.length, osLaunch: 'fixture', quarantine: 'preserved', originalProfile: 'unused' }, null, 2));
   console.log('macOS updater passed: actual download/hash/extraction, detached helper handshake, parent exit, same-volume replacement, quarantine and startup acknowledgement. OS launch uses a fixture.');
-} finally { await rm(root, { recursive: true, force: true }); }
+} finally { await removeTestProfile(root); }

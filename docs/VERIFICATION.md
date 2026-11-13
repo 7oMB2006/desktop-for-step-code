@@ -1,5 +1,61 @@
 # Verification
 
+## 生命周期 CI 路径断言与插件证据保留修复（2026-11-13，本地）
+
+PR #239 首轮 Windows runtime 与 macOS prepare 均在三个新单测失败：
+helper 登记、输出 canonical 路径，而测试直接比较 mkdtemp 返回的原始路径。
+在 D: 自有 junction 下复现同样三项失败后，将预期值统一为 native realpath；
+不改变 helper 返回路径语义、不放宽精确路径与输出次数检查。
+第一次使用普通 `realpathSync` 只解决了 junction；云端 Windows 再次失败，
+明确显示预期仍是 `RUNNER~1`，实际日志已展开成 `runneradmin`。
+改为 `realpathSync.native`，与 helper 的 promises realpath 使用相同原生解析，
+保留完整路径比较；本机 D: 未提供短文件名，不将 junction 回归称为 8.3 实测。
+
+- 新增 alias-parent 回归，验证返回原前缀、日志输出精确 canonical 路径、
+  重复保留只报告一次、清理失败非零退出，以及默认删除不碰其他目录。
+  新增 runner 退出后只删除 scratch、保留相邻证据的回归。
+  四文件定向测试 62/62；整个生命周期文件在 junction Temp 下 18/18。
+- 原生插件验收的报告迁到独立 evidence 目录，支持
+  `DESKTOP_VERIFY_OUTPUT`，默认 `Desktop/test-results/plugin-windows`；
+  scratch 内仅放可清理 harness 和隔离 profile。
+  实际 Electron 子进程七组断言通过，父进程在其退出后读取完整报告，
+  确认报告仍在、所打印的 scratch 精确路径已不存在。
+- 完整类型检查、源码构建、CI 策略/清单测试通过；后者 66 通过、
+  1 项平台跳过。真实 Electron 生命周期清理/保留两种模式重新通过，
+  各启动两次，验证合成 cookie 持久性及 runner 退出后的档案生命周期。
+- “保留两个包”的个人偏好仅保留在 ignored local override；
+  共享 AGENTS 与生命周期文档只要求遵守本机保留配置和删除授权边界。
+- 本轮证据在 `Desktop/test-results/lifecycle-delivery/ci-fix-20261113`。
+  未打新预览包、未删历史目录或正式档案；没有执行本机全量协议、
+  macOS 本机或破坏性安装/卸载验收。云端结果按新 head 另行确认。
+
+## 临时验收目录生命周期（2026-11-13，本地）
+
+基于 `main 965d27e` 在 D: 独立工作区验证，未切换或清理旧发布分支，
+也未同步其他活跃工作树。主线 124 份现有验收/演示脚本统一使用
+`test-profile.mjs`；包括旧分支中不存在的 MiniChat、首次引导及插件验收。
+保留各脚本原有进程退出流程，只清理本轮登记的精确目录。
+显式清理同样遵守 `DESKTOP_KEEP_TEST_PROFILES=1`；保留时打印准确路径。
+正式 userData、个人 Step Code 档案、历史 Temp 和现用包未删除。
+
+- 使用 Node 24.16.0 的四个定向文件共 60/60 通过，覆盖生命周期、
+  Electron 夹具退出、transport 和 supervisor 观测；新生命周期测试 16/16。
+  CI 策略/清单/运行器测试共 67 项，66 通过、1 项平台跳过、零失败。
+- 完整类型检查和生产源码构建通过，保留既有 Vite directive 警告。
+  最初原生探针使用旧 `.composer textarea`，因主线已改用富文本编辑器而
+  等待超时；改为核对真实新会话界面及 preload 后，重新完整通过。
+- 真实 Electron 44.4.5 的默认清理、显式保留两种模式均通过：
+  各启动两次，用合成 cookie 验证同一隔离档案重启后的持久性，
+  然后确认 runner 退出后的删除/保留行为；协调器自有夹具均已删除。
+  结果位于 `Desktop/test-results/profile-lifecycle/results.json`。
+- 为避免重复下载应用二进制，使用相同版本的已有 Electron；
+  runtime 只读复用本机既有 `29eb460` staging，未修改 runtime pin。
+  依赖、源码构建及日志均放在 D:。保留证据位于
+  `Desktop/test-results/lifecycle-delivery`，未生成安装器或新预览包。
+- residue `verify/upgrade` 的拒绝预检通过单元测试；没有执行破坏性安装/
+  卸载验收。不将本地结果表述为完整协议、全部原生场景、macOS 本机、
+  真实账户、安装器或云端 CI 通过；本次提交需独立云端验证。
+
 ## 监管进程观测补齐与类型声明（2026-11-13）
 
 `9d0d0bc` 的云端 Windows runtime 和 macOS prepare 都在类型检查失败：

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { createServer } from 'node:http';
-import { access, cp, mkdir, mkdtemp, readFile, realpath, writeFile } from 'node:fs/promises';
+import { access, cp, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -29,7 +29,8 @@ const originalManifest = JSON.parse(await readFile(join(packageRoot, 'step.plugi
 const originalSchema = JSON.parse(await readFile(join(packageRoot, 'dfsc.settings.json'), 'utf8'));
 const manifestFor = version => ({
   ...originalManifest, version, description: `Isolated configuration update acceptance ${version}.`,
-  mcpServers: { notes: { ...originalManifest.mcpServers.notes, command: node } },
+  mcpServers: { notes: { ...originalManifest.mcpServers.notes, command: node,
+    ...(version === '0.0.1' ? { env: { STEPFUN_API_KEY: 'legacy-managed-context' } } : {}) } },
 });
 const schemaFor = version => {
   const schema = structuredClone(originalSchema), fields = schema.groups[0].fields;
@@ -59,12 +60,13 @@ const git = (...args) => execFileSync('git', ['-C', market, ...args],
 git('init', '--initial-branch=main');
 const publish = async version => {
   await writeFile(join(packageRoot, 'step.plugin.json'), JSON.stringify(manifestFor(version)));
-  await writeFile(join(packageRoot, 'dfsc.settings.json'), JSON.stringify(schemaFor(version)));
+  if (version === '0.0.1') await rm(join(packageRoot, 'dfsc.settings.json'), { force: true });
+  else await writeFile(join(packageRoot, 'dfsc.settings.json'), JSON.stringify(schemaFor(version)));
   git('add', '--all');
   git('-c', 'user.name=Desktop Fixture', '-c', 'user.email=fixture@example.invalid',
     'commit', '--quiet', '-m', `Publish isolated fixture ${version}`);
 };
-await publish('0.1.0');
+await publish('0.0.1');
 await mkdir(join(root, 'plugins'), { recursive: true });
 await writeFile(join(root, 'plugins/.stepcode-preinstalled'), '["steppage"]');
 await writeFile(join(root, 'config.toml'),
@@ -203,11 +205,50 @@ try {
   await launch();
   assert.ok(!(await snapshot()).runtimeId, 'The isolated profile starts without a session runtime');
 
-  mark('install and configure through the real preload');
+  mark('install legacy package and introduce first configuration through the real update button');
   assert.deepEqual((await mutate({ action: 'marketplace-add', source: pathToFileURL(market).href })).warnings, []);
   const available = (await catalog()).available.find(plugin => plugin.name === id);
   assert.ok(available?.package?.ref);
   await mutate({ action: 'plugin-install', name: id, marketplace: available.marketplace, ref: available.package.ref });
+  assert.equal((await plugin()).package.configurationAvailable, false);
+  await mutate({ action: 'mcp-toggle', name: service, enabled: false });
+  const oldReceipts = await readFile(join(root, 'desktop-plugins/installations.json'));
+  const oldReceipt = JSON.parse(oldReceipts).installations.find(receipt => receipt.id === id);
+  const switches = await readFile(join(root, 'config.toml'));
+  const legacyPath = join(root, 'legacy-plugin.json'), legacyBytes = JSON.stringify({ key: 'legacy-fixture-private-key' });
+  await writeFile(legacyPath, legacyBytes);
+  await publish('0.1.0');
+  await mutate({ action: 'plugin-check-updates' });
+  const first = await ipc('pluginUpdatePreflight', await updateInput());
+  assert.equal(first.status, 'compatible');
+  assert.equal(first.readiness, 'ready');
+  assert.deepEqual(first.changes, [{ code: 'configuration-added' }]);
+  assert.deepEqual(await readFile(join(root, 'desktop-plugins/installations.json')), oldReceipts);
+  assert.equal((await plugin()).version, '0.0.1');
+  await page.getByRole('button', { name: 'Plugin marketplace', exact: true }).click();
+  await page.getByRole('region', { name: 'Plugin center', exact: true })
+    .getByRole('button', { name: `Update ${name} to v0.1.0`, exact: true }).click();
+  const firstApplied = await until(() => ipc('pluginUpdateOperation', { pluginId: id }),
+    value => value?.phase === 'done', 'The real update button did not commit the first configuration upgrade');
+  operations.push(firstApplied);
+  assert.equal(firstApplied.installation, 'committed');
+  assert.deepEqual(firstApplied.sessions, []);
+  assert.equal((await plugin()).version, '0.1.0');
+  const firstConfiguration = await currentConfiguration();
+  assert.equal(firstConfiguration.configured, false);
+  assert.equal(firstConfiguration.revision, 'unconfigured');
+  assert.equal(firstConfiguration.hasSecret.key, false);
+  const firstReceipt = JSON.parse(await readFile(join(root, 'desktop-plugins/installations.json'), 'utf8'))
+    .installations.find(receipt => receipt.id === id);
+  assert.equal(firstReceipt.instance, oldReceipt.instance);
+  assert.equal(firstReceipt.source, oldReceipt.source);
+  assert.deepEqual(await readFile(join(root, 'config.toml')), switches);
+  assert.equal(await readFile(legacyPath, 'utf8'), legacyBytes);
+  await assert.rejects(readFile(join(root, 'desktop-plugins/bindings', `${firstReceipt.folder}.json`)), { code: 'ENOENT' });
+  assert.ok(!(await snapshot()).runtimeId);
+  checks.push('first configuration upgrade uses the real update button, preserves instance, source, disabled service and legacy data, and requires explicit setup');
+
+  mark('configure through the real preload');
   const initial = await currentConfiguration();
   await ipc('pluginSaveConfiguration', { ref: initial.ref, revision: initial.revision,
     values: { prefix: '', uppercase: false, limit: 160, mode: 'brief' },

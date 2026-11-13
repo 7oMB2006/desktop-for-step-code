@@ -492,22 +492,26 @@ export function createCapabilitySettings(upstream, options) {
             || fingerprint === previous.fingerprint) throw new CapabilityError('stale');
           const schema = await optionalFile(target, 'dfsc.settings.json', 65536);
           const nextSchema = await optionalFile(snapshot, 'dfsc.settings.json', 65536);
+          const binding = await updateBinding(root, previous);
           const schemaChanged = (schema?.toString('base64') ?? null) !== (nextSchema?.toString('base64') ?? null);
+          const firstConfiguration = !schema && !!nextSchema && binding === null;
           let comparison = { status: 'compatible', changes: [] };
           let parsedNext;
           if (schemaChanged) {
             try {
-              comparison = schema && nextSchema
-                ? compareConfigurationSchemas(parseConfigurationJson(schema), parseConfigurationJson(nextSchema))
-                : { status: 'unsupported', changes: [{ code: 'schema-added-or-removed' }] };
+              comparison = firstConfiguration ? { status: 'compatible', changes: [{ code: 'configuration-added' }] }
+                : schema && nextSchema
+                  ? compareConfigurationSchemas(parseConfigurationJson(schema), parseConfigurationJson(nextSchema))
+                  : { status: 'unsupported', changes: [{ code: 'schema-added-or-removed' }] };
               if (nextSchema && comparison.status === 'compatible')
                 parsedNext = strictConfigurationSchema(parseConfigurationJson(nextSchema));
             } catch { comparison = { status: 'unsupported', changes: [{ code: 'invalid-schema' }] }; }
             const exists = async path => {
               try { await lstat(path); return true; } catch (error) { if (error.code === 'ENOENT') return false; throw error; }
             };
-            if (await exists(join(target, 'dfsc.host.json')) || await exists(join(snapshot, 'dfsc.host.json'))
-              || await exists(join(root, 'desktop-plugins/host/bindings', `${previous.instance}.json`)))
+            if (!firstConfiguration && (await exists(join(target, 'dfsc.host.json'))
+              || await exists(join(snapshot, 'dfsc.host.json'))
+              || await exists(join(root, 'desktop-plugins/host/bindings', `${previous.instance}.json`))))
               comparison = { status: 'unsupported', changes: [...comparison.changes, { code: 'host-migration-unsupported' }] };
           }
           const services = async (directory, manifest, consumer) => {
@@ -526,12 +530,25 @@ export function createCapabilitySettings(upstream, options) {
               [key, server.url ? 'http' : 'stdio', server.enabled !== false,
                 server.env?.STEPFUN_API_KEY === 'DFSC_INDEPENDENT_PLUGIN']);
           };
-          const previousConsumer = schemaChanged && parsedNext
-            ? strictConfigurationSchema(JSON.parse(schema.toString('utf8'))).consumer : undefined;
-          if (JSON.stringify(await services(target, old.manifest, previousConsumer))
-            !== JSON.stringify(await services(snapshot, checked.manifest, schemaChanged ? parsedNext?.consumer : undefined)))
+          const previousConsumer = schemaChanged && parsedNext && schema
+            ? strictConfigurationSchema(parseConfigurationJson(schema)).consumer : undefined;
+          const oldServices = await services(target, old.manifest, previousConsumer);
+          const nextServices = await services(snapshot, checked.manifest, schemaChanged ? parsedNext?.consumer : undefined);
+          let compatibleServices = oldServices;
+          if (firstConfiguration && parsedNext) {
+            const consumer = parsedNext.consumer.server;
+            const before = oldServices.find(([key]) => key === consumer);
+            const after = nextServices.find(([key]) => key === consumer);
+            if (!before || before[1] !== 'stdio' || !after || after[1] !== 'stdio' || !after[3])
+              comparison = { status: 'unsupported', changes: [...comparison.changes, { code: 'consumer-unsupported' }] };
+            else {
+              // A first configuration may strengthen only its existing stdio consumer's isolation.
+              compatibleServices = oldServices.map(([key, transport, enabled, isolated]) =>
+                [key, transport, enabled, isolated || key === consumer]);
+            }
+          }
+          if (JSON.stringify(compatibleServices) !== JSON.stringify(nextServices))
             comparison = { status: 'unsupported', changes: [...comparison.changes, { code: 'services-changed' }] };
-          const binding = await updateBinding(root, previous);
           const context = binding && !binding.revoked ? await new PluginConfigurationStore(root).context({
             kind: 'installed', provenance: 'recorded', instance: previous.instance, id, name: requested,
             root: target, fingerprint: previous.fingerprint,

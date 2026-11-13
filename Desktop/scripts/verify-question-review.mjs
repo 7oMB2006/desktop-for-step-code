@@ -7,8 +7,10 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import assert from 'node:assert/strict';
 import { planContext, planPath } from './plan-context.mjs';
+import { closeDesktopFixtureAndWait } from './close-desktop-fixture.mjs';
 
 const text = value => typeof value === 'string' ? value : value?.filter(c => c.type === 'text').map(c => c.text).join('\n') ?? '';
+const fixturePrompts = new Set(['ASK', 'PLAN', 'CANCEL', 'STOP', 'LEGACY']);
 const questions = [
   { id: 'scope', label: 'Scope', question: 'Choose the implementation scope', reason: 'This changes the proposal.',
     options: [{ label: 'Small change', value: 'small', description: 'Keep existing behavior' }, { label: 'Broader change', value: 'large', description: 'Include related improvements' }], allow_freeform: false },
@@ -22,8 +24,8 @@ const server = createServer(async (req, res) => {
   try {
     let body = ''; for await (const part of req) body += part;
     const payload = JSON.parse(body); payloads.push(payload);
-    const boundary = payload.messages.findLastIndex(m => m.role === 'user'
-      && !text(m.content).includes('<collaboration_mode>'));
+    const boundary = payload.messages.findLastIndex(m => m.role === 'user' && fixturePrompts.has(text(m.content)));
+    assert.ok(boundary >= 0, 'A known fixture prompt identifies the current turn, not runtime announcements');
     const prompt = text(payload.messages[boundary]?.content);
     const current = payload.messages.slice(boundary + 1);
     const hasResult = name => current.some(m => m.role === 'tool' && current.some(a =>
@@ -344,8 +346,8 @@ try {
   await dialog.getByRole('button', { name: '提交回答', exact: true }).click();
   await page.waitForFunction(async () => !(await window.desktop.snapshot()).state.isStreaming);
   assert.deepEqual(errors, []); assert.deepEqual(fixtureErrors, []);
-  console.log('Clarification Beta: real RPC tool, drag defer/reopen with retained answers, single/multi-question draft, validation/retry, Plan gating, cancel and abort passed.');
 } catch (error) {
+  await writeFile('test-results/questions-requests.json', JSON.stringify(payloads, null, 2)).catch(() => {});
   const page = await app.firstWindow().catch(() => undefined);
   await page?.screenshot({ path: 'test-results/questions-failure.png' }).catch(() => {});
   const snapshot = await page?.evaluate(() => window.desktop.snapshot()).catch(() => undefined);
@@ -354,6 +356,10 @@ try {
     lastResult: text(snapshot?.messages?.at(-1)?.content) }));
   throw error;
 } finally {
-  await app.evaluate(({ dialog }) => { dialog.showMessageBox = async () => ({ response: 1 }); }).catch(() => {});
-  await app.close(); await new Promise(resolve => server.close(resolve));
+  try { await closeDesktopFixtureAndWait(app); }
+  finally {
+    server.closeAllConnections();
+    await new Promise(resolve => server.close(resolve));
+  }
 }
+console.log('Clarification Beta: real RPC tool, drag defer/reopen with retained answers, single/multi-question draft, validation/retry, Plan gating, cancel, abort and orderly fixture shutdown passed.');

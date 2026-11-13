@@ -13,6 +13,8 @@ import type { PluginConfigurationInput, PluginHostRuntime, PluginHostSettings, P
 import { parseModelSelection } from '../../examples/plugins/host-client/protocol.mjs';
 import type { CapabilityCatalog, CapabilityMutation, CapabilityResult } from '../src/capabilities';
 import type { PluginUpdateCompatibility, PluginUpdateRequest } from '../src/plugin-update';
+import type { PluginConfirmationBinding, PluginConfirmationSource } from '../src/plugin-confirmations';
+import { parsePluginConfirmations, validPluginConfirmationBinding } from './plugin-confirmation-contract.mjs';
 
 export async function assertPluginUnused(id: string, workers: Iterable<{
   rpc: { request(type: string): Promise<unknown> };
@@ -225,6 +227,39 @@ export class CapabilityService {
     return plugin;
   }
   desktop(ref: string) { return this.enqueue(() => this.readDesktop(ref)); }
+  confirmationPlugins() { return this.enqueue(async () => {
+    const catalog = await this.readCatalog();
+    return catalog.plugins.filter(plugin => plugin.package?.provenance === 'recorded'
+      && plugin.package.confirmations?.length).map(plugin => ({
+      ref: plugin.package!.ref, id: plugin.id, name: plugin.package!.desktop?.title ?? plugin.name,
+    }));
+  }); }
+  confirmationSource(input: string | PluginConfirmationBinding): Promise<PluginConfirmationSource> {
+    return this.enqueue(async () => {
+      if (typeof input !== 'string' && !validPluginConfirmationBinding(input)) throw new Error('capability:invalid-input');
+      const catalog = await this.readCatalog();
+      const candidates = catalog.plugins.filter(plugin => typeof input === 'string'
+        ? plugin.package?.ref === input : plugin.id === input.id);
+      if (candidates.length !== 1) throw new Error('capability:stale');
+      const plugin = candidates[0], ref = plugin.package?.ref;
+      if (!ref || plugin.package?.provenance !== 'recorded') throw new Error('capability:stale');
+      const { descriptor } = await this.library.reference(ref);
+      if (descriptor.kind !== 'installed' || !descriptor.instance || descriptor.provenance !== 'recorded')
+        throw new Error('capability:stale');
+      const binding = { id: plugin.id, installation: digest(JSON.stringify([
+        descriptor.root, descriptor.id, descriptor.instance, descriptor.source, descriptor.marketplace,
+      ])) };
+      if (typeof input !== 'string' && input.installation !== binding.installation) throw new Error('capability:stale');
+      // Read the declaration strictly again; broken metadata must not become "no confirmation".
+      const bytes = await optionalFile(descriptor.root, 'dfsc.plugin.json', 65536);
+      const metadata = bytes && JSON.parse(bytes.toString('utf8'));
+      if (!metadata || metadata.schemaVersion !== 1) throw new Error('capability:invalid-confirmation');
+      const confirmations = parsePluginConfirmations(metadata.confirmations);
+      await this.library.reference(ref);
+      return { binding, name: plugin.package?.desktop?.title ?? plugin.name,
+        revision: descriptor.fingerprint, confirmations };
+    });
+  }
   connection(ref: string) { return this.enqueue(async () => {
     const plugin = await this.readDesktop(ref);
     if (plugin.package?.desktop?.connection?.protocol !== 'agent-bridge-v1'

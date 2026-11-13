@@ -43,6 +43,7 @@ export interface PluginPackage {
   locales?: Partial<Record<'zh' | 'en', PluginLocale>>;
   desktop?: PluginDesktop;
   requirements?: PluginRequirements;
+  confirmations?: import('./plugin-confirmations').PluginConfirmation[];
 }
 export interface PluginConfigurationField {
   id: string; label: string; help?: string; type: 'text' | 'number' | 'enum' | 'boolean' | 'secret' | 'path';

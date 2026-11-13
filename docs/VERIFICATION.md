@@ -15202,3 +15202,45 @@ Windows/macOS/SDK 绿灯不算本次整合通过，云端结果以 PR 当前 hea
 
 这不是完整 Step Code 模型/UI 验收、全量协议通过、安装包、macOS 本机
 或云端 CI 结果；本次不升级 runtime pin 或打包发布。
+
+## 插件授权动作风险确认接口（2026-11-14）
+
+基于已包含 #243 的 `main a103bc8d3f051adce7cd071d149ea562bf53c788`，
+新增声明式 `confirmations`，首版仅覆盖 `external.delegate` 与
+`external.policy`。宿主原生警告框提供插件身份和实际授权范围，
+取消为默认，记住默认不选。确认不代替授权，不开放插件脚本、
+模型代答或任意动作拦截接口，不拦停止和撤销。
+
+新配对或无进行中任务及长期策略的旧连接可明确关联已安装插件。
+关联绑定可验证安装身份，不按连接名称猜测。相关插件失效、重装、
+风险变化、凭据或范围变化时拒绝授权或重新确认。
+确认期间撤销使迟到确认失效；异步授权提交阶段也检查失效状态，
+失败不遗留审批 lease。取消修改不删除已有策略。
+
+本轮本地验证：
+
+- 完整串行协议 runner：253/253 文件成功，保持原超时与测试清单。
+  运行期间调整了授权提交阶段的失效检查；最终源码上另行复验
+  相关定向测试 115/115，不把全量结果描述成不可变源码快照。
+- 最终类型检查、生产构建通过。文档检查及 CI 文档/协议 runner
+  自测通过；两仓库 `git diff --check` 通过。
+- 浏览器 20 组通过，包含中英文、明暗主题、1360/390 宽度、
+  插件关联、发现失败时仍可管理连接及四边 focus 检查。
+- 最终生产构建的 Windows Electron 18 组通过，使用隔离 profile、
+  真实 main/preload/Step 运行时与 Python socket；27 次受控模型请求，
+  零验收错误，正常退出码 0，退出后窗口为零。
+  覆盖直接 IPC 取消无授权、精确范围记住、范围变化重确认、
+  挂起期间撤销、坏 metadata 拒绝迟到确认及原有审批回归。
+- 桥 companion 全量 82 项：81 通过、1 项 Unix-only 平台跳过；
+  资源检查 10/10。使用 `python -X utf8 -B`，未修改无关编码测试。
+
+协议证据为 `Desktop/test-results/protocol/summary.json`；
+浏览器与原生证据分别在
+`Desktop/test-results/external-connectors-browser/` 和
+`Desktop/test-results/external-connectors-electron/`。
+原生风险对话框的响应由主进程测试夹具控制，Hermes 唤醒端为模拟 host；
+不代表真人点击、真实 Hermes/飞书、过夜、macOS 或安装包验收。
+
+本轮只重建源码 dist 并保留隔离验收证据，未生成安装包。
+未改 runtime pin、上游、日用 profile、配对、权限、快捷方式或市场，
+未删除历史包。此记录为本地结果，云端 CI 以提交后的 PR head 为准。

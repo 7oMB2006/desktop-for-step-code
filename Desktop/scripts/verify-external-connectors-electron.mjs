@@ -8,6 +8,7 @@ import { join, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import { _electron as electron } from 'playwright';
 import { closeDesktopFixtureAndWait } from './close-desktop-fixture.mjs';
+import { installationReceipt, packageFingerprint, writeReceipts } from '../electron/plugin-files.mjs';
 
 const execute = promisify(execFile);
 const output = resolve(process.env.DESKTOP_VERIFY_OUTPUT || 'test-results/external-connectors-electron');
@@ -17,6 +18,21 @@ const profile = await realpath(await mkdtemp(join(output, 'profile-')));
 const root = join(profile, 'step-runtime'), workspace = join(profile, 'project');
 await mkdir(join(root, 'sessions'), { recursive: true });
 await mkdir(workspace);
+const pluginDirectory = join(root, 'plugins', 'risk-bridge');
+await mkdir(pluginDirectory, { recursive: true });
+const manifest = { id: 'hermes-engineering-bridge', name: 'Hermes risk fixture', version: '0.3.0' };
+await writeFile(join(pluginDirectory, 'step.plugin.json'), JSON.stringify(manifest));
+const riskMetadata = { schemaVersion: 1, confirmations: [
+  { id: 'policy-risk', version: '1', action: 'external.policy', policy: 'remember',
+    title: 'Persistent authorization', message: 'Files may be changed or deleted.', confirmLabel: 'Acknowledge policy' },
+  { id: 'delegate-risk', version: '1', action: 'external.delegate', policy: 'always',
+    title: 'Agent review', message: 'Agent judgment can be wrong.', confirmLabel: 'Acknowledge delegation' },
+] };
+await writeFile(join(pluginDirectory, 'dfsc.plugin.json'), JSON.stringify(riskMetadata));
+const receipt = installationReceipt({ name: 'risk-bridge' }, { name: 'local-fixture', kind: 'local', path: profile },
+  manifest, await packageFingerprint(pluginDirectory));
+receipt.state = 'installed';
+await writeReceipts(root, { version: 1, installations: [receipt] });
 await writeFile(join(profile, 'preferences.json'), JSON.stringify({
   language: 'zh', theme: 'light', workspace, workspaces: [workspace],
 }));
@@ -129,6 +145,18 @@ const launch = async () => {
     const window = BrowserWindow.getAllWindows()[0];
     window.setOpacity(0); window.setIgnoreMouseEvents(true); window.showInactive(); window.setSize(1360, 900);
   });
+  await app.evaluate(({ dialog }) => {
+    globalThis.riskFixture = { prompts: [], answers: [] };
+    const original = dialog.showMessageBox.bind(dialog);
+    dialog.showMessageBox = async (...args) => {
+      const options = args.at(-1);
+      if (options.title !== '插件风险确认') return original(...args);
+      globalThis.riskFixture.prompts.push(options);
+      const answer = globalThis.riskFixture.answers.shift() ?? { response: 1, checkboxChecked: false };
+      if (answer.hold) return new Promise(resolve => { globalThis.riskFixture.release = resolve; });
+      return answer;
+    };
+  });
   await page.waitForFunction(() => document.querySelector('.new-chat')?.disabled === false, undefined, { timeout: 60000 });
   await page.evaluate(() => {
     window.connectorRequests = [];
@@ -165,6 +193,9 @@ try {
   await panel.getByRole('switch').click();
   await until(connectorState, value => value.listening, 'enabled listener');
   await panel.getByRole('textbox', { name: '连接名称' }).fill('Hermes 验收');
+  const plugin = (await connectorState()).plugins.find(plugin => plugin.id === 'hermes-engineering-bridge');
+  assert.ok(plugin);
+  await panel.locator('.external-connector-form select').selectOption(plugin.ref);
   await panel.getByRole('checkbox').check();
   await panel.getByRole('button', { name: '添加连接', exact: true }).click();
   await panel.getByRole('button', { name: '确认授权', exact: true }).click();
@@ -177,6 +208,53 @@ try {
   assert.equal(await app.evaluate(({ clipboard }) => clipboard.readText()), config);
   await page.screenshot({ path: join(output, 'paired-light.png') });
   checks.push('default off; real main/preload UI pairing, project scope and non-secret config export');
+  assert.equal(connection.plugin.id, 'hermes-engineering-bridge');
+  const policyAction = { type: 'policy', agentId: connection.agentId, cwd: workspace, days: 7,
+    categories: ['command', 'file'], permissionPreset: 'ask' };
+  const answerRisk = answer => app.evaluate((_, answer) => globalThis.riskFixture.answers.push(answer), answer);
+  const riskPrompts = () => app.evaluate(() => globalThis.riskFixture.prompts);
+  await answerRisk({ response: 0, checkboxChecked: true });
+  await assert.rejects(action(policyAction), /confirmation-cancelled/);
+  assert.equal((await connectorState()).approvals.policies.length, 0);
+  const firstRisk = (await riskPrompts())[0];
+  assert.equal(firstRisk.defaultId, 0); assert.equal(firstRisk.cancelId, 0);
+  assert.equal(firstRisk.checkboxChecked, false);
+  assert.match(firstRisk.detail, /本次实际授权/);
+  assert.match(firstRisk.message, /hermes-engineering-bridge/);
+  await answerRisk({ response: 1, checkboxChecked: true });
+  await action(policyAction);
+  const existingPolicy = (await connectorState()).approvals.policies[0];
+  const riskPromptCount = (await riskPrompts()).length;
+  await action(policyAction);
+  assert.equal((await riskPrompts()).length, riskPromptCount, 'exact scope may reuse explicit remembered risk, not permission');
+  await answerRisk({ response: 0, checkboxChecked: false });
+  await assert.rejects(action({ ...policyAction, days: null }), /confirmation-cancelled/);
+  assert.equal((await connectorState()).approvals.policies[0].expiresAt !== null, true);
+  assert.equal((await connectorState()).approvals.policies[0].permissionPreset, existingPolicy.permissionPreset);
+  await action({ type: 'unpolicy', agentId: connection.agentId, cwd: workspace });
+  checks.push('real main IPC cannot bypass native risk confirmation; cancel creates no policy, remembered exact scope and changed scope re-confirmation');
+  const holdRisk = async () => {
+    const before = (await riskPrompts()).length;
+    await answerRisk({ hold: true });
+    await page.evaluate(value => {
+      window.pendingRiskGrant = window.desktop.externalConnectorAction(value).then(() => 'unexpectedly-applied',
+        error => error.message);
+    }, { ...policyAction, days: null });
+    await until(riskPrompts, value => value.length === before + 1, 'held risk confirmation');
+  };
+  const releaseRisk = () => app.evaluate(() => globalThis.riskFixture.release({ response: 1, checkboxChecked: true }));
+  await holdRisk();
+  await action({ type: 'unpolicy', agentId: connection.agentId, cwd: workspace });
+  await releaseRisk();
+  assert.match(await page.evaluate(() => window.pendingRiskGrant), /connector:revoked/);
+  assert.equal((await connectorState()).approvals.policies.length, 0);
+  await holdRisk();
+  await writeFile(join(pluginDirectory, 'dfsc.plugin.json'), JSON.stringify({ ...riskMetadata, confirmations: [] }));
+  await releaseRisk();
+  assert.match(await page.evaluate(() => window.pendingRiskGrant), /capability:|confirmation-stale/);
+  assert.equal((await connectorState()).approvals.policies.length, 0);
+  await writeFile(join(pluginDirectory, 'dfsc.plugin.json'), JSON.stringify(riskMetadata));
+  checks.push('revocation and invalid plugin metadata during an open native prompt reject a late positive response without granting authority');
 
   const capabilities = await client('system.capabilities');
   assert.equal(capabilities.protocol, 'dfsc-external-v1');

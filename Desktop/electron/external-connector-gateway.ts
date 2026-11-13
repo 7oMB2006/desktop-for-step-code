@@ -3,6 +3,8 @@ import { lstat, mkdir, open, realpath, rename, unlink } from 'node:fs/promises';
 import { createServer, type Server, type Socket } from 'node:net';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { externalConnectorMethods, type ExternalGrant } from './external-connector-tasks';
+import type { PluginConfirmationBinding } from '../src/plugin-confirmations';
+import { validPluginConfirmationBinding } from './plugin-confirmation-contract.mjs';
 
 export const externalConnectorProtocol = 'dfsc-external-v1';
 const methods = new Set<string>(externalConnectorMethods);
@@ -133,13 +135,13 @@ export class ConnectorJsonStore {
   }
 }
 
-type SavedGrant = { agentId: string; displayName: string; roots: DirectoryIdentity[]; tokenHash: string };
+type SavedGrant = { agentId: string; displayName: string; roots: DirectoryIdentity[]; tokenHash: string; plugin?: PluginConfirmationBinding };
 type SavedState = { version: 1; enabled: boolean; grants: SavedGrant[] };
 export interface ConnectorGatewayState {
   enabled: boolean;
   listening: boolean;
   error?: string;
-  connections: { agentId: string; displayName: string; roots: string[]; configPath: string }[];
+  connections: { agentId: string; displayName: string; roots: string[]; configPath: string; plugin?: { id: string } }[];
 }
 interface GatewayOptions {
   dispatch(grant: ExternalGrant, method: string, params: unknown, valid: () => boolean): Promise<unknown>;
@@ -156,7 +158,8 @@ function savedState(value: unknown): SavedState {
       || ids.has(grant.agentId) || typeof grant.displayName !== 'string' || !grant.displayName.trim()
       || grant.displayName.length > 100 || /[\u0000-\u001f\u007f]/u.test(grant.displayName)
       || typeof grant.tokenHash !== 'string' || !/^[a-f0-9]{64}$/u.test(grant.tokenHash)
-      || !Array.isArray(grant.roots) || !grant.roots.length || grant.roots.length > 32) throw failure('storage');
+      || !Array.isArray(grant.roots) || !grant.roots.length || grant.roots.length > 32
+      || grant.plugin !== undefined && !validPluginConfirmationBinding(grant.plugin)) throw failure('storage');
     ids.add(grant.agentId);
     const paths = new Set<string>();
     for (const root of grant.roots) {
@@ -230,6 +233,7 @@ export class ExternalConnectorGateway {
       connections: this.state.grants.filter(grant => !this.revoked.has(grant.agentId)).map(grant => ({
         agentId: grant.agentId, displayName: grant.displayName, roots: grant.roots.map(root => root.path),
         configPath: join(this.root, 'agents', grant.agentId, 'config.json'),
+        ...(grant.plugin ? { plugin: { id: grant.plugin.id } } : {}),
       })),
     };
   }
@@ -284,11 +288,12 @@ export class ExternalConnectorGateway {
       await this.stopListener();
     });
   }
-  pair(displayName: string, roots: string[]) {
+  pair(displayName: string, roots: string[], plugin?: PluginConfirmationBinding) {
     this.requireReady();
     const generation = this.generation;
     return this.serial(async () => {
       if (!this.enabled || !this.listening || generation !== this.generation) throw failure('disabled');
+      if (plugin !== undefined && !validPluginConfirmationBinding(plugin)) throw failure('invalid-input');
       if (typeof displayName !== 'string' || !displayName.trim() || displayName.length > 100
         || /[\u0000-\u001f\u007f]/u.test(displayName)
         || !Array.isArray(roots) || !roots.length || roots.length > 32 || roots.some(root => !localPath(root))
@@ -298,7 +303,8 @@ export class ExternalConnectorGateway {
         directoryIdentity(path).catch(() => { throw failure('invalid-scope'); })));
       if (!this.enabled || generation !== this.generation) throw failure('disabled');
       const agentId = `agent-${randomUUID()}`, token = randomBytes(32).toString('base64url');
-      const grant: SavedGrant = { agentId, displayName: displayName.trim(), roots: identities, tokenHash: hash(token).toString('hex') };
+      const grant: SavedGrant = { agentId, displayName: displayName.trim(), roots: identities, tokenHash: hash(token).toString('hex'),
+        ...(plugin ? { plugin: { ...plugin } } : {}) };
       await this.writeDescriptor(grant, token);
       if (!this.enabled || generation !== this.generation) throw failure('disabled');
       for (const identity of identities) await assertDirectory(identity);
@@ -307,6 +313,22 @@ export class ExternalConnectorGateway {
       await this.store.save(next);
       this.state = next; this.tokens.set(agentId, token);
       if (!this.enabled || generation !== this.generation) throw failure('disabled');
+      return this.snapshot();
+    });
+  }
+  bindPlugin(agentId: string, plugin: PluginConfirmationBinding) {
+    this.requireReady();
+    return this.serial(async () => {
+      if (!validPluginConfirmationBinding(plugin)) throw failure('invalid-input');
+      const grant = this.state.grants.find(item => item.agentId === agentId && !this.revoked.has(agentId));
+      if (!grant || grant.plugin) throw failure('unauthorized');
+      await this.validateGrant(grant, this.generation);
+      if (!await this.invalidation(agentId)) throw failure('unavailable');
+      await this.validateGrant(grant, this.generation);
+      const next = { ...this.state, grants: this.state.grants.map(item => item === grant ? { ...grant, plugin: { ...plugin } } : item) };
+      await this.store.save(next);
+      this.state = next;
+      for (const socket of this.sockets) if (this.socketAgents.get(socket) === agentId) socket.destroy();
       return this.snapshot();
     });
   }
@@ -355,8 +377,9 @@ export class ExternalConnectorGateway {
   }
   private projectGrant(grant: SavedGrant, generation: number): ExternalGrant {
     return { agentId: grant.agentId, roots: grant.roots.map(root => root.path),
+      ...(grant.plugin ? { plugin: { ...grant.plugin } } : {}),
       binding: createHash('sha256').update(JSON.stringify({ agentId: grant.agentId,
-        tokenHash: grant.tokenHash, roots: grant.roots })).digest('hex'),
+        tokenHash: grant.tokenHash, roots: grant.roots, ...(grant.plugin ? { plugin: grant.plugin } : {}) })).digest('hex'),
       validate: () => this.validateGrant(grant, generation) };
   }
   private valid(grant: SavedGrant, generation: number) {
@@ -466,6 +489,8 @@ export class ExternalConnectorGateway {
     const result = await this.options.dispatch(this.projectGrant(grant, generation),
       request.method, request.params, () => this.valid(grant, generation) && !socket.destroyed);
     await this.validateGrant(grant, generation);
+    if (request.method === 'system.capabilities' && object(result)) return { ...result,
+      pluginConfirmations: { version: 1, ...(grant.plugin ? { pluginId: grant.plugin.id } : {}) } };
     return result;
   }
   private respond(socket: Socket, reply: unknown) {

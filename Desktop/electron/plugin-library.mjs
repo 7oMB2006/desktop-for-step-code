@@ -4,6 +4,7 @@ import { isAbsolute, join, relative, resolve, sep, posix } from 'node:path';
 import { unified } from 'unified';
 import remarkParse from 'remark-parse';
 import semver from 'semver';
+import { parsePluginConfirmations } from './plugin-confirmation-contract.mjs';
 import { digest, object, optionalFile, packageFingerprint, packagePath, plainFile, PluginFileError, readReceipts, scanInstalled } from './plugin-files.mjs';
 
 const backgroundPluginId = 'custom-background';
@@ -192,6 +193,7 @@ export function parsePresentation(value) {
     ...(value.keywords !== undefined ? { keywords: terms(value.keywords, 5) } : {}),
     ...(value.desktop !== undefined ? { desktop: parseDesktop(value.desktop) } : {}),
     ...(value.requirements !== undefined ? { requirements: parseRequirements(value.requirements) } : {}),
+    ...(value.confirmations !== undefined ? { confirmations: parsePluginConfirmations(value.confirmations) } : {}),
     ...(Object.keys(locales).length ? { locales } : {}) };
 }
 async function fileExists(root, path) {

@@ -8,9 +8,9 @@ import './custom-background-settings.css';
 export interface CustomBackgroundBridge {
   customBackgroundState(): Promise<CustomBackgroundState>;
   customBackgroundImage(revision: string): Promise<ThemeImage>;
-  customBackgroundImport(ref: string): Promise<CustomBackgroundState | null>;
-  customBackgroundSave(input: { ref: string; patch: Partial<BackgroundOptions> }): Promise<CustomBackgroundState>;
-  customBackgroundRemove(ref: string): Promise<CustomBackgroundState>;
+  customBackgroundImport(): Promise<CustomBackgroundState | null>;
+  customBackgroundSave(input: { patch: Partial<BackgroundOptions> }): Promise<CustomBackgroundState>;
+  customBackgroundRemove(): Promise<CustomBackgroundState>;
   onEvent?: DesktopBridge['onEvent'];
 }
 
@@ -18,8 +18,8 @@ function difference(value: BackgroundOptions, saved: BackgroundOptions): Partial
   return Object.fromEntries(Object.entries(value).filter(([key, item]) => item !== saved[key as keyof BackgroundOptions]));
 }
 
-export function CustomBackgroundSettings({ bridge, packageRef, language, visible, busy = false, themePack, onChanged, onPending }: {
-  bridge: CustomBackgroundBridge; packageRef: string; language: string; visible: boolean; busy?: boolean; themePack?: ThemePack;
+export function CustomBackgroundSettings({ bridge, language, visible, busy = false, themePack, onChanged, onPending }: {
+  bridge: CustomBackgroundBridge; language: string; visible: boolean; busy?: boolean; themePack?: ThemePack;
   onChanged?(state: CustomBackgroundState): void; onPending?(pending: boolean): void;
 }) {
   const t = (zh: string, en: string) => language === 'zh' ? zh : en;
@@ -48,7 +48,7 @@ export function CustomBackgroundSettings({ bridge, packageRef, language, visible
     const message = failure instanceof Error ? failure.message : '';
     setError(/too-large|image-size|image-dimensions/.test(message) ? t('图片过大，请选择较小的图片。', 'The image is too large. Choose a smaller image.')
       : /invalid-image|unsupported|invalid-format/.test(message) ? t('无法读取这张图片，请选择 PNG 或 JPEG。', 'This image could not be read. Choose PNG or JPEG.')
-        : /stale|not-available|not-installed/.test(message) ? t('插件状态已变化，请重新读取后再试。', 'The plugin changed. Reload its settings and retry.')
+        : /stale|not-available/.test(message) ? t('背景状态已变化，请重新读取后再试。', 'The background changed. Reload its settings and retry.')
           : action === 'load' ? t('无法读取背景设置。', 'Could not read background settings.')
             : action === 'import' ? t('未能导入图片，原背景保持不变。', 'The image was not imported. The previous background is unchanged.')
               : action === 'remove' ? t('未能删除图片。', 'The image was not removed.')
@@ -86,7 +86,7 @@ export function CustomBackgroundSettings({ bridge, packageRef, language, visible
     return () => {
       alive.current = false; generation.current++; operation.current = undefined; callbacks.current.onPending?.(false);
     };
-  }, [bridge, packageRef]);
+  }, [bridge]);
   useEffect(() => {
     if (visible && !state && !pending && !error && !busy) void read();
   }, [visible, state, pending, error, busy]);
@@ -122,10 +122,10 @@ export function CustomBackgroundSettings({ bridge, packageRef, language, visible
   };
   const commit = (patch?: Partial<BackgroundOptions>) => {
     const value = current.current;
-    if (!value?.available || !value.ref || operation.current || busy) return;
+    if (!value?.available || operation.current || busy) return;
     if (patch) stage(patch);
     const changed = difference(draft.current, value.options);
-    if (Object.keys(changed).length) void perform('save', () => bridge.customBackgroundSave({ ref: value.ref!, patch: changed }));
+    if (Object.keys(changed).length) void perform('save', () => bridge.customBackgroundSave({ patch: changed }));
   };
   const locked = busy || pending || !state?.available;
   const blocked = Boolean(options.enabled && state?.image && themePack && resolveThemeBackground(themePack, 'image-v1').blocked);
@@ -161,12 +161,12 @@ export function CustomBackgroundSettings({ bridge, packageRef, language, visible
         <span className="custom-background-dimensions">{state.image ? `${state.image.width} × ${state.image.height}` : 'PNG / JPEG'}</span>
         <div><button type="button" className="icon-button" disabled={locked} aria-label={t('导入背景图片', 'Import background image')}
           data-tooltip={t('导入背景图片', 'Import background image')}
-          onClick={() => void perform('import', () => bridge.customBackgroundImport(state.ref ?? packageRef))}><ImagePlus size={17}/></button>
+          onClick={() => void perform('import', () => bridge.customBackgroundImport())}><ImagePlus size={17}/></button>
           <button ref={removeTrigger} type="button" className="icon-button" disabled={locked || !hasImage} aria-label={t('删除背景图片', 'Delete background image')}
             data-tooltip={t('删除背景图片', 'Delete background image')} onClick={() => setConfirmRemove(true)}><Trash2 size={16}/></button></div>
       </div>
       <div className="custom-background-status" role="status">
-        {!state.available ? t('插件当前不可用。', 'The plugin is unavailable.')
+        {!state.available ? t('背景设置暂不可用。', 'Background settings are unavailable.')
           : blocked ? t('当前主题不接受替换，图片和调节已保留。', 'This theme does not accept a replacement. Your image and adjustments are kept.')
             : state.issue === 'storage' ? t('本机背景存储暂不可用。', 'Local background storage is unavailable.')
               : state.issue || imageFailed ? t('图片不可用，请重新导入。', 'The image is unavailable. Import it again.')
@@ -220,7 +220,7 @@ export function CustomBackgroundSettings({ bridge, packageRef, language, visible
       <footer><button type="button" autoFocus onClick={() => setConfirmRemove(false)}>{t('取消', 'Cancel')}</button>
         <button type="button" className="pc-danger-button" onClick={() => {
           setConfirmRemove(false);
-          if (current.current?.ref) void perform('remove', () => bridge.customBackgroundRemove(current.current!.ref!));
+          if (current.current?.available) void perform('remove', () => bridge.customBackgroundRemove());
         }}>{t('删除图片', 'Delete image')}</button></footer>
     </dialog>
   </section>;

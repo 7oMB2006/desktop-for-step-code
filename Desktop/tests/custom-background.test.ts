@@ -25,7 +25,6 @@ async function fixture(run: (value: { root: string; source: string; store: Custo
   try {
     await writeFile(source, pixel);
     await store.initialize();
-    await store.bind(instance);
     await run({ root, source, store });
   } finally {
     await store.initialize();
@@ -68,14 +67,9 @@ test('imports persist normalized private PNG and options across restart without 
   await store.save({ zoom: 132, blur: 3.5, positionY: 25, contentTransparency: 65,
     sidebarTransparency: 40, panelTransparency: 55, composerTransparency: 25, surfaceBlur: 12 });
   const next = new CustomBackgroundStore(root, decode);
-  assert.equal(next.isBoundTo(instance), false, 'Uninitialized storage cannot prove its binding');
-  assert.equal(next.isBoundTo(), false);
   assert.deepEqual(await next.initialize(), store.state());
-  assert.equal(next.isBoundTo(instance), true);
-  assert.equal(next.isBoundTo(), false);
-  assert.deepEqual(await next.bind(instance), store.state());
   assert.deepEqual(Object.keys(JSON.parse(await readFile(join(root, 'custom-background/state.json'), 'utf8'))).sort(),
-    ['image', 'instance', 'options', 'schemaVersion']);
+    ['image', 'options', 'schemaVersion']);
   assert.doesNotMatch(JSON.stringify(next.state()), /data:|source\.png|state\.json|[A-Z]:\\/);
   imported.options.enabled = false;
   imported.image!.revision = 'mutated';
@@ -134,27 +128,67 @@ test('enable requires a present, validated image and failed enablement preserves
   assert.equal((await restarted.initialize()).options.enabled, false);
 }));
 
-test('changing or removing the installation marker disables without losing image or edits', async () => fixture(async ({ root, source, store }) => {
+test('legacy plugin profiles migrate once, preserving enabled and disabled intent without rewriting images', async () => fixture(async ({ root, source, store }) => {
   const original = await store.importFile(source);
   await store.save({ zoom: 150, parallax: 4 });
-  assert.equal((await store.bind(instance)).options.enabled, true);
-  const changed = await store.bind('installation-two');
-  assert.equal(store.isBoundTo(instance), false);
-  assert.equal(store.isBoundTo('installation-two'), true);
-  assert.equal(changed.options.enabled, false);
-  assert.equal(changed.options.zoom, 150);
-  assert.deepEqual(changed.image, original.image);
-  await store.save({ enabled: true });
-  await store.bind();
-  assert.equal(store.isBoundTo(), true);
-  assert.equal(store.state().options.enabled, false);
-  assert.equal(JSON.parse(await readFile(join(root, 'custom-background/state.json'), 'utf8')).instance, undefined);
-  await assert.rejects(store.save({ enabled: true }), /unavailable/);
-  await assert.rejects(store.importFile(source), /unavailable/);
-  const next = new CustomBackgroundStore(root, decode);
-  assert.equal((await next.initialize()).options.enabled, false);
-  assert.equal((await next.bind('installation-three')).options.enabled, false);
-  assert.deepEqual(next.state().image, original.image);
+  const path = join(root, 'custom-background/state.json');
+  const saved = store.state();
+  for (const legacy of [
+    { instance, enabled: true, expected: true },
+    { instance, enabled: false, expected: false },
+    { instance: undefined, enabled: true, expected: false },
+  ]) {
+    await writeFile(path, JSON.stringify({ schemaVersion: 1, instance: legacy.instance,
+      options: { ...saved.options, enabled: legacy.enabled }, image: saved.image }));
+    const next = new CustomBackgroundStore(root, decode);
+    const migrated = await next.initialize();
+    assert.deepEqual(migrated, { ...saved, options: { ...saved.options, enabled: legacy.expected } });
+    const persisted = JSON.parse(await readFile(path, 'utf8'));
+    assert.equal(persisted.schemaVersion, 2);
+    assert.equal(persisted.instance, undefined);
+    assert.deepEqual(persisted.options, migrated.options);
+    assert.deepEqual(await readFile(join(root, 'custom-background', `image-${original.image!.revision}.png`)), pixel);
+    assert.deepEqual(await new CustomBackgroundStore(root, decode).initialize(), migrated);
+    await next.save({ enabled: true });
+    assert.equal(next.state().options.enabled, true, 'No plugin installation is required after migration');
+  }
+}));
+
+test('failed legacy migration preserves original bytes and parameters for a later retry', async () => fixture(async ({ root, source, store }) => {
+  await store.importFile(source);
+  await store.save({ brightness: 72, zoom: 143 });
+  const original = store.state(), path = join(root, 'custom-background/state.json');
+  const legacy = JSON.stringify({ schemaVersion: 1, instance, ...original });
+  await writeFile(path, legacy);
+  class FailedMigration extends CustomBackgroundStore {
+    protected override async writeState(): Promise<void> { throw new Error('simulated write failure'); }
+  }
+  const failed = await new FailedMigration(root, decode).initialize();
+  assert.deepEqual(failed, { ...original, issue: 'storage' });
+  assert.equal(await readFile(path, 'utf8'), legacy);
+  assert.deepEqual(await new CustomBackgroundStore(root, decode).initialize(), original);
+}));
+
+test('legacy migration retains missing-image selections but rejects malformed ownership and future schemas', async () => fixture(async ({ root, source, store }) => {
+  const saved = await store.importFile(source), path = join(root, 'custom-background/state.json');
+  await unlink(join(root, 'custom-background', `image-${saved.image!.revision}.png`));
+  await writeFile(path, JSON.stringify({ schemaVersion: 1, instance, ...saved }));
+  const migrated = await new CustomBackgroundStore(root, decode).initialize();
+  assert.equal(migrated.issue, 'missing');
+  assert.deepEqual(migrated.image, saved.image);
+  assert.equal(migrated.options.enabled, true);
+  for (const invalid of [
+    { schemaVersion: 1, instance: '', ...saved },
+    { schemaVersion: 1, instance, extra: true, ...saved },
+    { schemaVersion: 2, instance, ...saved },
+    { schemaVersion: 3, ...saved },
+  ]) {
+    const bytes = JSON.stringify(invalid);
+    await writeFile(path, bytes);
+    assert.deepEqual(await new CustomBackgroundStore(root, decode).initialize(),
+      { options: { ...DEFAULT_BACKGROUND_OPTIONS }, issue: 'invalid' });
+    assert.equal(await readFile(path, 'utf8'), bytes, 'Invalid state must not be migrated or overwritten');
+  }
 }));
 
 test('failed imports and invalid patches preserve prior image, enablement and options', async () => fixture(async ({ root, source, store }) => {
@@ -218,7 +252,7 @@ test('import, edit and remove serialize and reject stale revisions', async () =>
   assert.deepEqual(await restarted.initialize(), store.state());
 }));
 
-test('queued edits are copied and an installation change defeats later enablement', async () => fixture(async ({ root, source, store }) => {
+test('queued edits are copied and work without an installation marker', async () => fixture(async ({ root, source, store }) => {
   await store.importFile(source);
   const patch = { zoom: 142 };
   const edited = store.save(patch);
@@ -226,11 +260,10 @@ test('queued edits are copied and an installation change defeats later enablemen
   await edited;
   assert.equal(store.state().options.zoom, 142);
   const imported = store.importFile(source);
-  const unbound = store.bind();
+  const disabled = store.save({ enabled: false });
   const enabled = store.save({ enabled: true });
-  await Promise.all([imported, unbound]);
-  await assert.rejects(enabled, /unavailable/);
-  assert.equal(store.state().options.enabled, false);
+  await Promise.all([imported, disabled, enabled]);
+  assert.equal(store.state().options.enabled, true);
   const restarted = new CustomBackgroundStore(root, decode);
   assert.deepEqual(await restarted.initialize(), store.state());
 }));
@@ -245,7 +278,6 @@ test('an atomic state-write failure preserves the prior asset and removes its ow
   await assert.rejects(store.importFile(next), /storage/);
   await assert.rejects(store.save({ zoom: 190 }), /storage/);
   await assert.rejects(store.remove(), /storage/);
-  await assert.rejects(store.bind('installation-rejected'), /storage/);
   assert.deepEqual(store.state(), first);
   assert.deepEqual((await readdir(directory)).sort(), [`image-${first.image!.revision}.png`, 'state.json'].sort());
   assert.equal((await store.image(first.image!.revision)).width, 1);

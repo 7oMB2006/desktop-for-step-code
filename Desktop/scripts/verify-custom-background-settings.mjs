@@ -58,7 +58,7 @@ try {
   await panel().waitFor();
   await page.getByRole('checkbox', { name: '启用背景', exact: true }).waitFor();
   assert.equal(await page.getByRole('checkbox', { name: '启用背景', exact: true }).isDisabled(), true);
-  assert.equal(await page.getByRole('switch').count(), 0, 'Host visual plugin has no MCP service switch');
+  assert.equal(await page.getByRole('switch').count(), 0, 'Built-in appearance has no MCP service switch');
   assert.equal(await page.getByRole('button', { name: '重启当前会话', exact: true }).isVisible(), false);
   await page.evaluate(() => window.backgroundFixture.cancelImport());
   await page.getByRole('button', { name: '导入背景图片', exact: true }).click();
@@ -77,7 +77,7 @@ try {
   await brightness.focus(); await brightness.press('End');
   await page.waitForFunction(() => window.backgroundFixture.counts().saves === 1);
   assert.equal(await page.getByRole('button', { name: '导入背景图片', exact: true }).isDisabled(), true);
-  assert.equal(await page.getByRole('button', { name: '全部插件', exact: true }).isDisabled(), true);
+  assert.equal(await brightness.isDisabled(), true);
   await page.evaluate(() => window.backgroundFixture.release()); await saved();
   assert.equal((await state()).options.brightness, 120);
   assert.equal(await brightness.evaluate(element => element === document.activeElement), true, 'Save retains slider focus');
@@ -152,7 +152,7 @@ try {
       await control.focus();
       assert.deepEqual(await control.evaluate(focusClips), [], `${width}/${theme}/${language}: focus outline`);
     }
-    await page.locator('.pc-detail-scroll').evaluate(element => { element.scrollTop = 0; });
+    await page.locator('.settings-content').evaluate(element => { element.scrollTop = 0; });
     await capture(`background-settings-${width}-${theme}-${language}`);
     if (width === 1440) {
       await panel().locator('.custom-background-surfaces').scrollIntoViewIfNeeded();
@@ -172,29 +172,25 @@ try {
   const panelCounts = await counts();
   await page.goto(`${base}?status=1&theme=dark`);
   const status = page.locator('.background-status');
-  await status.getByRole('button', { name: '配置', exact: true }).click();
-  assert.deepEqual(await page.evaluate(() => window.backgroundFixture.statusActions()), ['configure']);
+  await status.getByRole('status').filter({ hasText: '未选择图片' }).waitFor();
+  assert.equal(await status.getByRole('button').count(), 0, 'The status is no longer a plugin installation gate');
   await page.evaluate(() => { window.backgroundFixture.personal(); window.backgroundFixture.blocked(true); });
   await status.getByRole('status').filter({ hasText: '当前主题保留原背景' }).waitFor();
-  await status.getByRole('button', { name: '配置', exact: true }).focus();
-  assert.deepEqual(await status.getByRole('button').evaluate(focusClips), []);
   await capture('background-status-390-dark-closed');
   await page.evaluate(() => window.backgroundFixture.available(false));
-  await status.getByRole('button', { name: '前往插件', exact: true }).click();
-  assert.deepEqual(await page.evaluate(() => window.backgroundFixture.statusActions()), ['configure', 'discover']);
+  await status.getByRole('status').filter({ hasText: '正在读取背景设置' }).waitFor();
   await page.evaluate(() => window.backgroundFixture.language('en'));
-  await status.getByRole('button', { name: 'Open plugin', exact: true }).focus();
-  assert.deepEqual(await status.getByRole('button').evaluate(focusClips), []);
-  await capture('background-status-390-dark-not-installed');
-  results.appearanceEntryStatusAndActions = true;
+  await status.getByRole('status').filter({ hasText: 'Loading background settings' }).waitFor();
+  await capture('background-status-390-dark-loading');
+  results.builtinAppearanceStatus = true;
   await page.goto(`${base}?lifecycle=1&defer=1`);
   await page.waitForFunction(() => window.backgroundFixture?.readCount() === 1);
-  await page.evaluate(() => window.backgroundFixture.packageRef('replacement-background'));
+  await page.evaluate(() => window.backgroundFixture.remount());
   await page.waitForFunction(() => window.backgroundFixture.readCount() === 2);
   assert.equal(await page.evaluate(() => window.backgroundFixture.pendingStates().at(-1)), true);
   await page.evaluate(() => window.backgroundFixture.resolveRead(0));
   assert.equal(await page.getByRole('checkbox', { name: '启用背景', exact: true }).count(), 0,
-    'The disposed reference cannot install its response');
+    'The unmounted editor cannot install its response');
   assert.equal(await page.evaluate(() => window.backgroundFixture.pendingStates().at(-1)), true);
   await page.evaluate(() => window.backgroundFixture.resolveRead(0));
   await page.getByRole('button', { name: '导入背景图片', exact: true }).waitFor();
@@ -213,7 +209,15 @@ try {
   assert.equal(await page.getByRole('button', { name: '导入背景图片', exact: true }).isDisabled(), false);
   await page.waitForFunction(() => window.backgroundFixture.pendingStates().at(-1) === false);
   assert.equal((await counts()).loads, 4);
-  results.deferredReferenceAndBridgeChanges = true;
+  results.deferredUnmountAndBridgeChanges = true;
+  await page.goto(`${base}?legacy=1&lang=en`);
+  await page.getByRole('button', { name: 'Configure \u81ea\u5b9a\u4e49\u80cc\u666f', exact: true }).click();
+  assert.equal(await panel().count(), 0, 'Legacy details must not keep a second editor');
+  await page.getByRole('button', { name: 'Appearance settings', exact: true }).click();
+  await panel().waitFor();
+  assert.equal(await page.getByRole('button', { name: 'Import background image', exact: true }).isDisabled(), false);
+  assert.equal((await counts()).mutations, 0);
+  results.legacyRedirectWhileAgentBusy = true;
   assert.deepEqual(errors, []);
   const report = { passed: true, results, captures, counts: panelCounts, errors };
   await writeFile(join(output, 'results.json'), JSON.stringify(report, null, 2));

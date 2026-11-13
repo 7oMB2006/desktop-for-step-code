@@ -337,11 +337,10 @@ const capabilityService: CapabilityService = new CapabilityService({ root: dataR
     const image = nativeImage.createFromBuffer(bytes), size = image.getSize();
     return !image.isEmpty() && size.width <= maxDimension && size.height <= maxDimension;
   } });
-function publishCustomBackground(context?: { ref: string }, issue?: 'storage') {
+function publishCustomBackground(issue?: 'storage') {
   const stored = customBackground.state();
-  const next: CustomBackgroundState = { ...stored, available: Boolean(context),
-    ...(issue ? { options: { ...stored.options, enabled: false }, issue } : {}),
-    ...(context ? { ref: context.ref } : {}) };
+  const next: CustomBackgroundState = { ...stored, available: true,
+    ...(issue ? { options: { ...stored.options, enabled: false }, issue } : {}) };
   if (JSON.stringify(next) !== JSON.stringify(backgroundState)) {
     backgroundState = next;
     emit({ type: 'desktop_custom_background', state: next });
@@ -349,43 +348,24 @@ function publishCustomBackground(context?: { ref: string }, issue?: 'storage') {
   return next;
 }
 async function syncCustomBackground() {
-  let context: { ref: string; instance: string } | undefined;
   try {
-    context = await capabilityService.customBackgroundContext();
-    await customBackground.bind(context?.instance);
-    return publishCustomBackground(context);
+    await customBackground.initialize();
+    return publishCustomBackground();
   } catch {
     // Optional appearance storage must never prevent the workspace from opening.
-    return publishCustomBackground(context, 'storage');
+    return publishCustomBackground('storage');
   }
 }
-async function refreshCustomBackground() {
-  const available = () => !capabilityGate.active && !settingsMutation && !updateInstalling && !quitting && !quitPending;
-  if (!available()) return;
-  let context: { ref: string; instance: string } | undefined;
-  try {
-    // Catalog proofs can wait behind other readers; they must not reserve a mutation gate.
-    context = await capabilityService.customBackgroundContext();
-    if (!available()) return;
-    if (customBackground.isBoundTo(context?.instance)) return publishCustomBackground(context);
-    // Ownership changed. Re-prove it inside the gate before changing the binding.
-    return await capabilityGate.run(syncCustomBackground);
-  } catch {
-    if (available()) return publishCustomBackground(context, 'storage');
-  }
+function assertCustomBackgroundWritable() {
+  if (settingsMutation || undoBusy || transition || updateInstalling || quitting || quitPending)
+    throw new Error('Shared settings operation in progress');
 }
-async function changeCustomBackground(ref: unknown, change: () => Promise<unknown>, expected?: string) {
+async function changeCustomBackground(change: () => Promise<unknown>) {
   return capabilityGate.run(async () => {
-    if (settingsMutation || undoBusy || transition || updateInstalling || quitting || quitPending || !capabilityService.available)
-      throw new Error('Shared settings operation in progress');
+    assertCustomBackgroundWritable();
     try {
-      const context = await capabilityService.customBackgroundContext(text(ref, 256));
-      if (!context || expected !== undefined && expected !== context.instance) throw new Error('capability:stale');
-      await customBackground.bind(context.instance);
       await change();
-      const current = await capabilityService.customBackgroundContext(context.ref);
-      if (!current || current.instance !== context.instance) throw new Error('capability:stale');
-      return publishCustomBackground(current);
+      return publishCustomBackground();
     } catch (error) {
       await syncCustomBackground();
       throw error;
@@ -678,7 +658,6 @@ const pluginUpdates = new PluginUpdateCoordinator({
   restore: lease => runtimes.restoreAfterUpdate(lease, nodePath, join(runtimeRoot, 'step/dist/bundle/step.js'), authEnvironment()),
   refreshed: async () => {
     await refreshThemePacks();
-    await syncCustomBackground();
     emit({ type: 'desktop_plugin_catalog_changed' });
     window.webContents.send('runtime-event', { type: 'desktop_theme_packs', packs: themePacks.packs, preferences });
   },
@@ -2725,7 +2704,6 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
     case 'capabilityCatalog': {
       if (settingsMutation || updateInstalling || quitting || quitPending) throw new Error('Shared settings operation in progress');
       const catalog = await capabilityService.catalog();
-      await refreshCustomBackground();
       return catalog;
     }
     case 'pluginUpdatePreflight': return pluginUpdates.preflight(args[0]);
@@ -2836,67 +2814,58 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
     case 'customBackgroundImage': {
       try { return await customBackground.image(args[0]); }
       catch (error) {
-        if (!capabilityGate.active)
-          publishCustomBackground(backgroundState.available && backgroundState.ref ? { ref: backgroundState.ref } : undefined);
+        if (!capabilityGate.active) publishCustomBackground();
         throw error;
       }
     }
     case 'customBackgroundImport': {
-      if (updateInstalling || quitting || quitPending) throw new Error('Shared settings operation in progress');
-      const ref = text(args[0], 256);
-      const context = await capabilityService.customBackgroundContext(ref);
-      if (!context) throw new Error('capability:stale');
-      if (updateInstalling || quitting || quitPending) throw new Error('Shared settings operation in progress');
+      assertCustomBackgroundWritable();
       const selected = await dialog.showOpenDialog(window, {
         title: preferences.language === 'zh' ? '选择背景图片' : 'Choose background image',
         properties: ['openFile'], filters: [{ name: 'PNG / JPEG', extensions: ['png', 'jpg', 'jpeg'] }],
       });
       if (selected.canceled || !selected.filePaths[0]) return null;
       if (selected.filePaths.length !== 1) throw new Error('Invalid background selection');
-      return changeCustomBackground(ref, () => customBackground.importFile(selected.filePaths[0]), context.instance);
+      return changeCustomBackground(() => customBackground.importFile(selected.filePaths[0]));
     }
     case 'customBackgroundSave': {
       const input = args[0];
       if (!input || typeof input !== 'object' || Array.isArray(input)
-        || Object.keys(input).some(key => !['ref', 'patch'].includes(key))) throw new Error('Invalid background settings');
-      return changeCustomBackground(input.ref, () => customBackground.save(input.patch));
+        || Object.keys(input).some(key => key !== 'patch')) throw new Error('Invalid background settings');
+      return changeCustomBackground(() => customBackground.save(input.patch));
     }
-    case 'customBackgroundRemove': return changeCustomBackground(args[0], () => customBackground.remove());
+    case 'customBackgroundRemove': return changeCustomBackground(() => customBackground.remove());
     case 'capabilityMutate': {
       try { return await capabilityGate.run(async () => {
         markCapabilityPhase?.('idle-check');
         let refreshThemes = false;
-        try {
-          const result = await capabilityService.mutate(args[0], async policy => {
-            refreshThemes = policy.scope === 'theme'
-              || ['plugin-install', 'plugin-remove', 'plugin-update'].includes(args[0]?.action);
-            const release = await capabilityGate.guard(policy, {
-              assertAvailable: () => {
-                if (settingsMutation || undoBusy || transition || updateInstalling || quitting || quitPending)
-                  throw new Error('Shared settings operation in progress');
-              },
-              acquireRuntime: () => {
-                settingsMutation = true;
-                return () => { settingsMutation = !capabilityService.runtimeAvailable; };
-              },
-              assertIdle: () => guardIdle({ stopHost: false, resources: true }),
-              assertResource: async id => {
-                markCapabilityPhase?.('resource-check');
-                await assertPluginUnused(id, runtimes.workers.values());
-              },
-            });
-            markCapabilityPhase?.('mutation');
-            return release;
+        const result = await capabilityService.mutate(args[0], async policy => {
+          refreshThemes = policy.scope === 'theme'
+            || ['plugin-install', 'plugin-remove', 'plugin-update'].includes(args[0]?.action);
+          const release = await capabilityGate.guard(policy, {
+            assertAvailable: () => {
+              if (settingsMutation || undoBusy || transition || updateInstalling || quitting || quitPending)
+                throw new Error('Shared settings operation in progress');
+            },
+            acquireRuntime: () => {
+              settingsMutation = true;
+              return () => { settingsMutation = !capabilityService.runtimeAvailable; };
+            },
+            assertIdle: () => guardIdle({ stopHost: false, resources: true }),
+            assertResource: async id => {
+              markCapabilityPhase?.('resource-check');
+              await assertPluginUnused(id, runtimes.workers.values());
+            },
           });
-          if (refreshThemes) {
-            markCapabilityPhase?.('theme-refresh');
-            await refreshThemePacks();
-            window.webContents.send('runtime-event', { type: 'desktop_theme_packs', packs: themePacks.packs, preferences });
-          }
-          return result;
-        } finally {
-          if (refreshThemes) await syncCustomBackground();
+          markCapabilityPhase?.('mutation');
+          return release;
+        });
+        if (refreshThemes) {
+          markCapabilityPhase?.('theme-refresh');
+          await refreshThemePacks();
+          window.webContents.send('runtime-event', { type: 'desktop_theme_packs', packs: themePacks.packs, preferences });
         }
+        return result;
       }); } finally {
         emit({ type: 'desktop_plugin_catalog_changed' });
       }
@@ -3121,7 +3090,6 @@ else app.whenReady().then(async () => {
   await mkdir(join(dataRoot, 'sessions'), { recursive: true });
   await capabilityService.recover();
   await capabilityService.initialize();
-  await customBackground.initialize();
   await syncCustomBackground();
   await collaboration.start();
   await bvrBridge.start();

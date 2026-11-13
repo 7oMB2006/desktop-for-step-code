@@ -122,6 +122,7 @@ import { StellarLettering } from './StellarLettering';
 import { StellarBrand } from './StellarBrand';
 import { ThemeSettings } from './ThemeSettings';
 import { BackgroundStatus } from './BackgroundStatus';
+import { CustomBackgroundSettings } from './CustomBackgroundSettings';
 import { TerminalPanel } from './TerminalPanel';
 import { normalizePanelPreferences, type TerminalDock } from './panel-preferences';
 import { BrowserPanel } from './BrowserPanel';
@@ -341,7 +342,6 @@ function App() {
   const [tab, setTab] = useState('account');
   const globalInstructionsEditor = useGlobalInstructionsEditor(bridge, settingsOpen && tab === 'instructions');
   const [capabilityTarget, setCapabilityTarget] = useState<CapabilityTarget>();
-  const [customBackgroundRequest, setCustomBackgroundRequest] = useState(0);
   const [capabilityRevision, setCapabilityRevision] = useState(0);
   const [details, setDetails] = useState('');
   const [windowMenuOpen, setWindowMenuOpen] = useState(false);
@@ -2055,8 +2055,8 @@ function App() {
         <button onClick={() => { setPluginsOpen(false); setApprovalOpen(true); }}>{t('查看', 'Review')}</button></div>}
       <PluginCenter bridge={bridge} language={data.preferences.language} currentVersion={appUpdate?.currentVersion} active={pluginsOpen && !desktopMainId} busy={anyBusy || busy || loading}
         runtimeId={data.runtimeId} settings={settings ?? undefined} target={capabilityTarget?.page === 'plugins' ? capabilityTarget : undefined}
-        themePack={data.themePacks?.find(pack => pack.id === data.preferences.theme)}
-        customBackgroundRequest={customBackgroundRequest} customBackgroundState={data.customBackground}
+        customBackgroundState={data.customBackground}
+        onAppearance={() => { setPluginsOpen(false); setTab('appearance'); void openSettings(); }}
         onBack={() => setPluginsOpen(false)} onOpenDesktop={openInstalledDesktop}
         onOpenSession={async id => {
           const session = data.sessions.find(item => item.id === id);
@@ -2592,12 +2592,12 @@ function App() {
       {tab === 'instructions' ? <GlobalInstructionsSettings editor={globalInstructionsEditor} language={data.preferences.language}/> : tab === 'interface' ? <InterfaceSettings value={interfaceSettings} language={data.preferences.language} onChange={interfaceSettings => setPreference({ interfaceSettings })}/> : tab === 'appearance' ? <>
         <ThemeSettings preferences={data.preferences} systemDark={systemDark} language={data.preferences.language} packs={data.themePacks}
           loadScene={bridge?.themeScene} loadPoster={bridge?.themePoster} onChange={patch => void setPreference(patch)}/>
-        {!isMini && bridge && <BackgroundStatus state={data.customBackground} language={data.preferences.language}
-          pack={data.themePacks?.find(pack => pack.id === data.preferences.theme)} onConfigure={() => {
-            if (data.customBackground?.available) {
-              setCustomBackgroundRequest(value => value + 1); void openPlugins();
-            } else void openPlugins({ page: 'plugins', tab: 'discover', query: 'custom-background' });
-          }}/>}
+        {!isMini && bridge && <>
+          <BackgroundStatus state={data.customBackground} language={data.preferences.language}
+            pack={data.themePacks?.find(pack => pack.id === data.preferences.theme)}/>
+          <CustomBackgroundSettings bridge={bridge} language={data.preferences.language} visible={!settingsClosing}
+            themePack={data.themePacks?.find(pack => pack.id === data.preferences.theme)}/>
+        </>}
         <AppearanceSettings value={data.preferences.appearance} language={data.preferences.language} onChange={appearance => void setPreference({ appearance })}/>
       </> : tab === 'archived' ? <ArchivedSessions sessions={archivedSessions} preferences={data.preferences}
         runtimes={data.runtimes ?? []} activeId={data.state?.sessionId}

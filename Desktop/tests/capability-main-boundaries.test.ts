@@ -71,17 +71,17 @@ test('actual main discovery actions do not scan themes or persist appearance pre
   await theme.invoke([{ action: 'plugin-install' }]);
   assert.equal(theme.refreshes(), 1);
   assert.equal(theme.locked(), false);
-  assert.equal(theme.reconciliations(), 1);
+  assert.equal(theme.reconciliations(), 0, 'Plugin mutation must not rebind built-in appearance');
   assert.deepEqual(theme.notifications, [{ type: 'desktop_plugin_catalog_changed' }]);
 });
 
-test('actual main reconciles adapter ownership after partial plugin mutation and refresh failures', async () => {
+test('actual main preserves built-in appearance after partial plugin mutation and refresh failures', async () => {
   for (const action of ['plugin-install', 'plugin-update', 'plugin-remove']) {
     const failure = new Error(`partial ${action}`);
     const f = mutationFixture({ scope: 'runtime' }, false, failure);
     await assert.rejects(f.invoke([{ action }]), error => error === failure);
     assert.equal(f.refreshes(), 0);
-    assert.equal(f.reconciliations(), 1);
+    assert.equal(f.reconciliations(), 0);
     assert.equal(f.locked(), false);
     assert.deepEqual(f.notifications, [{ type: 'desktop_plugin_catalog_changed' }]);
   }
@@ -89,7 +89,7 @@ test('actual main reconciles adapter ownership after partial plugin mutation and
   const f = mutationFixture({ scope: 'theme' }, false, undefined, failure);
   await assert.rejects(f.invoke([{ action: 'plugin-remove' }]), error => error === failure);
   assert.equal(f.refreshes(), 1);
-  assert.equal(f.reconciliations(), 1);
+  assert.equal(f.reconciliations(), 0);
   assert.deepEqual(f.notifications, [{ type: 'desktop_plugin_catalog_changed' }]);
 });
 

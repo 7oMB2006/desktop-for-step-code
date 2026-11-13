@@ -13,8 +13,7 @@ import {
 } from './theme-images';
 
 interface SavedBackground {
-  schemaVersion: 1;
-  instance?: string;
+  schemaVersion: 2;
   options: StoredBackgroundState['options'];
   image?: BackgroundImageDescriptor;
 }
@@ -44,7 +43,6 @@ export class CustomBackgroundStore {
   private readonly root: string;
   private writes: Promise<unknown> = Promise.resolve();
   private initialized = false;
-  private instance?: string;
   private parentIdentity?: Stats;
   private directoryIdentity?: Stats;
   private current: StoredBackgroundState = { options: { ...DEFAULT_BACKGROUND_OPTIONS } };
@@ -55,7 +53,6 @@ export class CustomBackgroundStore {
   }
 
   state(): StoredBackgroundState { return structuredClone(this.current); }
-  isBoundTo(instance?: string): boolean { return this.initialized && this.instance === instance; }
 
   private enqueue<T>(action: () => Promise<T>): Promise<T> {
     const operation = this.writes.then(async () => {
@@ -112,15 +109,15 @@ export class CustomBackgroundStore {
       let saved: unknown;
       try { saved = JSON.parse(bytes.toString('utf8')); }
       catch { throw failure('invalid'); }
-      if (!record(saved) || saved.schemaVersion !== 1
-        || Object.keys(saved).some(key => !['schemaVersion', 'instance', 'options', 'image'].includes(key))
-        || saved.instance !== undefined && !validInstance(saved.instance)
+      if (!record(saved) || ![1, 2].includes(saved.schemaVersion as number)
+        || Object.keys(saved).some(key => !(saved.schemaVersion === 1
+          ? ['schemaVersion', 'instance', 'options', 'image'] : ['schemaVersion', 'options', 'image']).includes(key))
+        || saved.schemaVersion === 1 && saved.instance !== undefined && !validInstance(saved.instance)
         || !record(saved.options)) throw failure('invalid');
       const image = descriptor(saved.image);
-      this.instance = saved.instance;
       this.current = { options: normalizeBackgroundOptions(saved.options), ...(image ? { image } : {}) };
-      // An unbound profile must never activate a copied or half-written configuration.
-      if (!this.instance) this.current.options.enabled = false;
+      // Legacy unbound profiles were inactive, even if a copied config said otherwise.
+      if (saved.schemaVersion === 1 && !saved.instance) this.current.options.enabled = false;
       if (image) {
         try { await this.readImage(image); }
         catch (error: any) {
@@ -128,21 +125,24 @@ export class CustomBackgroundStore {
             : error.message === 'custom-background:invalid' || error.message === 'Invalid theme image' ? 'invalid' : 'storage';
         }
       }
+      if (saved.schemaVersion === 1) {
+        try { await this.writeState(this.current); }
+        catch { this.current.issue = 'storage'; }
+      }
     } catch (error: any) {
       this.current = { options: { ...DEFAULT_BACKGROUND_OPTIONS },
         issue: error.message === 'custom-background:invalid' ? 'invalid' : 'storage' };
-      this.instance = undefined;
     }
   }
 
   initialize(): Promise<StoredBackgroundState> { return this.enqueue(async () => this.state()); }
 
-  private async writeState(next: StoredBackgroundState, instance: string | undefined): Promise<void> {
+  protected async writeState(next: StoredBackgroundState): Promise<void> {
     const directory = await this.directory(true);
     const temporary = `state-${randomUUID()}.tmp`;
     const target = join(this.root, temporary);
-    const saved: SavedBackground = { schemaVersion: 1, options: next.options,
-      ...(instance ? { instance } : {}), ...(next.image ? { image: next.image } : {}) };
+    const saved: SavedBackground = { schemaVersion: 2, options: next.options,
+      ...(next.image ? { image: next.image } : {}) };
     let created = false;
     try {
       const handle = await open(target, 'wx', 0o600);
@@ -238,7 +238,6 @@ export class CustomBackgroundStore {
 
   importFile(path: string): Promise<StoredBackgroundState> {
     return this.enqueue(async () => {
-      if (!this.instance) throw failure('unavailable');
       const extension = typeof path === 'string' ? extname(path).toLowerCase() : '';
       if (typeof path !== 'string' || !isAbsolute(path) || path.includes('\0')
         || !['.png', '.jpg', '.jpeg'].includes(extension)) throw failure('invalid-image');
@@ -258,7 +257,7 @@ export class CustomBackgroundStore {
       const previous = this.current.image;
       const next: StoredBackgroundState = { options: { ...this.current.options, enabled: true }, image: candidate };
       const created = await this.stage(bytes, candidate);
-      try { await this.writeState(next, this.instance); }
+      try { await this.writeState(next); }
       catch (error) { if (created) await this.discard(candidate); throw error; }
       this.current = next;
       if (previous && previous.revision !== candidate.revision) await this.discard(previous);
@@ -271,7 +270,6 @@ export class CustomBackgroundStore {
     try { patch = validateBackgroundPatch(value); }
     catch (error) { return Promise.reject(error); }
     return this.enqueue(async () => {
-      if (patch.enabled && !this.instance) throw failure('unavailable');
       if (patch.enabled) {
         if (!this.current.image) throw failure('missing');
         try { await this.readImage(this.current.image); }
@@ -281,7 +279,7 @@ export class CustomBackgroundStore {
         }
       }
       const next: StoredBackgroundState = { ...this.state(), options: { ...this.current.options, ...patch } };
-      await this.writeState(next, this.instance);
+      await this.writeState(next);
       this.current = next;
       return this.state();
     });
@@ -291,21 +289,9 @@ export class CustomBackgroundStore {
     return this.enqueue(async () => {
       const previous = this.current.image;
       const next: StoredBackgroundState = { options: { ...this.current.options, enabled: false } };
-      await this.writeState(next, this.instance);
+      await this.writeState(next);
       this.current = next;
       if (previous) await this.discard(previous);
-      return this.state();
-    });
-  }
-
-  bind(instance?: string): Promise<StoredBackgroundState> {
-    if (instance !== undefined && !validInstance(instance)) return Promise.reject(failure('invalid-input'));
-    return this.enqueue(async () => {
-      if (instance === this.instance) return this.state();
-      const next: StoredBackgroundState = { ...this.state(), options: { ...this.current.options, enabled: false } };
-      await this.writeState(next, instance);
-      this.instance = instance;
-      this.current = next;
       return this.state();
     });
   }

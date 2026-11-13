@@ -1,15 +1,14 @@
-import { ArrowRight, Image, Settings } from 'lucide-react';
+import { Image } from 'lucide-react';
 import type { CustomBackgroundState } from './custom-background';
 import { resolveThemeBackground, type ThemePack } from './theme-packs';
 import './background-status.css';
 
-export function BackgroundStatus({ state, pack, language, onConfigure }: {
-  state?: CustomBackgroundState; pack?: ThemePack; language: 'zh' | 'en'; onConfigure(): void;
+export function BackgroundStatus({ state, pack, language }: {
+  state?: CustomBackgroundState; pack?: ThemePack; language: 'zh' | 'en';
 }) {
   const t = (zh: string, en: string) => language === 'zh' ? zh : en;
   const compatible = resolveThemeBackground(pack, 'image-v1').overridden;
-  const installed = Boolean(state?.available);
-  const status = !installed ? t('未安装', 'Not installed')
+  const status = !state?.available ? t('正在读取背景设置', 'Loading background settings')
     : state?.issue ? t('图片不可用', 'Image unavailable')
     : !state?.image ? t('未选择图片', 'No image selected')
     : !state.options.enabled ? t('跟随主题 · 图片已保留', 'Theme background · Image retained')
@@ -19,9 +18,5 @@ export function BackgroundStatus({ state, pack, language, onConfigure }: {
     <div className="background-status-label"><Image size={18} aria-hidden="true"/><div>
       <h3>{t('自定义背景', 'Custom background')}</h3><p role="status">{status}</p>
     </div></div>
-    <button type="button" onClick={onConfigure}>
-      {installed ? <Settings size={15}/> : <ArrowRight size={15}/>}
-      {installed ? t('配置', 'Configure') : t('前往插件', 'Open plugin')}
-    </button>
   </section>;
 }

@@ -110,12 +110,10 @@ async function assertIdentity(expected, description) {
   assert.equal(await page.locator('.composer-input').evaluate(element => element.value ?? element.textContent), draftText, description);
 }
 async function configure() {
-  const center = page.getByRole('region', { name: 'Plugin center', exact: true });
-  if (!await center.isVisible()) await page.getByRole('button', { name: 'Plugin marketplace', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Settings', exact: true });
+  if (!await dialog.isVisible()) await page.locator('.sidebar-settings').click();
   if (!await settings().isVisible()) {
-    if (await center.locator('.pc-detail').isVisible())
-      await center.getByRole('button', { name: 'All plugins', exact: true }).click();
-    await center.getByRole('button', { name: 'Configure \u81ea\u5b9a\u4e49\u80cc\u666f', exact: true }).click();
+    await dialog.getByRole('button', { name: 'Appearance', exact: true }).click();
   }
   await settings().waitFor();
   const importButton = settings().getByRole('button', { name: 'Import background image', exact: true });
@@ -123,6 +121,11 @@ async function configure() {
   await poll(() => importButton.isEnabled(), 'Visible background configuration controls');
 }
 async function conversation() {
+  const dialog = page.getByRole('dialog', { name: 'Settings', exact: true });
+  if (await dialog.isVisible()) {
+    await dialog.getByRole('button', { name: 'Close', exact: true }).click();
+    await dialog.waitFor({ state: 'detached' });
+  }
   const center = page.getByRole('region', { name: 'Plugin center', exact: true });
   if (await center.isVisible()) await center.getByRole('button', { name: 'Back to conversation', exact: true }).click();
   await page.locator('.composer-input').waitFor();
@@ -156,7 +159,7 @@ async function importThroughSettings(path) {
 try {
   await launch();
   const initial = await state();
-  assert.equal(initial.available, false);
+  assert.equal(initial.available, true);
   assert.equal(initial.options.enabled, false);
   await page.locator('.composer-input').fill(draftText);
   await page.locator('.composer-input').blur();
@@ -164,27 +167,9 @@ try {
   assert.ok(before.draftId);
   assert.equal(before.runtimeId, undefined);
 
-  await page.evaluate(async source => {
-    await window.desktop.capabilityMutate({ action: 'marketplace-add', source });
-    const catalog = await window.desktop.capabilityCatalog();
-    const entry = catalog.available.find(item => item.name === 'custom-background');
-    if (!entry?.package) throw new Error('Background adapter is missing from the real marketplace');
-    await window.desktop.capabilityMutate({
-      action: 'plugin-install', name: entry.name, marketplace: entry.marketplace, ref: entry.package.ref,
-    });
-    await window.desktop.capabilityMutate({ action: 'plugin-install', name: 'stellar-cruise', marketplace: 'dfsc-themes' });
-  }, market);
-  const installed = await state();
-  assert.equal(installed.available, true);
-  assert.equal(installed.options.enabled, false);
-  assert.ok(installed.ref);
-  const plugin = await page.evaluate(async () =>
-    (await window.desktop.capabilityCatalog()).plugins.find(item => item.id === 'custom-background'));
-  assert.equal(plugin.package.hostConfiguration, 'custom-background-v1');
-  assert.equal(plugin.package.dataOnlyTheme, undefined);
-  assert.deepEqual(plugin.mcpServers, []);
-  checks.push('Recorded real marketplace installation exposes only the host background adapter');
-  await assertIdentity(before, 'Installing appearance plugins must not create or replace the active draft');
+  assert.equal(await page.evaluate(async () =>
+    (await window.desktop.capabilityCatalog()).plugins.some(item => item.id === 'custom-background')), false);
+  checks.push('Fresh profile exposes built-in background controls with no background plugin installed');
 
   await importThroughSettings(pngPath);
   const imported = await waitState(value => {
@@ -283,6 +268,10 @@ try {
   checks.push('Actual workspace covers composer gutters, footer and unused summary space without dimming foregrounds');
   await page.screenshot({ path: join(output, 'builtin-custom-background.png') });
 
+  await page.evaluate(async source => {
+    await window.desktop.capabilityMutate({ action: 'marketplace-add', source });
+    await window.desktop.capabilityMutate({ action: 'plugin-install', name: 'stellar-cruise', marketplace: 'dfsc-themes' });
+  }, market);
   await selectTheme('plugin:stellar-cruise');
   await page.locator('.stellar-workspace-scene canvas[data-ready=true]').waitFor({ timeout: 60000 });
   assert.equal(await page.locator('.custom-background-plane').count(), 0);
@@ -337,12 +326,11 @@ try {
   assert.deepEqual(await identity(mini), afterRestart);
   assert.deepEqual(await mini.evaluate(() => window.desktop.customBackgroundState()), restored);
   assert.deepEqual(await mini.evaluate(async () => {
-    const value = await window.desktop.customBackgroundState();
     const results = [];
     for (const operation of [
-      () => window.desktop.customBackgroundImport(value.ref),
-      () => window.desktop.customBackgroundSave({ ref: value.ref, patch: { brightness: 80 } }),
-      () => window.desktop.customBackgroundRemove(value.ref),
+      () => window.desktop.customBackgroundImport(),
+      () => window.desktop.customBackgroundSave({ patch: { brightness: 80 } }),
+      () => window.desktop.customBackgroundRemove(),
     ]) {
       try { await operation(); results.push(false); } catch { results.push(true); }
     }
@@ -371,12 +359,6 @@ try {
   await imageReady();
   const beforeUninstall = await state();
   await conversation();
-  await page.evaluate(() => window.desktop.capabilityMutate({ action: 'plugin-remove', id: 'custom-background' }));
-  await waitState(value => !value.available && !value.options.enabled, 'Uninstall immediately revokes background activation');
-  await page.waitForFunction(() => !document.querySelector('.custom-background-plane'));
-  assert.deepEqual((await state()).image, beforeUninstall.image);
-  await assert.rejects(page.evaluate(ref => window.desktop.customBackgroundSave({ ref, patch: { enabled: true } }),
-    beforeUninstall.ref), /stale|not-installed|unavailable/);
   await page.evaluate(async () => {
     const entry = (await window.desktop.capabilityCatalog()).available.find(item => item.name === 'custom-background');
     await window.desktop.capabilityMutate({
@@ -385,26 +367,66 @@ try {
   });
   const reinstalled = await state();
   assert.equal(reinstalled.available, true);
-  assert.equal(reinstalled.options.enabled, false);
-  assert.deepEqual(reinstalled.image, beforeUninstall.image);
-  await assert.rejects(page.evaluate(ref => window.desktop.customBackgroundSave({ ref, patch: { enabled: true } }),
-    beforeUninstall.ref), /stale|not-installed|unavailable/);
-  await page.waitForFunction(() => !document.querySelector('.custom-background-plane'));
+  assert.deepEqual(reinstalled, beforeUninstall, 'Installing the legacy adapter cannot reset built-in settings');
+  const center = page.getByRole('region', { name: 'Plugin center', exact: true });
+  await page.getByRole('button', { name: 'Plugin marketplace', exact: true }).click();
+  await center.getByRole('button', { name: 'Configure \u81ea\u5b9a\u4e49\u80cc\u666f', exact: true }).click();
+  assert.equal(await settings().count(), 0, 'Legacy plugin does not retain a second editor');
+  await center.getByRole('button', { name: 'Appearance settings', exact: true }).click();
+  await settings().waitFor();
+  await conversation();
+  await page.evaluate(() => window.desktop.capabilityMutate({ action: 'plugin-remove', id: 'custom-background' }));
+  assert.deepEqual(await state(), beforeUninstall);
+  await imageReady();
   await assertIdentity(afterRestart, 'Uninstalling and reinstalling the adapter must retain the active draft');
-  checks.push('Reinstall retains the local image but requires a fresh explicit activation');
+  checks.push('Legacy plugin redirects to Appearance; installing or removing it cannot disable or erase built-in settings');
 
   await configure();
-  await settings().getByRole('checkbox', { name: 'Enable background', exact: true }).click();
-  await saved();
   await imageReady();
-  await page.setViewportSize({ width: 760, height: 880 });
-  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
-  await page.screenshot({ path: join(output, 'custom-background-settings-narrow.png') });
+  for (const [width, palette] of [[1440, 'original-light'], [760, 'original-light'], [760, 'original-dark'], [1440, 'original-dark']]) {
+    await selectTheme(palette);
+    await page.setViewportSize({ width, height: 960 });
+    for (const control of await settings().locator('button,input').all()) {
+      if (!await control.isVisible() || await control.isDisabled()) continue;
+      await control.focus();
+      assert.deepEqual(await control.evaluate(element => {
+        const rect = element.getBoundingClientRect(), clips = [];
+        for (let parent = element.parentElement; parent; parent = parent.parentElement) {
+          const bounds = parent.getBoundingClientRect(), style = getComputedStyle(parent);
+          if (/hidden|clip|auto|scroll/.test(style.overflowX) && (rect.left - 4 < bounds.left + parent.clientLeft - 1
+            || rect.right + 4 > bounds.left + parent.clientLeft + parent.clientWidth + 1)) clips.push(`${parent.className}:x`);
+          if (/hidden|clip|auto|scroll/.test(style.overflowY) && (rect.top - 4 < bounds.top + parent.clientTop - 1
+            || rect.bottom + 4 > bounds.top + parent.clientTop + parent.clientHeight + 1)) clips.push(`${parent.className}:y`);
+        }
+        return clips;
+      }), [], `${width}/${palette}: native focus outline`);
+    }
+    await settings().locator('.custom-background-heading').scrollIntoViewIfNeeded();
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+    await page.mouse.move(0, 0);
+    await page.screenshot({ path: join(output, `builtin-settings-${width}-${palette}.png`) });
+    await settings().locator('.custom-background-surfaces').scrollIntoViewIfNeeded();
+    await page.screenshot({ path: join(output, `builtin-surfaces-${width}-${palette}.png`) });
+  }
+  checks.push('Native Appearance editor and all focus outlines fit light/dark desktop and narrow windows');
   assert.deepEqual(errors, []);
   const savedState = JSON.parse(await readFile(join(profile, 'custom-background/state.json'), 'utf8'));
-  assert.equal(savedState.schemaVersion, 1);
-  assert.ok(savedState.instance);
+  assert.equal(savedState.schemaVersion, 2);
+  assert.equal(savedState.instance, undefined);
   assert.equal(savedState.options.enabled, true);
+  await close();
+  // Exercise a real legacy profile on the new host, without reimporting its image.
+  await writeFile(join(profile, 'custom-background/state.json'), JSON.stringify({
+    ...savedState, schemaVersion: 1, instance: 'legacy-installation-fixture',
+  }));
+  await launch();
+  await imageReady();
+  assert.deepEqual((await state()).options, savedState.options);
+  assert.deepEqual((await state()).image, savedState.image);
+  const migrated = JSON.parse(await readFile(join(profile, 'custom-background/state.json'), 'utf8'));
+  assert.equal(migrated.schemaVersion, 2);
+  assert.equal(migrated.instance, undefined);
+  checks.push('Real host migrates an enabled legacy plugin profile without changing the image or adjustments');
   await close();
   const results = { passed: true, build, profile, checks, errors };
   await writeFile(join(output, 'results.json'), JSON.stringify(results, null, 2));

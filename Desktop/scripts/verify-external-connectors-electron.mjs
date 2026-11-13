@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { createServer } from 'node:http';
 import { createConnection } from 'node:net';
-import { mkdir, readFile, realpath, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, realpath, stat, writeFile } from 'node:fs/promises';
 import { mkdtemp } from './test-profile.mjs';
 import { join, resolve } from 'node:path';
 import { promisify } from 'node:util';
@@ -45,16 +45,24 @@ const model = createServer(async (request, response) => {
       held.add(response); response.on('close', () => held.delete(response)); return;
     }
     const delegated = /^CONNECTOR-DELEGATE-(ALLOW|DENY|ESCALATE|REVOKE)$/.test(input);
-    const asksApproval = delegated || input === 'CONNECTOR-APPROVAL' || input === 'CONNECTOR-DENY';
-    const callId = delegated ? `${input.toLowerCase()}-12345678`
+    const automatic = input === 'CONNECTOR-AUTO', risky = input === 'CONNECTOR-RISK', question = input === 'CONNECTOR-QUESTION';
+    const asksApproval = delegated || automatic || risky || question || input === 'CONNECTOR-APPROVAL' || input === 'CONNECTOR-DENY';
+    const callId = delegated || automatic || risky || question ? `${input.toLowerCase()}-12345678`
       : input === 'CONNECTOR-DENY' ? 'connector-deny-12345678' : 'connector-tool-12345678';
     const toolResult = body.messages.find(message => message.role === 'tool' && message.tool_call_id === callId);
     if (asksApproval && !toolResult) {
       const command = input === 'CONNECTOR-DENY'
         ? 'echo connector-denied > connector-denied.txt' : 'echo connector-approved';
       send({ tool_calls: [{ index: 0, id: callId, type: 'function',
-        function: { name: delegated ? 'write_file' : 'run_command', arguments: JSON.stringify(delegated
-          ? { path: `${input.toLowerCase()}.txt`, content: input } : { command }) } }] }, 'tool_calls');
+        function: { name: question ? 'clarify_user' : delegated || automatic ? 'write_file' : 'run_command',
+          arguments: JSON.stringify(question ? { questions: [{ id: 'target', label: 'Target', question: 'Which target?',
+            allow_freeform: false, options: [{ label: 'Tests', value: 'tests' }, { label: 'Docs', value: 'docs' }] }] }
+            : risky ? { command: 'rm -rf ./connector-risk-empty', timeout_ms: 10000 }
+              : delegated || automatic ? { path: `${input.toLowerCase()}.txt`, content: input } : { command }) } }] }, 'tool_calls');
+    } else if (risky || question || automatic) {
+      if (risky) assert.match(content(toolResult), /Tool call denied/u);
+      if (question) assert.match(content(toolResult), /tests/u);
+      send({ content: `${input}-COMPLETE` }, 'stop');
     } else if (delegated) {
       const denied = input.endsWith('-DENY') || input.endsWith('-REVOKE');
       if (denied) assert.match(content(toolResult), /Tool call denied: write_file/u);
@@ -320,6 +328,77 @@ try {
   await page.evaluate(({ runtimeId }) => window.desktop.command('prompt', { message: 'LOCAL-TAKEOVER' }, runtimeId), localStop);
   checks.push('local stop releases a waiting external task and permits a new local turn');
 
+  await action({ type: 'policy', agentId: connection.agentId, cwd: workspace, days: null,
+    permissionPreset: 'approve-for-me', categories: ['risk', 'question'] });
+  assert.equal((await connectorState()).approvals.policies[0].expiresAt, null);
+  const automatic = await create('connector-automatic');
+  await submit(automatic.id, 'auto-run', 'CONNECTOR-AUTO');
+  await until(() => task(automatic.id), value => value.phase === 'completed', 'native automatic write');
+  assert.equal(await readFile(join(workspace, 'connector-auto.txt'), 'utf8'), 'CONNECTOR-AUTO');
+  assert.equal(await page.evaluate(runtimeId => window.connectorRequests.some(r =>
+    r.runtimeId === runtimeId && r.title?.startsWith('Approve write_file')), automatic.runtimeId), false);
+  checks.push('explicit persistent approve-for-me policy runs ordinary native writes without another approval');
+  const nativeAsk = value => until(() => page.evaluate(sessionId => window.desktop.switchSession(sessionId), value.sessionId),
+    state => state.permissionPreset === 'ask', 'terminal automatic session resets native permissions');
+  await nativeAsk(automatic);
+  const automaticStop = await create('connector-automatic-local-stop');
+  await submit(automaticStop.id, 'auto-stop-run', 'CONNECTOR-HOLD');
+  await until(() => task(automaticStop.id), value => value.phase === 'running', 'automatic native work before local stop');
+  await page.evaluate(runtimeId => window.desktop.command('abort', {}, runtimeId), automaticStop.runtimeId);
+  assert.equal((await task(automaticStop.id)).phase, 'stopped');
+  await nativeAsk(automaticStop);
+  checks.push('completed and locally stopped automatic sessions reset to native Ask before local ownership is released');
+
+  await mkdir(join(workspace, 'connector-risk-empty'));
+  const risk = await create('connector-persistent-risk');
+  const wake = execute(process.env.PYTHON || 'python', ['-X', 'utf8', '-B',
+    resolve('scripts/fixtures/external-wake-client.py'), companion, config, risk.id],
+  { timeout: 45000, windowsHide: true, maxBuffer: 256 * 1024 });
+  // Keep rejection observed while the native request is being prepared.
+  void wake.catch(() => {});
+  await submit(risk.id, 'risk-run', 'CONNECTOR-RISK');
+  await until(() => task(risk.id), value => value.awaitingLocalApproval, 'delegated native risk');
+  const notification = JSON.parse((await wake).stdout);
+  assert.equal(notification.messages.length, 1);
+  assert.equal(notification.messages[0].sessionKey, 'isolated-origin-session');
+  assert.match(notification.messages[0].content, /approval.list/);
+  assert.equal((await task(risk.id)).awaitingLocalApproval, true, 'wake is never an unconditional approval');
+  const riskApproval = await client('approval.list', { taskId: risk.id });
+  assert.equal(riskApproval.requests[0].category, 'risk');
+  await client('approval.respond', { taskId: risk.id, requestId: riskApproval.requests[0].requestId,
+    decision: 'deny', reason: 'Controlled reviewer rejects destructive operation' });
+  await until(() => task(risk.id), value => value.phase === 'completed', 'risk denial');
+  assert.equal((await stat(join(workspace, 'connector-risk-empty'))).isDirectory(), true);
+  checks.push('real companion long polling wakes only simulated original Hermes host; no auto-answer; native risk denial keeps target');
+
+  const question = await create('connector-persistent-question');
+  await submit(question.id, 'question-run', 'CONNECTOR-QUESTION');
+  const listedQuestion = await until(() => client('approval.list', { taskId: question.id }),
+    value => value.requests.some(r => r.category === 'question'), 'delegated native clarification');
+  let questionRequest = listedQuestion.requests[0];
+  // Some runtimes first ask permission to pose the question.
+  if (!questionRequest.input.startsWith('[')) {
+    await client('approval.respond', { taskId: question.id, requestId: questionRequest.requestId, decision: 'allow', reason: 'Permit clarification' });
+    questionRequest = (await until(() => client('approval.list', { taskId: question.id }),
+      value => value.requests.some(r => r.category === 'question' && r.input.startsWith('[')), 'structured question')).requests[0];
+  }
+  await client('approval.respond', { taskId: question.id, requestId: questionRequest.requestId, decision: 'allow',
+    reason: 'Original fixture goal specifies tests', answers: [{ id: 'target', value: 'tests', wasCustom: false }] });
+  await until(() => task(question.id), value => value.phase === 'completed', 'native structured answer');
+  checks.push('real native clarification validates and receives explicitly delegated structured answers');
+
+  const policyRevoke = await create('connector-policy-revoke');
+  await submit(policyRevoke.id, 'hold-policy', 'CONNECTOR-HOLD');
+  await until(() => task(policyRevoke.id), value => value.phase === 'running', 'automatic task before revoke');
+  await action({ type: 'unpolicy', agentId: connection.agentId, cwd: workspace });
+  assert.equal((await task(policyRevoke.id)).phase, 'interrupted');
+  const restricted = await page.evaluate(sessionId => window.desktop.switchSession(sessionId), policyRevoke.sessionId);
+  assert.equal(restricted.permissionPreset, 'ask');
+  assert.equal((await connectorState()).approvals.policies.length, 0);
+  checks.push('revoking persistent policy aborts automatic task and restores native Ask, not just a UI badge');
+
+  await action({ type: 'policy', agentId: connection.agentId, cwd: workspace, days: 7,
+    permissionPreset: 'approve-for-me', categories: ['risk'] });
   const waiting = await create('connector-restart');
   await action({ type: 'delegate', taskId: waiting.id, minutes: 15, categories: ['file'] });
   assert.ok((await task(waiting.id)).approvalDelegation);
@@ -331,6 +410,7 @@ try {
   assert.equal((await task(waiting.id)).phase, 'interrupted');
   assert.equal((await task(waiting.id)).approvalDelegation, undefined);
   assert.equal((await connectorState()).approvals.tasks.length, 0);
+  assert.equal((await connectorState()).approvals.policies[0].permissionPreset, 'approve-for-me');
   assert.ok((await connectorState()).approvals.audit.some(entry => entry.taskId === waiting.id && entry.action === 'grant'));
   const restartedRuntimes = (await snapshot()).runtimes.map(value => value.runtimeId).sort();
   const afterRestart = await task(first.id);
@@ -346,6 +426,10 @@ try {
   assert.deepEqual((await snapshot()).runtimes.map(value => value.runtimeId).sort(), restartedRuntimes);
   assert.equal(requests.length, count);
   descriptor = JSON.parse(await readFile(join(profile, 'external-connectors', 'agents', connection.agentId, 'model.json'), 'utf8'));
+  const newAutomatic = await create('connector-automatic-after-restart');
+  await submit(newAutomatic.id, 'auto-restart', 'CONNECTOR-AUTO');
+  await until(() => task(newAutomatic.id), value => value.phase === 'completed', 'persistent native tier after restart');
+  checks.push('persistent policy survives restart only for fresh tasks; old process and request IDs never reattach');
   await action({ type: 'revoke', agentId: connection.agentId });
   assert.equal((await connectorState()).connections.length, 0);
   assert.equal((await client('system.capabilities', {}, true)).error.code, 'connector:unauthorized');

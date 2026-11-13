@@ -305,6 +305,23 @@ test('connector gateway persists revocation and refreshes endpoints without repl
   assert.equal((await exchange(descriptor, envelope(descriptor))).ok, true);
   assert.equal((await exchange(descriptor, { ...envelope(descriptor), token: first.descriptor.token })).ok, false);
 });
+test('local and network grants share the same non-secret authorization binding across restart', async t => {
+  let network: ExternalGrant | undefined;
+  const f = await fixture(t, async grant => { network = grant; return {}; });
+  await f.gateway.enable();
+  const first = await f.pair(), second = await f.pair();
+  const local = await f.gateway.authorization(first.connection.agentId);
+  assert.match(local.binding!, /^[a-f0-9]{64}$/);
+  assert.notEqual(local.binding, (await f.gateway.authorization(second.connection.agentId)).binding);
+  await exchange(first.descriptor, envelope(first.descriptor));
+  assert.equal(network?.binding, local.binding);
+  await f.gateway.shutdown();
+  const restored = new ExternalConnectorGateway(f.root, { dispatch: async () => ({}), invalidated() {} });
+  t.after(() => restored.shutdown());
+  await restored.initialize();
+  assert.equal((await restored.authorization(first.connection.agentId)).binding, local.binding);
+  assert.equal(JSON.stringify(restored.snapshot()).includes(local.binding!), false);
+});
 
 test('connector gateway disable persists while shutdown preserves enable preference', async t => {
   const { gateway, root, pair } = await fixture(t);

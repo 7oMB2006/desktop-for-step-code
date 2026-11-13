@@ -4,6 +4,7 @@ import type { DesktopBridge } from './contracts';
 import type { ExternalConnectorAction, ExternalConnectorState } from './external-connectors';
 import { useAnimatedDisclosure } from './useAnimatedDisclosure';
 import { ExternalApprovalPanel } from './ExternalApprovalPanel';
+import { ExternalApprovalPolicies } from './ExternalApprovalPolicies';
 import './external-connectors.css';
 
 export function ExternalConnectorPanel({ bridge, language }: { bridge: DesktopBridge; language: string }) {
@@ -140,6 +141,8 @@ export function ExternalConnectorPanel({ bridge, language }: { bridge: DesktopBr
       </article>)}
       {state && !state.connections.length && <p className="external-connector-empty">{t('暂无已授权 Agent', 'No authorized agents')}</p>}
     </section>
+    {state?.approvals && <ExternalApprovalPolicies state={state} language={language}
+      busy={busy} canDelegate={!error && state.listening} act={act}/>}
     {state?.approvals && <ExternalApprovalPanel state={state.approvals} language={language}
       names={new Map(state.connections.map(item => [item.agentId, item.displayName]))}
       busy={busy} canDelegate={!error && state.listening} act={act}/>}

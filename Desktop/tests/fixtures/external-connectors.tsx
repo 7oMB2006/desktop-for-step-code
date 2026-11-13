@@ -44,7 +44,7 @@ const bridge = {
     }] };
     if (action.type === 'revoke') state = { ...state, connections: [] };
     if (action.type === 'delegate' && state.approvals) {
-      state.approvals.tasks[0].delegation = { categories: action.categories, expiresAt: Date.now() + action.minutes * 60000 };
+      state.approvals.tasks[0].delegation = { categories: action.categories, expiresAt: action.minutes ? Date.now() + action.minutes * 60000 : null };
       state.approvals.audit.unshift({ taskId, agentId: 'fixture-agent', at: Date.now(), action: 'grant',
         reason: 'Local user selected scope and duration', outcome: 'applied' });
     }
@@ -53,6 +53,12 @@ const bridge = {
       state.approvals.audit.unshift({ taskId, agentId: 'fixture-agent', at: Date.now(), action: 'revoke',
         reason: 'local-user', outcome: 'applied' });
     }
+    if (action.type === 'policy' && state.approvals) {
+      state.approvals.policies = [{ id: taskId, agentId: action.agentId, cwd: action.cwd, createdAt: Date.now(),
+        expiresAt: action.days === null ? null : Date.now() + action.days * 86400000,
+        permissionPreset: action.permissionPreset, categories: action.categories }];
+    }
+    if (action.type === 'unpolicy' && state.approvals) state.approvals.policies = [];
     return structuredClone(state);
   },
 } as unknown as DesktopBridge;

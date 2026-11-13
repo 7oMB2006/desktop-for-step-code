@@ -1,5 +1,37 @@
 # Verification
 
+## 同类 transport 夹具补齐与本机资源边界（2026-11-13）
+
+`b78f0e1` 推送后横向核查发现，账户路由、账户设置、插件宿主授权和语音
+验收也使用了只认识直接 Node 的旧 preload hook。旧 Windows interface
+在 first-run 处提前停止，尚未覆盖这些后续场景。本机原账户路由首次
+请求绕过 loopback 并收到官方 401；只有隔离夹具占位 key，没有使用真实账户。
+
+五个验收脚本现在共用 `runtime-transport-fixture.mjs`，将 preload 注入
+精确 supervisor 的结构化 Node 参数，保留原有 direct/source/packaged 路径、
+supervisor 及 job/node/cwd。账户设置仍只注入 Step，不扩大到管理 worker；
+不修改产品请求、凭据路由、授权流程或 CI 门禁。
+
+- 共享 helper、五处实际接线、导航及更新终态定向回归 20/20 通过。
+  CI 清单仍为 66 通过、1 项平台跳过、0 失败。
+- 修复后账户路由完整通过（34.618 秒），覆盖四种官方账户、运行中切换阻止、
+  取消保留旧身份及 Plan 拒绝不得回退 API。账户设置完整通过（15.795 秒），
+  保留首次请求的模型/effort、官方计费估算、凭据、主题和窄屏断言。
+  证据为 `D:\DFSC Builds\plugin-update-20261113-transport-fixed-r2.log` 及同名 summary。
+- 后续本机资源耗尽，系统剩余提交额度一度约 140 MB，独立 PowerShell 也崩溃。
+  授权夹具临时诊断确认管理 worker 在加载源码时发生
+  `ERR_MEMORY_ALLOCATION_FAILED`，退出前没有停机确认；不能将其记为授权验收通过。
+  诊断位于 `D:\DFSC Builds\plugin-update-20261113-host-stop-diagnostic-r2.log`，
+  临时产品日志已撤回，未放宽停机确认或隔离门禁。
+  只结束核对过的本轮重型测试树，未关闭其他应用或删除文件。
+
+本轮最终 helper 变更后的完整本地协议重跑因资源问题中止，
+`plugin-update-20261113-ci-protocol-final` 没有 completion receipt，
+不沿用上一轮 2548 项通过宣称最终树已全量通过。
+授权、语音及 helper 提取后的 first-run 原生补验尚需新 head 的云端验证。
+`b78f0e1` 的 Windows/macOS 集成运行 `43334638554` / `43334638673`
+因发现同源遗漏主动取消，不是绿项；其 SDK 通过也不能替代整轮结果。
+
 ## 插件更新主线同步与 CI 入口兼容（2026-11-13）
 
 PR #238 合入 `main 948bbdc`，唯一文本冲突在本文件；保留双方验收记录，

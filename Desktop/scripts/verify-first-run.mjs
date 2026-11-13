@@ -9,6 +9,7 @@ import { closeDesktopFixtureAndWait } from './close-desktop-fixture.mjs';
 import { settleLayout } from './settle-layout.mjs';
 import { waitForSessionFixtureSnapshot } from './session-fixture.mjs';
 import { verifyFirstRunExit } from './first-run-exit-checks.mjs';
+import { installRuntimeFixturePreload } from './runtime-transport-fixture.mjs';
 
 const output = resolve('test-results/first-run-native');
 await mkdir(output, { recursive: true });
@@ -161,34 +162,12 @@ const routed = (input, init) => {
 Object.defineProperty(globalThis, 'fetch', { configurable: true, get: () => routed,
   set: value => { if (value !== routed) transport = value; } });
 `);
-  await app.evaluate(({ app, net, shell }, { preload, base }) => {
-    const { join, resolve } = process.getBuiltinModule('path');
-    const runtime = app.isPackaged ? join(process.resourcesPath, 'runtime') : resolve('runtime');
-    const sessionEntry = join(runtime, 'step/dist/bundle/step.js');
-    const cp = process.getBuiltinModule('child_process');
-    const spawn = cp.spawn;
-    cp.spawn = function(file, args, options) {
-      if (args?.some(arg => /(?:admin\.mjs|step\.js)$/.test(arg))) args = ['--require', preload, ...args];
-      else {
-        const jobIndex = args?.indexOf('-File'), specIndex = args?.indexOf('-Spec');
-        if (jobIndex >= 0 && specIndex >= 0 && args[jobIndex + 1] === join(runtime, 'windows-runtime-job.ps1')) {
-          try {
-            const spec = JSON.parse(Buffer.from(args[specIndex + 1], 'base64').toString('utf8'));
-            if (Array.isArray(spec.args) && spec.args[0] === sessionEntry
-              && spec.args.includes('--mode') && spec.args.includes('rpc')) {
-              args = [...args];
-              args[specIndex + 1] = Buffer.from(JSON.stringify({ ...spec, args: ['--require', preload, ...spec.args] })).toString('base64');
-            }
-          } catch {}
-        }
-      }
-      return spawn.call(this, file, args, options);
-    };
-    process.getBuiltinModule('module').syncBuiltinESMExports();
+  await app.evaluate(installRuntimeFixturePreload, { preload });
+  await app.evaluate(({ net, shell }, { base }) => {
     net.fetch = (input, init) => fetch(base + '/?url=' + encodeURIComponent(String(input)), init);
     globalThis.firstRunAuthUrl = undefined;
     shell.openExternal = async url => { globalThis.firstRunAuthUrl = url; };
-  }, { preload, base });
+  }, { base });
   // Restart only the isolated admin child so subsequent login uses the loopback transport.
   await page.evaluate(address => window.desktop.saveProvider({
     id: '', name: 'Disabled transport fixture', baseUrl: address, api: 'openai-completions', enabled: false, keyless: true,

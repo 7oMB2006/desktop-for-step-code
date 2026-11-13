@@ -33,6 +33,7 @@ function ApprovalTask({ task, name, language, busy, canDelegate, act }: Props & 
         {active ? t('委托中', 'Delegated') : t('本机审批', 'Local review')}
       </span></div>
     <p className="external-approval-owner">{name} <small>{task.agentId}</small></p>
+    <p>{t('任务 ID', 'Task ID')} · <code>{task.taskId}</code></p>
     <code>{task.cwd}</code>
     <p>{task.pending ? t(`${task.pending} 项待处理请求`, `${task.pending} pending requests`)
       : t('暂无待处理请求', 'No pending requests')}{active && <> · {t('到期', 'Expires')} {new Date(active.expiresAt).toLocaleTimeString(language === 'zh' ? 'zh-CN' : 'en-US')}</>}</p>

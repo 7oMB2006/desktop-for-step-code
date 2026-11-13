@@ -103,6 +103,7 @@ try {
     await trigger.click();
     await settleLayout(row.locator('details'));
     assert.match(await row.innerText(), /Hermes x DFSC/);
+    assert.match(await row.innerText(), /12345678-1234-1234-1234-123456789abc/);
     const types = row.getByRole('checkbox');
     await types.nth(0).uncheck(); await types.nth(1).uncheck();
     const confirm = row.getByRole('button', { name: /确认委托审批|Confirm approval delegation/ });

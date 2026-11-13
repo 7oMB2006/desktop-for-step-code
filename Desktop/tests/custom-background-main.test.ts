@@ -22,14 +22,11 @@ const javascript = (source: string) => ts.transpileModule(source, {
 }).outputText;
 const methods = ['customBackgroundState', 'customBackgroundImage', 'customBackgroundImport', 'customBackgroundSave', 'customBackgroundRemove',
   'capabilityCatalog'];
-const helpers = ['publishCustomBackground', 'syncCustomBackground', 'refreshCustomBackground', 'changeCustomBackground'].map(name =>
+const helpers = ['publishCustomBackground', 'syncCustomBackground', 'assertCustomBackgroundWritable', 'changeCustomBackground'].map(name =>
   find(node => ts.isFunctionDeclaration(node) && node.name?.text === name).getText(file)).join('\n');
 const cases = methods.map(method => find(node => ts.isCaseClause(node)
   && ts.isStringLiteral(node.expression) && node.expression.text === method).getText(file)).join('\n');
-const textDeclaration = find(node => ts.isVariableDeclaration(node) && node.name.getText(file) === 'text') as ts.VariableDeclaration;
-const approved = { ref: 'approved-package-ref', instance: 'installation-one' };
 const image = { revision: 'a'.repeat(64), width: 1, height: 1 };
-type Context = typeof approved;
 type Selection = { canceled: boolean; filePaths: string[] };
 type Operation = 'import' | 'save' | 'remove';
 type Flags = Partial<Record<'settingsMutation' | 'undoBusy' | 'transition' | 'updateInstalling' | 'quitting' | 'quitPending', boolean>>;
@@ -40,31 +37,20 @@ const deferred = <T = void>() => {
 };
 
 function fixture(flags: Flags = {}, enabled = false) {
-  const gate = new CapabilityGate();
-  const calls: string[] = [];
-  const publications: CustomBackgroundState[] = [];
+  const gate = new CapabilityGate(), calls: string[] = [], publications: CustomBackgroundState[] = [];
   const dialogs: { options: { properties: string[]; filters: { extensions: string[] }[] } }[] = [];
   const controls: {
-    context?: Context;
     available: boolean;
-    onProof?: (ref: string | undefined) => Promise<void> | void;
-    onBind?: (instance: string | undefined) => Promise<void> | void;
+    onInitialize?: () => Promise<void> | void;
     onDialog?: () => Promise<Selection>;
     onChange?: (operation: Operation) => Promise<void> | void;
     importImage?: typeof image;
     imageIssue?: 'missing' | 'invalid' | 'storage';
-  } = { context: { ...approved }, available: true };
+  } = { available: true };
   let stored: StoredBackgroundState = { options: { ...DEFAULT_BACKGROUND_OPTIONS, enabled }, image: { ...image } };
-  let instance: string | undefined = approved.instance;
   const background = {
     state: () => structuredClone(stored),
-    isBoundTo: (next?: string) => instance === next,
-    async bind(next?: string) {
-      calls.push(`bind:${next ?? 'none'}`);
-      await controls.onBind?.(next);
-      if (next !== instance) stored.options.enabled = false;
-      instance = next;
-    },
+    async initialize() { calls.push('initialize'); await controls.onInitialize?.(); },
     async image(revision: unknown) {
       calls.push(`image:${revision}`);
       if (revision !== stored.image?.revision) throw new Error('custom-background:stale-image');
@@ -77,33 +63,29 @@ function fixture(flags: Flags = {}, enabled = false) {
     async importFile(path: string) {
       calls.push(`import:${path}`);
       assert.equal(gate.active, true);
-      stored = { options: { ...stored.options, enabled: true }, image: { ...(controls.importImage ?? image) } };
       await controls.onChange?.('import');
+      stored = { options: { ...stored.options, enabled: true }, image: { ...(controls.importImage ?? image) } };
     },
     async save(patch: unknown) {
       calls.push('save');
       assert.equal(gate.active, true);
-      stored.options = { ...stored.options, ...validateBackgroundPatch(patch) };
+      const validated = validateBackgroundPatch(patch);
       await controls.onChange?.('save');
+      stored.options = { ...stored.options, ...validated };
     },
     async remove() {
       calls.push('remove');
       assert.equal(gate.active, true);
-      stored = { options: { ...stored.options, enabled: false } };
       await controls.onChange?.('remove');
+      stored = { options: { ...stored.options, enabled: false } };
     },
   };
   const capabilityService = {
     get available() { return controls.available; },
     async catalog() { calls.push('catalog'); return { plugins: [] }; },
-    async customBackgroundContext(ref?: string) {
-      calls.push(`proof:${ref ?? 'current'}`);
-      await controls.onProof?.(ref);
-      if (ref !== undefined && ref !== controls.context?.ref) throw new Error('capability:stale');
-      return controls.context ? { ...controls.context } : undefined;
-    },
+    customBackgroundContext() { throw new Error('Built-in backgrounds must not request plugin proofs'); },
   };
-  const initial: CustomBackgroundState = { ...background.state(), available: true, ref: approved.ref };
+  const initial: CustomBackgroundState = { ...background.state(), available: true };
   const runtimeAction = (name: string): never => { calls.push(`runtime:${name}`); throw new Error(`Unexpected runtime action: ${name}`); };
   const create = new Function('capabilityGate', 'capabilityService', 'customBackground', 'dialog', 'emit', 'initial', 'flags', 'runtimeAction', javascript(`
     const window = {}, preferences = { language: 'en' };
@@ -112,12 +94,10 @@ function fixture(flags: Flags = {}, enabled = false) {
     let transition = flags.transition ?? false, updateInstalling = flags.updateInstalling ?? false;
     let quitting = flags.quitting ?? false, quitPending = flags.quitPending ?? false;
     const guardIdle = () => runtimeAction('idle');
-    const applyProviderSettings = () => runtimeAction('providers');
     const runtimes = { restart: () => runtimeAction('restart'), stopAll: () => runtimeAction('stop') };
     const admin = { request: () => runtimeAction('admin') };
-    const text = ${textDeclaration.initializer!.getText(file)};
     ${helpers}
-    return { state: () => structuredClone(backgroundState), sync: syncCustomBackground, setShutdownFlag: (flag, value) => {
+    return { state: () => structuredClone(backgroundState), sync: syncCustomBackground, setFlag: (flag, value) => {
       if (flag === 'updateInstalling') updateInstalling = value;
       else if (flag === 'quitting') quitting = value;
       else if (flag === 'quitPending') quitPending = value;
@@ -135,375 +115,183 @@ function fixture(flags: Flags = {}, enabled = false) {
     },
   }, (event: { type: string; state: CustomBackgroundState }) => {
     assert.equal(event.type, 'desktop_custom_background');
-    publications.push(structuredClone(event.state));
-    calls.push('publish');
+    publications.push(structuredClone(event.state)); calls.push('publish');
   }, initial, flags, runtimeAction) as {
-    state(): CustomBackgroundState;
-    sync(): Promise<CustomBackgroundState>;
-    setShutdownFlag(flag: 'updateInstalling' | 'quitting' | 'quitPending', value: boolean): void;
+    state(): CustomBackgroundState; sync(): Promise<CustomBackgroundState>;
+    setFlag(flag: 'updateInstalling' | 'quitting' | 'quitPending', value: boolean): void;
     invoke(method: string, ...args: unknown[]): Promise<any>;
   };
   return { ...api, gate, calls, publications, dialogs, controls, stored: () => structuredClone(stored) };
 }
 
-test('actual main background reconciliation synchronizes binding and image reads require an active revision', async () => {
-  const f = fixture();
+test('actual main exposes built-in state without plugins or runtime leases; image reads require the active revision', async () => {
+  const f = fixture({}, true);
+  f.controls.available = false;
   assert.deepEqual(await f.invoke('customBackgroundState'), f.state());
   assert.equal(f.calls.length, 0);
-  assert.deepEqual(await f.sync(), f.state());
-  assert.deepEqual(f.calls, ['proof:current', `bind:${approved.instance}`]);
+  assert.equal((await f.sync()).options.enabled, true);
+  assert.deepEqual(f.calls, ['initialize']);
   assert.equal((await f.invoke('customBackgroundImage', image.revision)).width, 1);
-  await assert.rejects(f.invoke('customBackgroundImage', 'stale-revision'), /stale-image/);
+  await assert.rejects(f.invoke('customBackgroundImage', 'stale'), /stale-image/);
+  const saved = await f.invoke('customBackgroundSave', { patch: { brightness: 75 } });
+  assert.equal(saved.available, true);
+  assert.equal(saved.options.brightness, 75);
+  assert.equal('ref' in saved, false);
   assert.equal(f.calls.some(call => call.startsWith('runtime:')), false);
-  f.controls.context = undefined;
-  const published = f.state();
-  assert.deepEqual(await f.invoke('customBackgroundState'), published);
-  const unavailable = await f.sync();
-  assert.equal(unavailable.available, false);
-  assert.equal(unavailable.options.enabled, false);
-  assert.equal(unavailable.ref, undefined);
-  assert.deepEqual(unavailable.image, image);
-  assert.deepEqual(await f.invoke('customBackgroundState'), unavailable);
 });
 
-test('actual main frequent passive state reads never reserve the gate or block a picker import', async () => {
-  const f = fixture(), opened = deferred(), picked = deferred<Selection>(), admitted = deferred(), release = deferred();
-  const selection = { canceled: false, filePaths: ['D:\\native-background.png'] };
-  let gateEntries = 0;
-  const reserve = f.gate.run.bind(f.gate);
-  f.gate.run = async <T>(action: () => Promise<T>) => { gateEntries++; return reserve(action); };
-  const readBurst = async () => {
-    const previousCalls = [...f.calls], previousEntries = gateEntries, cached = f.state();
+test('actual main passive state and catalog reads never reserve the gate or mutate appearance', async () => {
+  const f = fixture();
+  await f.gate.run(async () => {
     const states = await Promise.all(Array.from({ length: 64 }, () => f.invoke('customBackgroundState')));
-    for (const state of states) assert.deepEqual(state, cached);
-    assert.deepEqual(f.calls, previousCalls, 'Passive polling must not request worker proofs or store binding');
-    assert.equal(gateEntries, previousEntries, 'Passive polling must not reserve the capability gate');
-  };
-  await readBurst();
-  assert.equal(gateEntries, 0);
-  f.controls.onDialog = async () => { opened.resolve(); return picked.promise; };
-  f.controls.onChange = async () => { admitted.resolve(); await release.promise; };
-  const pending = f.invoke('customBackgroundImport', approved.ref);
-  try {
-    await opened.promise;
-    await readBurst();
-    assert.equal(f.gate.active, false);
-    picked.resolve(selection);
-    await admitted.promise;
-    assert.equal(gateEntries, 1);
-    assert.equal(f.gate.active, true);
-    await readBurst();
-    assert.equal(f.state().options.enabled, false, 'Polling sees the last publication until final proof');
-  } finally {
-    picked.resolve(selection);
-    release.resolve();
-    await pending.catch(() => {});
-  }
-  const imported = await pending;
-  assert.equal(imported.options.enabled, true);
-  assert.equal(gateEntries, 1);
-  assert.equal(f.gate.active, false);
-  assert.equal(f.publications.length, 1);
-  await readBurst();
+    states.forEach(state => assert.deepEqual(state, f.state()));
+    assert.deepEqual(await f.invoke('capabilityCatalog'), { plugins: [] });
+    assert.deepEqual(f.calls, ['catalog']);
+  });
+  assert.equal(f.publications.length, 0);
 });
 
-test('actual main refuses forged or stale package references before picker or mutations', async () => {
-  for (const [method, input] of [
-    ['customBackgroundImport', 'forged-ref'],
-    ['customBackgroundSave', { ref: 'forged-ref', patch: { brightness: 80 } }],
-    ['customBackgroundRemove', 'forged-ref'],
-    ['customBackgroundImport', 123],
-    ['customBackgroundSave', { ref: 123, patch: { enabled: true } }],
-  ] as const) {
-    const f = fixture(), previous = f.stored();
-    await assert.rejects(f.invoke(method, input), /stale|Invalid text/);
-    assert.deepEqual(f.stored(), previous);
-    assert.equal(f.dialogs.length, 0);
-    assert.equal(f.publications.length, 0);
-    assert.equal(f.calls.some(call => /^(?:import|save|remove|runtime):?/.test(call)), false);
-    assert.equal(f.gate.active, false);
-  }
-});
-
-test('actual main cancellation and invalid native selections preserve state without a mutation gate', async () => {
+test('actual main cancellation and invalid native selections preserve state without mutations', async () => {
   for (const selection of [{ canceled: true, filePaths: [] }, { canceled: false, filePaths: [] }]) {
     const f = fixture(), previous = f.stored();
     f.controls.onDialog = async () => selection;
-    assert.equal(await f.invoke('customBackgroundImport', approved.ref), null);
+    assert.equal(await f.invoke('customBackgroundImport'), null);
     assert.deepEqual(f.stored(), previous);
-    assert.deepEqual(f.calls, [`proof:${approved.ref}`, 'dialog']);
+    assert.deepEqual(f.calls, ['dialog']);
     assert.equal(f.gate.active, false);
     assert.equal(f.publications.length, 0);
   }
   const f = fixture();
   f.controls.onDialog = async () => ({ canceled: false, filePaths: ['D:\\one.png', 'D:\\two.png'] });
-  await assert.rejects(f.invoke('customBackgroundImport', approved.ref), /Invalid background selection/);
+  await assert.rejects(f.invoke('customBackgroundImport'), /Invalid background selection/);
   assert.equal(f.calls.some(call => call.startsWith('import:')), false);
 });
 
-test('actual main import proves ownership before and after the picker and uses only the native-selected file', async () => {
+test('actual main import uses only a native-selected file, never renderer paths or package references', async () => {
   const f = fixture();
-  const result = await f.invoke('customBackgroundImport', approved.ref, 'C:\\renderer-forged-path.png');
+  const result = await f.invoke('customBackgroundImport', 'C:\\renderer-forged-path.png');
   assert.equal(result.options.enabled, true);
-  assert.deepEqual(f.calls, [`proof:${approved.ref}`, 'dialog', `proof:${approved.ref}`, `bind:${approved.instance}`,
-    'import:D:\\native-background.png', `proof:${approved.ref}`, 'publish']);
+  assert.deepEqual(f.calls, ['dialog', 'import:D:\\native-background.png', 'publish']);
   assert.deepEqual(f.dialogs[0].options.properties, ['openFile']);
   assert.deepEqual(f.dialogs[0].options.filters[0].extensions, ['png', 'jpg', 'jpeg']);
-  assert.equal(f.calls.some(call => call.startsWith('runtime:')), false);
-  assert.equal(f.gate.active, false);
 });
 
-test('actual main does not import after uninstall or same-ref installation replacement while the picker is open', async () => {
-  for (const replacement of [undefined, { ...approved, instance: 'installation-two' }]) {
-    const f = fixture(), previous = f.stored();
-    f.controls.onDialog = async () => {
-      f.controls.context = replacement;
-      return { canceled: false, filePaths: ['D:\\native-background.png'] };
-    };
-    await assert.rejects(f.invoke('customBackgroundImport', approved.ref), /capability:stale/);
-    assert.deepEqual(f.stored(), previous);
-    assert.equal(f.calls.some(call => call.startsWith('import:')), false);
-    assert.ok(f.publications.every(state => state.options.enabled === false));
+test('actual main picker allows other settings work and passive polling while pending', async () => {
+  const f = fixture(), opened = deferred(), picked = deferred<Selection>();
+  f.controls.onDialog = async () => { opened.resolve(); return picked.promise; };
+  const pending = f.invoke('customBackgroundImport');
+  await opened.promise;
+  try {
     assert.equal(f.gate.active, false);
-  }
+    await f.gate.run(async () => { f.controls.available = false; });
+    assert.equal((await f.invoke('customBackgroundState')).options.enabled, false);
+  } finally { picked.resolve({ canceled: false, filePaths: ['D:\\native-background.png'] }); }
+  assert.equal((await pending).options.enabled, true, 'Legacy plugin management cannot revoke built-in backgrounds');
 });
 
-test('actual main rechecks proof after storage and never publishes stale enabled state', async () => {
-  for (const replacement of [undefined, { ...approved, instance: 'installation-two' }]) {
-    const f = fixture();
-    f.controls.onChange = () => { f.controls.context = replacement; };
-    await assert.rejects(f.invoke('customBackgroundImport', approved.ref), /capability:stale/);
-    assert.equal(f.stored().options.enabled, false);
-    assert.equal(f.state().options.enabled, false);
-    assert.equal(f.state().available, Boolean(replacement));
-    assert.ok(f.publications.every(state => state.options.enabled === false));
-    assert.ok(f.calls.includes(`bind:${replacement?.instance ?? 'none'}`));
-    assert.equal(f.gate.active, false);
-  }
-});
-
-test('actual main native changes reject concurrency without taking a runtime lease', async () => {
+test('actual main rejects concurrent writes without taking a runtime lease or publishing uncommitted state', async () => {
   const f = fixture(), entered = deferred(), release = deferred();
   f.controls.onChange = async () => { entered.resolve(); await release.promise; };
-  const pending = f.invoke('customBackgroundSave', { ref: approved.ref, patch: { brightness: 75 } });
+  const pending = f.invoke('customBackgroundSave', { patch: { brightness: 75 } });
   await entered.promise;
   try {
     assert.equal(f.gate.active, true);
-    const proofs = f.calls.filter(call => call.startsWith('proof:')).length;
-    const cached = await f.invoke('customBackgroundState');
-    assert.equal(cached.options.brightness, DEFAULT_BACKGROUND_OPTIONS.brightness, 'Uncommitted state stays private');
-    assert.equal(f.calls.filter(call => call.startsWith('proof:')).length, proofs);
-    await assert.rejects(f.invoke('customBackgroundRemove', approved.ref), /capability:busy/);
+    assert.equal((await f.invoke('customBackgroundState')).options.brightness, DEFAULT_BACKGROUND_OPTIONS.brightness);
+    await assert.rejects(f.invoke('customBackgroundRemove'), /capability:busy/);
     await assert.rejects(f.gate.run(async () => undefined), /capability:busy/);
-    assert.equal(f.calls.some(call => call.startsWith('runtime:')), false);
+    assert.equal(f.publications.length, 0);
   } finally { release.resolve(); }
-  const saved = await pending;
-  assert.equal(saved.options.brightness, 75);
-  assert.equal(f.gate.active, false);
-  assert.equal(f.calls.some(call => call.startsWith('runtime:')), false);
-});
-
-test('actual main keeps uninstall possible while a native picker is pending', async () => {
-  const f = fixture(), entered = deferred(), picked = deferred<Selection>();
-  f.controls.onDialog = async () => { entered.resolve(); return picked.promise; };
-  const pending = f.invoke('customBackgroundImport', approved.ref);
-  await entered.promise;
-  await f.gate.run(async () => { f.controls.context = undefined; });
-  picked.resolve({ canceled: false, filePaths: ['D:\\native-background.png'] });
-  await assert.rejects(pending, /capability:stale/);
-  assert.equal(f.calls.some(call => call.startsWith('import:')), false);
+  assert.equal((await pending).options.brightness, 75);
   assert.equal(f.gate.active, false);
 });
 
-test('actual main rejects native changes during shared transitions or unavailable management', async () => {
+test('actual main rejects pickers and writes during all shared transitions', async () => {
   for (const flag of ['settingsMutation', 'undoBusy', 'transition', 'updateInstalling', 'quitting', 'quitPending'] as const) {
-    const f = fixture({ [flag]: true });
-    await assert.rejects(f.invoke('customBackgroundSave', { ref: approved.ref, patch: { enabled: true } }),
-      /Shared settings operation in progress/);
-    assert.deepEqual(f.calls, []);
-    assert.equal(f.gate.active, false);
+    for (const [method, input] of [
+      ['customBackgroundImport', undefined], ['customBackgroundRemove', undefined],
+      ['customBackgroundSave', { patch: { enabled: true } }],
+    ]) {
+      const f = fixture({ [flag]: true });
+      await assert.rejects(f.invoke(method as string, input), /Shared settings operation in progress/);
+      assert.deepEqual(f.calls, []);
+      assert.equal(f.gate.active, false);
+    }
   }
-  const f = fixture();
-  f.controls.available = false;
-  await assert.rejects(f.invoke('customBackgroundRemove', approved.ref), /Shared settings operation in progress/);
-  assert.deepEqual(f.calls, []);
 });
 
-test('actual main save validates its narrow envelope and failed store changes publish nothing', async () => {
-  for (const input of [undefined, [], 'settings', { ref: approved.ref, patch: {}, path: 'C:\\private.png' }]) {
-    const f = fixture();
-    await assert.rejects(f.invoke('customBackgroundSave', input), /Invalid background settings/);
-    assert.deepEqual(f.calls, []);
+test('actual main save validates its narrow envelope and failed writes preserve state and original error', async () => {
+  for (const input of [undefined, [], 'settings', {}, { patch: {}, path: 'C:\\private.png' },
+    { ref: 'legacy-package', patch: { enabled: true } }]) {
+    const f = fixture(), previous = f.state();
+    await assert.rejects(f.invoke('customBackgroundSave', input), /Invalid background settings|invalid-input/);
+    assert.deepEqual(f.state(), previous);
     assert.equal(f.publications.length, 0);
   }
-  const f = fixture(), previous = f.state();
-  await assert.rejects(f.invoke('customBackgroundSave', { ref: approved.ref, patch: { zoom: 20 } }), /invalid-input/);
-  assert.deepEqual(f.state(), previous);
-  assert.equal(f.publications.length, 0);
-  assert.equal(f.gate.active, false);
-  const removed = await f.invoke('customBackgroundRemove', approved.ref);
-  assert.equal(removed.image, undefined);
-  assert.equal(removed.options.enabled, false);
-  assert.equal(f.calls.some(call => call.startsWith('runtime:')), false);
-});
-
-test('actual main optional startup proof or binding failures publish a disabled fallback instead of rejecting', async () => {
-  for (const stage of ['proof', 'bind']) {
-    const f = fixture({}, true);
-    const failure = () => { throw new Error('private optional appearance storage failure'); };
-    if (stage === 'proof') f.controls.onProof = failure;
-    else f.controls.onBind = failure;
-    const state = await f.sync();
-    assert.equal(state.options.enabled, false);
-    assert.equal(state.issue, 'storage');
-    assert.equal(state.available, stage === 'bind');
-    assert.deepEqual(state.image, image);
-    assert.equal(f.stored().options.enabled, true, 'Temporary storage failure must not erase the saved choice');
-    assert.ok(f.publications.every(value => value.options.enabled === false));
-    assert.doesNotMatch(JSON.stringify(state), /private optional/);
-    assert.equal(f.gate.active, false);
-  }
-});
-
-test('actual main reconciles a failed native change but preserves its original error', async () => {
-  const f = fixture();
-  const failure = new Error('custom-background:storage');
+  const f = fixture(), previous = f.state(), failure = new Error('custom-background:storage');
   f.controls.onChange = () => { throw failure; };
-  f.controls.onProof = ref => {
-    if (ref === undefined) throw new Error('secondary reconciliation failure');
-  };
-  await assert.rejects(f.invoke('customBackgroundSave', { ref: approved.ref, patch: { enabled: true } }),
-    error => error === failure);
+  await assert.rejects(f.invoke('customBackgroundSave', { patch: { zoom: 20 } }), /invalid-input/);
+  await assert.rejects(f.invoke('customBackgroundSave', { patch: { enabled: true } }), error => error === failure);
+  assert.deepEqual(f.state(), previous);
+  assert.equal(f.gate.active, false);
+  f.controls.onInitialize = () => { throw new Error('secondary private failure'); };
+  await assert.rejects(f.invoke('customBackgroundRemove'), error => error === failure);
   assert.equal(f.state().options.enabled, false);
   assert.equal(f.state().issue, 'storage');
-  assert.equal(f.gate.active, false);
 });
 
-test('actual main publishes missing or invalid image issues after a passive image read fails', async () => {
+test('actual main startup storage failures disable only the rendered fallback without erasing the saved intent', async () => {
+  const f = fixture({}, true);
+  f.controls.onInitialize = () => { throw new Error('private optional storage failure'); };
+  const state = await f.sync();
+  assert.equal(state.options.enabled, false);
+  assert.equal(state.issue, 'storage');
+  assert.equal(state.available, true);
+  assert.deepEqual(state.image, image);
+  assert.equal(f.stored().options.enabled, true);
+  assert.doesNotMatch(JSON.stringify(state), /private optional/);
+});
+
+test('actual main publishes image issues but never exposes pending writes via image-read failure', async () => {
   for (const issue of ['missing', 'invalid', 'storage'] as const) {
     const f = fixture({}, true);
     f.controls.imageIssue = issue;
     await assert.rejects(f.invoke('customBackgroundImage', image.revision), new RegExp(`custom-background:${issue}`));
     assert.equal(f.state().issue, issue);
-    assert.equal(f.state().available, true);
-    assert.equal(f.state().ref, approved.ref);
     assert.equal(f.publications.length, 1);
-    assert.equal(f.calls.some(call => call.startsWith('runtime:')), false);
   }
-});
-
-test('actual main keeps failed stale-image reads from publishing an import before its final ownership proof', async () => {
   const f = fixture(), entered = deferred(), release = deferred();
-  const imported = { ...image, revision: 'b'.repeat(64) };
-  f.controls.importImage = imported;
   f.controls.onChange = async () => { entered.resolve(); await release.promise; };
-  const pending = f.invoke('customBackgroundImport', approved.ref);
+  const pending = f.invoke('customBackgroundImport');
   await entered.promise;
   try {
-    assert.equal(f.gate.active, true);
-    assert.deepEqual(f.stored().image, imported);
-    await assert.rejects(f.invoke('customBackgroundImage', image.revision), /stale-image/);
-    assert.deepEqual(f.state().image, image);
-    assert.equal(f.state().options.enabled, false);
+    await assert.rejects(f.invoke('customBackgroundImage', 'stale'), /stale-image/);
     assert.equal(f.publications.length, 0);
+    assert.equal(f.state().options.enabled, false);
   } finally { release.resolve(); }
-  const result = await pending;
-  assert.deepEqual(result.image, imported);
-  assert.equal(result.options.enabled, true);
+  assert.equal((await pending).options.enabled, true);
   assert.equal(f.publications.length, 1);
-  assert.deepEqual(f.publications[0].image, imported);
-  assert.equal(f.calls.at(-2), `proof:${approved.ref}`);
-  assert.equal(f.calls.at(-1), 'publish');
-  assert.equal(f.gate.active, false);
 });
 
-test('actual main catalog reads reconcile adapter ownership only when the gate is free', async () => {
-  const f = fixture();
-  f.controls.context = undefined;
-  assert.deepEqual(await f.invoke('capabilityCatalog'), { plugins: [] });
-  assert.deepEqual(f.calls, ['catalog', 'proof:current', 'proof:current', 'bind:none', 'publish']);
-  assert.equal(f.state().available, false);
-  const busy = fixture();
-  await busy.gate.run(async () => {
-    assert.deepEqual(await busy.invoke('capabilityCatalog'), { plugins: [] });
-    assert.deepEqual(busy.calls, ['catalog']);
-  });
-});
-
-test('actual main catalog ownership proofs never reserve the shared mutation gate when binding is unchanged', async () => {
-  for (const installed of [true, false]) {
-    const f = fixture();
-    if (!installed) { f.controls.context = undefined; await f.sync(); }
-    f.calls.length = 0;
-    const entered = deferred(), release = deferred();
-    f.controls.onProof = async () => { entered.resolve(); await release.promise; };
-    const pending = f.invoke('capabilityCatalog');
-    try {
-      await entered.promise;
-      assert.equal(f.gate.active, false, 'A pending read must not reject an unrelated settings save');
-      await f.gate.run(async () => {});
-      assert.equal(f.gate.active, false);
-    } finally { release.resolve(); }
-    assert.deepEqual(await pending, { plugins: [] });
-    assert.deepEqual(f.calls, ['catalog', 'proof:current']);
-    assert.equal(f.gate.active, false);
-  }
-});
-
-test('actual main catalog rechecks ownership under the gate and skips reconciliation during a native change', async () => {
-  const f = fixture();
-  f.controls.context = undefined;
-  let proofs = 0;
-  f.controls.onProof = () => {
-    proofs++;
-    assert.equal(f.gate.active, proofs === 2);
-    if (proofs === 2) f.controls.context = { ...approved, instance: 'installation-two' };
-  };
-  await f.invoke('capabilityCatalog');
-  assert.equal(proofs, 2);
-  assert.ok(f.calls.includes('bind:installation-two'));
-  assert.equal(f.calls.includes('bind:none'), false, 'The stale read proof cannot change the binding');
-  assert.equal(f.state().options.enabled, false);
-
-  const busy = fixture(), entered = deferred(), proofRelease = deferred(), mutationRelease = deferred();
-  busy.controls.onProof = async () => { entered.resolve(); await proofRelease.promise; };
-  const pending = busy.invoke('capabilityCatalog');
-  await entered.promise;
-  const mutation = busy.gate.run(() => mutationRelease.promise);
-  try {
-    busy.controls.context = undefined;
-    proofRelease.resolve();
-    await pending;
-    assert.deepEqual(busy.calls, ['catalog', 'proof:current']);
-    assert.equal(busy.state().available, true, 'A read cannot publish while a mutation owns the gate');
-  } finally { proofRelease.resolve(); mutationRelease.resolve(); await mutation; }
-});
-
-test('actual main serves cached appearance during shutdown and refuses pickers or catalog work', async () => {
-  for (const flag of ['updateInstalling', 'quitting', 'quitPending'] as const) {
-    const f = fixture({ [flag]: true });
-    assert.deepEqual(await f.invoke('customBackgroundState'), f.state());
-    await assert.rejects(f.invoke('customBackgroundImport', approved.ref), /Shared settings operation in progress/);
-    await assert.rejects(f.invoke('capabilityCatalog'), /Shared settings operation in progress/);
-    assert.deepEqual(f.calls, []);
-    assert.equal(f.dialogs.length, 0);
-  }
+test('actual main removal disables the background without runtime actions', async () => {
+  const f = fixture({}, true), result = await f.invoke('customBackgroundRemove');
+  assert.equal(result.image, undefined);
+  assert.equal(result.options.enabled, false);
+  assert.equal(f.calls.some(call => call.startsWith('runtime:')), false);
 });
 
 for (const flag of ['updateInstalling', 'quitting', 'quitPending'] as const) {
-  test(`actual main does not open a picker when ${flag} begins during its ownership proof`, async () => {
-    const f = fixture(), entered = deferred(), release = deferred(), previous = f.stored();
-    f.controls.onProof = async () => { entered.resolve(); await release.promise; };
-    const pending = f.invoke('customBackgroundImport', approved.ref);
-    await entered.promise;
-    f.setShutdownFlag(flag, true);
-    const rejected = assert.rejects(pending, /Shared settings operation in progress/);
-    release.resolve();
-    await rejected;
-    assert.deepEqual(f.calls, [`proof:${approved.ref}`]);
-    assert.equal(f.dialogs.length, 0);
+  test(`actual main keeps cached reads during ${flag} and rejects a picker result after shutdown begins`, async () => {
+    const f = fixture(), opened = deferred(), picked = deferred<Selection>(), previous = f.state();
+    f.controls.onDialog = async () => { opened.resolve(); return picked.promise; };
+    const pending = f.invoke('customBackgroundImport');
+    await opened.promise;
+    f.setFlag(flag, true);
+    picked.resolve({ canceled: false, filePaths: ['D:\\native-background.png'] });
+    await assert.rejects(pending, /Shared settings operation in progress/);
+    assert.deepEqual(await f.invoke('customBackgroundState'), previous);
+    await assert.rejects(f.invoke('capabilityCatalog'), /Shared settings operation in progress/);
+    assert.deepEqual(f.calls, ['dialog']);
     assert.equal(f.publications.length, 0);
     assert.equal(f.gate.active, false);
-    assert.deepEqual(f.stored(), previous);
   });
 }

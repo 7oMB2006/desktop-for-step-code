@@ -3,4 +3,5 @@
 .background-settings-fixture > header { display: flex; align-items: center; flex: 0 0 44px; padding: 0 20px; border-bottom: 1px solid var(--border); font-size: 12px; background: var(--side); }
 .background-settings-fixture > main { min-height: 0; }
 .background-status-fixture { width: min(720px,100%); padding: 24px; margin: 0 auto; }
+.background-editor-fixture { width: min(720px,100%); margin: 0 auto; }
 @media(max-width:640px) { .background-settings-fixture > header { padding: 0 16px; } }

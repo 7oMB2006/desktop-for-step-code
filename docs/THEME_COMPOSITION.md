@@ -6,8 +6,10 @@ and the [installable v2 starter](../examples/plugins/theme-starter/README.md).
 This source contract requires a DFSC host containing the composition support.
 It does not make previously released clients understand new theme formats.
 The composition contract is separate from personal image storage and editing.
-The companion [Custom Background package](../theme-marketplace/plugins/custom-background/README.md)
-selects a fixed host adapter; it does not grant plugin code execution.
+Personal static backgrounds are built into Appearance in this source branch.
+The [legacy Custom Background package](../theme-marketplace/plugins/custom-background/README.md)
+remains for older hosts that require its entry point; it does not grant plugin code execution.
+Neither delivery route changes a theme's control over its replacement slot.
 
 ## Ownership
 

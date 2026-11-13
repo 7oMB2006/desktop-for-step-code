@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { randomUUID } from 'node:crypto';
-import { cp, mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
+import { cp, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -61,6 +61,30 @@ test('recorded data-only background package exposes only the fixed host adapter'
     { ref: plugin.package!.ref, instance: f.receipt.instance });
   assert.doesNotMatch(JSON.stringify(plugin), /fixture-source|desktop-plugins|packageDescriptor|rootPath/);
   assert.ok(!JSON.stringify(plugin).includes(f.root), 'Private package paths stay in main');
+});
+
+test('shipped background package declares its author and bounded host requirements without losing the fixed adapter', async t => {
+  const f = await fixture(t);
+  const source = new URL('../../theme-marketplace/plugins/custom-background/', import.meta.url);
+  const manifest = JSON.parse(await readFile(new URL('step.plugin.json', source), 'utf8'));
+  assert.equal(manifest.version, '0.1.1');
+  for (const key of ['skills', 'commands', 'agents']) assert.deepEqual(manifest[key], []);
+  assert.deepEqual(manifest.mcpServers, {});
+  await cp(source, f.directory, { recursive: true });
+  await f.record();
+  const pkg = (await f.project()).plugins[0].package!;
+  assert.equal(pkg.author, 'Desktop for Step Code contributors');
+  assert.deepEqual(pkg.requirements, { dfsc: '0.6.0', external: [] });
+  assert.deepEqual(pkg.warnings, []);
+  assert.equal(pkg.hostConfiguration, 'custom-background-v1');
+  assert.equal(pkg.documentation.changelog, 'CHANGELOG.md');
+  const readme = await f.library.document({ ref: pkg.ref, path: 'README.md' });
+  assert.match(readme.text, /0\.6\.0[\s\S]*custom-background-v1/);
+  const changelog = await f.library.document({ ref: pkg.ref, path: pkg.documentation.changelog });
+  assert.match(changelog.text, /0\.1\.1/);
+  assert.deepEqual(await f.library.customBackgroundContext(pkg.ref),
+    { ref: pkg.ref, instance: f.receipt.instance });
+  assert.ok(await f.service.customBackgroundContext());
 });
 
 test('service validates its current adapter and rejects forged or superseded references', async t => {

@@ -28,7 +28,6 @@ export interface StoredBackgroundState {
 
 export interface CustomBackgroundState extends StoredBackgroundState {
   available: boolean;
-  ref?: string;
 }
 
 export const DEFAULT_BACKGROUND_OPTIONS: Readonly<BackgroundOptions> = Object.freeze({

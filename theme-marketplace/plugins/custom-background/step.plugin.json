@@ -1,7 +1,7 @@
 {
   "id": "custom-background",
   "name": "自定义背景",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "icon": "icon.png",
   "description": "在支持的主题中使用本机 PNG 或 JPEG 背景，调整构图、亮度、模糊与鼠标视差。需要提供 custom-background-v1 宿主适配器的 DFSC 客户端。",
   "skills": [],

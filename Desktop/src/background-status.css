@@ -12,8 +12,6 @@
 .background-status-label > svg { flex: none; color: var(--muted); }
 .background-status h3 { margin: 0; font-size: 14px; line-height: 1.5; }
 .background-status p { margin: 4px 0 0; font-size: 12px; line-height: 1.6; color: var(--muted); overflow-wrap: anywhere; }
-.background-status > button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; flex: none; min-height: 32px; }
 @media (max-width: 440px) {
   .background-status { flex-wrap: wrap; gap: 12px; }
-  .background-status > button { margin-left: 30px; }
 }

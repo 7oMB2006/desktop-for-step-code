@@ -139,9 +139,9 @@ export interface DesktopBridge extends SessionImportBridge, BtwBridge, Backgroun
   themeImage(id: string): Promise<import('./theme-packs').ThemeImage>;
   customBackgroundState(): Promise<import('./custom-background').CustomBackgroundState>;
   customBackgroundImage(revision: string): Promise<import('./theme-packs').ThemeImage>;
-  customBackgroundImport(ref: string): Promise<import('./custom-background').CustomBackgroundState | null>;
-  customBackgroundSave(input: { ref: string; patch: Partial<import('./custom-background').BackgroundOptions> }): Promise<import('./custom-background').CustomBackgroundState>;
-  customBackgroundRemove(ref: string): Promise<import('./custom-background').CustomBackgroundState>;
+  customBackgroundImport(): Promise<import('./custom-background').CustomBackgroundState | null>;
+  customBackgroundSave(input: { patch: Partial<import('./custom-background').BackgroundOptions> }): Promise<import('./custom-background').CustomBackgroundState>;
+  customBackgroundRemove(): Promise<import('./custom-background').CustomBackgroundState>;
   capabilityMutate(input: import('./capabilities').CapabilityMutation): Promise<import('./capabilities').CapabilityResult>;
   capabilityImportSkill(): Promise<import('./capabilities').CapabilityResult | null>;
   bvrConfiguration(): Promise<import('./bvr-settings').BvrConfiguration>;

@@ -52,7 +52,7 @@ function Fixture() {
   const [paused, setPaused] = useState(false), [motion, setMotion] = useState(true), [clicks, setClicks] = useState(0);
   const [draft, setDraft] = useState('继续检查窗口布局');
   const [state, setState] = useState<CustomBackgroundState>({
-    available: true, ref: 'fixture', options: { ...DEFAULT_BACKGROUND_OPTIONS, enabled: true },
+    available: true, options: { ...DEFAULT_BACKGROUND_OPTIONS, enabled: true },
     image: { revision: 'initial', width: images[0].width, height: images[0].height },
   });
   const preferences: Preferences = { language: 'zh', theme: mode === 'builtin' ? 'light' : `plugin:fixture-${mode}`,

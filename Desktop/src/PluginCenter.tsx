@@ -8,9 +8,7 @@ import { capabilityWarningText } from './capability-errors';
 import { CapabilityDisclosure, CapabilityPluginIconView, capabilityErrorText, type CapabilityBridge } from './CapabilitySettings';
 import { BvrConfigurationForm, type BvrSettingsBridge } from './BvrConfigurationForm';
 import { PluginConfigurationForm } from './PluginConfigurationForm';
-import { CustomBackgroundSettings, type CustomBackgroundBridge } from './CustomBackgroundSettings';
 import type { CustomBackgroundState } from './custom-background';
-import type { ThemePack } from './theme-packs';
 import { PluginHostSettingsForm } from './PluginHostSettingsForm';
 import { ScrollThumb } from './ConversationScrollThumb';
 import { StepPageSettings } from './StepPageSettings';
@@ -26,7 +24,7 @@ import './plugin-center.css';
 
 export type PluginCenterBridge = CapabilityBridge & BvrSettingsBridge & Pick<import('./contracts').DesktopBridge,
   'pluginDocument' | 'pluginRepositoryInfo' | 'pluginConfiguration' | 'pluginSaveConfiguration' | 'pluginChoosePath'
-  | 'pluginHostSettings' | 'pluginSaveHostSettings'> & Partial<CustomBackgroundBridge> & Partial<PluginUpdateBridge>;
+  | 'pluginHostSettings' | 'pluginSaveHostSettings'> & Partial<PluginUpdateBridge>;
 type Entry = { key: string; name: string; description?: string; version?: string; repository?: string;
   icon?: CapabilityPlugin['icon']; source?: string; installed?: CapabilityPlugin; available?: MarketplacePlugin; package?: PluginPackage };
 function PluginCategoryTags({ pkg, language, compact = false }: { pkg?: PluginPackage; language: string; compact?: boolean }) {
@@ -47,12 +45,12 @@ function ProjectLink({ entry, language }: { entry: Entry; language: string }) {
     <span className="pc-github-mark" aria-hidden="true"/></a>;
 }
 export function PluginCenter({ bridge, language, busy, active, runtimeId, currentVersion, settings, target, updates: previewUpdates,
-  themePack, customBackgroundRequest, customBackgroundState, onChanged, onRestart, onManageMcp, onBack, onOpenDesktop, onOpenSession }: {
+  customBackgroundState, onAppearance, onChanged, onRestart, onManageMcp, onBack, onOpenDesktop, onOpenSession }: {
   bridge: PluginCenterBridge; language: string; busy: boolean; active: boolean; runtimeId?: string;
   currentVersion?: string;
   settings?: { mcp: Record<string, McpServer> }; target?: CapabilityTarget;
   updates?: PluginUpdatesPresentation;
-  themePack?: ThemePack; customBackgroundRequest?: number; customBackgroundState?: CustomBackgroundState;
+  customBackgroundState?: CustomBackgroundState; onAppearance?(): void;
   onChanged(): Promise<void>; onRestart(): Promise<void>; onManageMcp(name?: string): void; onBack(): void;
   onOpenDesktop?(plugin: CapabilityPlugin): void;
   onOpenSession?(id: string): Promise<void>;
@@ -75,8 +73,7 @@ export function PluginCenter({ bridge, language, busy, active, runtimeId, curren
   const [repositoryPending, setRepositoryPending] = useState(false);
   const [repositoryRevision, setRepositoryRevision] = useState(0);
   const [bvrState, setBvrState] = useState({ dirty: false, pending: false, ready: false });
-  const [backgroundState, setBackgroundState] = useState(customBackgroundState);
-  const [backgroundPending, setBackgroundPending] = useState(false);
+  const backgroundState = customBackgroundState;
   const [confirmation, setConfirmation] = useState<{ title: string; action(): void }>();
   const [live, setLive] = useState<{ runtimeId: string; servers: SessionSummary['mcp'] }>();
   const [updateStates, setUpdateStates] = useState<Record<string, PluginUpdateState>>({});
@@ -98,9 +95,6 @@ export function PluginCenter({ bridge, language, busy, active, runtimeId, curren
   const repositoryQueries = useRef(new Map<string, Promise<PluginStarSnapshot>>());
   const repositorySnapshots = useRef(new Map<string, PluginStarSnapshot>());
   const id = useId();
-  const backgroundRequest = useRef<number | undefined>(undefined);
-  const backgroundBridge = bridge.customBackgroundState && bridge.customBackgroundImage && bridge.customBackgroundImport
-    && bridge.customBackgroundSave && bridge.customBackgroundRemove ? bridge as CustomBackgroundBridge : undefined;
   const formId = `${id}-bvr`;
   const installed: Entry[] = (catalog?.plugins ?? []).map(raw => {
     const plugin = pluginPresentation(raw, language);
@@ -259,7 +253,7 @@ export function PluginCenter({ bridge, language, busy, active, runtimeId, curren
   const isStepPage = entry?.installed?.id === 'steppage';
   const isCustomBackground = entry?.installed?.package?.hostConfiguration === 'custom-background-v1';
   const updating = Boolean(updates && Object.values(updates.items).some(pluginUpdatePending));
-  const operationLocked = pending || loading || bvrState.pending || backgroundPending || updating || updateBusy || Boolean(updates?.checking);
+  const operationLocked = pending || loading || bvrState.pending || updating || updateBusy || Boolean(updates?.checking);
   const locked = busy || operationLocked;
   const mutationLocked = (input: CapabilityMutation) => operationLocked || busy && capabilityNeedsIdle(input, catalog);
   const installLocked = (item: Entry) => !item.available || mutationLocked({ action: 'plugin-install',
@@ -312,16 +306,6 @@ export function PluginCenter({ bridge, language, busy, active, runtimeId, curren
     }
     return () => { valid = false; };
   }, [bridge, nativeUpdates, Boolean(catalog)]);
-  useEffect(() => { if (customBackgroundState) setBackgroundState(customBackgroundState); }, [customBackgroundState]);
-  useEffect(() => {
-    if (!active || !backgroundBridge || !catalog?.plugins.some(plugin => plugin.package?.hostConfiguration === 'custom-background-v1')) return;
-    let valid = true;
-    void backgroundBridge.customBackgroundState().then(value => { if (valid) setBackgroundState(value); }).catch(() => {});
-    const unsubscribe = backgroundBridge.onEvent?.(event => {
-      if (valid && event.type === 'desktop_custom_background' && event.state) setBackgroundState(event.state as CustomBackgroundState);
-    });
-    return () => { valid = false; unsubscribe?.(); };
-  }, [active, backgroundBridge, catalog?.plugins.length]);
   useEffect(() => {
     // MCP edits can happen in Settings while this view retains its local draft.
     if (active && catalog) void refresh();
@@ -391,7 +375,7 @@ export function PluginCenter({ bridge, language, busy, active, runtimeId, curren
     return () => { valid = false; clearInterval(timer); };
   }, [bridge, nativeUpdates, updateBusy, Object.values(updatePanels).find(panel => panel.running)?.pluginId]);
   const navigate = (action: () => void) => {
-    if (pending || bvrState.pending || backgroundPending || updating || updateBusy || checkingUpdates) return;
+    if (pending || bvrState.pending || updating || updateBusy || checkingUpdates) return;
     if (hasConfigurationForm && bvrState.dirty) setConfirmation({ title: t('放弃未保存的插件配置？', 'Discard unsaved plugin configuration?'), action });
     else action();
   };
@@ -400,13 +384,6 @@ export function PluginCenter({ bridge, language, busy, active, runtimeId, curren
     setSelected(item.key); setDetailTab(page);
     setBvrState({ dirty: false, pending: false, ready: false });
   });
-  useEffect(() => {
-    if (!active || !customBackgroundRequest || backgroundRequest.current === customBackgroundRequest || !catalog) return;
-    const plugin = installed.find(item => item.installed?.package?.hostConfiguration === 'custom-background-v1');
-    if (!plugin) return;
-    backgroundRequest.current = customBackgroundRequest;
-    choose(plugin);
-  }, [active, customBackgroundRequest, catalog]);
   const perform = async (input: CapabilityMutation) => {
     if (operation.current || mutationLocked(input)) return;
     operation.current = true; setPending(true); setError(''); setWarnings([]);
@@ -642,7 +619,7 @@ export function PluginCenter({ bridge, language, busy, active, runtimeId, curren
           </div>}
       </div>
     </div> : <section className="pc-detail">
-      <div className="pc-detail-navigation"><button onClick={back} disabled={pending || bvrState.pending || backgroundPending}><ArrowLeft size={15}/>{t('全部插件', 'All plugins')}</button><span>/</span><span>{entry.name}</span>
+      <div className="pc-detail-navigation"><button onClick={back} disabled={pending || bvrState.pending}><ArrowLeft size={15}/>{t('全部插件', 'All plugins')}</button><span>/</span><span>{entry.name}</span>
         <button className="icon-button" aria-label={t('返回会话', 'Back to conversation')} onClick={onBack}><X size={16}/></button></div>
       <div className="pc-detail-workspace"><div ref={scroll} id={`${id}-scroll`} className="pc-detail-scroll"><div className="pc-detail-document">
         <header className="pc-plugin-header"><div className="pc-plugin-identity"><CapabilityPluginIconView icon={entry.icon}/><div className="pc-plugin-title">
@@ -680,10 +657,12 @@ export function PluginCenter({ bridge, language, busy, active, runtimeId, curren
         </div>
         <div className="pc-detail-content" key={entry.key}>
           <div id={`${id}-config-panel`} role="tabpanel" aria-labelledby={`${id}-detail-config`} hidden={detailTab !== 'config'}>
-            {isCustomBackground && backgroundBridge && configurationPackage ? <CustomBackgroundSettings key={configurationPackage.ref}
-              bridge={backgroundBridge} packageRef={configurationPackage.ref} language={language} themePack={themePack}
-              visible={active && detailTab === 'config'} busy={pending || loading || updating || updateBusy || Boolean(updates?.checking)}
-              onChanged={setBackgroundState} onPending={setBackgroundPending}/>
+            {isCustomBackground ? <section className="pc-form-section">
+              <h3>{t('自定义背景', 'Custom background')}</h3>
+              <p className="pc-body-copy">{t('已内置于外观设置。卸载此兼容插件不会删除或停用个人背景。',
+                'Now built into Appearance. Removing this legacy plugin will not delete or disable your background.')}</p>
+              {onAppearance && <button type="button" disabled={operationLocked} onClick={onAppearance}><Settings size={15}/>{t('外观设置', 'Appearance settings')}</button>}
+            </section>
               : configurationPackage?.hostSettingsAvailable ? <PluginHostSettingsForm key={`${configurationPackage.ref}:${configurationRevision}`} bridge={bridge} pkg={configurationPackage}
               language={language} busy={locked} formId={formId} runtimeKey={`${runtimeId ?? ''}:${observationRevision}`} visible={active && detailTab === 'config'}
               onState={setBvrState} onSaved={async () => { setChanged(true); await onChanged(); }}/>

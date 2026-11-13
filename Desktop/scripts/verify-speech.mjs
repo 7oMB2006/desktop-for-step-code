@@ -104,12 +104,38 @@ await writeFile(join(root, 'models.json'), JSON.stringify({ providers: { step: {
 } } }));
 const preload = join(profile, 'loopback.cjs'), entry = join(profile, 'entry.cjs');
 await writeFile(preload, `
+const fs = require('node:fs');
+const kind = process.argv.some(arg => /step[.]js$/.test(arg)) ? 'session'
+  : process.argv.some(arg => /admin[.]mjs$/.test(arg)) ? 'admin' : 'main';
+let records = 0;
+const trace = (phase, details = {}) => {
+  if (records++ >= 128) return;
+  try { fs.appendFileSync(${JSON.stringify(join(evidence, 'runtime-bootstrap.jsonl'))},
+    JSON.stringify({ kind, pid: process.pid, uptimeMs: Math.round(process.uptime() * 1000), phase, ...details }) + '\\n'); }
+  catch {}
+};
+trace('preload');
+const pending = setTimeout(() => {
+  const allowed = new Set(['TCPConnectWrap', 'GetAddrInfoReqWrap', 'FSReqCallback', 'FSReqPromise',
+    'FileHandle', 'Pipe', 'Socket', 'ChildProcess', 'Timeout', 'FSWatcher', 'TLSSocket', 'WriteWrap']);
+  const names = values => values.slice(0, 20).map(value => allowed.has(value?.constructor?.name) ? value.constructor.name : 'other');
+  trace('pending', { handles: names(process._getActiveHandles()), requests: names(process._getActiveRequests()) });
+}, 30000);
+pending.unref();
+process.once('exit', code => trace('exit', { code }));
 let transport = globalThis.fetch;
 const route = (input, init) => {
   const url = new URL(input instanceof Request ? input.url : String(input));
-  if (url.hostname === '127.0.0.1') return transport(input, init);
-  if (!['api.stepfun.com', 'api.stepfun.ai', 'platform.stepfun.com'].includes(url.hostname)) throw new Error('External fixture request blocked');
-  return transport(${JSON.stringify(base)} + '/?url=' + encodeURIComponent(url.href), init);
+  const local = url.hostname === '127.0.0.1';
+  if (!local && !['api.stepfun.com', 'api.stepfun.ai', 'platform.stepfun.com'].includes(url.hostname)) {
+    trace('blocked-fetch'); throw new Error('External fixture request blocked');
+  }
+  const category = local ? 'loopback' : url.pathname.includes('/models') ? 'models'
+    : url.pathname.includes('/cli-login/') ? 'login' : url.pathname.includes('/audio/') ? 'audio' : 'account';
+  trace('fetch', { category });
+  return transport(local ? input : ${JSON.stringify(base)} + '/?url=' + encodeURIComponent(url.href), init)
+    .then(response => { trace('fetch-response', { category, status: response.status }); return response; },
+      error => { trace('fetch-rejected', { category }); throw error; });
 };
 Object.defineProperty(globalThis, 'fetch', { configurable: true, get: () => route,
   set: value => { if (value !== route) transport = value; } });
@@ -172,6 +198,67 @@ const launch = async () => {
       'Source speech acceptance must load the current Desktop main module');
   }
   await app.evaluate(installRuntimeFixturePreload, { preload });
+  await app.evaluate(({ app }) => {
+    const { join, resolve } = process.getBuiltinModule('node:path');
+    const { StringDecoder } = process.getBuiltinModule('node:string_decoder');
+    const runtime = app.isPackaged ? join(process.resourcesPath, 'runtime') : resolve('runtime');
+    const entry = join(runtime, 'step/dist/bundle/step.js');
+    const cp = process.getBuiltinModule('node:child_process'), spawn = cp.spawn;
+    globalThis.speechRuntimeDiagnostics = [];
+    cp.spawn = function(command, args, options) {
+      let workerArgs = args, supervised = false;
+      const job = args?.indexOf('-File'), spec = args?.indexOf('-Spec');
+      if (job >= 0 && spec >= 0 && args[job + 1] === join(runtime, 'windows-runtime-job.ps1')) {
+        try { workerArgs = JSON.parse(Buffer.from(args[spec + 1], 'base64').toString('utf8')).args; supervised = true; }
+        catch { workerArgs = undefined; }
+      }
+      const child = spawn.call(this, command, args, options);
+      if (!Array.isArray(workerArgs) || workerArgs[0] !== entry
+        || !workerArgs.includes('--mode') || !workerArgs.includes('rpc')) return child;
+      const started = performance.now(), elapsed = () => Math.round(performance.now() - started);
+      const record = { supervised, commands: [], responses: [], outputBytes: 0, stderrBytes: 0, errorCodes: [], exit: null };
+      if (globalThis.speechRuntimeDiagnostics.length < 8) globalThis.speechRuntimeDiagnostics.push(record);
+      const pending = new Map(), write = child.stdin.write;
+      child.stdin.write = function(chunk, ...rest) {
+        try {
+          const value = JSON.parse(chunk.toString());
+          if (['get_state', 'new_session', 'get_models', 'get_messages', 'get_commands', 'set_model'].includes(value.type)) {
+            pending.set(value.id, value.type);
+            if (record.commands.length < 40) record.commands.push({ type: value.type, elapsedMs: elapsed() });
+          }
+        } catch {}
+        return write.call(this, chunk, ...rest);
+      };
+      const decoder = new StringDecoder('utf8');
+      let buffer = '';
+      child.stdout.on('data', chunk => {
+        record.outputBytes += chunk.length;
+        buffer += decoder.write(chunk);
+        let end;
+        while ((end = buffer.indexOf('\n')) >= 0) {
+          const line = buffer.slice(0, end); buffer = buffer.slice(end + 1);
+          try {
+            const value = JSON.parse(line), type = pending.get(value.id);
+            if (value.type === 'response' && type) {
+              pending.delete(value.id);
+              if (record.responses.length < 40) record.responses.push({ type, success: value.success === true, elapsedMs: elapsed() });
+            }
+          } catch {}
+        }
+        if (buffer.length > 65536) buffer = '';
+      });
+      child.stderr.on('data', chunk => {
+        record.stderrBytes += chunk.length;
+        const allowed = new Set(['ERR_MODULE_NOT_FOUND', 'ERR_REQUIRE_ESM', 'ERR_INVALID_ARG_TYPE',
+          'ERR_STREAM_WRITE_AFTER_END', 'ERR_DLOPEN_FAILED', 'ERR_SOCKET_CLOSED', 'ERR_UNHANDLED_REJECTION']);
+        for (const code of chunk.toString().match(/\bERR_[A-Z_]{1,60}\b/g)?.filter(code => allowed.has(code)) ?? [])
+          if (record.errorCodes.length < 10 && !record.errorCodes.includes(code)) record.errorCodes.push(code);
+      });
+      child.once('exit', (code, signal) => { record.exit = { code, signal, elapsedMs: elapsed() }; });
+      return child;
+    };
+    process.getBuiltinModule('node:module').syncBuiltinESMExports();
+  });
   await app.evaluate(({ ipcMain, net, shell }, preload) => {
     const modules = process.getBuiltinModule('node:module');
     modules.createRequire(preload)(preload);
@@ -488,6 +575,10 @@ try {
     await window.desktop.createDraftSession(current.draftId);
   });
   await until(async () => Boolean((await snapshot()).runtimeId), 'Fixture session did not become active');
+  const startup = await app.evaluate(() => globalThis.speechRuntimeDiagnostics);
+  assert.ok(startup.some(runtime => runtime.responses.some(response => response.type === 'get_state' && response.success)),
+    'Navigation acceptance must observe the real session runtime becoming ready');
+  await writeFile(join(evidence, 'runtime-startup.json'), JSON.stringify(startup, null, 2));
   await begin();
   await page.getByRole('button', { name: '新建会话', exact: true }).click();
   await page.waitForFunction(() => document.querySelector('button[aria-label="语音听写"]') && !document.querySelector('.speech-progress'));
@@ -681,7 +772,9 @@ try {
   if (page && !page.isClosed()) {
     await page.screenshot({ path: join(evidence, 'failure.png') });
     await writeFile(join(evidence, 'failure-diagnostic.json'), JSON.stringify({
-      calls, failures, errors, nativeAudioErrors, launches, audioProcesses: await audioProcesses(), capture: await page.evaluate(() => ({
+      calls, failures, errors, nativeAudioErrors, launches,
+      runtimes: await app.evaluate(() => globalThis.speechRuntimeDiagnostics),
+      audioProcesses: await audioProcesses(), capture: await page.evaluate(() => ({
         ...window.__speechFixtureCaptureSnapshot?.(), tracks: window.__speechFixtureTracks,
       })),
     }, null, 2));

@@ -14,7 +14,7 @@ import '../../src/theme.css';
 import './custom-background-settings.css';
 
 const params = new URLSearchParams(location.search);
-let state: CustomBackgroundState = { options: { ...DEFAULT_BACKGROUND_OPTIONS }, available: true, ref: 'fixture-background' };
+let state: CustomBackgroundState = { options: { ...DEFAULT_BACKGROUND_OPTIONS }, available: true };
 let imageRevision = 0, failure: 'load' | 'save' | 'import' | 'image' | undefined, canceled = false;
 let held: Promise<void> | undefined, release: (() => void) | undefined;
 let deferredReads = params.has('defer');
@@ -23,7 +23,6 @@ const pendingStates: boolean[] = [];
 const patches: Partial<BackgroundOptions>[] = [];
 const events = new Set<(event: RuntimeEvent) => void>();
 const counts = { loads: 0, imports: 0, saves: 0, removes: 0, restarts: 0, mutations: 0 };
-let statusActions: ('configure' | 'discover')[] = [];
 const source = new URL('../../../theme-marketplace/plugins/stellar-cruise/cover.png', import.meta.url).href;
 const blob = await fetch(source).then(response => response.blob());
 const bitmap = await createImageBitmap(blob);
@@ -76,7 +75,7 @@ const bridge = {
     broadcast(); return structuredClone(state);
   },
   onEvent: (callback: (event: RuntimeEvent) => void) => { events.add(callback); return () => events.delete(callback); },
-} as unknown as PluginCenterBridge;
+} as unknown as PluginCenterBridge & CustomBackgroundBridge;
 const alternateBridge = { ...bridge };
 const theme = (blocked: boolean): ThemePack | undefined => blocked ? {
   id: 'plugin:fixture-legacy', name: 'Legacy theme', version: '1.0.0', renderer: 'stellar-v1',
@@ -86,7 +85,8 @@ function Fixture() {
   const [language, setLanguage] = useState<'zh' | 'en'>(params.get('lang') === 'en' ? 'en' : 'zh');
   const [blocked, setBlocked] = useState(false);
   const [background, setBackground] = useState(state);
-  const [packageRef, setPackageRef] = useState('fixture-background'), [alternate, setAlternate] = useState(false);
+  const [revision, setRevision] = useState(0), [alternate, setAlternate] = useState(false);
+  const [appearance, setAppearance] = useState(false);
   useEffect(() => {
     const listener = () => setBackground(structuredClone(state));
     events.add(listener); return () => { events.delete(listener); };
@@ -104,8 +104,7 @@ function Fixture() {
       state = { ...state, image: { revision: 'status-image', width: image.width, height: image.height },
         options: { ...state.options, enabled: true } }; broadcast();
     },
-    statusActions: () => [...statusActions],
-    packageRef: value => { state = { ...state, ref: value }; setPackageRef(value); },
+    remount: () => setRevision(value => value + 1),
     bridge: setAlternate, deferReads: value => { deferredReads = value; }, readCount: () => reads.length,
     resolveRead: index => { const request = reads.splice(index, 1)[0]; request?.resolve(request.snapshot); },
     pendingStates: () => [...pendingStates],
@@ -113,12 +112,16 @@ function Fixture() {
   return <div className="app background-settings-fixture">
     <header>Desktop for Step Code</header>
     <main>{params.has('status') ? <div className="background-status-fixture"><BackgroundStatus state={background} pack={theme(blocked)}
-      language={language} onConfigure={() => { statusActions.push(background.available ? 'configure' : 'discover'); }}/></div>
+      language={language}/></div>
       : params.has('lifecycle') ? <CustomBackgroundSettings bridge={(alternate ? alternateBridge : bridge) as unknown as CustomBackgroundBridge}
-        packageRef={packageRef} language={language} visible onPending={value => { pendingStates.push(value); }}/>
-      : <PluginCenter bridge={bridge} active language={language} busy runtimeId="fixture-runtime" themePack={theme(blocked)}
-      customBackgroundRequest={1} onChanged={async () => {}} onRestart={async () => { counts.restarts++; }}
-      onManageMcp={() => {}} onBack={() => {}}/>}</main>
+        key={revision} language={language} visible onPending={value => { pendingStates.push(value); }}/>
+      : params.has('legacy') && !appearance ? <PluginCenter bridge={bridge} active language={language} busy runtimeId="fixture-runtime"
+        onAppearance={() => setAppearance(true)}
+        onChanged={async () => {}} onRestart={async () => { counts.restarts++; }} onManageMcp={() => {}} onBack={() => {}}/>
+      : <div className="settings-content background-editor-fixture">
+        <BackgroundStatus state={background} pack={theme(blocked)} language={language}/>
+        <CustomBackgroundSettings bridge={bridge} language={language} visible themePack={theme(blocked)}/>
+      </div>}</main>
   </div>;
 }
 declare global {
@@ -128,9 +131,9 @@ declare global {
       fail(value: typeof failure): void; cancelImport(): void; hold(): void; release(): void;
       blocked(value: boolean): void; language(value: 'zh' | 'en'): void; theme(value: 'light' | 'dark'): void;
       external(patch: Partial<BackgroundOptions>): void;
-      available(value: boolean): void; statusActions(): ('configure' | 'discover')[];
+      available(value: boolean): void;
       personal(): void;
-      packageRef(value: string): void; bridge(value: boolean): void; deferReads(value: boolean): void;
+      remount(): void; bridge(value: boolean): void; deferReads(value: boolean): void;
       readCount(): number; resolveRead(index: number): void; pendingStates(): boolean[];
     };
   }

@@ -15,10 +15,21 @@ test('external connector management parses only narrow explicit actions', () => 
   const action = { type: 'delegate', taskId, minutes: 30, categories: ['command', 'file'] };
   assert.deepEqual(parseExternalConnectorAction(action), action);
   assert.deepEqual(parseExternalConnectorAction({ type: 'undelegate', taskId }), { type: 'undelegate', taskId });
-  for (const input of [{ ...action, minutes: 0 }, { ...action, minutes: 10080 }, { ...action, categories: [] },
+  assert.deepEqual(parseExternalConnectorAction({ ...action, minutes: 0 }), { ...action, minutes: 0 });
+  for (const input of [{ ...action, minutes: -1 }, { ...action, minutes: 10080 }, { ...action, categories: [] },
     { ...action, categories: ['command', 'command'] }, { ...action, categories: ['trust'] },
     { ...action, agentId: 'spoofed' }, { ...action, taskId: '../escape' }])
     assert.throws(() => parseExternalConnectorAction(input), /connector:invalid-input/);
+});
+test('persistent policies are a local-only, exact scoped action with independent category and duration validation', () => {
+  const action = { type: 'policy', agentId: 'hermes-test', cwd: 'C:\\project', days: null,
+    categories: ['risk', 'question'], permissionPreset: 'approve-for-me' };
+  assert.deepEqual(parseExternalConnectorAction(action), action);
+  for (const patch of [{ days: 0 }, { days: 365 }, { permissionPreset: 'full-access' },
+    { categories: ['trust'] }, { token: 'secret' }, { categories: [] }, { extra: true }])
+    assert.throws(() => parseExternalConnectorAction({ ...action, ...patch }), /connector:invalid-input/);
+  assert.deepEqual(parseExternalConnectorAction({ type: 'unpolicy', agentId: action.agentId, cwd: action.cwd }),
+    { type: 'unpolicy', agentId: action.agentId, cwd: action.cwd });
 });
 test('external-owned sessions block competing input and policy changes, not native human approval or stop', () => {
   for (const type of ['prompt', 'queue_edit', 'queue_steer', 'queue_steer_first', 'queue_recover',

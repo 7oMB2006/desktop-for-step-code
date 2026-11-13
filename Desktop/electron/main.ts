@@ -742,12 +742,12 @@ const remote = new RemoteManager({
 const externalRoot = join(app.getPath('userData'), 'external-connectors');
 const externalTasks: ExternalConnectorTasks = new ExternalConnectorTasks({
   validate: (cwd, roots) => externalConnectors.validate(cwd, roots),
-  create: async (cwd, valid) => {
+  create: async (cwd, valid, preset = 'ask') => {
     if (!valid() || preparingExternal) throw new Error('connector:unavailable');
     preparingExternal = true;
     let worker: SessionRuntime | undefined;
     try {
-      worker = await prepareRemoteSession(undefined, cwd);
+      worker = await prepareRemoteSession(undefined, cwd, preset);
       if (!valid()) { await runtimes.remove(worker); throw new Error('connector:revoked'); }
       return worker;
     } finally {
@@ -758,7 +758,7 @@ const externalTasks: ExternalConnectorTasks = new ExternalConnectorTasks({
   },
   submit: async (worker, message, accepted, valid) => {
     if (!valid() || runtimes.workers.get(worker.id) !== worker || worker.status !== 'connected'
-      || worker.permissionPreset !== 'ask' || transition || sessionNavigation.busy || settingsMutation || undoBusy
+      || !['ask', 'approve-for-me'].includes(worker.permissionPreset ?? '') || transition || sessionNavigation.busy || settingsMutation || undoBusy
       || quitting || quitPending || updateInstalling || providerSettingsPending || worker.mutating || worker.stopping
       || worker.pendingUI.size || worker.failed || worker.interrupted || worker.busy || worker.submissions
       || worker.launch?.goalArmed || worker.launch?.goal?.status === 'active')
@@ -775,18 +775,30 @@ const externalTasks: ExternalConnectorTasks = new ExternalConnectorTasks({
       await runtimes.remove(worker);
   },
   stop: async worker => { await handle('command', ['abort', {}, worker.id]); },
-  respond: (worker, request, confirmed) => {
+  respond: (worker, request, answer) => {
     if (runtimes.workers.get(worker.id) !== worker || worker.status !== 'connected'
-      || worker.permissionPreset !== 'ask' || worker.pendingUI.get(request.id) !== request
+      || !['ask', 'approve-for-me'].includes(worker.permissionPreset ?? '') || worker.pendingUI.get(request.id) !== request
       || quitting || quitPending || updateInstalling || settingsMutation || providerSettingsPending)
       throw new Error('connector:unavailable');
-    runtimes.respondToRequest(worker, { id: request.id, confirmed });
+    runtimes.respondToRequest(worker, { id: request.id, ...(typeof answer === 'boolean' ? { confirmed: answer }
+      : answer === '' ? { cancelled: true } : { value: answer }) });
     externalTasks.event(worker, { type: 'desktop_ui_expired', runtimeId: worker.id });
+  },
+  restrict: async worker => {
+    if (runtimes.workers.get(worker.id) !== worker || worker.status !== 'connected') return;
+    try {
+      await handle('command', ['abort', {}, worker.id]);
+      await worker.rpc.request('prompt', { message: '/permissions ask' }, 10000);
+      if (worker.permissionPreset !== 'ask') throw new Error('connector:unavailable');
+    } catch {
+      // A failed downgrade must not leave an automatic process running without authority.
+      await runtimes.remove(worker);
+    }
   },
 }, new ConnectorJsonStore(externalRoot, 'tasks.json'));
 const externalConnectors = new ExternalConnectorGateway(externalRoot, {
   dispatch: async (grant, method, params, valid) => { await startup; return externalTasks.call(grant, method, params, valid); },
-  invalidated: agentId => externalTasks.invalidate(agentId),
+  invalidated: (agentId, shutdown) => externalTasks.invalidate(agentId, shutdown),
 });
 function externallyOwned(worker: SessionRuntime) {
   return externalPreparing.has(worker) || externalTasks.retains(worker);
@@ -993,7 +1005,7 @@ function remoteProjects() {
       || sessions.find(session => session.workspace === workspace)?.workspaceName || basename(workspace),
   }));
 }
-async function prepareRemoteSession(sessionId?: string, workspace?: string): Promise<SessionRuntime> {
+async function prepareRemoteSession(sessionId?: string, workspace?: string, externalPreset: 'ask' | 'approve-for-me' = 'ask'): Promise<SessionRuntime> {
   if (transition || sessionNavigation.busy || settingsMutation || undoBusy || deletingArchived || quitting || quitPending
     || updateInstalling || providerSettingsPending) throw new Error('Desktop operation in progress');
   transition = true;
@@ -1022,6 +1034,12 @@ async function prepareRemoteSession(sessionId?: string, workspace?: string): Pro
     if ((sessionId && worker.state?.sessionId !== sessionId) || worker.permissionPreset !== 'ask') {
       await runtimes.remove(worker);
       throw new Error('Could not verify the Remote session identity and Ask policy');
+    }
+    if (externalPreset === 'approve-for-me') {
+      try {
+        await worker.rpc.request('prompt', { message: '/permissions approve-for-me' }, 125000);
+        if ((worker.permissionPreset as string) !== externalPreset) throw new Error('connector:unavailable');
+      } catch (error) { await runtimes.remove(worker); throw error; }
     }
     emit({ type: 'desktop_sessions_changed' });
     return worker;
@@ -1323,12 +1341,16 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
     await externalReady;
     if (method === 'externalConnectorAction') {
       const action = parseExternalConnectorAction(args[0]);
-      if (!['disable', 'revoke', 'undelegate'].includes(action.type)
+      if (!['disable', 'revoke', 'undelegate', 'unpolicy'].includes(action.type)
         && (transition || settingsMutation || undoBusy || quitting || quitPending || updateInstalling || providerSettingsPending))
         throw new Error('connector:unavailable');
       if (action.type === 'enable') await externalConnectors.enable();
       else if (action.type === 'disable') await externalConnectors.disable();
       else if (action.type === 'revoke') await externalConnectors.revoke(action.agentId);
+      else if (action.type === 'policy' || action.type === 'unpolicy') {
+        await externalTasks.configurePolicy(action, action.type === 'policy'
+          ? await externalConnectors.authorization(action.agentId) : undefined);
+      }
       else if (action.type === 'delegate' || action.type === 'undelegate') {
         if (action.type === 'delegate' && !externalConnectors.snapshot().listening) throw new Error('connector:disabled');
         await externalTasks.delegate(action);

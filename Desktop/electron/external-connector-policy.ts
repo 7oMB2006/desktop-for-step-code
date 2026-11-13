@@ -1,4 +1,5 @@
 import type { ExternalConnectorAction } from '../src/external-connectors';
+import { validCategories } from './external-approval-policy';
 
 export function parseExternalConnectorAction(value: unknown): ExternalConnectorAction {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('connector:invalid-input');
@@ -13,13 +14,20 @@ export function parseExternalConnectorAction(value: unknown): ExternalConnectorA
     return { type: 'pair', displayName: input.displayName.trim(), roots: input.roots as string[] };
   if (input.type === 'revoke' && keys.length === 2 && typeof input.agentId === 'string'
     && /^[a-z0-9][a-z0-9_-]{0,63}$/u.test(input.agentId)) return { type: 'revoke', agentId: input.agentId };
+  const scope = typeof input.agentId === 'string' && /^[a-z0-9][a-z0-9_-]{0,63}$/u.test(input.agentId)
+    && typeof input.cwd === 'string' && input.cwd.length > 0 && input.cwd.length <= 4096;
+  if (input.type === 'unpolicy' && keys.length === 3 && scope)
+    return { type: 'unpolicy', agentId: input.agentId as string, cwd: input.cwd as string };
+  if (input.type === 'policy' && keys.length === 6 && scope && [null, 1, 7, 30].includes(input.days as any)
+    && validCategories(input.categories) && ['ask', 'approve-for-me'].includes(String(input.permissionPreset)))
+    return { type: 'policy', agentId: input.agentId as string, cwd: input.cwd as string,
+      days: input.days as 1 | 7 | 30 | null, categories: [...input.categories],
+      permissionPreset: input.permissionPreset as 'ask' | 'approve-for-me' };
   const task = typeof input.taskId === 'string' && /^[a-f0-9-]{36}$/u.test(input.taskId);
   if (input.type === 'undelegate' && keys.length === 2 && task)
     return { type: 'undelegate', taskId: input.taskId as string };
-  if (input.type === 'delegate' && keys.length === 4 && task && [15, 30, 60].includes(input.minutes as number)
-    && Array.isArray(input.categories) && input.categories.length > 0 && input.categories.length <= 2
-    && input.categories.every(value => value === 'command' || value === 'file')
-    && new Set(input.categories).size === input.categories.length)
+  if (input.type === 'delegate' && keys.length === 4 && task && [0, 15, 30, 60].includes(input.minutes as number)
+    && validCategories(input.categories))
     return { type: 'delegate', taskId: input.taskId as string, minutes: input.minutes as number, categories: input.categories };
   throw new Error('connector:invalid-input');
 }

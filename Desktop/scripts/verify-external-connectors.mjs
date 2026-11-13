@@ -141,6 +141,33 @@ try {
   assert.equal(await row.locator('details').getAttribute('open'), '');
   assert.equal(await row.locator('.external-connector-status').innerText(), '本机审批');
   checks.push('failed delegation never displays authority and retains selected scope for recovery');
+  for (const [theme, width, language] of [['light', 1360, 'zh'], ['dark', 1360, 'en'], ['light', 390, 'zh'], ['dark', 390, 'en']]) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.emulateMedia({ reducedMotion: width < 700 ? 'reduce' : 'no-preference' });
+    await open(theme, language, '&tasks=1');
+    const row = page.locator('.external-approval-policy');
+    const trigger = row.getByRole('button', { name: /设置长期委托|Set policy/ });
+    await trigger.click(); await settleLayout(row.locator('details'));
+    const combos = row.getByRole('combobox');
+    await combos.nth(0).selectOption('approve-for-me');
+    await combos.nth(1).selectOption('forever');
+    await row.getByRole('checkbox').nth(2).check();
+    await row.getByRole('checkbox').nth(3).check();
+    for (const control of [combos.nth(0), combos.nth(1), row.getByRole('checkbox').nth(2)]) await focus(control);
+    assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+    await page.screenshot({ path: `${output}/persistent-policy-form-${theme}-${width}-${language}.png`, fullPage: true });
+    await row.getByRole('button', { name: /确认长期委托|Confirm policy/ }).click();
+    const revoke = row.getByRole('button', { name: /撤销长期委托|Revoke policy/ });
+    await revoke.waitFor();
+    await page.waitForFunction(() => !document.querySelector('.external-approval-policy details')?.open);
+    await page.waitForFunction(() => document.activeElement?.textContent?.match(/修改长期委托|Edit policy/));
+    assert.match(await row.innerText(), /直到手动撤销|Until revoked/);
+    assert.match(await row.innerText(), /代我批准|Approve for me/);
+    await page.screenshot({ path: `${output}/persistent-policy-active-${theme}-${width}-${language}.png`, fullPage: true });
+    await revoke.click();
+    await page.waitForFunction(() => document.activeElement?.textContent?.match(/设置长期委托|Set policy/));
+    checks.push(`${theme}/${width}/${language}: persistent duration, native tier, independent risk/question opt-in, save/revoke, focus bounds`);
+  }
   assert.deepEqual(errors, []);
   console.log(`External connector browser acceptance passed (${checks.length} groups).`);
 } finally {

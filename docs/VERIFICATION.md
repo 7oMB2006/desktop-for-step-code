@@ -1,5 +1,46 @@
 # Verification
 
+## 外部 Agent 长期审批委托与定向唤醒（2026-11-13）
+
+基于 `main 10c87f8`，补充临时任务授权和按身份、凭据及规范项目目录绑定的长期策略。
+保留 15/30/60 分钟，新增本次任务、1/7/30 天和直到手动撤销；长期策略正常重启后仅供新任务使用，
+不恢复旧进程、输入、回答或审批引用。新任务可显式选原生「代我批准」，
+普通命令、文件修改、高风险工具及提问分别选择。原生自动执行的常规操作
+不受 Agent 审批类型勾选限制，确认界面已明确区分两者。
+替换、到期、目录身份失效或撤销策略时，中止使用旧自动权限的外部任务并降回 Ask；
+原生降级失败则移除该 worker，不能只改界面状态。
+
+- 完整 TypeScript 检查和生产构建通过，保留既有 Vite directive/chunk-size 警告。
+  未改依赖、CI 门禁或 runtime pin；只读复用的 `29eb460` runtime 与当前
+  manifest 的 75 份 patched source hash 一致，没有重新 staging 共享 runtime。
+- 协议逐文件 runner 完整结束，252/252 文件成功，summary 无失败文件。
+  全套运行期间补充的目录监控和竞态修正，随后以最终产品代码重跑外部接入
+  三文件 79/79，以及权限展示、问题、能力管理与 Remote 八文件 313/313，
+  均零失败或取消；不把全套描述为每个文件都在同一最终快照执行。
+- 浏览器夹具 15 组通过：深浅色、中英文、1360/390 宽度、减少动态效果、
+  四边焦点、错误恢复、独立类型选择、长期保存/撤销及收起后的焦点恢复。
+  截图在动画结束后保存，页面异常为零。
+- 最终源码生产构建的 Windows Electron 通过 15 组原生验收，
+  包括真实 main/preload、原生 Step 会话及真实 Python companion socket。
+  26 次受控模型请求覆盖常规自动写入、风险拒绝后不执行、结构化问题回答、
+  审批提醒不自动回答、撤销实际降回 Ask，以及重启后仅新任务继承策略。
+  页面异常为零，退出码 0，窗口为零；一次性 profile 已由 runner 清理。
+- companion 完整 unittest 共 81 项，80 通过、1 项平台跳过。
+  包括可信会话绑定、拒绝旧 CLI 共享输入队列、拒绝跨会话改绑、
+  通知去重、注入拒绝、失效请求、旧宿主降级和卸载停止。
+
+本机证据位于 `Desktop/test-results/persistent-approvals-browser-final/verification.json`、
+`Desktop/test-results/persistent-approvals-native-final/verification.json`、
+对应截图及 `Desktop/test-results/protocol/summary.json`。
+原生验收的 Hermes 消息注入端是隔离模拟 host，不是真实 Hermes 账号、CLI、飞书或过夜验收；
+真实定向唤醒仍要求 Hermes 提供可信 session key、支持定向注入并由用户开启插件注入许可。
+不支持这些能力的 CLI 保留手动查询，不使用最近会话或环境变量回退。
+
+本轮源码 dist 约 12.84 MiB，最终浏览器和原生证据合计约 0.93 MiB，
+完整协议证据约 1.02 MiB，没有安装器或新验收包；
+未改日常 DFSC/Hermes profile、配对、快捷方式或现用进程，未删除历史包或依赖。
+宿主及 companion 需分别更新；以上不是市场发布、macOS 本机、安装器升级或云端 CI 成功。
+
 ## PR #240 同步主线与本地补验（2026-11-13）
 
 合入 `main ec292a1`，唯一文本冲突在本文件顶部新增记录；保留双方全部内容。

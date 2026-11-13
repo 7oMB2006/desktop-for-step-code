@@ -1,5 +1,30 @@
 # Verification
 
+## 生命周期 CI 路径断言与插件证据保留修复（2026-11-13，本地）
+
+PR #239 首轮 Windows runtime 与 macOS prepare 均在三个新单测失败：
+helper 登记、输出 canonical 路径，而测试直接比较 mkdtemp 返回的原始路径。
+在 D: 自有 junction 下复现同样三项失败后，将预期值统一为 realpath；
+不改变 helper 返回路径语义、不放宽精确路径与输出次数检查。
+
+- 新增 alias-parent 回归，验证返回原前缀、日志输出精确 canonical 路径、
+  重复保留只报告一次、清理失败非零退出，以及默认删除不碰其他目录。
+  新增 runner 退出后只删除 scratch、保留相邻证据的回归。
+  四文件定向测试 62/62；整个生命周期文件在 junction Temp 下 18/18。
+- 原生插件验收的报告迁到独立 evidence 目录，支持
+  `DESKTOP_VERIFY_OUTPUT`，默认 `Desktop/test-results/plugin-windows`；
+  scratch 内仅放可清理 harness 和隔离 profile。
+  实际 Electron 子进程七组断言通过，父进程在其退出后读取完整报告，
+  确认报告仍在、所打印的 scratch 精确路径已不存在。
+- 完整类型检查、源码构建、CI 策略/清单测试通过；后者 66 通过、
+  1 项平台跳过。真实 Electron 生命周期清理/保留两种模式重新通过，
+  各启动两次，验证合成 cookie 持久性及 runner 退出后的档案生命周期。
+- “保留两个包”的个人偏好仅保留在 ignored local override；
+  共享 AGENTS 与生命周期文档只要求遵守本机保留配置和删除授权边界。
+- 本轮证据在 `Desktop/test-results/lifecycle-delivery/ci-fix-20261113`。
+  未打新预览包、未删历史目录或正式档案；没有执行本机全量协议、
+  macOS 本机或破坏性安装/卸载验收。云端结果按新 head 另行确认。
+
 ## 临时验收目录生命周期（2026-11-13，本地）
 
 基于 `main 965d27e` 在 D: 独立工作区验证，未切换或清理旧发布分支，

@@ -32,7 +32,7 @@ The macOS packaging staging directory has its own exact-path `finally` cleanup; 
 
 Honor the machine's ignored local build-output override, resolve output paths before packaging, and never fall back silently to an unapproved drive. Do not create large local preview packages in the system temporary directory.
 
-Keep the newest two preview packages by default for concurrent use. Preserve additional named packages needed for active verification or expressly requested by the owner. Before separately authorized deletion, check exact paths, active processes, shortcut targets, reparse points and nested repositories; preserve manifests, receipts and necessary evidence.
+Configure package counts and concurrent-use preferences in the machine's ignored local override, not this shared policy. Preserve named packages needed for active verification or expressly requested by the owner. Before separately authorized deletion, check exact paths, active processes, shortcut targets, reparse points and nested repositories; preserve manifests, receipts and necessary evidence.
 
 ## Installer Residue Tests
 

@@ -25,7 +25,7 @@
 
 ## Windows Package Handoff
 
-- Follow `docs/ARTIFACT_LIFECYCLE.md` for generated profiles, scratch output, retained evidence and preview-package ownership. Keep the newest two preview packages by default; protect actively referenced or explicitly retained packages, and obtain authorization before deleting older artifacts.
+- Follow `docs/ARTIFACT_LIFECYCLE.md` for generated profiles, scratch output, retained evidence and preview-package ownership. Honor locally configured package retention, protect actively referenced or explicitly retained packages, and obtain authorization before deleting older artifacts.
 - Honor the machine's ignored local build-output override. Resolve output paths before building; do not place large local preview packages in the system temporary directory or silently fall back to an unapproved drive.
 - Acceptance scripts and demos must create disposable profiles through `Desktop/scripts/test-profile.mjs`, close their owned processes before cleanup, and keep formal application credentials and sessions separate. Installer residue tests require a disposable account or VM and `--disposable-account`; never erase pre-existing state to prepare a test.
 

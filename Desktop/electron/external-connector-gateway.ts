@@ -2,10 +2,10 @@ import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypt
 import { lstat, mkdir, open, realpath, rename, unlink } from 'node:fs/promises';
 import { createServer, type Server, type Socket } from 'node:net';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
-import type { ExternalGrant } from './external-connector-tasks';
+import { externalConnectorMethods, type ExternalGrant } from './external-connector-tasks';
 
 export const externalConnectorProtocol = 'dfsc-external-v1';
-const methods = new Set(['system.capabilities', 'task.create', 'run.submit', 'task.list', 'task.get', 'task.stop']);
+const methods = new Set<string>(externalConnectorMethods);
 const requestLimit = 64 * 1024;
 const replyLimit = 128 * 1024;
 const stateLimit = 1024 * 1024;
@@ -16,6 +16,7 @@ const knownErrors = new Set([
   'invalid-input', 'invalid-scope', 'scope-changed', 'storage', 'unavailable', 'disabled', 'limit', 'unauthorized',
   'response-too-large', 'busy', 'revoked', 'scope', 'task-unavailable', 'session-unavailable', 'unsupported-method',
   'key-conflict', 'task-limit', 'creation-unconfirmed', 'control-command', 'task-not-ready', 'ask-required', 'submission-unconfirmed',
+  'local-approval', 'approval-expired',
 ].map(code => `connector:${code}`));
 const errorCode = (error: unknown) => error instanceof Error && knownErrors.has(error.message)
   ? error.message : 'connector:unavailable';

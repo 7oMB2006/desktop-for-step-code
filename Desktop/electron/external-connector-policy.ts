@@ -13,6 +13,14 @@ export function parseExternalConnectorAction(value: unknown): ExternalConnectorA
     return { type: 'pair', displayName: input.displayName.trim(), roots: input.roots as string[] };
   if (input.type === 'revoke' && keys.length === 2 && typeof input.agentId === 'string'
     && /^[a-z0-9][a-z0-9_-]{0,63}$/u.test(input.agentId)) return { type: 'revoke', agentId: input.agentId };
+  const task = typeof input.taskId === 'string' && /^[a-f0-9-]{36}$/u.test(input.taskId);
+  if (input.type === 'undelegate' && keys.length === 2 && task)
+    return { type: 'undelegate', taskId: input.taskId as string };
+  if (input.type === 'delegate' && keys.length === 4 && task && [15, 30, 60].includes(input.minutes as number)
+    && Array.isArray(input.categories) && input.categories.length > 0 && input.categories.length <= 2
+    && input.categories.every(value => value === 'command' || value === 'file')
+    && new Set(input.categories).size === input.categories.length)
+    return { type: 'delegate', taskId: input.taskId as string, minutes: input.minutes as number, categories: input.categories };
   throw new Error('connector:invalid-input');
 }
 

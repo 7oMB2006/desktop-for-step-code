@@ -796,6 +796,14 @@ const externalTasks: ExternalConnectorTasks = new ExternalConnectorTasks({
       await runtimes.remove(worker);
   },
   stop: async worker => { await handle('command', ['abort', {}, worker.id]); },
+  respond: (worker, request, confirmed) => {
+    if (runtimes.workers.get(worker.id) !== worker || worker.status !== 'connected'
+      || worker.permissionPreset !== 'ask' || worker.pendingUI.get(request.id) !== request
+      || quitting || quitPending || updateInstalling || settingsMutation || providerSettingsPending)
+      throw new Error('connector:unavailable');
+    runtimes.respondToRequest(worker, { id: request.id, confirmed });
+    externalTasks.event(worker, { type: 'desktop_ui_expired', runtimeId: worker.id });
+  },
 }, new ConnectorJsonStore(externalRoot, 'tasks.json'));
 const externalConnectors = new ExternalConnectorGateway(externalRoot, {
   dispatch: async (grant, method, params, valid) => { await startup; return externalTasks.call(grant, method, params, valid); },
@@ -1336,12 +1344,16 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
     await externalReady;
     if (method === 'externalConnectorAction') {
       const action = parseExternalConnectorAction(args[0]);
-      if (!['disable', 'revoke'].includes(action.type)
+      if (!['disable', 'revoke', 'undelegate'].includes(action.type)
         && (transition || settingsMutation || undoBusy || quitting || quitPending || updateInstalling || providerSettingsPending))
         throw new Error('connector:unavailable');
       if (action.type === 'enable') await externalConnectors.enable();
       else if (action.type === 'disable') await externalConnectors.disable();
       else if (action.type === 'revoke') await externalConnectors.revoke(action.agentId);
+      else if (action.type === 'delegate' || action.type === 'undelegate') {
+        if (action.type === 'delegate' && !externalConnectors.snapshot().listening) throw new Error('connector:disabled');
+        await externalTasks.delegate(action);
+      }
       else if (action.type === 'pair') {
         await listSessions();
         if (action.roots.some(root => !remoteProjects().some(project => project.workspace === root)))
@@ -1350,7 +1362,8 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
       }
     }
     await listSessions();
-    return { ...externalConnectors.snapshot(), ...(externalBootError ? { error: 'connector:storage' } : {}), projects: remoteProjects() };
+    return { ...externalConnectors.snapshot(), ...(externalBootError ? { error: 'connector:storage' } : {}),
+      projects: remoteProjects(), approvals: externalTasks.localApprovals() };
   }
   if (method === 'remoteAction') {
     const action = parseRemoteAction(args[0]);

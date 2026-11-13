@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
-import type { RuntimeEvent } from '../src/contracts';
+import type { RuntimeEvent, UIRequest } from '../src/contracts';
+import type { ExternalApprovalAudit, ExternalApprovalLease, ExternalApprovalState, ExternalConnectorAction } from '../src/external-connectors';
 import { completionReview, reviewActive } from '../src/completion-review';
 import { redactSensitiveText } from '../src/subagent-redact';
 import { isUltracodeInput } from '../src/ultracode-input';
@@ -7,10 +8,12 @@ import { hasBackgroundWork } from './background-work';
 import type { QueueReceiptEvent } from './pending-messages';
 import type { SessionRuntime, WorkerTransport } from './session-runtimes';
 import { taskOutcome } from './task-outcome';
+import { delegatedApproval } from './external-connector-approvals';
 
 export const externalConnectorProtocol = 'dfsc-external-v1';
 export const externalConnectorMethods = [
   'system.capabilities', 'task.create', 'run.submit', 'task.list', 'task.get', 'task.stop',
+  'approval.list', 'approval.respond',
 ] as const;
 export interface ExternalGrant {
   agentId: string;
@@ -24,6 +27,7 @@ export interface ExternalTaskHost {
   withdraw(worker: SessionRuntime, queueId: string): boolean;
   stop(worker: SessionRuntime): Promise<void>;
   discard?(worker: SessionRuntime): Promise<void>;
+  respond?(worker: SessionRuntime, request: UIRequest, confirmed: boolean): void;
 }
 type TaskPhase = 'creating' | 'waiting' | 'queued' | 'running' | 'completed' | 'stopped' | 'failed' | 'interrupted' | 'unknown';
 interface Submission {
@@ -48,7 +52,7 @@ export interface SavedExternalTask {
   stopRequested?: boolean;
   reason?: string;
 }
-export interface ExternalTasksState { version: 1; tasks: SavedExternalTask[] }
+export interface ExternalTasksState { version: 1; tasks: SavedExternalTask[]; approvalAudit?: ExternalApprovalAudit[] }
 export interface ExternalTaskStore {
   load(): Promise<unknown>;
   save(value: ExternalTasksState): Promise<void>;
@@ -91,6 +95,12 @@ export class ExternalConnectorTasks {
   private storageFailed = false;
   private cleanups = new Set<Promise<void>>();
   private cleanupFailed = false;
+  private leases = new Map<string, ExternalApprovalLease>();
+  private leaseDeadlines = new WeakMap<ExternalApprovalLease, number>();
+  private delegationRevisions = new Map<string, number>();
+  private approvalAudit: ExternalApprovalAudit[] = [];
+  private approvalRefs = new WeakMap<UIRequest, { id: string; fingerprint: string; lease: ExternalApprovalLease }>();
+  private escalated = new WeakSet<UIRequest>();
   constructor(private host: ExternalTaskHost, private store: ExternalTaskStore) {}
 
   initialize() {
@@ -99,6 +109,23 @@ export class ExternalConnectorTasks {
         const raw = await this.store.load();
         if (raw === undefined || raw === null) return;
         if (!object(raw) || raw.version !== 1 || !Array.isArray(raw.tasks) || raw.tasks.length > 100) fail('storage');
+        if (raw.approvalAudit !== undefined) {
+          if (!Array.isArray(raw.approvalAudit) || raw.approvalAudit.length > 200) fail('storage');
+          this.approvalAudit = raw.approvalAudit.map((entry: unknown) => {
+            if (!object(entry) || typeof entry.taskId !== 'string' || !/^[a-f0-9-]{36}$/u.test(entry.taskId)
+              || !ident(entry.agentId) || typeof entry.at !== 'number' || !Number.isFinite(entry.at)
+              || !['grant', 'revoke', 'allow', 'deny', 'escalate'].includes(String(entry.action))
+              || !['prepared', 'applied', 'not-applied'].includes(String(entry.outcome))
+              || typeof entry.reason !== 'string' || entry.reason.length > 600
+              || entry.requestId !== undefined && (typeof entry.requestId !== 'string' || !/^[a-f0-9-]{36}$/u.test(entry.requestId))
+              || entry.callId !== undefined && (typeof entry.callId !== 'string' || entry.callId.length > 200)) return fail('storage');
+            return { taskId: entry.taskId, agentId: entry.agentId as string, at: entry.at,
+              action: entry.action as ExternalApprovalAudit['action'], outcome: entry.outcome as ExternalApprovalAudit['outcome'],
+              reason: safe(entry.reason, 600),
+              ...(entry.requestId ? { requestId: entry.requestId as string } : {}),
+              ...(entry.callId ? { callId: safe(entry.callId as string, 200) } : {}) };
+          });
+        }
         const seen = new Set<string>(), keys = new Set<string>();
         this.tasks = raw.tasks.map((value: unknown) => {
           if (!object(value) || typeof value.id !== 'string' || !/^[a-f0-9-]{36}$/u.test(value.id)
@@ -144,7 +171,8 @@ export class ExternalConnectorTasks {
   }
 
   private persist() {
-    const snapshot: ExternalTasksState = { version: 1, tasks: structuredClone(this.tasks) };
+    const snapshot: ExternalTasksState = { version: 1, tasks: structuredClone(this.tasks),
+      ...(this.approvalAudit.length ? { approvalAudit: structuredClone(this.approvalAudit) } : {}) };
     const write = this.writes.then(() => this.store.save(snapshot));
     this.writes = write.catch(() => { this.storageFailed = true; });
     return write.catch(() => fail('storage'));
@@ -194,6 +222,126 @@ export class ExternalConnectorTasks {
       || attachment.worker.status !== 'connected') return fail('session-unavailable');
     return attachment;
   }
+  private lease(task: SavedExternalTask) {
+    const lease = this.leases.get(task.id);
+    if (!lease || lease.expiresAt <= Date.now() || (this.leaseDeadlines.get(lease) ?? 0) <= performance.now()
+      || terminal(task.phase) || task.stopRequested) return;
+    return lease;
+  }
+  private audit(task: SavedExternalTask, action: ExternalApprovalAudit['action'], reason: string,
+    outcome: ExternalApprovalAudit['outcome'] = 'applied') {
+    const entry: ExternalApprovalAudit = { taskId: task.id, agentId: task.agentId, at: Date.now(), action, reason: safe(reason, 600), outcome };
+    this.approvalAudit.push(entry);
+    this.approvalAudit = this.approvalAudit.slice(-200);
+    return entry;
+  }
+  localApprovals(): ExternalApprovalState {
+    return { tasks: [...this.attachments.values()].filter(({ task, worker, rpc }) =>
+      !terminal(task.phase) && worker.status === 'connected' && worker.rpc === rpc
+      && worker.state?.sessionId === task.sessionId && worker.cwd === task.cwd).map(({ task, worker }) => ({
+        taskId: task.id, agentId: task.agentId, title: safe(task.title, 160), cwd: task.cwd, phase: task.phase,
+        pending: worker.pendingUI.size,
+        ...(this.lease(task) ? { delegation: structuredClone(this.lease(task)!) } : {}),
+      })), audit: structuredClone(this.approvalAudit).reverse() };
+  }
+  async delegate(action: Extract<ExternalConnectorAction, { type: 'delegate' | 'undelegate' }>) {
+    await this.initialize();
+    const task = this.tasks.find(value => value.id === action.taskId);
+    if (!task) fail('task-unavailable');
+    const revision = (this.delegationRevisions.get(task.id) ?? 0) + 1;
+    this.delegationRevisions.set(task.id, revision);
+    // Revoking or replacing a scope immediately invalidates any in-flight decision.
+    this.leases.delete(task.id);
+    if (action.type === 'undelegate') {
+      this.audit(task, 'revoke', 'local-user');
+      await this.persist();
+      return;
+    }
+    return this.serial(async () => {
+      if (this.storageFailed) fail('storage');
+      const { worker } = this.attachment(task);
+      if (terminal(task.phase) || task.stopRequested || worker.permissionPreset !== 'ask' || !this.host.respond) fail('session-unavailable');
+      // Also validate here: this is a local authority boundary, not only an IPC parser.
+      if (![15, 30, 60].includes(action.minutes) || !Array.isArray(action.categories) || !action.categories.length
+        || action.categories.length > 2 || new Set(action.categories).size !== action.categories.length
+        || action.categories.some(value => value !== 'command' && value !== 'file')) fail('invalid-input');
+      const lease = { expiresAt: Date.now() + action.minutes * 60000, categories: [...action.categories] };
+      this.leaseDeadlines.set(lease, performance.now() + action.minutes * 60000);
+      const entry = this.audit(task, 'grant', `${action.minutes}m: ${action.categories.join(',')}; expires=${lease.expiresAt}`, 'prepared');
+      await this.persist();
+      try {
+        this.attachment(task);
+        if (this.delegationRevisions.get(task.id) !== revision) fail('revoked');
+        if (terminal(task.phase) || task.stopRequested || worker.permissionPreset !== 'ask') fail('session-unavailable');
+        this.leases.set(task.id, lease);
+        entry.outcome = 'applied';
+        await this.persist();
+      } catch (error) {
+        if (this.leases.get(task.id) === lease) this.leases.delete(task.id);
+        entry.outcome = 'not-applied';
+        await this.persist();
+        throw error;
+      }
+    });
+  }
+  private approvals(task: SavedExternalTask) {
+    const { worker } = this.attachment(task), lease = this.lease(task);
+    if (!lease || worker.permissionPreset !== 'ask' || !this.host.respond) return [];
+    return [...worker.pendingUI.values()].flatMap(request => {
+      if (this.escalated.has(request)) return [];
+      const projection = delegatedApproval(worker, request);
+      if (!projection || !lease.categories.includes(projection.category)
+        || projection.verificationCommand !== undefined && !lease.categories.includes('command')) return [];
+      let ref = this.approvalRefs.get(request);
+      if (!ref || ref.fingerprint !== projection.fingerprint || ref.lease !== lease) {
+        ref = { id: randomUUID(), fingerprint: projection.fingerprint, lease };
+        this.approvalRefs.set(request, ref);
+      }
+      const { fingerprint: _, ...value } = projection;
+      return [{ requestId: ref.id, ...value }];
+    }).slice(0, 4);
+  }
+  private async respond(grant: ExternalGrant, params: unknown, valid: () => boolean) {
+    this.mutable(valid);
+    const input = fields(params, ['taskId', 'requestId', 'decision', 'reason']);
+    const task = this.task(grant, input.taskId), requestId = text(input.requestId, 200), reason = text(input.reason, 500, true);
+    if (!['allow', 'deny', 'escalate'].includes(String(input.decision))) fail('invalid-input');
+    const decision = input.decision as 'allow' | 'deny' | 'escalate';
+    const lease = this.lease(task);
+    if (!lease) fail('local-approval');
+    await this.authorize(grant, task.cwd, valid); this.mutable(valid);
+    const { worker } = this.attachment(task);
+    const request = [...worker.pendingUI.values()].find(value => this.approvalRefs.get(value)?.id === requestId);
+    if (!request || !this.approvals(task).some(value => value.requestId === requestId)) fail('approval-expired');
+    const ref = this.approvalRefs.get(request)!;
+    const entry = this.audit(task, decision, reason, 'prepared');
+    entry.requestId = requestId;
+    entry.callId = this.approvals(task).find(value => value.requestId === requestId)!.callId;
+    await this.persist();
+    let attempted = false;
+    try {
+      await this.authorize(grant, task.cwd, valid); this.mutable(valid);
+      const current = this.attachment(task);
+      if (current.worker !== worker || this.lease(task) !== lease
+        || worker.pendingUI.get(request.id) !== request || this.escalated.has(request)
+        || delegatedApproval(worker, request)?.fingerprint !== ref.fingerprint
+        || worker.permissionPreset !== 'ask') fail('approval-expired');
+      if (decision === 'escalate') this.escalated.add(request);
+      else {
+        // A throwing transport may already have sent the response. Never replay it.
+        attempted = true;
+        this.escalated.add(request);
+        this.host.respond!(worker, request, decision === 'allow');
+      }
+      entry.outcome = 'applied';
+    } catch (error) {
+      entry.outcome = attempted ? 'prepared' : 'not-applied';
+      await this.persist();
+      throw error;
+    }
+    await this.persist();
+    return { taskId: task.id, requestId, decision, outcome: 'applied' };
+  }
   private project(task: SavedExternalTask, includeSummary = true) {
     const attached = [...this.attachments.values()].find(value => value.task === task);
     const summary = this.summaries.get(task.id);
@@ -204,6 +352,7 @@ export class ExternalConnectorTasks {
       ...(task.runtimeId ? { runtimeId: task.runtimeId } : {}),
       ...(task.reason ? { reason: task.reason } : {}),
       awaitingLocalApproval: Boolean(attached?.worker.pendingUI.size),
+      ...(this.lease(task) ? { approvalDelegation: structuredClone(this.lease(task)!) } : {}),
       resultAvailable: summary !== undefined,
       ...(includeSummary && summary !== undefined ? { summary: summary.text, summaryTruncated: summary.truncated } : {}),
       ...(task.submission ? { submitted: true, receipt: task.submission.receipt ?? 'pending' } : { submitted: false }),
@@ -223,7 +372,7 @@ export class ExternalConnectorTasks {
           fields(params, []);
           await grant.validate?.(); this.valid(valid);
           return { protocol: externalConnectorProtocol, version: 1, agentId: grant.agentId, roots: [...grant.roots],
-            methods: [...externalConnectorMethods], approvals: 'local-only', oneRunPerTask: true,
+            methods: [...externalConnectorMethods], approvals: 'local-with-explicit-task-delegation', oneRunPerTask: true,
             completedMeans: 'native-turn-ended-not-user-accepted' };
         }
         case 'task.list': {
@@ -233,6 +382,13 @@ export class ExternalConnectorTasks {
           return this.tasks.filter(task => task.agentId === grant.agentId).slice(offset, offset + 20).map(task => this.project(task, false));
         }
         case 'task.get': return this.project(this.task(grant, fields(params, ['taskId']).taskId));
+        case 'approval.list': {
+          const task = this.task(grant, fields(params, ['taskId']).taskId);
+          await this.authorize(grant, task.cwd, valid);
+          return { taskId: task.id, delegation: this.lease(task) ? structuredClone(this.lease(task)!) : null,
+            requests: terminal(task.phase) ? [] : this.approvals(task) };
+        }
+        case 'approval.respond': return this.respond(grant, params, valid);
         case 'task.create': {
           this.mutable(valid);
           const input = fields(params, ['key', 'cwd', 'title']);
@@ -335,6 +491,7 @@ export class ExternalConnectorTasks {
 
   private finish(task: SavedExternalTask, phase: TaskPhase, reason?: string) {
     task.phase = phase;
+    this.leases.delete(task.id);
     if (reason) task.reason = reason;
     for (const [worker, attachment] of this.attachments) if (attachment.task === task) this.attachments.delete(worker);
   }

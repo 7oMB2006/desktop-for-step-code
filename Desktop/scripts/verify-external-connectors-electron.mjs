@@ -43,14 +43,22 @@ const model = createServer(async (request, response) => {
     if (input === 'LOCAL-HOLD' || input === 'CONNECTOR-HOLD') {
       held.add(response); response.on('close', () => held.delete(response)); return;
     }
-    const asksApproval = input === 'CONNECTOR-APPROVAL' || input === 'CONNECTOR-DENY';
-    const callId = input === 'CONNECTOR-DENY' ? 'connector-deny-12345678' : 'connector-tool-12345678';
+    const delegated = /^CONNECTOR-DELEGATE-(ALLOW|DENY|ESCALATE|REVOKE)$/.test(input);
+    const asksApproval = delegated || input === 'CONNECTOR-APPROVAL' || input === 'CONNECTOR-DENY';
+    const callId = delegated ? `${input.toLowerCase()}-12345678`
+      : input === 'CONNECTOR-DENY' ? 'connector-deny-12345678' : 'connector-tool-12345678';
     const toolResult = body.messages.find(message => message.role === 'tool' && message.tool_call_id === callId);
     if (asksApproval && !toolResult) {
       const command = input === 'CONNECTOR-DENY'
         ? 'echo connector-denied > connector-denied.txt' : 'echo connector-approved';
       send({ tool_calls: [{ index: 0, id: callId, type: 'function',
-        function: { name: 'run_command', arguments: JSON.stringify({ command }) } }] }, 'tool_calls');
+        function: { name: delegated ? 'write_file' : 'run_command', arguments: JSON.stringify(delegated
+          ? { path: `${input.toLowerCase()}.txt`, content: input } : { command }) } }] }, 'tool_calls');
+    } else if (delegated) {
+      const denied = input.endsWith('-DENY') || input.endsWith('-REVOKE');
+      if (denied) assert.match(content(toolResult), /Tool call denied: write_file/u);
+      else assert.ok(!/Tool call denied/u.test(content(toolResult)));
+      send({ content: denied ? 'DELEGATED-DENIED' : 'DELEGATED-ALLOWED' }, 'stop');
     } else if (input === 'CONNECTOR-DENY') {
       assert.match(content(toolResult), /Tool call denied: run_command/u);
       send({ content: 'CONNECTOR-DENIED-NOT-EXECUTED' }, 'stop');
@@ -166,8 +174,8 @@ try {
   assert.equal(capabilities.agentId, connection.agentId);
   const nativeCapabilities = await rpc('system.capabilities');
   assert.equal(nativeCapabilities.ok, true);
-  assert.equal(nativeCapabilities.result.approvals, 'local-only');
-  assert.equal(nativeCapabilities.result.methods.includes('approval.respond'), false);
+  assert.equal(nativeCapabilities.result.approvals, 'local-with-explicit-task-delegation');
+  assert.equal(nativeCapabilities.result.methods.includes('approval.respond'), true);
   const first = await create('connector-first');
   assert.ok(first.runtimeId && first.sessionId);
   assert.equal((await snapshot()).draftId, initial.draftId);
@@ -241,6 +249,58 @@ try {
   assert.equal(requests.filter(value => value === 'CONNECTOR-DENY').length, deniedRequestCount);
   checks.push('local native denial prevents command execution; completed reports the denial, not tool success; retry never resubmits');
 
+  for (const decision of ['ALLOW', 'DENY', 'ESCALATE', 'REVOKE']) {
+    const delegated = await create(`connector-delegate-${decision.toLowerCase()}`);
+    const input = `CONNECTOR-DELEGATE-${decision}`, marker = join(workspace, `${input.toLowerCase()}.txt`);
+    await submit(delegated.id, 'delegated-run', input);
+    await until(() => task(delegated.id), value => value.awaitingLocalApproval, `pending ${decision}`);
+    assert.deepEqual((await client('approval.list', { taskId: delegated.id })).requests, []);
+    await openPanel();
+    const panel = page.getByRole('region', { name: '外部 Agent', exact: true });
+    await panel.getByRole('button', { name: '刷新接入状态', exact: true }).click();
+    const row = panel.locator('.external-approval-task').filter({ hasText: `connector-delegate-${decision.toLowerCase()}` });
+    await row.getByRole('button', { name: '委托此任务审批', exact: true }).click();
+    await row.getByRole('button', { name: '确认委托审批', exact: true }).click();
+    await row.getByRole('button', { name: '撤销审批委托', exact: true }).waitFor();
+    if (decision === 'ALLOW') {
+      await row.scrollIntoViewIfNeeded();
+      await page.screenshot({ path: join(output, 'delegation-native-light.png') });
+    }
+    const listed = await client('approval.list', { taskId: delegated.id });
+    assert.equal(listed.requests.length, 1);
+    assert.equal(listed.requests[0].category, 'file');
+    assert.equal(JSON.parse(listed.requests[0].input).content, input);
+    const answer = { taskId: delegated.id, requestId: listed.requests[0].requestId,
+      decision: decision === 'DENY' ? 'deny' : decision === 'ESCALATE' ? 'escalate' : 'allow', reason: `Isolated ${decision} fixture` };
+    if (decision === 'REVOKE') {
+      await row.getByRole('button', { name: '撤销审批委托', exact: true }).click();
+      assert.equal((await client('approval.respond', answer, true)).error.code, 'connector:local-approval');
+    } else {
+      const receipt = await client('approval.respond', answer);
+      assert.equal(receipt.outcome, 'applied');
+    }
+    if (decision === 'ESCALATE' || decision === 'REVOKE') {
+      assert.equal((await task(delegated.id)).awaitingLocalApproval, true);
+      assert.deepEqual((await client('approval.list', { taskId: delegated.id })).requests, []);
+      await assert.rejects(readFile(marker), { code: 'ENOENT' });
+      const pending = await page.evaluate(runtimeId =>
+        window.connectorRequests.findLast(value => value.runtimeId === runtimeId && value.method === 'confirm'), delegated.runtimeId);
+      await page.evaluate(({ runtimeId, id, confirmed }) => window.desktop.command('extension_ui_response', { id, confirmed }, runtimeId),
+        { runtimeId: delegated.runtimeId, id: pending.id, confirmed: decision === 'ESCALATE' });
+    }
+    const done = await until(() => task(delegated.id), value => value.phase === 'completed', `settled ${decision}`);
+    assert.equal(done.summary, decision === 'DENY' || decision === 'REVOKE' ? 'DELEGATED-DENIED' : 'DELEGATED-ALLOWED');
+    assert.equal(done.approvalDelegation, undefined);
+    if (decision === 'ALLOW' || decision === 'ESCALATE') assert.equal(await readFile(marker, 'utf8'), input);
+    else await assert.rejects(readFile(marker), { code: 'ENOENT' });
+    await page.getByRole('button', { name: '返回接入渠道', exact: true }).click();
+    await page.getByRole('button', { name: '返回会话', exact: true }).click();
+  }
+  const audit = (await connectorState()).approvals.audit;
+  for (const decision of ['allow', 'deny', 'escalate'])
+    assert.ok(audit.some(entry => entry.action === decision && entry.outcome === 'applied' && entry.callId));
+  checks.push('real Python approval adapter + local task opt-in UI: native allow/deny/escalate/revoke and exact file side effects');
+
   const stopped = await create('connector-stop');
   await submit(stopped.id, 'stop-run', 'CONNECTOR-HOLD');
   await until(async () => requests, value => value.includes('CONNECTOR-HOLD'), 'external held turn');
@@ -260,12 +320,17 @@ try {
   checks.push('local stop releases a waiting external task and permits a new local turn');
 
   const waiting = await create('connector-restart');
+  await action({ type: 'delegate', taskId: waiting.id, minutes: 15, categories: ['file'] });
+  assert.ok((await task(waiting.id)).approvalDelegation);
   const count = requests.length;
   await close();
   app = undefined;
   await launch();
   assert.equal((await connectorState()).listening, true);
   assert.equal((await task(waiting.id)).phase, 'interrupted');
+  assert.equal((await task(waiting.id)).approvalDelegation, undefined);
+  assert.equal((await connectorState()).approvals.tasks.length, 0);
+  assert.ok((await connectorState()).approvals.audit.some(entry => entry.taskId === waiting.id && entry.action === 'grant'));
   const restartedRuntimes = (await snapshot()).runtimes.map(value => value.runtimeId).sort();
   const afterRestart = await task(first.id);
   assert.equal(afterRestart.phase, 'completed');

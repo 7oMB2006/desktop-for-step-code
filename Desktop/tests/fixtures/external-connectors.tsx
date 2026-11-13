@@ -14,6 +14,11 @@ let state: ExternalConnectorState = {
   enabled: false, listening: false, connections: [],
   projects: params.has('empty') ? [] : [{ workspace, name: 'Practice project' }],
 };
+const taskId = '12345678-1234-1234-1234-123456789abc';
+if (params.has('tasks')) state = { ...state, enabled: true, listening: true, connections: [{
+  agentId: 'fixture-agent', displayName: 'Hermes x DFSC', roots: [workspace], configPath: 'C:\\Fixture\\config.json',
+}], approvals: { tasks: [{ taskId, agentId: 'fixture-agent', title: 'Inspect a project and run its tests',
+  cwd: workspace, phase: 'running', pending: 1 }], audit: [] } };
 declare global {
   interface Window {
     externalFixture: { failNext(): void; holdNext(): void; release(): void; copied: string };
@@ -38,6 +43,16 @@ const bridge = {
       configPath: 'C:\\Users\\Fixture\\AppData\\Roaming\\Desktop for Step Code\\external-connectors\\agents\\fixture-agent\\config.json',
     }] };
     if (action.type === 'revoke') state = { ...state, connections: [] };
+    if (action.type === 'delegate' && state.approvals) {
+      state.approvals.tasks[0].delegation = { categories: action.categories, expiresAt: Date.now() + action.minutes * 60000 };
+      state.approvals.audit.unshift({ taskId, agentId: 'fixture-agent', at: Date.now(), action: 'grant',
+        reason: 'Local user selected scope and duration', outcome: 'applied' });
+    }
+    if (action.type === 'undelegate' && state.approvals) {
+      delete state.approvals.tasks[0].delegation;
+      state.approvals.audit.unshift({ taskId, agentId: 'fixture-agent', at: Date.now(), action: 'revoke',
+        reason: 'local-user', outcome: 'applied' });
+    }
     return structuredClone(state);
   },
 } as unknown as DesktopBridge;

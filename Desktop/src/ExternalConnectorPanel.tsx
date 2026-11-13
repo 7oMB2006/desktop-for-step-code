@@ -3,6 +3,7 @@ import { Check, CircleAlert, Copy, Link2, Plus, RefreshCw, ShieldCheck, Unlink, 
 import type { DesktopBridge } from './contracts';
 import type { ExternalConnectorAction, ExternalConnectorState } from './external-connectors';
 import { useAnimatedDisclosure } from './useAnimatedDisclosure';
+import { ExternalApprovalPanel } from './ExternalApprovalPanel';
 import './external-connectors.css';
 
 export function ExternalConnectorPanel({ bridge, language }: { bridge: DesktopBridge; language: string }) {
@@ -40,15 +41,16 @@ export function ExternalConnectorPanel({ bridge, language }: { bridge: DesktopBr
     trigger.current = element; setConfirmation(action); setError('');
   };
   const act = async (action?: ExternalConnectorAction) => {
-    if (busy) return;
+    if (busy) return false;
     setBusy(true); setError(''); setCopied('');
     try {
       const next = action ? await bridge.externalConnectorAction(action) : await bridge.externalConnectorState();
-      if (!alive.current) return;
+      if (!alive.current) return false;
       setState(next); setConfirmation(undefined);
       if (action?.type === 'pair') { setName(''); setRoots([]); }
       if (confirmation) restoreFocus();
-    } catch { if (alive.current) { setConfirmation(undefined); setError(failure()); if (confirmation) restoreFocus(); } }
+      return true;
+    } catch { if (alive.current) { setConfirmation(undefined); setError(failure()); if (confirmation) restoreFocus(); } return false; }
     finally { if (alive.current) setBusy(false); }
   };
   const selected = roots.filter(root => state?.projects.some(project => project.workspace === root));
@@ -75,7 +77,7 @@ export function ExternalConnectorPanel({ bridge, language }: { bridge: DesktopBr
     </div>
     <dl className="remote-properties external-connector-properties">
       <div><dt>{t('连接范围', 'Transport')}</dt><dd>127.0.0.1</dd></div>
-      <div><dt>{t('工具审批与问题', 'Approvals and questions')}</dt><dd>{t('仅在 DFSC 本机处理', 'Local DFSC only')}</dd></div>
+      <div><dt>{t('工具审批与问题', 'Approvals and questions')}</dt><dd>{t('默认本机审批，可按任务委托普通工具请求', 'Local by default; ordinary tool requests can be delegated per task')}</dd></div>
       <div><dt>{t('退出 DFSC 后', 'When DFSC exits')}</dt><dd>{t('不可用，不自动重放任务', 'Offline; no task replay')}</dd></div>
     </dl>
     <form className="external-connector-form" onSubmit={event => {
@@ -138,6 +140,9 @@ export function ExternalConnectorPanel({ bridge, language }: { bridge: DesktopBr
       </article>)}
       {state && !state.connections.length && <p className="external-connector-empty">{t('暂无已授权 Agent', 'No authorized agents')}</p>}
     </section>
+    {state?.approvals && <ExternalApprovalPanel state={state.approvals} language={language}
+      names={new Map(state.connections.map(item => [item.agentId, item.displayName]))}
+      busy={busy} canDelegate={!error && state.listening} act={act}/>}
     {error && <p className="remote-stage-error" role="alert"><CircleAlert size={14}/> {error}</p>}
     {copied && <span className="external-connector-announcement" role="status">{t('配置路径已复制', 'Config path copied')}</span>}
   </section>;

@@ -104,7 +104,7 @@ test('connector gateway rejects malformed, unsupported, oversized and multi-fram
   const { gateway, pair } = await fixture(t, async () => { calls++; return {}; });
   await gateway.enable();
   const { descriptor } = await pair();
-  for (const method of ['human.grant', 'approval.respond', 'command', 'task.accept', '__proto__']) {
+  for (const method of ['human.grant', 'approval.grant', 'command', 'task.accept', '__proto__']) {
     const reply = await exchange(descriptor, envelope(descriptor, method));
     assert.deepEqual(reply, { ok: false, error: 'connector:invalid-input' });
   }

@@ -207,8 +207,7 @@ for (const [method, ...args] of operations) {
     const f = await fixture();
     await f.host.invoke(method, ...args);
     assert.equal(f.state.writes.length, 1);
-    assert.equal(f.state.backgroundSyncs,
-      ['plugin-install', 'plugin-update', 'plugin-remove'].includes((args[0] as CapabilityMutation)?.action) ? 1 : 0);
+    assert.equal(f.state.backgroundSyncs, 0, 'Shared settings must not rebind built-in appearance');
     assert.equal(f.host.locked(), false);
     f.retained();
   });

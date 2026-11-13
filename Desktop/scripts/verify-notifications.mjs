@@ -3,7 +3,8 @@ import { prepareSessionFixture, waitForSessionFixtureSnapshot } from './session-
 import { closeDesktopFixtureAndWait } from './close-desktop-fixture.mjs';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
-import { mkdtemp, mkdir, writeFile, readFile, rmdir } from 'node:fs/promises';
+import { mkdir, writeFile, readFile, rmdir } from 'node:fs/promises';
+import { mkdtemp } from './test-profile.mjs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 

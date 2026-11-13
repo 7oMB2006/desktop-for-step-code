@@ -1,5 +1,39 @@
 # Verification
 
+## PR #240 同步主线与本地补验（2026-11-13）
+
+合入 `main ec292a1`，唯一文本冲突在本文件顶部新增记录；保留双方全部内容。
+同时保留主线的插件首次配置升级、宿主来源重选和验收目录生命周期改动；
+背景与语音验收脚本的自动合并仅增加共享临时目录 helper，不撤回既有断言或诊断。
+未修改 CI 工作流、必需门禁或 runtime pin。
+
+- 完整类型检查、生产构建和文档契约检查通过；CI 策略/清单/运行器测试
+  67 项，66 通过、1 项平台跳过。15 个定向文件共 305 项，
+  303 通过、2 项 Windows 符号链接权限跳过、零失败或取消。
+  覆盖背景存储/IPC/旧包、主题组合、市场元数据、Remote、插件首次配置与
+  来源重选，以及 transport、观测器、退出和目录生命周期回归。
+- 本次合流源码构建的 Windows Electron 背景验收完整通过 14 项，
+  页面异常为零；包括无插件首用、原生图片导入、全部调节、重启恢复、
+  封闭主题、MiniChat 只读、旧插件不干扰内置设置和旧配置迁移。
+  原生生命周期验收默认清理与显式保留两种模式均通过，
+  各启动两次，验证 cookie 持久性及 runner 退出后精确路径的生命周期。
+- 隔离源码与合流后的 1513 个受版本控制路径逐一核对相同。
+  只读复用 runtime 的 pin 和 75 份 patched source hash 与当前 manifest 一致；
+  背景轻构建自有 runtime 管理脚本使用本次合流版本，不改共享 runtime。
+  初次构建因隔离依赖缺少许可证而失败；从同版本官方 npm 包校验完整性后
+  补齐缺失文件，重新完整构建通过，未修改依赖声明、锁文件或构建步骤。
+
+证据位于本机隔离源码根的 `evidence/merge-main-ec292a1`：
+`targeted-tests.log`、`typecheck.log`、`build-final.log`、
+`background-native/results.json` 和 `profile-lifecycle/results.json`。
+仅新增轻构建和必要证据，没有安装器、快捷方式或日常 profile 变更，
+未删除历史包或依赖，也未关闭用户应用。
+
+按用户要求，本次同步提交使用 `[skip ci]` 尝试不运行云端流水线。
+旧 head `e41e918` 的 Windows/macOS 全绿不代表本次合流提交已通过云端验证；
+本轮没有完整协议全套、macOS 本机或安装器验收。
+跳过运行可能使必需检查缺失或 Pending，不将本地结果伪装为 CI 成功。
+
 ## 基础自定义背景内置（2026-11-13）
 
 本分支将既有编辑器接入「设置 → 外观」，不再以安装 `custom-background` 为使用条件。
@@ -34,6 +68,62 @@
 以上不是完整本地协议全套、云端 CI、macOS 本机、安装器升级或已发布验收。
 新存储 schema 2 不供旧宿主读取，不应让新旧构建交替写同一 profile。
 市场资源仍供旧宿主使用；资源更新本身不交付内置入口或执行迁移。
+
+## 生命周期 CI 路径断言与插件证据保留修复（2026-11-13，本地）
+
+PR #239 首轮 Windows runtime 与 macOS prepare 均在三个新单测失败：
+helper 登记、输出 canonical 路径，而测试直接比较 mkdtemp 返回的原始路径。
+在 D: 自有 junction 下复现同样三项失败后，将预期值统一为 native realpath；
+不改变 helper 返回路径语义、不放宽精确路径与输出次数检查。
+第一次使用普通 `realpathSync` 只解决了 junction；云端 Windows 再次失败，
+明确显示预期仍是 `RUNNER~1`，实际日志已展开成 `runneradmin`。
+改为 `realpathSync.native`，与 helper 的 promises realpath 使用相同原生解析，
+保留完整路径比较；本机 D: 未提供短文件名，不将 junction 回归称为 8.3 实测。
+
+- 新增 alias-parent 回归，验证返回原前缀、日志输出精确 canonical 路径、
+  重复保留只报告一次、清理失败非零退出，以及默认删除不碰其他目录。
+  新增 runner 退出后只删除 scratch、保留相邻证据的回归。
+  四文件定向测试 62/62；整个生命周期文件在 junction Temp 下 18/18。
+- 原生插件验收的报告迁到独立 evidence 目录，支持
+  `DESKTOP_VERIFY_OUTPUT`，默认 `Desktop/test-results/plugin-windows`；
+  scratch 内仅放可清理 harness 和隔离 profile。
+  实际 Electron 子进程七组断言通过，父进程在其退出后读取完整报告，
+  确认报告仍在、所打印的 scratch 精确路径已不存在。
+- 完整类型检查、源码构建、CI 策略/清单测试通过；后者 66 通过、
+  1 项平台跳过。真实 Electron 生命周期清理/保留两种模式重新通过，
+  各启动两次，验证合成 cookie 持久性及 runner 退出后的档案生命周期。
+- “保留两个包”的个人偏好仅保留在 ignored local override；
+  共享 AGENTS 与生命周期文档只要求遵守本机保留配置和删除授权边界。
+- 本轮证据在 `Desktop/test-results/lifecycle-delivery/ci-fix-20261113`。
+  未打新预览包、未删历史目录或正式档案；没有执行本机全量协议、
+  macOS 本机或破坏性安装/卸载验收。云端结果按新 head 另行确认。
+
+## 临时验收目录生命周期（2026-11-13，本地）
+
+基于 `main 965d27e` 在 D: 独立工作区验证，未切换或清理旧发布分支，
+也未同步其他活跃工作树。主线 124 份现有验收/演示脚本统一使用
+`test-profile.mjs`；包括旧分支中不存在的 MiniChat、首次引导及插件验收。
+保留各脚本原有进程退出流程，只清理本轮登记的精确目录。
+显式清理同样遵守 `DESKTOP_KEEP_TEST_PROFILES=1`；保留时打印准确路径。
+正式 userData、个人 Step Code 档案、历史 Temp 和现用包未删除。
+
+- 使用 Node 24.16.0 的四个定向文件共 60/60 通过，覆盖生命周期、
+  Electron 夹具退出、transport 和 supervisor 观测；新生命周期测试 16/16。
+  CI 策略/清单/运行器测试共 67 项，66 通过、1 项平台跳过、零失败。
+- 完整类型检查和生产源码构建通过，保留既有 Vite directive 警告。
+  最初原生探针使用旧 `.composer textarea`，因主线已改用富文本编辑器而
+  等待超时；改为核对真实新会话界面及 preload 后，重新完整通过。
+- 真实 Electron 44.4.5 的默认清理、显式保留两种模式均通过：
+  各启动两次，用合成 cookie 验证同一隔离档案重启后的持久性，
+  然后确认 runner 退出后的删除/保留行为；协调器自有夹具均已删除。
+  结果位于 `Desktop/test-results/profile-lifecycle/results.json`。
+- 为避免重复下载应用二进制，使用相同版本的已有 Electron；
+  runtime 只读复用本机既有 `29eb460` staging，未修改 runtime pin。
+  依赖、源码构建及日志均放在 D:。保留证据位于
+  `Desktop/test-results/lifecycle-delivery`，未生成安装器或新预览包。
+- residue `verify/upgrade` 的拒绝预检通过单元测试；没有执行破坏性安装/
+  卸载验收。不将本地结果表述为完整协议、全部原生场景、macOS 本机、
+  真实账户、安装器或云端 CI 通过；本次提交需独立云端验证。
 
 ## 监管进程观测补齐与类型声明（2026-11-13）
 
@@ -14849,3 +14939,139 @@ tests. The descriptor contains a plaintext bearer in the isolated userData,
 never in renderer IPC. Actual Hermes gateway loading, real models/Feishu,
 clean-machine installation, macOS, cloud CI, public marketplace publication,
 release packaging and user engineering acceptance remain unverified.
+
+## BVR 兼容分支同步主线（2026-11-11）
+
+PR #234 的 `1ba4e92` 在 Windows 三组、两平台 SDK 和 macOS
+源码、包内及最终汇总检查通过，Codex review 没有提出问题。
+macOS 首轮包内 Remote 在解除绑定后等待空状态超时；同提交源码及
+本机既有 main 包通过，保留首轮日志和诊断，只复跑失败组后通过。
+未修改产品、验收断言或时限，不把复跑通过称为已定位该偶发失败。
+
+等待期间主线合入 #225。本分支正常合并 `cb8852c`，唯一冲突是本文件
+顶部并列新增的验收记录，双方内容均保留；作者指南自动合并。
+保留主线通用外部接入、Remote 与插件界面改动，不改运行时固定版本。
+上述旧提交的云端结果不代表本次组合已通过；组合检查与体验包另行记录。
+
+## BVR 旧资源升级兼容（2026-11-11）
+
+基于主线 `ed018f1`，仅修复两处宿主兼容问题，不修改 BVR 或社区市场资源：
+
+- 旧包尚无设置清单且没有通用配置绑定时，允许首次新增有效清单，
+  消费者必须是原有同名 stdio 服务，并具备独立配置兼容隔离标记。
+  不认领旧秘密、不转换已有 schema；服务增删、传输、默认开关及其他
+  隔离标记变化继续拒绝。
+- 同源更新后，结构与身份有效的旧包模式投影为尚未设置，允许明确重选；
+  不再因旧指纹永久打不开设置。旧选择快照、独立配置及 Key 保留，
+  旧启动失效，新来源仍需保存，跟随能力仍需本次启动的调用确认。
+
+Node 24.16.0 下，宿主契约、原生安装更新及 12 个配置、快照竞态、
+broker、launcher、BVR、Remote 文件共 309 项定向回归通过。
+追加已有设置清单删除、隔离标记放宽、默认开关和传输变化的拒绝断言，
+对应原生用例单独复跑通过。类型检查、生产构建与差异空白检查通过；
+不代表完整本地测试集或云端 CI 全绿。
+后续串行复跑宿主契约、原生插件、RPC 退出、管理进程退出、会话运行时及
+Electron 夹具退出六个文件，共 190 项：188 通过、2 项 POSIX 用例在
+Windows 跳过、零失败；与前述 309 项部分重叠，不累计成独立覆盖数。
+再次类型检查通过。
+
+Windows 源码 Electron 使用 BVR 仓库归档 `8adbeb6` 的 `0.1.1`，
+以及市场固定提交 `3624427c4c9da65dc634cba1a65ff021d11194d2` 的
+`0.2.0`，不改资源原文。旧跟随和旧独立两种配置均实际点击更新按钮：
+原安装实例、来源、禁用覆盖、旧配置及外部 Key 文件保持不变，
+没有自动选中模型来源或导入秘密；再通过实际表单保存分开的主力/ASR。
+旧独立运行时缺少 host v1 标记时检查明确拒绝，换回兼容本体后检查通过。
+先前这组更新-only 验收只验证更新与配置，不启动会话，两次均正常退出、
+零 renderer 错误；完整组合结果见下文。
+
+BVR 原有原生验收另行通过 8 项：实际 MCP、正式确认界面、拒绝与撤销、
+取消、账户切换、独立主力/ASR 配置、过期启动拒绝。
+6 次 provider 请求与 20 次 agent 请求均为 loopback；没有真实账户、
+付费请求或原生 ASR 调用。它使用新装资源，不能代替旧包升级后退出验收。
+
+早期组合验收已在升级后连接真实 BVR MCP，但随后重启测试会话出现
+`Runtime process-tree termination failed (1)`，窗口退出也超时。
+失败日志保留，尚未确认该失败码的根因，不能归因于本轮兼容修改。
+仅按隔离 profile 的 DevTools 端点确认 PID 后回收本轮遗留的测试窗口，
+未关闭用户日用实例。
+
+后续受控最小进程树及真实 Step 运行时退出/重启检查通过。
+诊断插桩组合记录到树终止工具成功及对应子进程退出，没有观察到失败码 1；
+该插桩只记录进程生命周期与终止工具输出，不修改宿主清理判断。
+另外发现早期夹具重定向到空的 Windows 用户目录后缺少有效默认项目，
+启动记录有 Documents 路径错误；已为最终夹具设置独立的私有项目目录，
+不能据此断言它就是之前进程树终止失败的原因。
+
+最终不带进程插桩的 `electron-results-11.json` 中，旧跟随和旧独立配置
+均通过完整的更新、明确配置、真实 BVR MCP 连接、禁用后重启及正常退出，
+主进程崩溃日志和 renderer 错误均为零。未落盘的空会话重启可以建立新 ID；
+已落盘会话才要求保持原 ID，不把空会话 ID 变化当作清理故障。
+`runtime.ts` 保持不变，没有新增接受失败码的分支、降低断言或把强制回收
+当作正常退出。组合复跑通过不等于已定位并消除早期偶发失败。
+
+证据在 `Desktop/test-results/bvr-upgrade-compatibility/`：
+`host-final.log`、`native-final.log`、`native-negative-final.log`、
+`regression.log`、`electron-results-7.json`、
+`bvr-host-regression/verification.json`、`electron-results-11.json`、
+`electron-native-11.log`、`runtime-native-followup.log`、
+`typecheck-exit-followup.log` 及早期失败组合日志、截图。
+早期夹具路径、折叠区选择器和保存期间 busy 等待问题已纠正并保留日志；
+更新-only 结果不代替最终组合结果。第 9 次尝试还纠正了对未落盘空会话
+重启后 ID 的错误断言，未修改产品的会话语义。
+
+本轮没有升级 runtime pin、改动上游、提 PR、打安装包、发布插件、
+修改主快捷方式或日用 profile。只生成源码构建和隔离验收证据，
+未删除旧包或其他会话的产物。
+
+## PR #234 整合统一更新预检（2026-11-13）
+
+将主线 `965d27e`（已包含 #238）正常合入 #234。
+`capability-settings.mjs` 与作者指南的冲突保留统一预检、配置 stamp
+重核、版本化事务和恢复规则；首次新增配置走同一更新入口，不恢复旧的
+独立更新路径。新增清单使用严格解析，未知属性和重复属性也拒绝。
+仅在旧包没有清单及通用配置绑定时，允许原有同名 stdio 消费者加强隔离；
+已有 schema 的宿主迁移限制、服务边界和默认开关检查不变。
+首次配置的预检展示独立原因，更新完成后仍需明确设置，不导入旧秘密。
+保留旧宿主来源投影为未配置、允许明确重选的修复，不继承旧授权。
+
+Windows 定向回归串行完成，三组文件不重叠：
+
+- 宿主契约、原生插件及配置更新三个文件，41 项通过。
+- 配置、快照竞态、设置竞态、宿主运行时、launcher、broker、
+  更新协调、会话释放、Remote 管理和 runtime staging 十二个文件，
+  232 项通过。
+- capability worker 与更新夹具两个文件，25 项通过。
+
+以上合计 298 项，零失败；不代表完整本地测试集。
+类型检查和生产构建通过；构建仅有既有的依赖 `use client` 警告。
+根目录 CI 策略测试 56 项中 55 通过、1 项平台跳过、零失败。
+暂存与工作区的差异空白检查通过。
+
+扩展 `verify-plugin-update-electron.mjs`，使用隔离 Git 市场和实际
+Electron main、preload、renderer、Step 运行时完成七组验收：
+旧包首次新增配置实际点击更新，保留实例、来源、禁用服务及旧文件，
+不自动创建配置绑定或导入 Key；随后明确配置并继续普通兼容更新、
+未落盘空会话阻断、双会话只读预检及取消、释放后恢复真实 MCP、
+不兼容变更聚合阻断。双会话恢复前后已落盘历史、会话与 runtime ID
+保持，旧 worker PID 退出，新 worker 已连接；浅色、深色、窄屏
+二级界面截图已生成。最终 `complete: true`、七项检查通过、
+provider 请求为零、renderer 错误为零，验收结束无残留测试进程。
+
+本轮证据：
+
+- `D:\DFSC Builds\pr234-20261113-integration-r1.log`
+- `D:\DFSC Builds\pr234-20261113-regressions-r1.log`
+- `D:\DFSC Builds\pr234-20261113-fixture-regressions-r1.log`
+- `D:\DFSC Builds\pr234-20261113-typecheck-r1.log`
+- `D:\DFSC Builds\pr234-20261113-build-r1.log`
+- `D:\DFSC Builds\pr234-20261113-ci-policy-r1.log`
+- `D:\DFSC Builds\pr234-20261113-native-update-r2.log`
+- `D:\DFSC Builds\pr234-20261113-native-update-r2-evidence\acceptance.json`
+
+只生成 `D:\DFSC Builds\pr234-20261113-main-sync` 隔离源码验收构建，
+复用已有 runtime 资产，只在其独立 helper 目录替换本次源码。
+runtime pin 保持 `29eb460780489801ce8afc8bffc1a2efae7cbded`；
+未运行 runtime staging、改写共享链接资产、打安装包、切换快捷方式、
+重启日用程序、接触真实账户或发布插件。历史包不作为当前提交验收。
+此记录写入时当前整合提交尚未推送，云端 CI 待重新运行；旧提交的
+Windows/macOS/SDK 绿灯不算本次整合通过，云端结果以 PR 当前 head 为准。

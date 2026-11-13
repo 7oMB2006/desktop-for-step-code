@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, rm } from 'node:fs/promises';
+import { mkdir } from 'node:fs/promises';
+import { mkdtemp, removeTestProfile } from './test-profile.mjs';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import { chromium } from 'playwright';
@@ -189,5 +190,5 @@ try {
   await server.close();
   assert.equal(dirname(resolve(cacheDir)), resolve(tmpdir()));
   assert.ok(basename(cacheDir).startsWith('dfsc-host-settings-vite-'));
-  await rm(cacheDir, { recursive: true, force: true });
+  await removeTestProfile(cacheDir);
 }

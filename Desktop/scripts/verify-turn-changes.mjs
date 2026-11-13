@@ -4,7 +4,8 @@ import { sampleMotion } from './sample-motion.mjs';
 import { settleLayout } from './settle-layout.mjs';
 import assert from 'node:assert/strict';
 import { createPatch } from 'diff';
-import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
+import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdtemp } from './test-profile.mjs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 

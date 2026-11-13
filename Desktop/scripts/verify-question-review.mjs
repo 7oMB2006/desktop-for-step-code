@@ -1,7 +1,8 @@
 import { settleLayout } from './settle-layout.mjs';
 import { _electron as electron } from 'playwright';
 import { createServer } from 'node:http';
-import { mkdtemp, mkdir, writeFile, realpath } from 'node:fs/promises';
+import { mkdir, writeFile, realpath } from 'node:fs/promises';
+import { mkdtemp } from './test-profile.mjs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import assert from 'node:assert/strict';

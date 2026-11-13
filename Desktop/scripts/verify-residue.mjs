@@ -1,8 +1,9 @@
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join, relative } from 'node:path';
+import { residueTestSafetyIssues } from './residue-test-safety.mjs';
 
 /**
  * Install / uninstall residue verification.
@@ -73,8 +74,8 @@ import { join, relative } from 'node:path';
  *   node scripts/verify-residue.mjs snapshot --label before
  *   node scripts/verify-residue.mjs diff test-results/residue-before.json test-results/residue-after.json
  *   node scripts/verify-residue.mjs env [target-dir]
- *   node scripts/verify-residue.mjs verify --installer "release/Desktop for Step Code Setup 0.1.0.exe"
- *   node scripts/verify-residue.mjs upgrade --from <v1.exe> --to <v2.exe> --baseline-files N
+ *   node scripts/verify-residue.mjs verify --installer "release/Desktop for Step Code Setup 0.1.0.exe" --disposable-account
+ *   node scripts/verify-residue.mjs upgrade --from <v1.exe> --to <v2.exe> --baseline-files N --disposable-account
  *   node scripts/verify-residue.mjs upgrade-diff before.json after-v1.json after-upgrade.json after-upgrade-launch.json after-uninstall.json --baseline-files N
  *
  * No third-party dependencies: this has to run on a bare Node install, because
@@ -173,6 +174,31 @@ function uninstallEntryCount() {
 
 function registryState() {
   return { uninstallEntries: uninstallEntryCount() };
+}
+
+function appRunningState() {
+  try {
+    const output = execFileSync('tasklist', ['/FI', `IMAGENAME eq ${APP_NAME}.exe`, '/NH'], {
+      encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 10000, windowsHide: true,
+    });
+    return output.toLowerCase().includes(`${APP_NAME}.exe`.toLowerCase());
+  } catch {
+    return null;
+  }
+}
+
+function requireSafeResidueTestState(args) {
+  const issues = residueTestSafetyIssues({
+    disposableAccountAcknowledged: args.includes('--disposable-account'),
+    protectedPaths: Object.entries(PATHS).map(([label, path]) => ({ label, path, exists: existsSync(path) })),
+    uninstallEntries: uninstallEntryCount(),
+    appRunning: appRunningState(),
+    runtimeOverrides: Object.keys(process.env).filter(key => /^(STEPCODE_|STEP_CODING_AGENT_|DESKTOP_TEST_USER_DATA$)/i.test(key)),
+  });
+  if (issues.length === 0) return;
+  console.error('refusing destructive residue test; use a disposable Windows account with no existing app or Step Code data:');
+  for (const issue of issues) console.error(`  - ${issue}`);
+  process.exit(2);
 }
 
 function snapshot(extra = {}) {
@@ -361,42 +387,6 @@ function upgradeVerdict(snaps, baselineFiles) {
   // 最终卸载残留：与 install 判定用同一个函数、同一把尺子
   rows.push(...verdict(snaps.afterUninstall, snaps.before));
   return rows;
-}
-
-/**
- * 删除本应用的卸载注册表项（按 DisplayName 值定位 GUID 子键后整键删除）。
- * upgrade 流程要求从「从未安装过」的状态起步：上一个安装留下的卸载项会让
- * 「升级后仍是 1 个卸载项」这条判定失去意义。
- * 返回删除的条目数。
- */
-function removeAppUninstallEntries() {
-  const key = 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall';
-  let out;
-  try {
-    out = execFileSync('reg', ['query', key, '/s', '/v', 'DisplayName'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
-  } catch {
-    return 0;
-  }
-  let current = null;
-  let removed = 0;
-  for (const line of out.split(/\r?\n/)) {
-    const keyLine = line.match(/^\s*(HKEY_[A-Za-z0-9_]+(?:\\[^\s]+)*)\s*$/);
-    if (keyLine) {
-      current = keyLine[1];
-      continue;
-    }
-    const name = line.match(/^\s*DisplayName\s+REG_\S+\s+(.+?)\s*$/i);
-    if (current && name && name[1].includes(APP_NAME)) {
-      try {
-        execFileSync('reg', ['delete', current, '/f'], { stdio: 'ignore' });
-        removed += 1;
-      } catch {
-        // 删不掉的键留给后面的计数判定去暴露，不静默
-      }
-      current = null;
-    }
-  }
-  return removed;
 }
 
 /**
@@ -618,8 +608,9 @@ if (command === 'snapshot') {
 } else if (command === 'verify') {
   const installerIndex = args.indexOf('--installer');
   const installer = installerIndex >= 0 ? args[installerIndex + 1] : null;
+  requireSafeResidueTestState(args);
   if (!installer || !existsSync(installer)) {
-    console.error('  usage: verify-residue.mjs verify --installer <path-to-setup.exe>');
+    console.error('  usage: verify-residue.mjs verify --installer <path-to-setup.exe> --disposable-account');
     process.exit(2);
   }
   mkdirSync(RESULTS_DIR, { recursive: true });
@@ -631,15 +622,6 @@ if (command === 'snapshot') {
     return output;
   };
 
-  // 环境里已有 STEPCODE_* 时先警告：那会让 ~/.stepcode 的结论不可信
-  const ambient = Object.keys(process.env).filter(k => /^STEPCODE_|^STEP_CODING_AGENT_/.test(k));
-  if (ambient.length > 0) {
-    console.log(`  warning: ambient ${ambient.join(', ')} redirects runtime writes;`);
-    console.log('  the ~/.stepcode comparison may attribute them to the app');
-  }
-
-  console.log('  cleaning any previous install');
-  if (existsSync(PATHS.installDir)) rmSync(PATHS.installDir, { recursive: true, force: true });
   const before = step('before');
 
   console.log('  installing (silent, per-user)');
@@ -697,8 +679,9 @@ if (command === 'snapshot') {
   const from = flag('--from');
   const to = flag('--to');
   const baselineFiles = flag('--baseline-files') === null ? null : Number(flag('--baseline-files'));
+  requireSafeResidueTestState(args);
   if (!from || !to || !existsSync(from) || !existsSync(to)) {
-    console.error('  usage: verify-residue.mjs upgrade --from <v1-setup.exe> --to <v2-setup.exe> --baseline-files N');
+    console.error('  usage: verify-residue.mjs upgrade --from <v1-setup.exe> --to <v2-setup.exe> --baseline-files N --disposable-account');
     process.exit(2);
   }
   // 同一个包装两遍不构成升级测试，先拦住
@@ -727,20 +710,6 @@ if (command === 'snapshot') {
     return { done, files: done ? 1 : 0 };
   };
 
-  // 从「从未安装过」起步：安装目录、userData、卸载注册表项、快捷方式全清。
-  // userData 也清，这样 after-v1 清单里只有 v1 自己写出来的东西——
-  // 混着上一个安装的残留，「数据有没有保住」就说不清了。
-  console.log('  cleaning any previous install (fresh state for an upgrade test)');
-  if (existsSync(PATHS.installDir)) rmSync(PATHS.installDir, { recursive: true, force: true });
-  if (existsSync(PATHS.userData)) rmSync(PATHS.userData, { recursive: true, force: true });
-  const removedKeys = removeAppUninstallEntries();
-  if (removedKeys > 0) console.log(`  removed ${removedKeys} leftover uninstall registry entr${removedKeys === 1 ? 'y' : 'ies'}`);
-  for (const shortcut of [PATHS.startMenuShortcut, PATHS.desktopShortcut]) {
-    if (existsSync(shortcut)) {
-      rmSync(shortcut, { force: true });
-      console.log(`  removed leftover shortcut ${shortcut}`);
-    }
-  }
   const before = step('before');
 
   console.log('  installing v1 (silent, per-user)');
@@ -822,8 +791,8 @@ if (command === 'snapshot') {
   console.log('    node scripts/verify-residue.mjs snapshot --label <name>');
   console.log('    node scripts/verify-residue.mjs diff <before.json> <after.json>');
   console.log('    node scripts/verify-residue.mjs env [target-dir]');
-  console.log('    node scripts/verify-residue.mjs verify --installer <setup.exe>');
-  console.log('    node scripts/verify-residue.mjs upgrade --from <v1.exe> --to <v2.exe> --baseline-files N');
+  console.log('    node scripts/verify-residue.mjs verify --installer <setup.exe> --disposable-account');
+  console.log('    node scripts/verify-residue.mjs upgrade --from <v1.exe> --to <v2.exe> --baseline-files N --disposable-account');
   console.log('    node scripts/verify-residue.mjs upgrade-diff <5 snapshots> --baseline-files N');
   process.exit(2);
 }

@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, rm } from 'node:fs/promises';
+import { mkdir } from 'node:fs/promises';
+import { mkdtemp, removeTestProfile } from './test-profile.mjs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { chromium } from 'playwright';
@@ -873,4 +874,4 @@ try {
   }
   assert.deepEqual(errors, []);
   console.log('Production PluginCenter browser acceptance passed.');
-} finally { await browser.close(); await server?.close(); await rm(cacheDir, { recursive: true, force: true }); }
+} finally { await browser.close(); await server?.close(); await removeTestProfile(cacheDir); }

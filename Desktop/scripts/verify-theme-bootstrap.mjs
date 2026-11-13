@@ -19,7 +19,8 @@
 //   and reports it instead of faking a renderer-side system theme.
 import { _electron as electron } from 'playwright';
 import assert from 'node:assert/strict';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { writeFile } from 'node:fs/promises';
+import { mkdtemp, removeTestProfile } from './test-profile.mjs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { execFile } from 'node:child_process';
@@ -79,7 +80,7 @@ const runCase = async (preference) => {
     return { preference, observed, mainProcessSystemDark: native };
   } finally {
     await closeApp(app, `first frame ${preference}`);
-    await rm(profile, { recursive: true, force: true });
+    await removeTestProfile(profile);
   }
 };
 
@@ -146,7 +147,7 @@ try {
     console.log(`runtime system change: follow to light, follow back to ${hostDark ? 'dark' : 'light'}`);
   } finally {
     await closeApp(app, 'runtime system change');
-    await rm(profile, { recursive: true, force: true });
+    await removeTestProfile(profile);
   }
 }
 
@@ -212,7 +213,7 @@ try {
     // pending while Playwright waits for the browser context to close.
     releaseModules();
     await closeApp(app, 'startup system race');
-    await rm(profile, { recursive: true, force: true });
+    await removeTestProfile(profile);
   }
 }
 

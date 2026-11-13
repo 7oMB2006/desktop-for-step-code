@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
-import { cp, mkdtemp, mkdir, readFile, realpath, unlink, writeFile } from 'node:fs/promises';
+import { cp, mkdir, readFile, realpath, unlink, writeFile } from 'node:fs/promises';
+import { mkdtemp } from './test-profile.mjs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { createServer } from 'node:http';

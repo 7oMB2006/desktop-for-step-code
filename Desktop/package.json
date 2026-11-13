@@ -108,6 +108,10 @@
         "to": "queue-demo/run-queue-demo.mjs"
       },
       {
+        "from": "scripts/test-profile.mjs",
+        "to": "queue-demo/test-profile.mjs"
+      },
+      {
         "from": "scripts/queue-demo-fixture.mjs",
         "to": "queue-demo/queue-demo-fixture.mjs"
       },

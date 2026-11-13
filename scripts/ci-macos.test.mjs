@@ -21,7 +21,7 @@ test('macOS inherits shared feature coverage with only explicit native exclusion
   for (const script of Object.values(acceptanceGroups).flat()) {
     assert.ok(scripts.includes(script) || script in macosExclusions, script);
   }
-  for (const script of ['verify-macos-updater.mjs', 'verify-turn-undo.mjs', 'verify-auto-resume-electron.mjs',
+  for (const script of ['verify-profile-lifecycle.mjs', 'verify-macos-updater.mjs', 'verify-turn-undo.mjs', 'verify-auto-resume-electron.mjs',
     'verify-session-import.mjs', 'verify-then-run.mjs', 'verify-usage-worker.mjs']) assert.ok(scripts.includes(script));
   assert.equal(new Set(scripts).size, scripts.length);
   assert.throws(() => macosGroupScripts('typo'), /Unknown macOS/);

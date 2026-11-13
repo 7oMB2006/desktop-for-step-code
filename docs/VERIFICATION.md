@@ -1,5 +1,31 @@
 # Verification
 
+## 监管进程观测补齐与类型声明（2026-11-13）
+
+`9d0d0bc` 的云端 Windows runtime 和 macOS prepare 都在类型检查失败：
+新增测试直接导入共享 `.mjs` helper，却遗漏配套声明，产生 TS7016。
+这是本轮提交遗漏；补充精确 `.d.mts` 参数声明，不排除测试或放宽 strict。
+
+同 head 的 Windows sessions 全组通过；interface 已通过首次引导、语音及
+插件能力验收，随后 diagnostics 因旧观测器只识别直接 Node，无法记录
+supervisor 内的会话而失败。补齐精确 runtime 路径和结构化 spec 识别，
+从匹配 Job 的首条有效 receipt 取得真实 Node PID，另记 supervisor PID，
+保留原 transport 对象、Remote 绑定、权限、模型和进程退出断言。
+历史计时的一次性延迟及本地导航性能观测也存在同源遗漏，一并补齐；
+只观察真实会话，不改启动命令、参数或 Job Object 包含关系。
+
+- 完整类型检查通过；四个文件的定向回归 32/32 通过。
+  新增 12 项实际回调执行覆盖 source/packaged、direct/supervised，
+  拒绝无关管理 RPC、错误路径和非法 spec；核对 PID receipt、原对象、
+  Remote 替换、实际 1600 ms 延迟及命令/退出观测。
+- CI 清单测试通过，未调整门禁或放宽产品停机要求。
+  日志为 `D:\DFSC Builds\plugin-update-20261113-observer-typecheck.log`、
+  `plugin-update-20261113-observer-fixture-tests.log` 及
+  `plugin-update-20261113-observer-ci-policy.log`。
+- 本机系统可用提交余量仍不足 1 GB，未再启动重型 Electron/全量协议补验；
+  不将上一 head 的分组或更早本地通过沿用为最终树的完整通过。
+  新提交仍需完整云端 Windows/macOS/SDK 确认。
+
 ## 同类 transport 夹具补齐与本机资源边界（2026-11-13）
 
 `b78f0e1` 推送后横向核查发现，账户路由、账户设置、插件宿主授权和语音

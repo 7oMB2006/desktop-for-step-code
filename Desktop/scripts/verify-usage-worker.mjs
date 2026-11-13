@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { cp, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdtemp, removeTestProfile } from './test-profile.mjs';
 import { join, resolve } from 'node:path';
 
 assert.ok(['win32', 'darwin'].includes(process.platform), 'This check covers the pinned runtime');
@@ -69,5 +70,5 @@ try {
   assert.equal(result.status, 0, result.stderr || result.stdout);
   console.log(result.stdout.trim());
 } finally {
-  await rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+  await removeTestProfile(root);
 }

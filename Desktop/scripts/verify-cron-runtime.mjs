@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import { build } from 'esbuild';
 import { createServer } from 'node:http';
-import { mkdtemp, mkdir, readFile, writeFile, unlink, realpath, utimes } from 'node:fs/promises';
+import { mkdir, readFile, writeFile, unlink, realpath, utimes } from 'node:fs/promises';
+import { mkdtemp } from './test-profile.mjs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';

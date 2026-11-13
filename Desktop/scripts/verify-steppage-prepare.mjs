@@ -1,7 +1,8 @@
 // Explicit local-only network acceptance. No login, model prompt, tool call or publishing.
 import { _electron as electron } from 'playwright';
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, writeFile, readFile, rm, stat } from 'node:fs/promises';
+import { mkdir, writeFile, readFile, stat } from 'node:fs/promises';
+import { mkdtemp, removeTestProfile } from './test-profile.mjs';
 import { join, resolve } from 'node:path';
 import { closeDesktopFixture } from './close-desktop-fixture.mjs';
 
@@ -196,5 +197,5 @@ try {
   }
   // This script owns the exact mkdtemp profile and all its children.
   assert.ok(profile.startsWith(join(output, 'steppage-prepare-profile-')));
-  await rm(profile, { recursive: true, force: true });
+  await removeTestProfile(profile);
 }

@@ -25,6 +25,10 @@
 
 ## Windows Package Handoff
 
+- Follow `docs/ARTIFACT_LIFECYCLE.md` for generated profiles, scratch output, retained evidence and preview-package ownership. Keep the newest two preview packages by default; protect actively referenced or explicitly retained packages, and obtain authorization before deleting older artifacts.
+- Honor the machine's ignored local build-output override. Resolve output paths before building; do not place large local preview packages in the system temporary directory or silently fall back to an unapproved drive.
+- Acceptance scripts and demos must create disposable profiles through `Desktop/scripts/test-profile.mjs`, close their owned processes before cleanup, and keep formal application credentials and sessions separate. Installer residue tests require a disposable account or VM and `--disposable-account`; never erase pre-existing state to prepare a test.
+
 - Unless the owner explicitly opts out for a particular build, a requested Windows acceptance package includes updating the existing primary desktop `Desktop for Step Code.lnk` after package verification passes. This is standing authorization; do not require a separate shortcut-update request.
 - Inspect and back up that exact shortcut before editing. Point its target, working directory and icon to the newly verified package's `win-unpacked` executable, then read the saved shortcut back to verify all three fields and that the executable exists.
 - Preserve existing launch arguments, profile selection, hotkey and window style. Do not introduce demo arguments, profile overrides or credential/configuration changes as part of redirecting the shortcut.

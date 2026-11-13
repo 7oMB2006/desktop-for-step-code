@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdtemp, removeTestProfile } from './test-profile.mjs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -339,6 +340,6 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1
     });
   } finally {
     await browser?.close(); await server?.close();
-    await rm(cacheDir, { recursive: true, force: true });
+    await removeTestProfile(cacheDir);
   }
 }

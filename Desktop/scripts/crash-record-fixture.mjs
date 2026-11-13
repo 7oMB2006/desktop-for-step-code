@@ -1,6 +1,7 @@
 import { build } from 'esbuild';
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises';
+import { readFile, readdir } from 'node:fs/promises';
+import { mkdtemp, removeTestProfile } from './test-profile.mjs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -57,5 +58,5 @@ export async function verifyCrashRecords(app, profile) {
     assert.ok(diagnostic.split('\n').includes(`packaged: ${receipt.packaged}`));
     assert.ok(diagnostic.split('\n').includes(`userData: ${receipt.userData}`));
     console.log('Electron crash record boundaries passed: redaction, safe frames, hook isolation and UTF-8 budget.');
-  } finally { await rm(root, { recursive: true, force: true }); }
+  } finally { await removeTestProfile(root); }
 }

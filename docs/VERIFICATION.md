@@ -1,5 +1,32 @@
 # Verification
 
+## 临时验收目录生命周期（2026-11-13，本地）
+
+基于 `main 965d27e` 在 D: 独立工作区验证，未切换或清理旧发布分支，
+也未同步其他活跃工作树。主线 124 份现有验收/演示脚本统一使用
+`test-profile.mjs`；包括旧分支中不存在的 MiniChat、首次引导及插件验收。
+保留各脚本原有进程退出流程，只清理本轮登记的精确目录。
+显式清理同样遵守 `DESKTOP_KEEP_TEST_PROFILES=1`；保留时打印准确路径。
+正式 userData、个人 Step Code 档案、历史 Temp 和现用包未删除。
+
+- 使用 Node 24.16.0 的四个定向文件共 60/60 通过，覆盖生命周期、
+  Electron 夹具退出、transport 和 supervisor 观测；新生命周期测试 16/16。
+  CI 策略/清单/运行器测试共 67 项，66 通过、1 项平台跳过、零失败。
+- 完整类型检查和生产源码构建通过，保留既有 Vite directive 警告。
+  最初原生探针使用旧 `.composer textarea`，因主线已改用富文本编辑器而
+  等待超时；改为核对真实新会话界面及 preload 后，重新完整通过。
+- 真实 Electron 44.4.5 的默认清理、显式保留两种模式均通过：
+  各启动两次，用合成 cookie 验证同一隔离档案重启后的持久性，
+  然后确认 runner 退出后的删除/保留行为；协调器自有夹具均已删除。
+  结果位于 `Desktop/test-results/profile-lifecycle/results.json`。
+- 为避免重复下载应用二进制，使用相同版本的已有 Electron；
+  runtime 只读复用本机既有 `29eb460` staging，未修改 runtime pin。
+  依赖、源码构建及日志均放在 D:。保留证据位于
+  `Desktop/test-results/lifecycle-delivery`，未生成安装器或新预览包。
+- residue `verify/upgrade` 的拒绝预检通过单元测试；没有执行破坏性安装/
+  卸载验收。不将本地结果表述为完整协议、全部原生场景、macOS 本机、
+  真实账户、安装器或云端 CI 通过；本次提交需独立云端验证。
+
 ## 监管进程观测补齐与类型声明（2026-11-13）
 
 `9d0d0bc` 的云端 Windows runtime 和 macOS prepare 都在类型检查失败：

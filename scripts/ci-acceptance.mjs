@@ -91,6 +91,7 @@ export const acceptanceGroups = {
   ],
   runtime: [
     'verify-electron.mjs',
+    'verify-profile-lifecycle.mjs',
     'verify-plugin-update-electron.mjs',
     'verify-cron-runtime.mjs',
     'verify-cron-management.mjs',

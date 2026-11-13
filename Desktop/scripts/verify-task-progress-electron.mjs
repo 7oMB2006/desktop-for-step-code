@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { _electron as electron } from 'playwright';
-import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
+import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdtemp } from './test-profile.mjs';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';

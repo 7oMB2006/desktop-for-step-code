@@ -235,6 +235,13 @@ try {
     throw new Error('Expected Remote card not received');
   };
   const button = name => page.getByRole('button', { name, exact: true });
+  const confirmRemoteAction = async name => {
+    await button(name).click();
+    const confirm = button('确认');
+    await confirm.waitFor();
+    await settleLayout(confirm);
+    await confirm.click();
+  };
   const state = () => page.evaluate(() => window.desktop.remoteState());
   const waitState = async predicate => {
     const deadline = Date.now() + 30000;
@@ -564,12 +571,24 @@ try {
     'Exiting forwarding must not terminate the resident local session');
   await button('远程访问').click();
   await page.getByRole('tab', { name: '已授权连接', exact: true }).click();
-  await button('解除绑定').click();
-  await button('确认').click();
+  await confirmRemoteAction('解除绑定');
   await panel.getByRole('heading', { name: '暂无已授权连接' }).waitFor();
   assert.equal((await state()).binding, undefined);
   await page.getByRole('tab', { name: '运行状态', exact: true }).click();
-  await button('断开连接').click(); await button('确认').click();
+  // Delayed native IPC must not turn a completed click into a false disconnect failure.
+  await app.evaluate(({ ipcMain }) => {
+    const handler = ipcMain._invokeHandlers.get('desktop');
+    ipcMain.removeHandler('desktop');
+    ipcMain.handle('desktop', async (event, method, ...args) => {
+      if (method === 'remoteAction' && args[0]?.type === 'disconnect') {
+        ipcMain.removeHandler('desktop'); ipcMain.handle('desktop', handler);
+        await new Promise(resolve => setTimeout(resolve, 250));
+      }
+      return handler(event, method, ...args);
+    });
+  });
+  await confirmRemoteAction('断开连接');
+  await waitState(current => current.status === 'idle' && current.saved === false);
   assert.equal((await state()).status, 'idle');
   await assert.rejects(readFile(join(profile, 'remote/connection.dpapi')), { code: 'ENOENT' });
   await app.evaluate(async () => {
@@ -631,6 +650,22 @@ try {
   assert.deepEqual(errors, []);
   assert.deepEqual(failures, []);
   console.log(`Remote Beta acceptance passed: staged SDK/helper, scoped slash routing, cold/new sessions without inference, actual runtime image input, permission-tool native image delivery and caption, question permission followed by original structured answers, Plan refinements and explicit proposal approval, queued-only recall, tasks queue counts, detach retaining local work, original-task stop, approvals, dedup, encrypted grants, local draft/focus and light/dark narrow UI.${executablePath ? ' Restart injection is source-only.' : ' Actual quit/relaunch recovery and forget-on-disconnect passed.'}`);
+} catch (error) {
+  if (app) {
+    const page = await app.firstWindow().catch(() => undefined);
+    const state = await page?.evaluate(async () => {
+      const current = await window.desktop.remoteState();
+      const confirmation = document.querySelector('.remote-confirmation');
+      return { status: current.status, stage: current.stage, saved: current.saved,
+        storageError: current.storageError, bound: Boolean(current.binding), authorized: Boolean(current.authorized),
+        confirmation: confirmation && { open: confirmation.hasAttribute('open'),
+          inert: confirmation.querySelector('div')?.hasAttribute('inert') },
+        errors: [...document.querySelectorAll('.remote-stage-error')].map(element => element.textContent) };
+    }).catch(() => ({ unavailable: true }));
+    console.error('Remote acceptance state:', JSON.stringify(state));
+    await page?.screenshot({ path: join(output, 'failure.png') }).catch(() => {});
+  }
+  throw error;
 } finally {
   held?.destroy();
   if (app) await closeDesktopFixture(app);

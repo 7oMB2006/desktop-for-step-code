@@ -19,8 +19,8 @@ const visit = (node: ts.Node) => {
 visit(source);
 assert.equal(installers.length, 1, 'Exercise the actual native startup interceptor');
 
-for (const isPackaged of [false, true]) {
-  test(`${isPackaged ? 'packaged' : 'source'} navigation fixture holds only two session workers, not management RPC`, () => {
+for (const isPackaged of [false, true]) for (const supervised of [false, true]) {
+  test(`${isPackaged ? 'packaged' : 'source'} ${supervised ? 'supervised' : 'direct'} navigation fixture holds only two session workers, not management RPC`, () => {
     const app = { isPackaged };
     const resourcesPath = resolve('isolated-fixture-resources');
     const runtime = isPackaged ? join(resourcesPath, 'runtime') : resolve('runtime');
@@ -33,6 +33,7 @@ for (const isPackaged of [false, true]) {
     };
     const childProcess = { spawn };
     const context = {
+      Buffer,
       process: {
         resourcesPath,
         getBuiltinModule(name: string) {
@@ -48,8 +49,22 @@ for (const isPackaged of [false, true]) {
     };
     runInNewContext(`(${installers[0].getText(source)})(electron)`, context);
     const state = JSON.stringify({ type: 'get_state' }) + '\n';
-    const launch = (entry: string, args = ['--mode', 'rpc']) => childProcess.spawn('node', [entry, ...args]);
+    const jobScript = join(runtime, 'windows-runtime-job.ps1');
+    const launch = (entry: string, args = ['--mode', 'rpc']) => supervised
+      ? childProcess.spawn('powershell.exe', ['-NoProfile', '-File', jobScript, '-Spec',
+        Buffer.from(JSON.stringify({ job: 'fixture-job', node: 'node', args: [entry, ...args], cwd: runtime })).toString('base64')])
+      : childProcess.spawn('node', [entry, ...args]);
     try {
+      for (const args of [
+        ['-File', jobScript, '-Spec', 'invalid'],
+        ['-File', jobScript, '-Spec', Buffer.from(JSON.stringify({ args: null })).toString('base64')],
+        ['-File', join(runtime, 'other/windows-runtime-job.ps1'), '-Spec',
+          Buffer.from(JSON.stringify({ args: [sessionEntry, '--mode', 'rpc'] })).toString('base64')],
+      ]) {
+        const child = childProcess.spawn('powershell.exe', args);
+        child.stdin.write(state);
+        assert.deepEqual(writes.get(child), [state], 'Invalid or unrelated supervisors cannot consume a startup slot');
+      }
       for (const entry of [join(runtime, 'capability-admin.mjs'), join(runtime, 'admin.mjs'),
         join(runtime, 'another/step.js')]) {
         const child = launch(entry);

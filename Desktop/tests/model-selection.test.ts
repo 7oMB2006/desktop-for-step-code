@@ -9,6 +9,28 @@ import type { Model } from '../src/contracts';
 
 const a: Model = { id: 'a', provider: 'fixture', name: 'Original Model', reasoning: true, thinkingLevels: ['off', 'low', 'high'] };
 const b: Model = { id: 'b', provider: 'fixture', name: 'Next Model', thinkingLevels: ['off', 'high'] };
+test('Ultra is opt-in for raw runtime models and remains distinct during pending selection', async () => {
+  const raw = { id: 'ultra', provider: 'fixture', name: 'Ultra', reasoning: true, thinkingLevelMap: { max: 'max', ultra: 'ultra' } };
+  assert.deepEqual(modelThinkingLevels(raw).slice(-2), ['max', 'ultra']);
+  const withoutUltra = { ...raw, thinkingLevelMap: { max: 'max' } };
+  assert.equal(modelThinkingLevels(withoutUltra).includes('ultra'), false);
+  const f = await fixture();
+  try {
+    f.worker.models.push(raw);
+    f.worker.busy = true;
+    f.selections.select(f.worker, raw);
+    f.selections.selectEffort(f.worker, 'ultra');
+    assert.equal(f.worker.pendingModel?.thinkingLevel, 'ultra');
+    assert.equal(f.worker.state?.thinkingLevel, 'low');
+    f.worker.busy = false;
+    await f.selections.apply(f.worker);
+    assert.equal(f.worker.state?.thinkingLevel, 'ultra');
+    assert.ok(f.calls.some(call => call.type === 'set_thinking_level' && call.args?.level === 'ultra'));
+    f.selections.select(f.worker, b);
+    assert.notEqual(f.worker.pendingModel?.thinkingLevel, 'ultra');
+    assert.throws(() => f.selections.selectEffort(f.worker, 'ultra'));
+  } finally { await f.close(); }
+});
 test('host invalidation runs immediately before an actual model change, not pending selection or effort', async () => {
   const f = await fixture();
   let invalidated = 0;

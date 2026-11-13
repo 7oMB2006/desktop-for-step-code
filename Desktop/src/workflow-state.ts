@@ -7,7 +7,7 @@ const lastTurnBoundary = (messages: Message[]) => messages.reduce((last, message
   isUserMessage(message) || cronMessage(message) ? index : last, -1);
 
 export interface WorkflowAgent {
-  id: string; label: string; task: string; phase?: string;
+  id: string; label: string; task: string; phase?: string; agentType?: string;
   status: 'queued' | 'running' | 'completed' | 'failed' | 'aborted' | 'cached' | 'unknown';
   startedAt?: number; finishedAt?: number; usageTokens?: number;
   error?: { code: string; message: string; retryable?: boolean; retryExhausted?: boolean };
@@ -49,6 +49,7 @@ function projectAgents(value: unknown, failuresOnly = false): WorkflowAgent[] {
     const message = text(error.message);
     const attempt = count(retry.attempt), maxRetries = count(retry.maxRetries), delayMs = number(retry.delayMs);
     agents.push({ id: agent.id, label: text(agent.label, 200), task: text(agent.task, 16000),
+      agentType: text(agent.agentType, 100) || undefined,
       phase: text(agent.phase, 200) || undefined, status: agent.status as WorkflowAgent['status'],
       startedAt: number(agent.startedAt), finishedAt: number(agent.finishedAt), usageTokens: number(agent.usageTokens),
       error: code || message ? { code, message, retryable: typeof error.retryable === 'boolean' ? error.retryable : undefined,
@@ -102,7 +103,7 @@ export function preserveWorkflow(previous: Message | undefined, next: Message): 
   for (const agent of current.agents) {
     const old = savedAgents.get(agent.id);
     merged.set(agent.id, old ? { ...agent, label: agent.label || old.label, task: agent.task || old.task,
-      phase: agent.phase ?? old.phase, startedAt: agent.startedAt ?? old.startedAt,
+      phase: agent.phase ?? old.phase, agentType: agent.agentType ?? old.agentType, startedAt: agent.startedAt ?? old.startedAt,
       finishedAt: agent.finishedAt ?? old.finishedAt, usageTokens: agent.usageTokens ?? old.usageTokens } : agent);
   }
   const agents = final ? [...merged.values()].slice(0, 1000) : current.agents;

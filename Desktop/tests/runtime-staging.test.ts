@@ -13,7 +13,8 @@ test('v0.1.7 retains the complete Desktop patch inventory without duplicate upst
   assert.equal(manifest.commit, '29eb460780489801ce8afc8bffc1a2efae7cbded');
   assert.deepEqual(manifest.upstream.commits, []);
   assert.deepEqual(Object.keys(manifest.patches), [...Object.keys(previous.patches),
-    'step-code-desktop-v017.patch', 'step-code-desktop-mcp-credentials.patch', 'step-code-desktop-plugin-host.patch']);
+    'step-code-desktop-v017.patch', 'step-code-desktop-mcp-credentials.patch', 'step-code-desktop-plugin-host.patch',
+    'step-code-desktop-ultra.patch', 'step-code-desktop-workflow-role.patch']);
   assert.deepEqual(Object.keys(manifest.platforms.darwin.patches), Object.keys(previous.platforms.darwin.patches));
   const touched = new Set<string>();
   for (const [name, hash] of Object.entries(manifest.patches)) {
@@ -46,6 +47,7 @@ test('v0.1.7 retains the complete Desktop patch inventory without duplicate upst
   assert.match(stage, /patches\/v017\/manifest\.json/);
   assert.match(stage, /'desktop-mcp-credential-isolation'/);
   assert.match(stage, /'desktop-plugin-host-launch'/);
+  assert.match(stage, /'desktop-ultra-effort'/);
   const credentials = await readFile(join(root, 'step-code-desktop-mcp-credentials.patch'), 'utf8');
   assert.match(credentials, /-\s+const credential = readStoredCredential/);
   assert.match(credentials, /\+export const STEP_LOGIN_SUPPLIED_ENV: readonly string\[\] = \[\]/);

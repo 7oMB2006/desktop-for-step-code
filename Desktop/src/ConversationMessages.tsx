@@ -21,6 +21,7 @@ import { ThinkingDisclosure } from './ThinkingDisclosure';
 import { ProcessRowLabel } from './ProcessRowLabel';
 import { DisclosureChevron } from './DisclosureChevron';
 import { SubagentStatusIcon } from './SubagentStatusIcon';
+import { AgentRoleIcon } from './AgentRole';
 import { WorkflowBlock } from './WorkflowView';
 import { workflowsFromMessages } from './workflow-state';
 import { ElapsedLabel } from './ElapsedLabel';
@@ -424,7 +425,7 @@ function SubagentTaskRow({ task, onOpen, language }: {
   return <button type="button" className="lane-row" data-tool-state={state} data-lane-agent={task.agent}
     aria-label={language === 'zh' ? `查看子代理记录: ${label}，${summary}` : `Open subagent record: ${label}, ${summary}`}
     onClick={() => onOpen(task)}>
-    <Bot size={14}/>
+    <AgentRoleIcon agent={agent || undefined} language={language}/>
     <SubagentStatusIcon state={state} language={language}/>
     <span className="lane-type">{agent || (zh ? '子代理' : 'Subagent')}</span>
     <span className="lane-chevron"><DisclosureChevron/></span>

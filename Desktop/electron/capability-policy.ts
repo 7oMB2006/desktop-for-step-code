@@ -5,7 +5,7 @@ export interface CapabilityPolicy {
   scope: CapabilityScope;
   pluginId?: string;
 }
-export type CapabilityGuard = (policy: Readonly<CapabilityPolicy>) => Promise<void | (() => void)>;
+export type CapabilityGuard = (policy: Readonly<CapabilityPolicy>, recheck?: () => Promise<void>) => Promise<void | (() => void)>;
 
 const policies = {
   'marketplace-add': 'discovery',

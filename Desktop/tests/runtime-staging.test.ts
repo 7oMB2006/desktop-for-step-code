@@ -13,7 +13,8 @@ test('v0.1.7 retains the complete Desktop patch inventory without duplicate upst
   assert.equal(manifest.commit, '29eb460780489801ce8afc8bffc1a2efae7cbded');
   assert.deepEqual(manifest.upstream.commits, []);
   assert.deepEqual(Object.keys(manifest.patches), [...Object.keys(previous.patches),
-    'step-code-desktop-v017.patch', 'step-code-desktop-mcp-credentials.patch', 'step-code-desktop-plugin-host.patch']);
+    'step-code-desktop-v017.patch', 'step-code-desktop-mcp-credentials.patch', 'step-code-desktop-plugin-host.patch',
+    'step-code-desktop-ultra.patch', 'step-code-desktop-workflow-role.patch']);
   assert.deepEqual(Object.keys(manifest.platforms.darwin.patches), Object.keys(previous.platforms.darwin.patches));
   const touched = new Set<string>();
   for (const [name, hash] of Object.entries(manifest.patches)) {
@@ -46,6 +47,7 @@ test('v0.1.7 retains the complete Desktop patch inventory without duplicate upst
   assert.match(stage, /patches\/v017\/manifest\.json/);
   assert.match(stage, /'desktop-mcp-credential-isolation'/);
   assert.match(stage, /'desktop-plugin-host-launch'/);
+  assert.match(stage, /'desktop-ultra-effort'/);
   const credentials = await readFile(join(root, 'step-code-desktop-mcp-credentials.patch'), 'utf8');
   assert.match(credentials, /-\s+const credential = readStoredCredential/);
   assert.match(credentials, /\+export const STEP_LOGIN_SUPPLIED_ENV: readonly string\[\] = \[\]/);
@@ -178,8 +180,11 @@ test('runtime packaging and standalone worker helpers use the current integratio
 
 test('the Desktop-only compile-cache extension is staged and launched without changing the upstream entry', async () => {
   const stage = await readFile(resolve('scripts/stage-runtime.mjs'), 'utf8');
+  const verification = await readFile(resolve('scripts/build-plugin-center-verification.mjs'), 'utf8');
   const main = await readFile(resolve('electron/main.ts'), 'utf8');
   assert.ok(stage.includes("cp('electron/runtime-compile-cache.mjs', join(runtime, 'runtime-compile-cache.mjs'))"));
+  assert.ok(verification.includes("'runtime-compile-cache.mjs'"));
+  assert.ok(verification.includes("input: ['index.html', 'tray-menu.html']"));
   assert.ok(main.includes("NODE_COMPILE_CACHE: join(dataRoot, 'compile-cache')"));
   assert.ok(main.includes("'--extension', join(runtimeRoot, 'runtime-compile-cache.mjs')"));
   assert.ok(stage.includes("entry: 'step/dist/bundle/step.js'"));

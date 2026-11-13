@@ -40,6 +40,15 @@ test('continuous speech is split every four seconds without rerecognizing prior 
   for (const phrase of phrases) { combined.set(phrase, offset); offset += phrase.length; }
   assert.deepEqual(combined, source);
 });
+test('six continuous phrases require 24 seconds of delivered PCM, not elapsed wall time', () => {
+  const segments = new SpeechSegments();
+  const before = segments.push(tone(18.8));
+  assert.equal(before.length, 4, 'The failed CI capture had not filled a four-phrase pending queue');
+  const remaining = segments.push(tone(5.2));
+  assert.equal(remaining.length, 2);
+  assert.ok([...before, ...remaining].every(phrase => phrase.length === 4 * 16000));
+  assert.equal(segments.finish(), undefined);
+});
 test('brief noise does not generate a request and a partial final audio block is retained', () => {
   const noise = new SpeechSegments();
   noise.push(tone(0.1));

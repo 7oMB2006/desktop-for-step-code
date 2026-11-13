@@ -37,6 +37,7 @@ export interface PluginPackage {
   links: { title: string; url: string }[]; warnings: string[];
   stars?: PluginStarSnapshot;
   configurationAvailable?: boolean;
+  hostConfiguration?: 'custom-background-v1';
   hostSettingsAvailable?: boolean;
   dataOnlyTheme?: boolean;
   locales?: Partial<Record<'zh' | 'en', PluginLocale>>;

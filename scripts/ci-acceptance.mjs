@@ -39,6 +39,7 @@ export const acceptanceGroups = {
     'verify-mini-chat-preview.mjs',
     'verify-btw.mjs',
     'verify-workflow-catalog.mjs',
+    'verify-workflow-roles.mjs',
     'verify-composer-editing.mjs',
     'verify-terminal-panel.mjs',
     'verify-terminal-scopes.mjs',
@@ -90,6 +91,7 @@ export const acceptanceGroups = {
   ],
   runtime: [
     'verify-electron.mjs',
+    'verify-plugin-update-electron.mjs',
     'verify-cron-runtime.mjs',
     'verify-cron-management.mjs',
     'verify-cron-transcript-electron.mjs',
@@ -170,6 +172,10 @@ export const localOnly = [
   'verify-theme-packs.mjs',
   'verify-theme-workspace.mjs',
   'verify-theme-composition-electron.mjs',
+  // Personal-image editor/rendering matrices and isolated native import lifecycle.
+  'verify-custom-background-settings.mjs',
+  'verify-custom-background-rendering.mjs',
+  'verify-custom-background-electron.mjs',
   // Requires an explicitly prepared isolated Electron build and runtime.
   'verify-theme-pack-electron.mjs',
   'verify-stellar-pencil.mjs',
@@ -259,10 +265,11 @@ export function validateInventory(files, groups = acceptanceGroups, excluded = l
   }
 }
 
-// macOS uses the same feature inventory. Keep the native Windows shell probe
-// explicitly excluded; native macOS terminal behavior is tested separately.
+// macOS inherits shared coverage except explicit Windows-only native probes.
+// Native macOS terminal behavior is tested separately.
 export const macosExclusions = {
   'verify-windows-commands.mjs': 'Requires Windows executable discovery, Git Bash and PowerShell.',
+  'verify-plugin-update-electron.mjs': 'Requires Windows Job Object process-tree release and session restoration; automatic release is not supported on macOS.',
 };
 export const macosAcceptanceGroups = Object.fromEntries(Object.entries(acceptanceGroups)
   .map(([group, scripts]) => [group, scripts.filter(script => !(script in macosExclusions))]));

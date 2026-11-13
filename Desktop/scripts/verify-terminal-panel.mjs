@@ -308,6 +308,29 @@ try {
     throw error;
   });
   await page.screenshot({ path: 'test-results/terminal-panel-dark.png' });
+  await page.evaluate(() => {
+    const root = document.documentElement;
+    root.style.setProperty('--background-panel-opacity', '50%');
+    root.style.setProperty('--background-surface-blur', '8px');
+    root.dataset.customBackgroundSurfaces = 'true';
+  });
+  await page.waitForFunction(() => {
+    const viewport = document.querySelector('.terminal-view:not([hidden]) .xterm-scrollable-element');
+    return viewport && getComputedStyle(viewport).backgroundColor === 'rgba(0, 0, 0, 0)';
+  });
+  assert.equal(await panel.evaluate(element => getComputedStyle(element).opacity), '1',
+    'Transparent terminal background must not dim terminal text');
+  await page.evaluate(() => {
+    const root = document.documentElement;
+    delete root.dataset.customBackgroundSurfaces;
+    root.style.removeProperty('--background-panel-opacity');
+    root.style.removeProperty('--background-surface-blur');
+  });
+  await page.waitForFunction(() => {
+    const viewport = document.querySelector('.terminal-view:not([hidden]) .xterm-scrollable-element');
+    return viewport && getComputedStyle(viewport).backgroundColor
+      === getComputedStyle(document.documentElement).getPropertyValue('--bg').trim();
+  });
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(640, 760));
   await page.waitForTimeout(400);
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);

@@ -1,0 +1,41 @@
+.custom-background-settings { max-width: 720px; padding: 4px; }
+.custom-background-heading, .custom-background-section-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 14px; }
+.custom-background-settings h3 { margin: 0; font-size: 13px; font-weight: 600; }
+.custom-background-enabled { display: flex; align-items: center; gap: 9px; margin: 0; font-size: 12px; }
+.custom-background-enabled input { width: 16px; height: 16px; accent-color: var(--primary); margin: 0; }
+.custom-background-preview { position: relative; width: 100%; aspect-ratio: 16 / 9; max-height: 340px; overflow: hidden; border: 1px solid var(--border); border-radius: 6px; background: var(--side); }
+.custom-background-preview > img { display: block; width: 100%; height: 100%; user-select: none; pointer-events: none; }
+.custom-background-empty { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; color: var(--muted); font-size: 12px; }
+.custom-background-image-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 9px 0 3px; }
+.custom-background-dimensions { color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.custom-background-image-row > div { display: flex; gap: 4px; }
+.custom-background-status { display: flex; align-items: center; gap: 6px; min-height: 28px; color: var(--muted); font-size: 11px; line-height: 1.7; margin-bottom: 18px; }
+.custom-background-status > svg { color: var(--green); }
+.custom-background-fields { min-width: 0; border: 0; border-top: 1px solid var(--border); padding: 22px 4px 4px; margin: 0 -4px; }
+.custom-background-surfaces { min-width: 0; border: 0; border-top: 1px solid var(--border); padding: 22px 4px 4px; margin: 22px -4px 0; }
+.custom-background-material-status { color: var(--muted); font-size: 11px; }
+.custom-background-surfaces:disabled .custom-background-slider { opacity: .55; }
+.custom-background-fit { display: flex; padding: 3px; gap: 3px; border: 1px solid var(--border); border-radius: 6px; background: var(--side); }
+.custom-background-fit > button { min-height: 28px; min-width: 52px; border: 1px solid transparent; border-radius: 3px; padding: 4px 10px; background: transparent; font-size: 11px; }
+.custom-background-fit > button[aria-pressed=true] { border-color: var(--border); background: var(--bg); color: var(--primary); }
+.custom-background-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 16px 28px; }
+.custom-background-slider { min-width: 0; margin: 0; padding: 4px; font-size: 12px; }
+.custom-background-slider > span { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.custom-background-slider output { min-width: 52px; text-align: right; color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.custom-background-slider input { display: block; width: 100%; min-width: 0; height: 24px; padding: 0; margin: 0; border: 0; accent-color: var(--primary); background: transparent; cursor: pointer; }
+.custom-background-fields:disabled .custom-background-slider { opacity: .55; }
+.custom-background-actions { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 22px; }
+.custom-background-actions > button:first-child { font-size: 11px; }
+.custom-background-feedback { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px 16px; min-height: 38px; margin-top: 12px; font-size: 11px; color: var(--muted); line-height: 1.7; }
+.custom-background-feedback > span { display: flex; align-items: center; gap: 7px; }
+.custom-background-feedback[role=alert] { color: var(--danger); }
+.custom-background-feedback > div { display: flex; flex-wrap: wrap; gap: 8px; }
+.custom-background-feedback button { min-height: 28px; padding: 4px 8px; font-size: 11px; }
+.custom-background-settings :is(input,button) { scroll-margin: 8px; }
+.custom-background-settings :is(h3,label,span) { overflow-wrap: anywhere; }
+@media(max-width:640px) {
+  .custom-background-grid { grid-template-columns: minmax(0,1fr); gap: 12px; }
+  .custom-background-heading { align-items: flex-start; }
+  .custom-background-enabled { flex-shrink: 0; }
+  .custom-background-preview { max-height: none; }
+}

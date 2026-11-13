@@ -24,8 +24,9 @@ const javascript = (source: string) => ts.transpileModule(source, {
 const mutationCase = find(node => ts.isCaseClause(node) && ts.isStringLiteral(node.expression)
   && node.expression.text === 'capabilityMutate') as ts.CaseClause;
 
-function mutationFixture(policy: CapabilityPolicy, unsafeFailure = false) {
-  let refreshes = 0, idleChecks = 0;
+function mutationFixture(policy: CapabilityPolicy, unsafeFailure = false, mutationError?: Error, refreshError?: Error) {
+  let refreshes = 0, idleChecks = 0, reconciliations = 0;
+  const notifications: { type: string }[] = [];
   const service = {
     runtimeAvailable: true,
     async mutate(_input: unknown, guard: (policy: CapabilityPolicy) => Promise<() => void>) {
@@ -35,23 +36,24 @@ function mutationFixture(policy: CapabilityPolicy, unsafeFailure = false) {
           this.runtimeAvailable = false;
           throw new Error('capability:management-uncertain');
         }
+        if (mutationError) throw mutationError;
         return { warnings: [] };
       } finally { release(); }
     },
   };
-  const create = new Function('capabilityGate', 'capabilityService', 'guardIdle', 'assertPluginUnused', 'refreshThemePacks',
+  const create = new Function('capabilityGate', 'capabilityService', 'guardIdle', 'assertPluginUnused', 'refreshThemePacks', 'syncCustomBackground', 'emit',
     javascript(`
       let settingsMutation = false;
       const transition = false, undoBusy = false, updateInstalling = false, quitting = false, quitPending = false;
       const runtimes = { workers: new Map() }, preferences = {}, themePacks = { packs: [] };
       const window = { webContents: { send() {} } }, markCapabilityPhase = () => {};
-      const emit = () => {};
       return { locked: () => settingsMutation, invoke: async args => { ${mutationCase.statements.map(node => node.getText(file)).join('\n')} } };
     `));
   return {
     ...create(new CapabilityGate(), service, async () => { idleChecks++; }, async () => {},
-      async () => { refreshes++; }),
-    refreshes: () => refreshes, idleChecks: () => idleChecks,
+      async () => { refreshes++; if (refreshError) throw refreshError; }, async () => { reconciliations++; },
+      (event: { type: string }) => notifications.push(event)),
+    refreshes: () => refreshes, idleChecks: () => idleChecks, reconciliations: () => reconciliations, notifications,
   };
 }
 
@@ -62,11 +64,33 @@ test('actual main discovery actions do not scan themes or persist appearance pre
     assert.equal(f.refreshes(), 0);
     assert.equal(f.idleChecks(), 0);
     assert.equal(f.locked(), false);
+    assert.equal(f.reconciliations(), 0);
+    assert.deepEqual(f.notifications, [{ type: 'desktop_plugin_catalog_changed' }]);
   }
   const theme = mutationFixture({ scope: 'theme', pluginId: 'theme' });
   await theme.invoke([{ action: 'plugin-install' }]);
   assert.equal(theme.refreshes(), 1);
   assert.equal(theme.locked(), false);
+  assert.equal(theme.reconciliations(), 1);
+  assert.deepEqual(theme.notifications, [{ type: 'desktop_plugin_catalog_changed' }]);
+});
+
+test('actual main reconciles adapter ownership after partial plugin mutation and refresh failures', async () => {
+  for (const action of ['plugin-install', 'plugin-update', 'plugin-remove']) {
+    const failure = new Error(`partial ${action}`);
+    const f = mutationFixture({ scope: 'runtime' }, false, failure);
+    await assert.rejects(f.invoke([{ action }]), error => error === failure);
+    assert.equal(f.refreshes(), 0);
+    assert.equal(f.reconciliations(), 1);
+    assert.equal(f.locked(), false);
+    assert.deepEqual(f.notifications, [{ type: 'desktop_plugin_catalog_changed' }]);
+  }
+  const failure = new Error('theme refresh failed');
+  const f = mutationFixture({ scope: 'theme' }, false, undefined, failure);
+  await assert.rejects(f.invoke([{ action: 'plugin-remove' }]), error => error === failure);
+  assert.equal(f.refreshes(), 1);
+  assert.equal(f.reconciliations(), 1);
+  assert.deepEqual(f.notifications, [{ type: 'desktop_plugin_catalog_changed' }]);
 });
 
 test('actual main retains its runtime barrier after an unconfirmed executable writer', async () => {
@@ -122,11 +146,78 @@ test('actual main passive capability reads never trigger pending provider applic
   for (const method of [
     'capabilityCatalog', 'pluginDocument', 'pluginRepositoryInfo', 'pluginConfiguration', 'pluginHostSettings', 'pluginChoosePath', 'pluginWindowOpen',
     'pluginConnectionState', 'pluginConnectionChooseProfile', 'pluginConnectionForgetProfile',
-    'themeScene', 'themePoster', 'themeImage', 'bvrConfiguration', 'bvrCheckEnvironment', 'bvrChoosePath', 'capabilityMutate',
+    'themeScene', 'themePoster', 'themeImage',
+    'customBackgroundState', 'customBackgroundImage', 'customBackgroundImport', 'customBackgroundSave', 'customBackgroundRemove',
+    'bvrConfiguration', 'bvrCheckEnvironment', 'bvrChoosePath', 'capabilityMutate',
+    'pluginUpdatePreflight', 'pluginUpdateOperation', 'pluginUpdateApply',
   ]) assert.equal(await f.read(method), method);
   assert.equal(f.state.applications, 0);
   await f.read('beginSession');
   assert.equal(f.state.applications, 1);
+});
+
+function deleteSessionFixture() {
+  const clause = find(node => ts.isCaseClause(node) && ts.isStringLiteral(node.expression)
+    && node.expression.text === 'deleteSession') as ts.CaseClause;
+  let entered!: () => void, confirm!: () => void;
+  const dialogEntered = new Promise<void>(resolve => { entered = resolve; });
+  const confirmation = new Promise<void>(resolve => { confirm = resolve; });
+  const state = { dialogs: 0, removes: 0, trashed: 0 };
+  const create = new Function('state', 'confirmation', 'entered', javascript(`
+    let settingsMutation = false, transition = false;
+    const deletingArchived = false, preferences = { language: 'en' }, miniView = {}, window = {};
+    const worker = { id: 'background', state: { sessionId: 'saved' }, mutating: false, operations: 0 };
+    const runtimes = { workers: new Map([[worker.id, worker]]),
+      async assertIdle() {}, async remove() { state.removes++; } };
+    const text = value => value, listSessions = async () => [{ id: 'saved', path: 'saved.jsonl' }];
+    const externallyOwned = () => false;
+    const dialog = { async showMessageBox() { state.dialogs++; entered(); await confirmation; return { response: 1 }; } };
+    const shell = { async trashItem() { if (!transition) throw new Error('missing transition lock'); state.trashed++; } };
+    const workflowBindings = { async remove() {} }, usageEstimates = { async remove() {} };
+    return { worker, lock: () => { settingsMutation = true; }, replace: () => runtimes.workers.set(worker.id, { ...worker }),
+      invoke: async () => { const args = ['saved']; ${clause.statements.map(node => node.getText(file)).join('\n')} } };
+  `));
+  return { ...create(state, confirmation, entered), state, confirm, dialogEntered };
+}
+
+test('actual deletion refuses the update lock before prompting and rechecks it after confirmation', async () => {
+  const initial = deleteSessionFixture();
+  initial.lock();
+  await assert.rejects(initial.invoke(), /operation in progress/);
+  assert.equal(initial.state.dialogs, 0);
+  for (const changed of ['lock', 'mutation', 'identity']) {
+    const f = deleteSessionFixture();
+    const pending = f.invoke();
+    await f.dialogEntered;
+    if (changed === 'lock') f.lock();
+    if (changed === 'mutation') f.worker.mutating = true;
+    if (changed === 'identity') f.replace();
+    f.confirm();
+    await assert.rejects(pending, /operation in progress/);
+    assert.equal(f.state.removes, 0);
+    assert.equal(f.state.trashed, 0);
+  }
+  const ready = deleteSessionFixture();
+  const pending = ready.invoke();
+  await ready.dialogEntered;
+  ready.confirm();
+  assert.equal(await pending, true);
+  assert.equal(ready.state.removes, 1);
+  assert.equal(ready.state.trashed, 1);
+});
+
+test('actual snapshot does not query a transport while an update owns its mutation', async () => {
+  const declaration = find(node => ts.isFunctionDeclaration(node) && node.name?.text === 'snapshot') as ts.FunctionDeclaration;
+  const refresh = declaration.body!.statements.find(node => ts.isIfStatement(node)
+    && node.thenStatement.getText(file).includes('runtimes.read(worker)'))!;
+  let reads = 0;
+  const invoke = new Function('worker', 'runtimes', javascript(`return (async () => {
+    const refresh = true; ${refresh.getText(file)}
+  })();`));
+  await invoke({ status: 'connected', mutating: true }, { read: async () => { reads++; } });
+  assert.equal(reads, 0);
+  await invoke({ status: 'connected', mutating: false }, { read: async () => { reads++; } });
+  assert.equal(reads, 1);
 });
 test('actual connection IPC accepts only the native profile choice and rechecks package identity after asynchronous work', async () => {
   const clause = find(node => ts.isCaseClause(node) && ts.isStringLiteral(node.expression)
@@ -203,6 +294,21 @@ test('merged IPC preserves MiniChat theme reads and refuses management or untrus
   for (const method of ['themeScene', 'themePoster', 'themeImage'])
     await assert.rejects(f.untrustedRead(method), /Untrusted sender/);
   assert.deepEqual(calls, ['mini:themeScene', 'mini:themePoster', 'mini:themeImage']);
+  assert.equal(f.state.applications, 0);
+});
+
+test('merged IPC restricts MiniChat background access to passive reads and refuses untrusted frames', async () => {
+  const calls: string[] = [];
+  const f = ipcFixture((method, _args, surface) => {
+    calls.push(`${surface}:${method}`);
+    return method;
+  });
+  const reads = ['customBackgroundState', 'customBackgroundImage'];
+  const writes = ['customBackgroundImport', 'customBackgroundSave', 'customBackgroundRemove'];
+  for (const method of reads) assert.equal(await f.miniRead(method), method);
+  for (const method of writes) await assert.rejects(f.miniRead(method), /Return to the main window/);
+  for (const method of [...reads, ...writes]) await assert.rejects(f.untrustedRead(method), /Untrusted sender/);
+  assert.deepEqual(calls, reads.map(method => `mini:${method}`));
   assert.equal(f.state.applications, 0);
 });
 
@@ -306,7 +412,8 @@ test('actual plugin-window IPC is scoped, revalidates stale refs and never dispa
   assert.deepEqual(await read('pluginDocument', { ref: 'own-package', path: 'start.md' }), { text: 'start.md' });
   for (const method of ['snapshot', 'command', 'preferences', 'pluginWindowOpen', 'capabilityMutate',
     'pluginConnectionState', 'pluginConnectionChooseProfile', 'pluginConnectionForgetProfile',
-    'themeScene', 'themePoster', 'themeImage'])
+    'themeScene', 'themePoster', 'themeImage', 'customBackgroundState', 'customBackgroundImage',
+    'customBackgroundImport', 'customBackgroundSave', 'customBackgroundRemove'])
     await assert.rejects(read(method), /capability:invalid-input/);
   await assert.rejects(read('pluginDocument', { ref: 'foreign', path: 'start.md' }), /capability:invalid-input/);
   await assert.rejects(invoke({ sender, senderFrame: {} }, 'pluginWindowState'), /Untrusted sender/);
@@ -406,16 +513,18 @@ for (const exitConfirmed of [true, false]) {
       let quitting = false, quitPending = false;
       const sessionEnding = false, transition = false, window = undefined;
       const speech = { cancel() {} };
-      const state = { quits: 0, errors: 0, prevented: 0, externalShutdowns: 0, externalFlushes: 0 };
+      const state = { quits: 0, errors: 0, prevented: 0, diagnostics: [], messages: [], externalShutdowns: 0, externalFlushes: 0 };
       const stop = { async stopAll() {}, async stop() {}, async close() {}, async shutdown() {}, async flush() {} };
       const runtimes = stop, terminals = stop, sessionImports = stop, remote = stop, admin = stop;
       const collaboration = stop, bvrBridge = stop, pluginHosts = stop, conversationTiming = stop, modelSelections = stop;
       const usageEstimates = stop, workflowBindings = stop, miniChat = undefined, pluginWindows = undefined, browser = undefined;
+      const capabilityGate = { async whenIdle() {} };
       const externalConnectors = { async shutdown() { state.externalShutdowns++; } };
       const externalTasks = { async flush() { state.externalFlushes++; } };
       const quitReasons = () => ({}), needsQuitReview = () => false, showMainWindow = () => {};
       const preferences = { language: 'zh' }, quitReview = { reset() {} };
-      const emit = () => { state.errors++; settle(); };
+      const crashLog = { async record(kind, error, details) { state.diagnostics.push({ kind, stage: details.stage }); } };
+      const emit = event => { state.errors++; state.messages.push(event.message); settle(); };
       const app = { quit() { state.quits++; settle(); } };
       const handler = ${beforeQuit.arguments[1].getText(file)};
       return {
@@ -429,11 +538,57 @@ for (const exitConfirmed of [true, false]) {
     assert.equal(f.state.prevented, 1);
     assert.equal(f.state.quits, exitConfirmed ? 1 : 0);
     assert.equal(f.state.errors, exitConfirmed ? 0 : 1);
+    assert.deepEqual(f.state.diagnostics, exitConfirmed ? [] : [{ kind: 'quit-failure', stage: 'services' }]);
+    if (!exitConfirmed) assert.match(f.state.messages[0], /退出未完成/);
     assert.equal(f.state.externalShutdowns, 1);
     assert.equal(f.state.externalFlushes, exitConfirmed ? 1 : 0);
     assert.equal(f.quitting(), exitConfirmed);
     assert.equal(f.pending(), exitConfirmed);
     assert.equal(service.available, false);
     await assert.rejects(service.initialize(), /management-unavailable/);
+  });
+}
+
+for (const failExternalShutdown of [false, true]) {
+  test(`actual before-quit waits for the capability writer before ${failExternalShutdown ? 'reporting external shutdown failure' : 'stopping services'}`, { timeout: 10000 }, async () => {
+    const gate = new CapabilityGate(), events: string[] = [];
+    let release!: () => void, finished!: () => void;
+    const writing = new Promise<void>(resolve => { release = resolve; });
+    const settled = new Promise<void>(resolve => { finished = resolve; });
+    const operation = gate.run(async () => { await writing; events.push('write-finished'); });
+    const create = new Function('capabilityGate', 'events', 'finished', 'failExternalShutdown', javascript(`
+      let quitting = false, quitPending = false;
+      const sessionEnding = false, transition = false, window = undefined;
+      const speech = { cancel() {} };
+      const stop = { async stopAll() {}, async stop() {}, async close() {}, async shutdown() {}, async flush() {} };
+      const runtimes = stop, terminals = stop, sessionImports = stop, remote = stop, admin = stop;
+      const collaboration = stop, bvrBridge = stop, pluginHosts = stop, conversationTiming = stop, modelSelections = stop;
+      const usageEstimates = stop, workflowBindings = stop, miniChat = undefined, pluginWindows = undefined, browser = undefined;
+      const capabilityService = { async stop() { events.push('service-stopped'); } };
+      const externalConnectors = { async shutdown() {
+        events.push('external-stopped');
+        if (failExternalShutdown) throw new Error('External shutdown failed');
+      } };
+      const externalTasks = { async flush() { events.push('external-flushed'); } };
+      const quitReasons = () => ({}), needsQuitReview = () => false, showMainWindow = () => {};
+      const preferences = { language: 'zh' }, quitReview = { reset() {} };
+      const crashLog = { async record(kind, error, details) { events.push(kind + ':' + details.stage); } };
+      const emit = () => { events.push('error'); finished(); };
+      const app = { quit() { events.push('quit'); finished(); } };
+      const handler = ${beforeQuit.arguments[1].getText(file)};
+      return { start: () => handler({ preventDefault() {} }), pending: () => quitPending, quitting: () => quitting };
+    `));
+    const f = create(gate, events, finished, failExternalShutdown);
+    f.start();
+    assert.equal(f.pending(), true);
+    await Promise.resolve();
+    assert.deepEqual(events, [], 'No service may stop while a capability write is pending');
+    release();
+    await Promise.all([operation, settled]);
+    assert.deepEqual(events, failExternalShutdown
+      ? ['write-finished', 'external-stopped', 'quit-failure:external-connectors', 'error']
+      : ['write-finished', 'external-stopped', 'service-stopped', 'external-flushed', 'quit']);
+    assert.equal(f.pending(), !failExternalShutdown);
+    assert.equal(f.quitting(), !failExternalShutdown);
   });
 }

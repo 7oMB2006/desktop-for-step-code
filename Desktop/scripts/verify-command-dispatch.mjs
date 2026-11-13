@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { taskSectionIsRevealed, waitForTaskSectionReveal } from './command-dispatch-fixture.mjs';
+import { prepareDispatchInput, taskSectionIsRevealed, waitForTaskSectionReveal } from './command-dispatch-fixture.mjs';
 
 const profile = await mkdtemp(join(tmpdir(), 'step-command-dispatch-'));
 await writeFile(join(profile, 'preferences.json'), JSON.stringify({ language: 'zh', theme: 'dark', workspaces: [] }));
@@ -31,9 +31,9 @@ try {
   const draftBefore = await page.evaluate(() => window.desktop.snapshot());
   assert.ok(draftBefore.draftId);
   assert.equal(draftBefore.runtimeId, undefined);
-  await page.locator('.composer > .composer-input').fill('/todos');
-  await page.locator('.composer > .composer-input').press('Escape');
-  await page.locator('.composer > .composer-input').press('Enter');
+  const input = page.locator('.composer > .composer-input');
+  await prepareDispatchInput(page, input, '/todos');
+  await input.press('Enter');
   await page.locator('.sb-steps').getByText('请先打开一个会话', { exact: true }).waitFor();
   const draftAfter = await page.evaluate(() => window.desktop.snapshot());
   assert.equal(draftAfter.draftId, draftBefore.draftId);
@@ -86,13 +86,10 @@ try {
     });
   }, snapshot);
   await page.reload();
-  const input = page.locator('.composer > .composer-input');
   await page.waitForFunction(() => document.querySelector('.composer-input')?.getAttribute('contenteditable') === 'true');
   // Overlay inspectors may cover the send button on short native displays.
   const send = async (text, keyboard = true) => {
-    await input.fill(text);
-    await page.waitForFunction(text => document.querySelector('.composer-input')?.value === text, text);
-    await input.press('Escape');
+    await prepareDispatchInput(page, input, text);
     if (keyboard) await input.press('Enter');
     else await page.locator('.composer-action-button').click();
   };

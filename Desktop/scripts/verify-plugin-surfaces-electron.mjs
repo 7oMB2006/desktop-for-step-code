@@ -655,7 +655,8 @@ try {
   await native.getByRole('heading', { name: 'Window Surface start', exact: true }).waitFor();
   checks.push('the visible close-window action closes only the plugin renderer and its entry can open a fresh isolated window');
 
-  await writePlugin(fixturePlugins[2], '0.2.0');
+  const updatedWindowPlugin = { ...fixturePlugins[2], title: 'Updated Window Surface' };
+  await writePlugin(updatedWindowPlugin, '0.2.0');
   commit('Update the isolated window guide');
   const marketName = (await catalog()).available.find(plugin => plugin.name === 'surface-window').marketplace;
   const updatedMarket = await mutate({ action: 'marketplace-update', name: marketName });
@@ -670,16 +671,22 @@ try {
   assert.equal(await native.locator('[data-plugin-workspace]').count(), 0);
   await assert.rejects(main.evaluate(ref => window.desktop.pluginDocument({ ref, path: 'docs/start.md' }), oldRef),
     /capability:stale/);
+  // The old window can invalidate before the main renderer commits its new shortcut.
+  const updatedShortcut = action(updatedWindowPlugin).or(main.getByRole('menuitemradio', {
+    name: updatedWindowPlugin.title, exact: true, includeHidden: true,
+  }));
+  await updatedShortcut.waitFor({ state: 'attached' });
+  console.log('Plugin window update: updated shortcut committed:', updatedWindowPlugin.title);
   const replacementOpened = app.waitForEvent('window');
-  await openAction(fixturePlugins[2]);
-  const replacement = await replacementOpened;
-  await replacement.getByRole('heading', { name: 'Window Surface start', exact: true }).waitFor();
+  const [replacement] = await Promise.all([replacementOpened, openAction(updatedWindowPlugin)]);
+  await replacement.getByRole('heading', { name: `${updatedWindowPlugin.title} start`, exact: true }).waitFor();
   if (!native.isClosed()) await native.waitForEvent('close');
   native = replacement;
   native.on('pageerror', error => errors.push(error.message));
   const replacementState = await native.evaluate(() => window.desktop.pluginWindowState());
   assert.equal(replacementState.plugin.version, '0.2.0');
-  assertMetadataProjection(fixturePlugins[2], replacementState.plugin.package, 'updated native window');
+  assert.equal(replacementState.plugin.package.desktop.title, updatedWindowPlugin.title);
+  assertMetadataProjection(updatedWindowPlugin, replacementState.plugin.package, 'updated native window');
   assert.notEqual(replacementState.plugin.package.ref, oldRef);
   assert.ok((await native.locator('[data-plugin-workspace]').innerText()).includes('Version 0.2.0'));
   assert.equal((await main.evaluate(() => window.desktop.snapshot())).runtimeId, before.runtimeId);
@@ -688,7 +695,7 @@ try {
   const removedRef = replacementState.plugin.package.ref;
   await mutate({ action: 'plugin-remove', id: 'surface-window' });
   await native.getByRole('heading', { name: 'Plugin unavailable', exact: true }).waitFor();
-  await action(fixturePlugins[2]).waitFor({ state: 'detached' });
+  await updatedShortcut.waitFor({ state: 'detached' });
   await assert.rejects(main.evaluate(ref => window.desktop.pluginDocument({ ref, path: 'docs/start.md' }), removedRef),
     /capability:stale/);
   await assert.rejects(native.evaluate(() => window.desktop.pluginWindowState()), /capability:stale/);

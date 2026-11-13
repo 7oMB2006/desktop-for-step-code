@@ -2,6 +2,7 @@ import { ChevronRight } from 'lucide-react';
 import type { WorkflowAgent, WorkflowState } from './workflow-state';
 import { workflowCount, workflowIcon, workflowIsActive, workflowIssues, workflowRetryText } from './workflow-state';
 import { SubagentStatusIcon } from './SubagentStatusIcon';
+import { AgentRoleIcon, roleFor } from './AgentRole';
 import { TurnStatusTrigger } from './TurnStatusTrigger';
 import { elapsedTime } from './elapsed-time';
 import { useEffect, useState } from 'react';
@@ -41,6 +42,11 @@ export function WorkflowTrigger({ flow, language, onOpen, settled = false }: { f
 }
 export function WorkflowBlock({ flow, language, onOpen }: { flow: WorkflowState; language: 'zh' | 'en'; onOpen: (id: string) => void }) {
   const zh = language === 'zh';
+  const roles = new Map<string, number>();
+  for (const agent of flow.agents) {
+    const role = agent.agentType || '';
+    roles.set(role, (roles.get(role) ?? 0) + 1);
+  }
   return <div className="workflow-inline">
     <button type="button" className="workflow-heading" onClick={() => onOpen(flow.toolCallId)} aria-controls="subagent-panel">
       <SubagentStatusIcon state={workflowIcon(flow.status)} language={language}/>
@@ -53,6 +59,20 @@ export function WorkflowBlock({ flow, language, onOpen }: { flow: WorkflowState;
       {workflowIssues(flow, language) && <span className="workflow-issue-summary">{workflowIssues(flow, language)}</span>}
       {flow.agents.some(agent => agent.retry) && <span className="workflow-retry">{zh ? '正在重试' : 'Retrying'}</span>}
     </div>
+    {roles.size > 0 && <div className="workflow-inline-roles" role="group" aria-label={zh ? '代理角色' : 'Agent roles'}>
+      {[...roles].slice(0, 6).map(([agentType, count]) => {
+        const label = agentType ? roleFor(agentType).name[zh ? 0 : 1] : zh ? '角色未提供' : 'Role not reported';
+        return <button type="button" key={agentType} onClick={() => onOpen(flow.toolCallId)} aria-controls="subagent-panel"
+          aria-label={zh ? `查看编排：${label}，${count} 个代理` : `Open orchestration: ${label}, ${count} ${count === 1 ? 'agent' : 'agents'}`}>
+          <AgentRoleIcon agent={agentType || undefined} language={language}/><span>{label}</span>
+          <span className="workflow-role-count">{count}</span>
+        </button>;
+      })}
+      {roles.size > 6 && <button type="button" className="workflow-roles-more"
+        onClick={() => onOpen(flow.toolCallId)} aria-controls="subagent-panel">
+        <span>{zh ? `其余 ${roles.size - 6} 个角色` : `${roles.size - 6} more ${roles.size === 7 ? 'role' : 'roles'}`}</span><ChevronRight size={12}/>
+      </button>}
+    </div>}
   </div>;
 }
 export function WorkflowOverview({ flow, selected, onSelect, language }: {
@@ -86,7 +106,7 @@ export function WorkflowOverview({ flow, selected, onSelect, language }: {
         data-agent-state={agent.status} aria-pressed={selected === agent.id}
         onClick={() => onSelect(agent)} aria-label={`${agent.label || agent.id}: ${agent.task}`}>
         <SubagentStatusIcon state={workflowIcon(agent.status)} language={language} detail={agent.status === 'unknown' ? zh ? '工作流已结束，代理最终状态未返回' : 'Workflow ended; final agent state unavailable' : agent.status === 'cached' ? zh ? '已复用缓存结果' : 'Cached result reused' : undefined}/>
-        <span className="workflow-agent-copy"><strong>{agent.label || agent.id}</strong>{agent.task && <span>{agent.task}</span>}
+        <span className="workflow-agent-copy"><strong className="workflow-agent-identity"><AgentRoleIcon agent={agent.agentType} language={language}/><span>{agent.label || agent.id}</span></strong>{agent.task && <span>{agent.task}</span>}
           {agent.error && <span className="workflow-agent-issue">{agent.error.message || agent.error.code}</span>}
           {workflowRetryText(agent, language) && <span className="workflow-retry">{workflowRetryText(agent, language)}</span>}
         </span>
@@ -103,7 +123,7 @@ export function WorkflowOverview({ flow, selected, onSelect, language }: {
 export function WorkflowAgentDetail({ agent, language }: { agent: WorkflowAgent; language: 'zh' | 'en' }) {
   const zh = language === 'zh';
   return <div className="subagent-body" data-agent-state={agent.status}><div className="subagent-head">
-    <SubagentStatusIcon state={workflowIcon(agent.status)} language={language} detail={agent.status === 'unknown' ? zh ? '工作流已结束，代理最终状态未返回' : 'Workflow ended; final agent state unavailable' : undefined}/><strong>{agent.label || agent.id}</strong>
+    <SubagentStatusIcon state={workflowIcon(agent.status)} language={language} detail={agent.status === 'unknown' ? zh ? '工作流已结束，代理最终状态未返回' : 'Workflow ended; final agent state unavailable' : undefined}/><strong className="workflow-agent-identity"><AgentRoleIcon agent={agent.agentType} language={language}/><span>{agent.label || agent.id}</span></strong>
     <WorkflowElapsed {...agent} running={agent.status === 'running'}/></div>
     {agent.phase && <p className="workflow-detail-phase">{agent.phase}</p>}
     <p className="subagent-task">{agent.task || (zh ? '未提供任务描述' : 'Task description unavailable')}</p>

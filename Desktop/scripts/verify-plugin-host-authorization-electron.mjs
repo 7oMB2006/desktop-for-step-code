@@ -8,6 +8,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { _electron as electron } from 'playwright';
 import { installationReceipt, packageFingerprint, writeReceipts } from '../electron/plugin-files.mjs';
 import { closeDesktopFixtureAndWait } from './close-desktop-fixture.mjs';
+import { installRuntimeFixturePreload } from './runtime-transport-fixture.mjs';
 
 const profile = await realpath(await mkdtemp(join(tmpdir(), 'dfsc-host-authorization-')));
 const root = join(profile, 'step-runtime'), directory = join(root, 'plugins', 'host-example');
@@ -130,23 +131,18 @@ try {
   });
   page = await app.firstWindow();
   page.on('pageerror', error => errors.push(error.message));
-  await app.evaluate(({ BrowserWindow, net, dialog }, { preload, base }) => {
+  await app.evaluate(installRuntimeFixturePreload, { preload });
+  await app.evaluate(({ BrowserWindow, net, dialog }, { base }) => {
     const window = BrowserWindow.getAllWindows()[0];
     window.setOpacity(0); window.setIgnoreMouseEvents(true); window.showInactive(); window.setSize(1280, 900);
     dialog.showMessageBox = async () => ({ response: 1 });
-    const cp = process.getBuiltinModule('child_process'), spawn = cp.spawn;
-    cp.spawn = function(file, args, options) {
-      if (args?.some(arg => /(?:admin\.mjs|step\.js)$/.test(arg))) args = ['--require', preload, ...args];
-      return spawn.call(this, file, args, options);
-    };
-    process.getBuiltinModule('module').syncBuiltinESMExports();
     net.fetch = (input, init) => {
       const url = new URL(String(input));
       if (!['api.stepfun.com', 'api.stepfun.ai'].includes(url.hostname))
         throw new Error('External main-process request blocked by host fixture');
       return fetch(base + '/?url=' + encodeURIComponent(url.href), init);
     };
-  }, { preload, base });
+  }, { base });
   await page.getByRole('heading', { name: /^(让想法阶跃星辰|星辰因你而阶跃)$/ }).waitFor();
   const enabledStepPage = await page.evaluate(async () => Object.entries((await window.desktop.settings()).mcp)
     .some(([name, server]) => /steppage/i.test(name) && server.enabled !== false));

@@ -1,12 +1,15 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 
-// Resolve only direct Step Code children of this isolated Electron fixture.
+// Resolve Step Code children, including the host-owned Windows job supervisors.
 // Never enumerate/terminate unrelated personal runtimes or Electron windows.
 export function fixtureRuntimeChildren(ownerPid) {
   assert.ok(Number.isInteger(ownerPid) && ownerPid > 0);
   if (process.platform === 'win32') {
-    const command = `@(Get-CimInstance Win32_Process -Filter 'ParentProcessId = ${ownerPid}' | Where-Object {
+    const command = `$direct = @(Get-CimInstance Win32_Process -Filter 'ParentProcessId = ${ownerPid}');
+    $supervisors = @($direct | Where-Object { $_.Name -eq 'powershell.exe' -and $_.CommandLine -match 'windows-runtime-job[.]ps1' });
+    $owned = @($direct) + @($supervisors | ForEach-Object { Get-CimInstance Win32_Process -Filter "ParentProcessId = $($_.ProcessId)" });
+    @($owned | Where-Object {
       $_.Name -eq 'node.exe' -and $_.CommandLine -match 'step[.]js' -and $_.CommandLine -match '--mode'
     } | Select-Object -ExpandProperty ProcessId) | ConvertTo-Json -Compress`;
     const output = execFileSync('powershell.exe', ['-NoProfile', '-Command', command],

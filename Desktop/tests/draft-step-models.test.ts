@@ -54,6 +54,34 @@ test('draft does not invent an official catalog without configured credentials',
   }
 });
 
+test('draft projects Ultra only for explicitly mapped models and preserves the selected default', { timeout: 30000 }, async () => {
+  const root = await mkdtemp(join(tmpdir(), 'draft-ultra-models-'));
+  await mkdir(join(root, 'agent'));
+  await writeFile(join(root, 'config.toml'), 'defaultProvider = "fixture-custom"\ndefaultModel = "ultra-chat"\ndefaultThinkingLevel = "ultra"\n');
+  const model = { reasoning: true, contextWindow: 32768, maxTokens: 2048 };
+  await writeFile(join(root, 'models.json'), JSON.stringify({ providers: {
+    'fixture-custom': { apiKey: 'isolated-fixture-only', baseUrl: 'http://127.0.0.1:1/v1', api: 'openai-completions',
+      models: [
+        { ...model, id: 'ultra-chat', thinkingLevelMap: { max: 'max', ultra: 'ultra' } },
+        { ...model, id: 'normal-chat', thinkingLevelMap: { max: 'max' } },
+        { ...model, id: 'disabled-chat', thinkingLevelMap: { ultra: null } },
+      ] },
+  } }));
+  const rpc = new RpcProcess(() => {});
+  try {
+    rpc.start(resolve('runtime/node', process.platform === 'win32' ? 'node.exe' : 'node'), resolve('runtime/admin.mjs'), root, isolatedEnvironment(root));
+    const options = await rpc.request('session_options', { cwd: root }, 20000);
+    assert.equal(options.model.id, 'ultra-chat');
+    assert.deepEqual(options.model.thinkingLevels.slice(-2), ['max', 'ultra']);
+    assert.equal(options.thinkingLevel, 'ultra');
+    for (const id of ['normal-chat', 'disabled-chat'])
+      assert.equal(options.models.find((model: any) => model.id === id).thinkingLevels.includes('ultra'), false);
+  } finally {
+    await rpc.stop();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test('draft keeps the official catalog when only a custom provider is available', { timeout: 30000 }, async () => {
   const root = await mkdtemp(join(tmpdir(), 'draft-custom-models-'));
   await mkdir(join(root, 'agent'));

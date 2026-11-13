@@ -39,3 +39,47 @@ test('real marketplace management installs and removes the declarative stellar t
   assert.deepEqual(themes.packs, []);
   assert.throws(() => themes.scene('plugin:stellar-cruise'));
 });
+
+test('real marketplace background adapter requires a recorded install and is revoked on uninstall', async t => {
+  const root = await realpath(await mkdtemp(join(tmpdir(), 'dfsc-background-market-')));
+  await mkdir(join(root, 'agent'));
+  const runtime = resolve(process.env.DESKTOP_TEST_RUNTIME ?? 'runtime');
+  const service = new CapabilityService({ root, runtime,
+    node: join(runtime, 'node', process.platform === 'win32' ? 'node.exe' : 'node'),
+    environment: () => isolatedEnvironment(root) });
+  t.after(async () => {
+    await service.stop();
+    await rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+  });
+  assert.equal(await service.customBackgroundContext(), undefined);
+  await service.mutate({ action: 'marketplace-add', source: resolve('../theme-marketplace') });
+  const entry = (await service.catalog()).available.find(plugin => plugin.name === 'custom-background');
+  assert.ok(entry?.package);
+  assert.equal(entry.package.hostConfiguration, undefined, 'A market listing is not an installed adapter');
+  assert.equal(entry.package.dataOnlyTheme, undefined);
+  await assert.rejects(service.customBackgroundContext(entry.package.ref), /capability:stale/);
+  await service.mutate({ action: 'plugin-install', name: entry.name, marketplace: entry.marketplace, ref: entry.package.ref },
+    async policy => { assert.equal(policy.scope, 'runtime', 'Host background adapters do not bypass runtime gates'); });
+  const catalog = await service.catalog(), plugin = catalog.plugins.find(item => item.id === 'custom-background');
+  assert.ok(plugin?.package);
+  assert.equal(plugin.name, '自定义背景');
+  assert.equal(plugin.package.hostConfiguration, 'custom-background-v1');
+  assert.equal(plugin.package.configurationAvailable, false);
+  assert.equal(plugin.package.dataOnlyTheme, undefined);
+  assert.deepEqual(plugin.mcpServers, []);
+  assert.deepEqual(catalog.mcp.filter(server => server.pluginId === plugin.id), []);
+  assert.deepEqual(catalog.skills.filter(skill => skill.pluginName === plugin.name), []);
+  const installed = await service.customBackgroundContext(plugin.package.ref);
+  assert.ok(installed);
+  await service.mutate({ action: 'plugin-remove', id: plugin.id },
+    async policy => { assert.equal(policy.scope, 'runtime'); });
+  assert.equal(await service.customBackgroundContext(), undefined);
+  await assert.rejects(service.customBackgroundContext(installed.ref), /capability:stale/);
+  const available = (await service.catalog()).available.find(item => item.name === 'custom-background')!;
+  await service.mutate({ action: 'plugin-install', name: available.name,
+    marketplace: available.marketplace, ref: available.package!.ref });
+  const reinstalled = await service.customBackgroundContext();
+  assert.ok(reinstalled);
+  assert.notEqual(reinstalled.instance, installed.instance, 'Reinstall has a new activation binding');
+  await assert.rejects(service.customBackgroundContext(installed.ref), /capability:stale/);
+});

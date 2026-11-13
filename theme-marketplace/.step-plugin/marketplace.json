@@ -1,6 +1,7 @@
 {
   "name": "dfsc-themes",
   "plugins": [
-    { "name": "stellar-cruise", "source": "./plugins/stellar-cruise", "description": "星辰巡航 · DFSC 动态主题" }
+    { "name": "stellar-cruise", "source": "./plugins/stellar-cruise", "description": "星辰巡航 · DFSC 动态主题" },
+    { "name": "custom-background", "source": "./plugins/custom-background", "description": "自定义背景 · 本机图片与基础画面调节" }
   ]
 }

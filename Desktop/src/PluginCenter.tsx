@@ -8,6 +8,9 @@ import { capabilityWarningText } from './capability-errors';
 import { CapabilityDisclosure, CapabilityPluginIconView, capabilityErrorText, type CapabilityBridge } from './CapabilitySettings';
 import { BvrConfigurationForm, type BvrSettingsBridge } from './BvrConfigurationForm';
 import { PluginConfigurationForm } from './PluginConfigurationForm';
+import { CustomBackgroundSettings, type CustomBackgroundBridge } from './CustomBackgroundSettings';
+import type { CustomBackgroundState } from './custom-background';
+import type { ThemePack } from './theme-packs';
 import { PluginHostSettingsForm } from './PluginHostSettingsForm';
 import { ScrollThumb } from './ConversationScrollThumb';
 import { StepPageSettings } from './StepPageSettings';
@@ -16,12 +19,14 @@ import { PluginAuthor, PluginCardRequirements, PluginRequirements } from './Plug
 import { pluginMarketplaceSearchText } from './plugin-market-metadata';
 import { pluginCategoryLabel, pluginClassificationText, pluginPresentation, pluginSourceLabel } from './plugin-presentation';
 import { PluginUpdateAction, PluginUpdateBadge, PluginUpdateRow, pluginUpdatePending, type PluginUpdatesPresentation, type PluginUpdateState } from './PluginUpdatePresentation';
+import { PluginUpdateDialog, pluginUpdateChangeText, type PluginUpdatePanel } from './PluginUpdateDialog';
+import type { PluginUpdateBridge, PluginUpdateOperation, PluginUpdatePreflight } from './plugin-update';
 import './capability-settings.css';
 import './plugin-center.css';
 
 export type PluginCenterBridge = CapabilityBridge & BvrSettingsBridge & Pick<import('./contracts').DesktopBridge,
   'pluginDocument' | 'pluginRepositoryInfo' | 'pluginConfiguration' | 'pluginSaveConfiguration' | 'pluginChoosePath'
-  | 'pluginHostSettings' | 'pluginSaveHostSettings'>;
+  | 'pluginHostSettings' | 'pluginSaveHostSettings'> & Partial<CustomBackgroundBridge> & Partial<PluginUpdateBridge>;
 type Entry = { key: string; name: string; description?: string; version?: string; repository?: string;
   icon?: CapabilityPlugin['icon']; source?: string; installed?: CapabilityPlugin; available?: MarketplacePlugin; package?: PluginPackage };
 function PluginCategoryTags({ pkg, language, compact = false }: { pkg?: PluginPackage; language: string; compact?: boolean }) {
@@ -41,13 +46,16 @@ function ProjectLink({ entry, language }: { entry: Entry; language: string }) {
     aria-label={language === 'zh' ? `打开 ${entry.name} GitHub 项目` : `Open ${entry.name} on GitHub`}>
     <span className="pc-github-mark" aria-hidden="true"/></a>;
 }
-export function PluginCenter({ bridge, language, busy, active, runtimeId, currentVersion, settings, target, updates: previewUpdates, onChanged, onRestart, onManageMcp, onBack, onOpenDesktop }: {
+export function PluginCenter({ bridge, language, busy, active, runtimeId, currentVersion, settings, target, updates: previewUpdates,
+  themePack, customBackgroundRequest, customBackgroundState, onChanged, onRestart, onManageMcp, onBack, onOpenDesktop, onOpenSession }: {
   bridge: PluginCenterBridge; language: string; busy: boolean; active: boolean; runtimeId?: string;
   currentVersion?: string;
   settings?: { mcp: Record<string, McpServer> }; target?: CapabilityTarget;
   updates?: PluginUpdatesPresentation;
+  themePack?: ThemePack; customBackgroundRequest?: number; customBackgroundState?: CustomBackgroundState;
   onChanged(): Promise<void>; onRestart(): Promise<void>; onManageMcp(name?: string): void; onBack(): void;
   onOpenDesktop?(plugin: CapabilityPlugin): void;
+  onOpenSession?(id: string): Promise<void>;
 }) {
   const t = (cn: string, en: string) => language === 'zh' ? cn : en;
   const [catalog, setCatalog] = useState<CapabilityCatalog>();
@@ -63,16 +71,24 @@ export function PluginCenter({ bridge, language, busy, active, runtimeId, curren
   const [detailTab, setDetailTab] = useState('config');
   const [changed, setChanged] = useState(false);
   const [observationRevision, setObservationRevision] = useState(0);
+  const [configurationRevision, setConfigurationRevision] = useState(0);
   const [repositoryPending, setRepositoryPending] = useState(false);
   const [repositoryRevision, setRepositoryRevision] = useState(0);
   const [bvrState, setBvrState] = useState({ dirty: false, pending: false, ready: false });
+  const [backgroundState, setBackgroundState] = useState(customBackgroundState);
+  const [backgroundPending, setBackgroundPending] = useState(false);
   const [confirmation, setConfirmation] = useState<{ title: string; action(): void }>();
   const [live, setLive] = useState<{ runtimeId: string; servers: SessionSummary['mcp'] }>();
   const [updateStates, setUpdateStates] = useState<Record<string, PluginUpdateState>>({});
   const [checkingUpdates, setCheckingUpdates] = useState(false);
   const [updateBusy, setUpdateBusy] = useState(false);
+  const [updatePanels, setUpdatePanels] = useState<Record<string, PluginUpdatePanel>>({});
+  const [updatePanelId, setUpdatePanelId] = useState<string>();
+  const nativeUpdates = Boolean(bridge.pluginUpdatePreflight && bridge.pluginUpdateApply && bridge.pluginUpdateOperation);
   const operation = useRef(false);
   const updateOperation = useRef(false);
+  const updateRequests = useRef(new Map<string, symbol>());
+  const latestCatalog = useRef<CapabilityCatalog | undefined>(undefined);
   const alive = useRef(true);
   const dialog = useRef<HTMLDialogElement>(null);
   const returnFocus = useRef<HTMLElement | null>(null);
@@ -82,6 +98,9 @@ export function PluginCenter({ bridge, language, busy, active, runtimeId, curren
   const repositoryQueries = useRef(new Map<string, Promise<PluginStarSnapshot>>());
   const repositorySnapshots = useRef(new Map<string, PluginStarSnapshot>());
   const id = useId();
+  const backgroundRequest = useRef<number | undefined>(undefined);
+  const backgroundBridge = bridge.customBackgroundState && bridge.customBackgroundImage && bridge.customBackgroundImport
+    && bridge.customBackgroundSave && bridge.customBackgroundRemove ? bridge as CustomBackgroundBridge : undefined;
   const formId = `${id}-bvr`;
   const installed: Entry[] = (catalog?.plugins ?? []).map(raw => {
     const plugin = pluginPresentation(raw, language);
@@ -97,6 +116,7 @@ export function PluginCenter({ bridge, language, busy, active, runtimeId, curren
   });
   const entry = [...installed, ...available].find(item => item.key === selected);
   const acceptCatalog = (value: CapabilityCatalog) => {
+    latestCatalog.current = value;
     const withSnapshot = <T extends CapabilityCatalog['plugins'][number] | MarketplacePlugin>(plugin: T): T => {
       const cached = plugin.repository && repositorySnapshots.current.get(plugin.repository);
       return cached && plugin.package && (!plugin.package.stars || plugin.package.stars.status === 'unknown')
@@ -122,12 +142,55 @@ export function PluginCenter({ bridge, language, busy, active, runtimeId, curren
     } catch (error) { if (alive.current) setError(capabilityErrorText(error, language === 'zh')); }
     finally { if (alive.current) setRepositoryPending(false); }
   };
+  const acceptOperation = async (pluginId: string, name: string, result: PluginUpdateOperation) => {
+    if (alive.current) {
+      setUpdatePanels(current => ({ ...current, [pluginId]: { pluginId, name, operation: result, running: false } }));
+      setWarnings(result.warnings);
+      setUpdateStates(current => ({ ...current, [pluginId]: { phase: result.installation === 'committed' ? 'updated' : 'assistance',
+        version: result.version, detailsAvailable: result.phase === 'attention', summary: capabilityErrorText(result.error ?? '', language === 'zh') } }));
+      if (result.phase === 'attention') setUpdatePanelId(pluginId);
+    }
+    if (result.installation !== 'unknown') {
+      try { const next = await bridge.capabilityCatalog(); if (alive.current) acceptCatalog(next); }
+      catch (error) { if (alive.current) setError(capabilityErrorText(error, language === 'zh')); }
+    }
+    return result.installation === 'committed';
+  };
+  const applyPreflight = async (pluginId: string, name: string, preflight: PluginUpdatePreflight) => {
+    if (!bridge.pluginUpdateApply) return false;
+    if (alive.current) {
+      setUpdatePanels(current => ({ ...current, [pluginId]: { pluginId, name, preflight, running: true } }));
+      setUpdateStates(current => ({ ...current, [pluginId]: { phase: 'assistance', version: preflight.version, detailsAvailable: true } }));
+    }
+    try {
+      const result = await bridge.pluginUpdateApply({ token: preflight.token, release: preflight.readiness === 'needs-release' });
+      return acceptOperation(pluginId, name, result);
+    } catch (error) {
+      // A lost IPC reply is not proof that installation failed. Only accept the
+      // operation belonging to this consumed, host-issued preview.
+      try {
+        const result = await bridge.pluginUpdateOperation?.({ pluginId });
+        if (result?.id === preflight.token) return acceptOperation(pluginId, name, result);
+      } catch {}
+      if (alive.current) {
+        const message = capabilityErrorText(error, language === 'zh');
+        setUpdatePanels(current => ({ ...current, [pluginId]: { pluginId, name, running: false, error: message } }));
+        setUpdateStates(current => ({ ...current, [pluginId]: {
+          phase: 'assistance', version: preflight.version, detailsAvailable: true, summary: message,
+        } }));
+        setUpdatePanelId(pluginId);
+      }
+      try { const next = await bridge.capabilityCatalog(); if (alive.current) acceptCatalog(next); } catch {}
+      return false;
+    }
+  };
   const updates: PluginUpdatesPresentation | undefined = previewUpdates ?? (catalog?.pluginUpdates ? {
     items: Object.fromEntries(catalog.plugins.map(plugin => {
       const state = plugin.update;
       const saved = updateStates[plugin.id];
       const applicable = saved?.phase === 'updated' ? saved.version === plugin.version && state?.status !== 'available'
-        : saved && saved.version === state?.version;
+        : saved && (saved.version === state?.version || state?.status !== 'available' && saved.version === plugin.version
+          && updatePanels[plugin.id]?.operation?.phase === 'attention');
       const reason = state?.reason === 'version'
         ? t('版本号不是有效的语义化版本，不能自动比较。', 'Versions cannot be compared as semantic versions.')
         : state?.reason === 'conflict' ? t('包名或来源有冲突，请先核对市场。', 'Package or source conflicts; review the marketplaces.')
@@ -144,7 +207,8 @@ export function PluginCenter({ bridge, language, busy, active, runtimeId, curren
         const next = await bridge.capabilityCatalog();
         if (alive.current) {
           setWarnings(result.warnings); acceptCatalog(next);
-          setUpdateStates(current => Object.fromEntries(Object.entries(current).filter(([, state]) => state.phase === 'updated')));
+          setUpdateStates(current => Object.fromEntries(Object.entries(current).filter(([id, state]) =>
+            state.phase === 'updated' || state.detailsAvailable && updatePanels[id]?.operation?.phase === 'attention')));
           repositoryQueries.current.clear(); setRepositoryRevision(value => value + 1);
         }
       } finally { operation.current = false; if (alive.current) setCheckingUpdates(false); }
@@ -153,8 +217,21 @@ export function PluginCenter({ bridge, language, busy, active, runtimeId, curren
       const plugin = catalog.plugins.find(item => item.id === pluginId), candidate = plugin?.update;
       if (!plugin?.package || candidate?.status !== 'available' || !candidate.ref || !candidate.version) return false;
       const version = candidate.version;
-      setUpdateStates(current => ({ ...current, [pluginId]: { phase: 'applying', version } }));
+      setUpdateStates(current => ({ ...current, [pluginId]: { phase: nativeUpdates ? 'checking' : 'applying', version } }));
       try {
+        if (nativeUpdates) {
+          const preflight = await bridge.pluginUpdatePreflight!({ id: pluginId, ref: plugin.package.ref, candidate: candidate.ref });
+          if (preflight.readiness === 'ready') return await applyPreflight(pluginId, plugin.name, preflight);
+          if (alive.current) {
+            setUpdatePanels(current => ({ ...current, [pluginId]: { pluginId, name: plugin.name, preflight, running: false } }));
+            setUpdateStates(current => ({ ...current, [pluginId]: { phase: preflight.readiness === 'blocked' ? 'blocked' : 'assistance',
+              version, detailsAvailable: true, summary: preflight.status === 'compatible'
+                ? t('查看占用会话与处理方式', 'Review affected sessions and next steps')
+                : preflight.changes.map(change => pluginUpdateChangeText(change.code, language === 'zh')).join('; ') } }));
+            setUpdatePanelId(pluginId);
+          }
+          return false;
+        }
         const result = await bridge.capabilityMutate({ action: 'plugin-update', id: pluginId,
           ref: plugin.package.ref, candidate: candidate.ref });
         try { const next = await bridge.capabilityCatalog(); if (alive.current) acceptCatalog(next); }
@@ -180,13 +257,16 @@ export function PluginCenter({ bridge, language, busy, active, runtimeId, curren
   } : undefined);
   const isBvr = entry?.installed?.id === 'bilibili-video-research';
   const isStepPage = entry?.installed?.id === 'steppage';
+  const isCustomBackground = entry?.installed?.package?.hostConfiguration === 'custom-background-v1';
   const updating = Boolean(updates && Object.values(updates.items).some(pluginUpdatePending));
-  const operationLocked = pending || loading || bvrState.pending || updating || updateBusy || Boolean(updates?.checking);
+  const operationLocked = pending || loading || bvrState.pending || backgroundPending || updating || updateBusy || Boolean(updates?.checking);
   const locked = busy || operationLocked;
   const mutationLocked = (input: CapabilityMutation) => operationLocked || busy && capabilityNeedsIdle(input, catalog);
   const installLocked = (item: Entry) => !item.available || mutationLocked({ action: 'plugin-install',
     name: item.available.name, marketplace: item.available.marketplace, ref: item.package?.ref });
-  const updateLocked = (plugin: CapabilityPlugin) => mutationLocked({
+  const updateLocked = (plugin: CapabilityPlugin) => nativeUpdates
+    ? Boolean(!updatePanels[plugin.id] && operationLocked)
+    : mutationLocked({
     action: 'plugin-update', id: plugin.id, ref: plugin.package?.ref ?? '', candidate: plugin.update?.ref ?? '',
   });
   const configurationPackage = entry?.installed?.package;
@@ -206,6 +286,42 @@ export function PluginCenter({ bridge, language, busy, active, runtimeId, curren
     finally { operation.current = false; if (alive.current) setLoading(false); }
   };
   useEffect(() => { alive.current = true; void refresh(); return () => { alive.current = false; }; }, [bridge]);
+  useEffect(() => {
+    if (!nativeUpdates || !catalog) return;
+    let valid = true;
+    for (const plugin of catalog.plugins) {
+      if (updateRequests.current.has(plugin.id)) continue;
+      const request = Symbol(plugin.id);
+      updateRequests.current.set(plugin.id, request);
+      void bridge.pluginUpdateOperation!({ pluginId: plugin.id }).then(result => {
+        if (!valid || !alive.current || updateRequests.current.get(plugin.id) !== request || !result
+          || result.pluginId !== plugin.id || result.phase === 'done') return;
+        const current = latestCatalog.current?.plugins.find(item => item.id === plugin.id);
+        if (!current || result.version !== current.version && result.version !== current.update?.version) return;
+        const running = result.phase !== 'attention';
+        setUpdatePanels(panels => updateRequests.current.get(plugin.id) !== request || panels[plugin.id] ? panels
+          : { ...panels, [plugin.id]: { pluginId: plugin.id, name: current.name, operation: result, running } });
+        setUpdateStates(states => ({ ...states, [plugin.id]: {
+          phase: result.installation === 'committed' ? 'updated' : 'assistance', version: result.version,
+          detailsAvailable: true, summary: capabilityErrorText(result.error ?? '', language === 'zh'),
+        } }));
+        setWarnings(result.warnings);
+        if (running) setUpdateBusy(true);
+        setUpdatePanelId(plugin.id);
+      }).catch(() => {});
+    }
+    return () => { valid = false; };
+  }, [bridge, nativeUpdates, Boolean(catalog)]);
+  useEffect(() => { if (customBackgroundState) setBackgroundState(customBackgroundState); }, [customBackgroundState]);
+  useEffect(() => {
+    if (!active || !backgroundBridge || !catalog?.plugins.some(plugin => plugin.package?.hostConfiguration === 'custom-background-v1')) return;
+    let valid = true;
+    void backgroundBridge.customBackgroundState().then(value => { if (valid) setBackgroundState(value); }).catch(() => {});
+    const unsubscribe = backgroundBridge.onEvent?.(event => {
+      if (valid && event.type === 'desktop_custom_background' && event.state) setBackgroundState(event.state as CustomBackgroundState);
+    });
+    return () => { valid = false; unsubscribe?.(); };
+  }, [active, backgroundBridge, catalog?.plugins.length]);
   useEffect(() => {
     // MCP edits can happen in Settings while this view retains its local draft.
     if (active && catalog) void refresh();
@@ -246,8 +362,36 @@ export function PluginCenter({ bridge, language, busy, active, runtimeId, curren
     }
   }, [confirmation]);
   useEffect(() => { if (!active) setConfirmation(undefined); }, [active]);
+  useEffect(() => {
+    if (!nativeUpdates || !updateBusy) return;
+    let valid = true;
+    const running = Object.values(updatePanels).find(panel => panel.running);
+    if (!running) return;
+    const token = running.preflight?.token ?? running.operation?.id;
+    const version = running.preflight?.version ?? running.operation?.version;
+    const request = updateRequests.current.get(running.pluginId);
+    const poll = () => void bridge.pluginUpdateOperation!({ pluginId: running.pluginId }).then(result => {
+      if (!valid || !result || result.id !== token || result.pluginId !== running.pluginId || result.version !== version
+        || updateRequests.current.get(running.pluginId) !== request) return;
+      setUpdatePanels(current => {
+        const panel = current[running.pluginId];
+        return panel?.running && (panel.preflight?.token ?? panel.operation?.id) === token
+          ? { ...current, [running.pluginId]: { ...panel, operation: result } } : current;
+      });
+      if (!running.preflight && ['done', 'attention'].includes(result.phase)) {
+        void acceptOperation(running.pluginId, running.name, result).then(async committed => {
+          if (committed && alive.current) await onChanged();
+        }).catch(error => { if (alive.current) setError(capabilityErrorText(error, language === 'zh')); })
+          .finally(() => {
+            if (alive.current && updateRequests.current.get(running.pluginId) === request) setUpdateBusy(false);
+          });
+      }
+    }).catch(() => {});
+    poll(); const timer = setInterval(poll, 500);
+    return () => { valid = false; clearInterval(timer); };
+  }, [bridge, nativeUpdates, updateBusy, Object.values(updatePanels).find(panel => panel.running)?.pluginId]);
   const navigate = (action: () => void) => {
-    if (pending || bvrState.pending || updating || updateBusy || checkingUpdates) return;
+    if (pending || bvrState.pending || backgroundPending || updating || updateBusy || checkingUpdates) return;
     if (hasConfigurationForm && bvrState.dirty) setConfirmation({ title: t('放弃未保存的插件配置？', 'Discard unsaved plugin configuration?'), action });
     else action();
   };
@@ -256,6 +400,13 @@ export function PluginCenter({ bridge, language, busy, active, runtimeId, curren
     setSelected(item.key); setDetailTab(page);
     setBvrState({ dirty: false, pending: false, ready: false });
   });
+  useEffect(() => {
+    if (!active || !customBackgroundRequest || backgroundRequest.current === customBackgroundRequest || !catalog) return;
+    const plugin = installed.find(item => item.installed?.package?.hostConfiguration === 'custom-background-v1');
+    if (!plugin) return;
+    backgroundRequest.current = customBackgroundRequest;
+    choose(plugin);
+  }, [active, customBackgroundRequest, catalog]);
   const perform = async (input: CapabilityMutation) => {
     if (operation.current || mutationLocked(input)) return;
     operation.current = true; setPending(true); setError(''); setWarnings([]);
@@ -299,6 +450,7 @@ export function PluginCenter({ bridge, language, busy, active, runtimeId, curren
   };
   const servers = (plugin: CapabilityPlugin) => catalog?.mcp.filter(server => server.pluginId === plugin.id) ?? [];
   const toggle = (plugin: CapabilityPlugin) => {
+    if (plugin.package?.hostConfiguration === 'custom-background-v1') return null;
     const owned = servers(plugin);
     return <button type="button" role="switch" className={`cap-switch${owned.length && owned.every(server => server.enabled) ? ' on' : ''}`}
       aria-label={t(`启用 ${plugin.name} 服务`, `Enable ${plugin.name} services`)}
@@ -307,6 +459,10 @@ export function PluginCenter({ bridge, language, busy, active, runtimeId, curren
       onClick={() => void perform({ action: 'plugin-toggle', id: plugin.id, enabled: !owned.every(server => server.enabled) })}><span/></button>;
   };
   const status = (plugin: CapabilityPlugin) => {
+    if (plugin.package?.hostConfiguration === 'custom-background-v1')
+      return !backgroundState?.available ? t('本机外观', 'Local appearance') : backgroundState.issue ? t('图片不可用', 'Image unavailable')
+        : !backgroundState.image ? t('尚未选择图片', 'No image selected')
+          : backgroundState.options.enabled ? t('背景已启用', 'Background enabled') : t('跟随主题', 'Following theme');
     const owned = servers(plugin);
     return !owned.length ? t('无 MCP 服务', 'No MCP services') : owned.every(server => server.enabled) ? t('服务已启用', 'Services enabled')
       : owned.every(server => !server.enabled) ? t('服务已停用', 'Services disabled') : t('部分服务启用', 'Some services enabled');
@@ -344,24 +500,68 @@ export function PluginCenter({ bridge, language, busy, active, runtimeId, curren
     return () => { valid = false; };
   }, [active, bridge, repositoryKey, repositoryRevision]);
   const back = () => navigate(() => { setSelected(undefined); setBvrState({ dirty: false, pending: false, ready: false }); });
-  const updatePlugin = (pluginId: string) => navigate(() => {
+  const navigateUpdate = (action: () => void) => navigate(() => {
+    if (hasConfigurationForm && bvrState.dirty) {
+      setBvrState({ dirty: false, pending: false, ready: false });
+      setConfigurationRevision(value => value + 1);
+    }
+    action();
+  });
+  const updatePlugin = (pluginId: string) => {
+    const panel = updatePanels[pluginId];
+    const candidate = catalog?.plugins.find(item => item.id === pluginId)?.update;
+    if (panel?.running || panel?.operation?.installation === 'unknown'
+      || panel?.operation?.installation === 'committed' && candidate?.status !== 'available') {
+      setUpdatePanelId(pluginId); return;
+    }
+    navigateUpdate(() => {
     const plugin = catalog?.plugins.find(item => item.id === pluginId);
     if (!updates || !plugin || updateLocked(plugin) || updateOperation.current) return;
+    updateRequests.current.set(pluginId, Symbol(pluginId));
+    setUpdatePanels(current => { const next = { ...current }; delete next[pluginId]; return next; });
     updateOperation.current = true; setUpdateBusy(true);
     void updates.onUpdate(pluginId).then(async success => {
       if (!success || !alive.current) return;
-      setChanged(true);
+      if (!nativeUpdates) setChanged(true);
       if (previewUpdates) await refresh();
       await onChanged();
     }).catch(error => { if (alive.current) setError(capabilityErrorText(error, language === 'zh')); })
       .finally(() => { updateOperation.current = false; if (alive.current) setUpdateBusy(false); });
+    });
+  };
+  const continueUpdate = () => navigateUpdate(() => {
+    const panel = updatePanelId ? updatePanels[updatePanelId] : undefined;
+    if (!panel?.preflight || updateOperation.current) return;
+    updateRequests.current.set(panel.pluginId, Symbol(panel.pluginId));
+    updateOperation.current = true; setUpdateBusy(true);
+    void applyPreflight(panel.pluginId, panel.name, panel.preflight).then(async success => {
+      if (success) await onChanged();
+    }).catch(error => {
+      if (alive.current) {
+        setError(capabilityErrorText(error, language === 'zh'));
+        setUpdatePanels(current => ({ ...current, [panel.pluginId]: { ...current[panel.pluginId], running: false } }));
+      }
+    }).finally(() => { updateOperation.current = false; if (alive.current) setUpdateBusy(false); });
+  });
+  const recheckUpdate = () => navigateUpdate(() => {
+    if (!updatePanelId || updateOperation.current) return;
+    const pluginId = updatePanelId;
+    updateRequests.current.set(pluginId, Symbol(pluginId));
+    setUpdatePanelId(undefined);
+    setUpdatePanels(current => { const next = { ...current }; delete next[pluginId]; return next; });
+    updateOperation.current = true; setUpdateBusy(true);
+    void updates?.onUpdate(pluginId).then(async success => { if (success) await onChanged(); })
+      .catch(error => setError(capabilityErrorText(error, language === 'zh')))
+      .finally(() => { updateOperation.current = false; if (alive.current) setUpdateBusy(false); });
   });
   const tabs: [PluginTab, string][] = [['installed', t('已安装', 'Installed')], ['discover', t('发现', 'Discover')], ['sources', t('市场来源', 'Marketplaces')]];
-  const detailTabs = [['about', t('使用说明', 'Guide')], ['config', t('配置', 'Configuration')], ['capabilities', t('能力', 'Capabilities')],
+  const detailTabs = [['about', t('使用说明', 'Guide')], ['config', t('配置', 'Configuration')],
+    ...(!isCustomBackground ? [['capabilities', t('能力', 'Capabilities')]] : []),
     ...(entry?.package?.documentation.changelog ? [['updates', t('更新记录', 'Changelog')]] : [])];
   useEffect(() => {
     if (detailTab === 'updates' && !entry?.package?.documentation.changelog) setDetailTab('about');
-  }, [entry?.package?.documentation.changelog, detailTab]);
+    if (detailTab === 'capabilities' && isCustomBackground) setDetailTab('config');
+  }, [entry?.package?.documentation.changelog, detailTab, isCustomBackground]);
   const tabKeyboard = (event: React.KeyboardEvent<HTMLDivElement>) => {
     if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
     const buttons = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('[role=tab]'));
@@ -442,7 +642,7 @@ export function PluginCenter({ bridge, language, busy, active, runtimeId, curren
           </div>}
       </div>
     </div> : <section className="pc-detail">
-      <div className="pc-detail-navigation"><button onClick={back} disabled={pending || bvrState.pending}><ArrowLeft size={15}/>{t('全部插件', 'All plugins')}</button><span>/</span><span>{entry.name}</span>
+      <div className="pc-detail-navigation"><button onClick={back} disabled={pending || bvrState.pending || backgroundPending}><ArrowLeft size={15}/>{t('全部插件', 'All plugins')}</button><span>/</span><span>{entry.name}</span>
         <button className="icon-button" aria-label={t('返回会话', 'Back to conversation')} onClick={onBack}><X size={16}/></button></div>
       <div className="pc-detail-workspace"><div ref={scroll} id={`${id}-scroll`} className="pc-detail-scroll"><div className="pc-detail-document">
         <header className="pc-plugin-header"><div className="pc-plugin-identity"><CapabilityPluginIconView icon={entry.icon}/><div className="pc-plugin-title">
@@ -480,14 +680,18 @@ export function PluginCenter({ bridge, language, busy, active, runtimeId, curren
         </div>
         <div className="pc-detail-content" key={entry.key}>
           <div id={`${id}-config-panel`} role="tabpanel" aria-labelledby={`${id}-detail-config`} hidden={detailTab !== 'config'}>
-            {configurationPackage?.hostSettingsAvailable ? <PluginHostSettingsForm key={configurationPackage.ref} bridge={bridge} pkg={configurationPackage}
+            {isCustomBackground && backgroundBridge && configurationPackage ? <CustomBackgroundSettings key={configurationPackage.ref}
+              bridge={backgroundBridge} packageRef={configurationPackage.ref} language={language} themePack={themePack}
+              visible={active && detailTab === 'config'} busy={pending || loading || updating || updateBusy || Boolean(updates?.checking)}
+              onChanged={setBackgroundState} onPending={setBackgroundPending}/>
+              : configurationPackage?.hostSettingsAvailable ? <PluginHostSettingsForm key={`${configurationPackage.ref}:${configurationRevision}`} bridge={bridge} pkg={configurationPackage}
               language={language} busy={locked} formId={formId} runtimeKey={`${runtimeId ?? ''}:${observationRevision}`} visible={active && detailTab === 'config'}
               onState={setBvrState} onSaved={async () => { setChanged(true); await onChanged(); }}/>
-              : isBvr ? <BvrConfigurationForm bridge={bridge} language={language} busy={locked} formId={formId} visible={active && detailTab === 'config'}
+              : isBvr ? <BvrConfigurationForm key={configurationRevision} bridge={bridge} language={language} busy={locked} formId={formId} visible={active && detailTab === 'config'}
               onState={setBvrState} onSaved={async () => { setChanged(true); await onChanged(); }}/>
               : isStepPage ? <StepPageSettings bridge={bridge} language={language} config={settings?.mcp.steppage__steppage} busy={locked}
                 onPrepared={stepPagePrepared} onRestart={restart}/>
-                : configurationPackage?.configurationAvailable ? <PluginConfigurationForm key={configurationPackage.ref} bridge={bridge} pkg={configurationPackage}
+                : configurationPackage?.configurationAvailable ? <PluginConfigurationForm key={`${configurationPackage.ref}:${configurationRevision}`} bridge={bridge} pkg={configurationPackage}
                   language={language} busy={locked} formId={formId} visible={active && detailTab === 'config'}
                   onState={setBvrState} onSaved={async () => { setChanged(true); await onChanged(); }}/>
                 : <section className="pc-form-section"><h3>{t('服务配置', 'Service configuration')}</h3><p className="pc-body-copy">
@@ -527,11 +731,17 @@ export function PluginCenter({ bridge, language, busy, active, runtimeId, curren
         </div>
       </div></div><ScrollThumb scrollRef={scroll} language={language === 'zh' ? 'zh' : 'en'} sessionId={`${entry.key}-${detailTab}`} messageCount={1}
         scrollId={`${id}-scroll`} label={t('插件详情滚动', 'Scroll plugin details')} className="pc-detail-scroll-track" contentSelector=".pc-detail-document" compact/></div>
-      <footer className="pc-detail-footer" hidden={['about', 'updates'].includes(detailTab) && !bvrState.dirty && !changed}><span className="pc-save-state" role="status">{hasConfigurationForm && bvrState.dirty ? t('有未保存的更改', 'Unsaved changes')
+      <footer className="pc-detail-footer" hidden={isCustomBackground || ['about', 'updates'].includes(detailTab) && !bvrState.dirty && !changed}><span className="pc-save-state" role="status">{hasConfigurationForm && bvrState.dirty ? t('有未保存的更改', 'Unsaved changes')
         : changed ? t('已保存，现有会话需重启后应用', 'Saved; restart existing sessions to apply') : t('Desktop 独立配置', 'Desktop profile')}</span>
         <div>{hasConfigurationForm && detailTab === 'config' && <button className="primary" type="submit" form={formId} disabled={!canEditBvr || !bvrState.dirty || locked}><Save size={14}/>{t('保存配置', 'Save configuration')}</button>}
           <button disabled={locked || !runtimeId || bvrState.dirty} onClick={() => void restart().catch(error => setError(capabilityErrorText(error, language === 'zh')))}><RotateCcw size={14}/>{t('重启当前会话', 'Restart current session')}</button></div></footer>
     </section>}
+    <PluginUpdateDialog panel={updatePanelId ? updatePanels[updatePanelId] : undefined} open={active && Boolean(updatePanelId)}
+      language={language} onClose={() => setUpdatePanelId(undefined)} onApply={continueUpdate} onCheck={recheckUpdate}
+      onSession={onOpenSession ? sessionId => navigate(() => {
+        setUpdatePanelId(undefined);
+        void onOpenSession(sessionId).catch(error => setError(capabilityErrorText(error, language === 'zh')));
+      }) : undefined}/>
     <dialog ref={dialog} className="pc-dialog" aria-label={confirmation?.title} onCancel={event => { event.preventDefault(); setConfirmation(undefined); }}>
       <header><h2>{confirmation?.title}</h2></header><footer><button autoFocus onClick={() => setConfirmation(undefined)}>{t('取消', 'Cancel')}</button>
         <button className="pc-danger-button" onClick={() => { const action = confirmation?.action; setConfirmation(undefined); action?.(); }}>{t('确认', 'Confirm')}</button></footer>

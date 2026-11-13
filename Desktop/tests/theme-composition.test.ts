@@ -335,6 +335,11 @@ test('background resolution is a pure decision and never mutates the theme decla
   assert.deepEqual(pack, before);
 });
 
+test('built-in themes expose only the static image slot and restore their solid background', () => {
+  assert.deepEqual(resolveThemeBackground(undefined), { renderer: 'solid-v1', overridden: false, blocked: false });
+  assert.deepEqual(resolveThemeBackground(undefined, 'image-v1'), { renderer: 'image-v1', overridden: true, blocked: false });
+});
+
 test('resource revisions are stable until normalized image, cover or composition changes', async () => fixture(async f => {
   const pixel = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jJmQAAAAASUVORK5CYII=', 'base64');
   const raw = {

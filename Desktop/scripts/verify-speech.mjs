@@ -1,6 +1,6 @@
 import { _electron as electron } from 'playwright';
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, realpath, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { createServer } from 'node:http';
 import { createInterface } from 'node:readline';
@@ -8,16 +8,16 @@ import { createPatch } from 'diff';
 import { closeDesktopFixtureAndWait } from './close-desktop-fixture.mjs';
 import { sampleMotion } from './sample-motion.mjs';
 import { settleLayout } from './settle-layout.mjs';
+import { installRuntimeFixturePreload } from './runtime-transport-fixture.mjs';
 
 const evidence = resolve(process.env.DESKTOP_SPEECH_EVIDENCE || 'test-results/speech');
 await mkdir(evidence, { recursive: true });
 const profile = await mkdtemp(join(evidence, 'profile-'));
 const root = join(profile, 'step-runtime');
 await mkdir(root, { recursive: true });
-await writeFile(join(profile, 'preferences.json'), JSON.stringify({ language: 'zh', theme: 'original-dark', workspaces: [] }));
-await writeFile(join(root, 'auth.json'), JSON.stringify({ step: {
-  type: 'oauth', profile: 'step_plan', access: 'speech-fixture-plan-key', expires: Date.now() + 3600000,
-} }));
+await writeFile(join(profile, 'preferences.json'), JSON.stringify({
+  language: 'zh', theme: 'original-dark', workspaces: [], autoCheckUpdates: false,
+}));
 await writeFile(join(root, 'config.toml'), 'defaultProvider = "step"\ndefaultModel = "step-5-preview"\n[telemetry]\nenabled = false\n');
 // Loop a voiced PCM fixture so short recordings do not depend on the default
 // fake microphone's timing and actually exercise ASR rather than silent discard.
@@ -38,6 +38,20 @@ const server = createServer(async (request, response) => {
   try {
     const proxy = new URL(request.url, 'http://fixture');
     const url = proxy.searchParams.has('url') ? new URL(proxy.searchParams.get('url')) : proxy;
+    if (url.hostname === 'platform.stepfun.com') {
+      response.setHeader('content-type', 'application/json');
+      if (url.pathname.endsWith('/init')) {
+        const chunks = [];
+        for await (const chunk of request) chunks.push(chunk);
+        assert.equal(JSON.parse(Buffer.concat(chunks).toString('utf8')).profile, 'step_plan');
+        response.end(JSON.stringify({ flow_id: 'speech-fixture-login', poll_interval_sec: 1,
+          expires_at: Math.floor(Date.now() / 1000) + 60 }));
+      } else {
+        assert.equal(url.pathname, '/api/stdhttp/v1/cli-login/poll/speech-fixture-login');
+        response.end(JSON.stringify({ state: 'ready', uid: '42', credential: { api_key: 'speech-fixture-plan-key' } }));
+      }
+      return;
+    }
     if (url.pathname.endsWith('/models')) {
       response.end(JSON.stringify({ data: [{ id: 'step-5-preview', name: 'Offline fixture' }] })); return;
     }
@@ -81,43 +95,32 @@ const server = createServer(async (request, response) => {
 });
 await new Promise(done => server.listen(0, '127.0.0.1', done));
 const base = `http://127.0.0.1:${server.address().port}`;
+// Start without credentials and keep pre-hook model discovery on loopback.
+// The real login below installs the Plan endpoint only after transport isolation.
+await writeFile(join(root, 'models.json'), JSON.stringify({ providers: { step: {
+  baseUrl: `${base}/v1`, api: 'openai-completions',
+  models: [{ id: 'step-5-preview', name: 'Offline fixture', contextWindow: 32768, maxTokens: 1024 }],
+} } }));
 const preload = join(profile, 'loopback.cjs'), entry = join(profile, 'entry.cjs');
 await writeFile(preload, `
 let transport = globalThis.fetch;
 const route = (input, init) => {
   const url = new URL(input instanceof Request ? input.url : String(input));
   if (url.hostname === '127.0.0.1') return transport(input, init);
-  if (!['api.stepfun.com', 'api.stepfun.ai'].includes(url.hostname)) throw new Error('External fixture request blocked');
+  if (!['api.stepfun.com', 'api.stepfun.ai', 'platform.stepfun.com'].includes(url.hostname)) throw new Error('External fixture request blocked');
   return transport(${JSON.stringify(base)} + '/?url=' + encodeURIComponent(url.href), init);
 };
 Object.defineProperty(globalThis, 'fetch', { configurable: true, get: () => route,
   set: value => { if (value !== route) transport = value; } });
 `);
 await writeFile(entry, `
-const { app, net, ipcMain } = require('electron');
+const { app } = require('electron');
 // Playwright's loader replaces --disable-features before loading this entry.
 // Merge here so only the fixture audio utility can read the synthetic WAV.
 const disabled = new Set(app.commandLine.getSwitchValue('disable-features').split(',').filter(Boolean));
 disabled.add('AudioServiceSandbox');
 app.commandLine.appendSwitch('disable-features', [...disabled].join(','));
-const handle = ipcMain.handle;
-ipcMain.handle = function(channel, handler) {
-  if (channel !== 'desktop') return handle.call(this, channel, handler);
-  return handle.call(this, channel, async (event, method, ...args) => {
-    const result = await handler(event, method, ...args);
-    const gate = globalThis.speechSettingsGate;
-    if (method === 'speechSettings' && gate) { gate.entered = true; await gate.promise; }
-    return result;
-  });
-};
-const cp = require('node:child_process'), spawn = cp.spawn;
-cp.spawn = function(file, args, options) {
-  if (args?.some(arg => /(?:admin\\.mjs|step\\.js)$/.test(arg))) args = ['--require', ${JSON.stringify(preload)}, ...args];
-  return spawn.call(this, file, args, options);
-};
-require('node:module').syncBuiltinESMExports();
 require(${JSON.stringify(preload)});
-net.fetch = (input, init) => globalThis.fetch(input, init);
 require(${JSON.stringify(resolve('dist/main.cjs'))});
 `);
 const env = { ...process.env, DESKTOP_TEST_USER_DATA: profile, DESKTOP_TEST_NO_FOCUS: '1',
@@ -127,13 +130,17 @@ for (const key of Object.keys(env)) {
     || /(?:API_KEY|ACCESS_TOKEN|AUTH_TOKEN|SECRET|PASSWORD|COOKIE)$/i.test(key)) delete env[key];
 }
 let app, page;
+const launches = [];
 const errors = [];
 const nativeAudioErrors = [];
 const audioProcesses = () => app.evaluate(({ app }) => app.getAppMetrics()
   .filter(process => process.name === 'Audio Service' || process.serviceName === 'audio.mojom.AudioService')
   .map(({ type, name, serviceName, sandboxed }) => ({ type, name, serviceName, sandboxed })));
 const launch = async () => {
-  app = await electron.launch({ args: [entry, '--use-fake-device-for-media-stream',
+  const executablePath = process.env.DESKTOP_VERIFY_EXE;
+  app = await electron.launch({ ...(executablePath ? { executablePath } : {}),
+    args: [...(executablePath ? [] : [entry]), '--use-fake-device-for-media-stream',
+    '--disable-features=AudioServiceSandbox',
     '--enable-logging=stderr',
     `--use-file-for-fake-audio-capture=${microphone}`], env, timeout: 60000 });
   const stderr = app.process().stderr;
@@ -143,6 +150,43 @@ const launch = async () => {
     }
   });
   page = await app.firstWindow();
+  const identity = await app.evaluate(({ app }, preload) => {
+    const fs = process.getBuiltinModule('node:fs');
+    const require = process.getBuiltinModule('node:module').createRequire(preload);
+    return { packaged: app.isPackaged, executable: fs.realpathSync.native(process.execPath),
+      application: app.getAppPath(), resources: process.resourcesPath,
+      loadedMain: Object.keys(require.cache).filter(path => /[\\/]dist[\\/]main\.cjs$/.test(path)) };
+  }, preload);
+  launches.push(identity);
+  assert.equal(identity.packaged, Boolean(executablePath), 'Speech acceptance must run the requested source/package mode');
+  if (executablePath) {
+    assert.equal(identity.executable, await realpath(executablePath), 'Speech acceptance must execute DESKTOP_VERIFY_EXE');
+    assert.ok(['app.asar', 'app'].some(name => resolve(identity.application) === resolve(identity.resources, name)),
+      `Packaged speech acceptance must load its own resources: ${JSON.stringify(identity)}`);
+    assert.ok(identity.loadedMain.includes(join(identity.application, 'dist/main.cjs')),
+      'Packaged speech acceptance must load the main module from its own package');
+  } else {
+    assert.equal(resolve(identity.application), profile, 'Source speech acceptance must use the isolated fixture entry');
+    assert.ok(identity.loadedMain.includes(resolve('dist/main.cjs')),
+      'Source speech acceptance must load the current Desktop main module');
+  }
+  await app.evaluate(installRuntimeFixturePreload, { preload });
+  await app.evaluate(({ ipcMain, net, shell }, preload) => {
+    const modules = process.getBuiltinModule('node:module');
+    modules.createRequire(preload)(preload);
+    net.fetch = (input, init) => globalThis.fetch(input, init);
+    shell.openExternal = async input => {
+      if (new URL(input).hostname !== 'platform.stepfun.com') throw new Error('External fixture browser request blocked');
+    };
+    const handlers = ipcMain._invokeHandlers, handler = handlers.get('desktop');
+    if (typeof handler !== 'function') throw new Error('Desktop IPC handler unavailable');
+    handlers.set('desktop', async (event, method, ...args) => {
+      const result = await handler(event, method, ...args);
+      const gate = globalThis.speechSettingsGate;
+      if (method === 'speechSettings' && gate) { gate.entered = true; await gate.promise; }
+      return result;
+    });
+  }, preload);
   assert.deepEqual(await app.evaluate(({ BrowserWindow }) => {
     const { sandbox, contextIsolation, nodeIntegration } = BrowserWindow.getAllWindows()[0].webContents.getLastWebPreferences();
     return { sandbox, contextIsolation, nodeIntegration };
@@ -156,15 +200,31 @@ const launch = async () => {
     const window = BrowserWindow.getAllWindows()[0];
     window.setOpacity(0); window.setIgnoreMouseEvents(true); window.showInactive(); window.setSize(1360, 900);
   });
-  await input().waitFor();
+  await page.waitForFunction(() => Boolean(window.desktop));
+  await page.evaluate(() => window.desktop.snapshot());
   assert.equal(await app.evaluate(({ app, BrowserWindow }) => {
     const pid = BrowserWindow.getAllWindows()[0].webContents.getOSProcessId();
     return app.getAppMetrics().find(process => process.pid === pid)?.sandboxed;
   }), true, 'The renderer must retain its OS-level sandbox');
+  // Restart only this fixture's pre-hook admin before installing an account.
+  await page.evaluate(base => window.desktop.saveProvider({
+    id: '', name: 'Disabled speech transport fixture', baseUrl: `${base}/v1`,
+    api: 'openai-completions', enabled: false, keyless: true,
+    models: [{ id: 'unused', name: 'Unused', reasoning: false, vision: false, contextWindow: 32768, maxTokens: 1024 }],
+  }), base);
+  if (launches.length > 1) {
+    const persisted = await settingsValue();
+    assert.equal(persisted.acknowledged, true);
+    assert.equal(persisted.source, 'follow');
+    assert.equal(persisted.hasKey, false, 'Switching back to the account route must discard the independent key');
+  }
+  if (!(await settingsValue()).followAvailable) await page.evaluate(() => window.desktop.login('step_plan'));
+  await input().waitFor();
   await page.waitForFunction(() => document.querySelector('.composer-input')?.getAttribute('aria-disabled') === 'false');
   await page.evaluate(() => {
     const media = navigator.mediaDevices, getUserMedia = media.getUserMedia.bind(media);
     window.__speechFixtureTracks = [];
+    window.__speechFixtureMediaTracks = [];
     // Chromium recommends unprocessed input for WAV-backed fake microphones.
     // Keep native permission/capture; only prevent speech filters from removing the test tone.
     media.getUserMedia = async constraints => {
@@ -175,7 +235,9 @@ const launch = async () => {
       for (const track of stream.getAudioTracks()) {
         const { echoCancellation, noiseSuppression, autoGainControl, sampleRate, channelCount } = track.getSettings();
         window.__speechFixtureTracks.push({ echoCancellation, noiseSuppression, autoGainControl, sampleRate, channelCount });
+        window.__speechFixtureMediaTracks.push(track);
       }
+      window.__speechFixtureCurrentTracks = stream.getAudioTracks();
       return stream;
     };
     const Original = window.AudioWorkletNode;
@@ -183,17 +245,51 @@ const launch = async () => {
       constructor(...args) {
         super(...args);
         if (args[1] !== 'desktop-speech-capture') return;
-        const capture = { samples: 0, voicedSamples: 0, maxRms: 0 };
+        const context = args[0], started = performance.now(), audioStarted = context.currentTime;
+        const capture = { samples: 0, voicedSamples: 0, maxRms: 0, injectedSamples: 0,
+          firstMessageMs: null, lastMessageMs: null, maxGapMs: 0, states: [] };
         window.__speechFixtureCapture = capture;
-        // Observe the production worklet without replacing capture or transcription.
+        const contextState = () => {
+          if (capture.states.length < 20) capture.states.push({ state: context.state, elapsedMs: performance.now() - started });
+        };
+        contextState();
+        context.addEventListener('statechange', contextState);
+        window.__speechFixtureCaptureSnapshot = () => ({
+          ...capture, elapsedMs: performance.now() - started, audioSeconds: context.currentTime - audioStarted,
+          contextState: context.state, sampleRate: context.sampleRate,
+          baseLatency: context.baseLatency, outputLatency: context.outputLatency,
+        });
+        let injecting = false;
+        window.__speechFixturePush = blocks => {
+          if (!window.__speechFixtureControlled) throw new Error('Controlled PCM is only enabled for the queue scenario');
+          for (let index = 0; index < blocks; index++) {
+            injecting = true;
+            try {
+              this.port.dispatchEvent(new MessageEvent('message', {
+                data: { type: 'samples', samples: new Float32Array(1600).fill(0.2) },
+              }));
+            } finally { injecting = false; }
+          }
+        };
+        // Other cases retain native input. Only the queue case gets a known PCM
+        // count at the real capture boundary, independent of device wall-clock speed.
         this.port.addEventListener('message', ({ data }) => {
           if (data?.type !== 'samples') return;
+          if (injecting) { capture.injectedSamples += data.samples.length; return; }
           capture.samples += data.samples.length;
+          const elapsed = performance.now() - started;
+          if (capture.lastMessageMs !== null) capture.maxGapMs = Math.max(capture.maxGapMs, elapsed - capture.lastMessageMs);
+          capture.lastMessageMs = elapsed;
+          capture.firstMessageMs ??= capture.lastMessageMs;
           let energy = 0;
           for (const sample of data.samples) energy += sample * sample;
           const rms = Math.sqrt(energy / Math.max(1, data.samples.length));
           capture.maxRms = Math.max(capture.maxRms, rms);
           if (rms >= 0.01) capture.voicedSamples += data.samples.length;
+        });
+        this.port.addEventListener('message', event => {
+          if (window.__speechFixtureControlled && !injecting && event.data?.type === 'samples')
+            event.stopImmediatePropagation();
         });
       }
     };
@@ -325,9 +421,10 @@ try {
   await page.screenshot({ path: join(evidence, 'recording-dark.png') });
   await until(async () => (await text()).includes('语音输入验收文本'), 'Continuous ASR did not append while recording');
   const continuousCapture = await page.evaluate(() => ({
-    ...window.__speechFixtureCapture, tracks: window.__speechFixtureTracks,
+    ...window.__speechFixtureCaptureSnapshot(), tracks: window.__speechFixtureTracks,
   }));
   assert.ok(continuousCapture.voicedSamples >= 3200, 'The native worklet must receive voiced PCM before ASR');
+  assert.equal(continuousCapture.injectedSamples, 0, 'Continuous ASR must use only native microphone PCM');
   assert.ok(continuousCapture.maxRms > 0.1, 'The unprocessed WAV must retain its fixture amplitude');
   assert.deepEqual(nativeAudioErrors, []);
   const audio = await audioProcesses();
@@ -400,16 +497,33 @@ try {
   assert.equal(calls.length, completed + 2); assert.equal(await permission(), false);
   assert.equal((await text()).trim(), '', 'Navigation never moves recognized text to the new draft');
 
-  console.log('Speech acceptance: bounded backpressure without repeated requests');
+  console.log('Speech acceptance: controlled PCM backpressure without repeated requests');
   mode = 'hold';
   await input().fill('慢服务前保留草稿');
+  await page.evaluate(() => { window.__speechFixtureControlled = true; });
   await begin();
+  await page.waitForFunction(() => window.__speechFixtureCapture.voicedSamples >= 1600, null, { timeout: 20000 });
+  await page.evaluate(() => window.__speechFixturePush(40));
+  await until(() => calls.length === completed + 3, 'The first controlled PCM segment did not reach the held ASR transport');
+  await page.evaluate(() => window.__speechFixturePush(160));
+  assert.equal(await page.locator('.speech-error[role="alert"]').count(), 0, 'Four queued segments must remain allowed');
+  assert.equal(await page.evaluate(() => window.__speechFixtureCurrentTracks.every(track => track.readyState === 'live')),
+    true, 'The fifth segment must not cancel native capture');
+  assert.equal(calls.length, completed + 3, 'Queued PCM must not start parallel requests');
+  await page.evaluate(() => window.__speechFixturePush(40));
   await until(async () => await page.locator('.speech-error[role="alert"]').count() > 0,
-    'A slow provider did not stop bounded continuous recording', 35000);
+    'A slow provider did not stop recording at the sixth controlled PCM segment');
   assert.match(await page.locator('.speech-error[role="alert"]').innerText(), /响应较慢/);
   assert.equal(calls.length, completed + 3, 'Backpressure must not send additional queued requests');
   assert.equal(await text(), '慢服务前保留草稿');
   assert.equal(await permission(), false);
+  const backpressureCapture = await page.evaluate(() => ({
+    ...window.__speechFixtureCaptureSnapshot(),
+    tracksEnded: window.__speechFixtureMediaTracks.every(track => track.readyState === 'ended'),
+  }));
+  assert.equal(backpressureCapture.injectedSamples, 6 * 64000, 'The queue case must supply exactly six four-second segments');
+  assert.equal(backpressureCapture.tracksEnded, true, 'Backpressure must release every microphone track');
+  await page.evaluate(() => { window.__speechFixtureControlled = false; });
   await page.locator('.speech-error').getByRole('button', { name: '关闭', exact: true }).click();
   mode = 'ok';
 
@@ -424,6 +538,8 @@ try {
   await settings.getByRole('button', { name: '保存听写设置', exact: true }).click();
   await settings.getByText('已保存', { exact: true }).waitFor();
   assert.equal((await settingsValue()).hasKey, true);
+  const independentVault = await readFile(join(root, 'auth.dpapi'));
+  assert.equal(independentVault.includes(Buffer.from('speech-fixture-custom-key')), false);
   assert.doesNotMatch(JSON.stringify(await settingsValue()), /speech-fixture.*key/);
   await settings.getByLabel('模型', { exact: true }).focus();
   await page.screenshot({ path: join(evidence, 'settings-dark-focused.png') });
@@ -531,37 +647,41 @@ try {
   await page.locator('.speech-progress').waitFor({ state: 'detached' });
   mode = 'ok';
   await writeFile(join(evidence, 'context-layout.json'), JSON.stringify({ entrance, exit, layouts, focus }, null, 2));
-  await closeDesktopFixtureAndWait(app); app = undefined;
   const encrypted = await readFile(join(root, 'auth.dpapi'));
   assert.equal(encrypted.includes(Buffer.from('speech-fixture-oversea-key')), false);
-  assert.equal(encrypted.includes(Buffer.from('speech-fixture-custom-key')), false);
+  // Persist dictation consent/settings but remove the account before the next
+  // pre-hook startup. Relaunch installs transport isolation before logging in.
+  await page.evaluate(() => window.desktop.logout());
+  assert.equal((await settingsValue()).acknowledged, true);
+  assert.equal((await settingsValue()).hasKey, false, 'The account route must not retain the independent key');
+  await closeDesktopFixtureAndWait(app); app = undefined;
   await launch();
   assert.equal((await snapshot()).preferences.language, 'en');
   assert.equal((await settingsValue()).acknowledged, true);
   assert.equal((await settingsValue()).source, 'follow');
   assert.equal(await permission(), false);
   assert.deepEqual(errors, []); assert.deepEqual(failures, []); assert.deepEqual(nativeAudioErrors, []);
-  const result = { ok: true, requests: calls, evidence, continuousCapture, audioProcesses: audio, nativeAudioErrors, checks: [
+  const result = { ok: true, requests: calls, evidence, launches, continuousCapture, backpressureCapture, audioProcesses: audio, nativeAudioErrors, checks: [
     'production Electron and synthetic microphone', 'first-use disclosure and Plan route',
     'renderer OS sandbox, context isolation and no Node integration',
     'fixture audio utility only is unsandboxed; no global sandbox bypass',
     'same shared adapter as plugins and BVR', 'no Agent worker or automatic prompt',
     'text before Finish without whole-recording reupload', 'manual edits survive incremental append',
-    'cancel recording and upload', 'bounded slow-provider backpressure', 'navigation isolation', 'redacted failures',
+    'cancel recording and upload', 'bounded slow-provider backpressure with controlled PCM at the capture boundary', 'navigation isolation', 'redacted failures',
     'independent model and encrypted key', 'dark/light narrow focused layouts',
     'settings loading until the real IPC read resolves',
     'login/logout preservation and overseas API route', 'persisted consent',
     'centered shared context row without composer resize', 'equal diff/dictation halves with quotes and queue',
     '240ms cubic entrance/exit and reduced motion', 'status focus outline and trigger focus return',
-  ], boundary: 'Loopback fixtures only. No real account, entitlement, billing, physical microphone or installer acceptance.' };
+  ], boundary: 'Loopback fixtures only. Native synthetic microphone covers continuous ASR and Finish; controlled PCM covers queue backpressure, not 24 seconds of real-time capture. No real account, entitlement, billing, physical microphone or installer acceptance.' };
   await writeFile(join(evidence, 'verification.json'), JSON.stringify(result, null, 2));
   console.log(JSON.stringify(result, null, 2));
 } catch (error) {
   if (page && !page.isClosed()) {
     await page.screenshot({ path: join(evidence, 'failure.png') });
     await writeFile(join(evidence, 'failure-diagnostic.json'), JSON.stringify({
-      calls, failures, errors, nativeAudioErrors, audioProcesses: await audioProcesses(), capture: await page.evaluate(() => ({
-        ...window.__speechFixtureCapture, tracks: window.__speechFixtureTracks,
+      calls, failures, errors, nativeAudioErrors, launches, audioProcesses: await audioProcesses(), capture: await page.evaluate(() => ({
+        ...window.__speechFixtureCaptureSnapshot?.(), tracks: window.__speechFixtureTracks,
       })),
     }, null, 2));
     console.error(await page.locator('body').innerText());

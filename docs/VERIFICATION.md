@@ -1,5 +1,699 @@
 # Verification
 
+## 监管进程观测补齐与类型声明（2026-11-13）
+
+`9d0d0bc` 的云端 Windows runtime 和 macOS prepare 都在类型检查失败：
+新增测试直接导入共享 `.mjs` helper，却遗漏配套声明，产生 TS7016。
+这是本轮提交遗漏；补充精确 `.d.mts` 参数声明，不排除测试或放宽 strict。
+
+同 head 的 Windows sessions 全组通过；interface 已通过首次引导、语音及
+插件能力验收，随后 diagnostics 因旧观测器只识别直接 Node，无法记录
+supervisor 内的会话而失败。补齐精确 runtime 路径和结构化 spec 识别，
+从匹配 Job 的首条有效 receipt 取得真实 Node PID，另记 supervisor PID，
+保留原 transport 对象、Remote 绑定、权限、模型和进程退出断言。
+历史计时的一次性延迟及本地导航性能观测也存在同源遗漏，一并补齐；
+只观察真实会话，不改启动命令、参数或 Job Object 包含关系。
+
+- 完整类型检查通过；四个文件的定向回归 32/32 通过。
+  新增 12 项实际回调执行覆盖 source/packaged、direct/supervised，
+  拒绝无关管理 RPC、错误路径和非法 spec；核对 PID receipt、原对象、
+  Remote 替换、实际 1600 ms 延迟及命令/退出观测。
+- CI 清单测试通过，未调整门禁或放宽产品停机要求。
+  日志为 `D:\DFSC Builds\plugin-update-20261113-observer-typecheck.log`、
+  `plugin-update-20261113-observer-fixture-tests.log` 及
+  `plugin-update-20261113-observer-ci-policy.log`。
+- 本机系统可用提交余量仍不足 1 GB，未再启动重型 Electron/全量协议补验；
+  不将上一 head 的分组或更早本地通过沿用为最终树的完整通过。
+  新提交仍需完整云端 Windows/macOS/SDK 确认。
+
+## 同类 transport 夹具补齐与本机资源边界（2026-11-13）
+
+`b78f0e1` 推送后横向核查发现，账户路由、账户设置、插件宿主授权和语音
+验收也使用了只认识直接 Node 的旧 preload hook。旧 Windows interface
+在 first-run 处提前停止，尚未覆盖这些后续场景。本机原账户路由首次
+请求绕过 loopback 并收到官方 401；只有隔离夹具占位 key，没有使用真实账户。
+
+五个验收脚本现在共用 `runtime-transport-fixture.mjs`，将 preload 注入
+精确 supervisor 的结构化 Node 参数，保留原有 direct/source/packaged 路径、
+supervisor 及 job/node/cwd。账户设置仍只注入 Step，不扩大到管理 worker；
+不修改产品请求、凭据路由、授权流程或 CI 门禁。
+
+- 共享 helper、五处实际接线、导航及更新终态定向回归 20/20 通过。
+  CI 清单仍为 66 通过、1 项平台跳过、0 失败。
+- 修复后账户路由完整通过（34.618 秒），覆盖四种官方账户、运行中切换阻止、
+  取消保留旧身份及 Plan 拒绝不得回退 API。账户设置完整通过（15.795 秒），
+  保留首次请求的模型/effort、官方计费估算、凭据、主题和窄屏断言。
+  证据为 `D:\DFSC Builds\plugin-update-20261113-transport-fixed-r2.log` 及同名 summary。
+- 后续本机资源耗尽，系统剩余提交额度一度约 140 MB，独立 PowerShell 也崩溃。
+  授权夹具临时诊断确认管理 worker 在加载源码时发生
+  `ERR_MEMORY_ALLOCATION_FAILED`，退出前没有停机确认；不能将其记为授权验收通过。
+  诊断位于 `D:\DFSC Builds\plugin-update-20261113-host-stop-diagnostic-r2.log`，
+  临时产品日志已撤回，未放宽停机确认或隔离门禁。
+  只结束核对过的本轮重型测试树，未关闭其他应用或删除文件。
+
+本轮最终 helper 变更后的完整本地协议重跑因资源问题中止，
+`plugin-update-20261113-ci-protocol-final` 没有 completion receipt，
+不沿用上一轮 2548 项通过宣称最终树已全量通过。
+授权、语音及 helper 提取后的 first-run 原生补验尚需新 head 的云端验证。
+`b78f0e1` 的 Windows/macOS 集成运行 `43334638554` / `43334638673`
+因发现同源遗漏主动取消，不是绿项；其 SDK 通过也不能替代整轮结果。
+
+## 插件更新主线同步与 CI 入口兼容（2026-11-13）
+
+PR #238 合入 `main 948bbdc`，唯一文本冲突在本文件；保留双方验收记录，
+同时保留主线 Ultra/角色图标的自动合并结果。runtime pin 未升级。
+旧 head `0362e25` 的 Windows runtime 组和 macOS runtime/sessions 组已通过，
+但 Windows interface/sessions 与 macOS interface 失败，不能算整轮成功。
+
+- Windows 导航夹具只识别直接 Node 启动，漏掉 Job Object supervisor，
+  导致两次冷启动没有被拦截。现在精确识别本 runtime 的 `-File/-Spec`，
+  解析内部会话参数，仍只挂起两个真实聊天 worker，不拦截管理 RPC。
+- 首次引导的官方 loopback transport 同样漏掉 supervisor 内部的 Step。
+  现在把 Node preload 加到其结构化启动参数，而不是 PowerShell 参数；
+  保留 supervisor、job/node/cwd 及原有官方路径、无效凭据、Plan 取消、
+  Full Access 未确认不得发请求等断言，不修改产品模型发现或权限流程。
+- 能力验收不再等待未加载插件更新后的旧重启按钮，而是等待目标版本，
+  严格核对 operation 为 `done/committed`、受影响会话为空、原 worker 未替换。
+  原有版本、图标、配置字节、安装 instance/fingerprint 断言全部保留。
+
+本地补验：
+
+- 新增/扩展的真实夹具回归 13/13，通过 direct/supervised 和 source/packaged
+  路径，并拒绝错误版本、未完成/未提交操作、意外会话或重启入口。
+  schema/coordinator/staging 等定向回归也通过。CI 清单 67 项，
+  66 通过、1 项平台相关跳过、0 失败。类型检查与生产构建通过，
+  保留既有 Vite directive/chunk-size 警告。
+- 经现有 CI `runGroup/executeScript`、默认 Desktop 启动入口，依次完整通过
+  navigation（53.522 秒）、first-run（75.629 秒）、capabilities（151.175 秒）
+  和 plugin-update（119.216 秒）。插件更新六组通过、零 provider 请求、
+  零 page error，覆盖取消、空会话阻止、两会话释放/恢复及不兼容更新阻止。
+  日志与结果为 `D:\DFSC Builds\plugin-update-20261113-ci-native.log`、
+  `plugin-update-20261113-ci-native-summary.json`；
+  更新证据为 `D:\DFSC Builds\plugin-update-20261113-ci-native-evidence`。
+
+初轮本机默认并发 `pnpm test` 使用 Node 24.15.0，三项运行时测试超时，
+随后 CLM 夹具挂起；五分钟后只结束核对过的本次测试进程树。
+失败日志 `D:\DFSC Builds\plugin-update-20261113-ci-full-tests.log` 保留，
+不计为完整通过。另以 Windows CI 的 Node 24.16.0 和逐文件串行执行器
+完整通过 249/249 文件、2548 项：2533 通过、15 跳过、0 失败/取消，
+累计约 666.994 秒，completion receipt 为 true。独立 TAP、console log 与结果
+保存在 `D:\DFSC Builds\plugin-update-20261113-ci-protocol`；
+两种运行条件同时改变，不能据后续结果断言初轮挂起的单一根因。
+
+本次隔离 runtime 的 75 份 patched source hash 与当前 manifest 一致。
+轻构建 `D:\DFSC Builds\plugin-update-20261113-ci-sync` 自有文件约 7.97 MiB，
+另只读复用 runtime junction；更新原生证据约 15.34 MiB，dist 约 12.76 MiB，
+既有依赖约 921.32 MiB。保留旧 runtime 链接，不删除旧包、依赖或证据，
+不改日用档案、快捷方式或重启日用应用。以上不是安装器、macOS 本机、
+真实账户、已合并或已发布验收；新 head 的云端结果另行确认。
+
+## 插件更新 CI 验收登记（2026-11-12）
+
+PR #238 的 `9d15b94` 首次云端运行在 Windows/macOS 分类阶段失败：
+新增 `verify-plugin-update-electron.mjs` 未登记到统一验收清单。
+这是本次提交遗漏，不是运行器故障；后续原生集成任务因此跳过。
+对应运行 `43219805446` / `43219805367` 不计为通过。
+
+将脚本编入 Windows `runtime` 组，沿用串行执行、300 秒期限及进程树清理；
+macOS 明确排除该 Windows Job Object 释放/恢复场景，不暗中标为 local-only。
+测试固定 Windows 分组和 macOS 排除理由，不改变产品逻辑、runtime pin 或工作流门禁。
+
+- `node --test scripts/ci-*.test.mjs scripts/windows-ci-summary.test.mjs`：
+  67 项，66 通过、1 项平台相关跳过、0 失败/取消。
+- 经实际 CI `executeScript` 执行器、默认 Desktop 启动入口重新运行原生验收，
+  不设置自定义构建根或 entry；六组通过、零 provider 请求、零 page error。
+  证据为 `Desktop/test-results/plugin-update-ci-registration`，约 14.76 MiB；
+  已核对 owner、两旧 worker 及两恢复 worker 均退出。未新增构建包或删除旧产物。
+
+以上为本地补验结果，新提交的云端分类及完整集成结果仍需分别确认；
+不能沿用首版 SDK 绿项或本地通过宣称整轮 CI 已通过。
+
+## 首轮插件更新体验（2026-11-12，本地）
+
+基于 `main ed7c6e46c5fdad85b678eff857ae0b39b96977ba`，在独立工作区
+`codex/plugin-update-experience` 实现和验收。原工作目录的既有未提交改动未覆盖。
+这是实现候选，不是已合并、已打包或已发布能力；未升级 runtime pin，
+未修改日用档案、快捷方式或重启日用应用。
+
+- schema 预检聚合差异，保留精确包指纹和提交复审。普通独立
+  `json-file-v1` stdio 消费者允许展示调整、保留旧值的 enum 扩展、
+  无 default 的非秘密可选新增；默认值增删改、必填/秘密新增、
+  类型/约束/消费者/服务变化及复杂 host 绑定迁移继续阻止。
+  活跃快照派生新 revision，旧秘密快照不改写；未配置/撤销状态不被恢复。
+- 首层仍使用单一更新入口，就绪直接提交，占用时才进入二级确认。
+  关闭详情不取消已执行操作；丢失响应与轮询按本次 operation/token 核对。
+  页面重挂载只读恢复 attention/运行中结果，不重放安装或重启许可；
+  已安装但恢复失败的结果仍可查看。
+- Windows 聊天运行时从创建起原子纳入 Job Object。核对精确 supervisor
+  退出及整个 Job 无进程，公开 PID 仍是 Step Node，而不是 PowerShell。
+  任务、队列、Goal、Cron、后台、审批、受影响 Remote 和未知状态不强停。
+  自动恢复保持会话身份、原历史分支、模型/effort、持久权限、前台与未读状态；
+  不重放 Full Access。只允许同会话的原生启动能力/技能发现元数据追加，
+  不因其改变叶 ID 误拒，也不接受任意 custom、调用记录或分支漂移。
+  这是可信运行时记录的一致性白名单，不是对恶意插件伪造记录的来源认证。
+- 没有可用非空持久历史的受影响会话在预检阻止。真实空会话可能已有路径、
+  但尚未落盘；本轮不伪造历史来重启它。未占用目标插件的空会话不受此限制。
+
+验证与证据：
+
+- 类型检查与最终生产构建通过，保留既有 Vite directive/chunk-size 警告。
+  完整协议 r3 为 2513 项：2498 通过、15 跳过、0 失败。
+  随后原生验收暴露启动元数据的叶 ID 差异；修复后的恢复/coordinator
+  45 项定向测试通过。最终完整协议 r4 为 2516 项：2501 通过、
+  15 跳过、0 失败/取消，耗时约 185.7 秒；日志为
+  `D:\DFSC Builds\plugin-update-20261112-full-tests-r4.log`。
+- 提交前本地复审修复四处问题：延迟读取旧操作记录不得覆盖正在执行的新操作；
+  会话展示名与更新 warning 归一并限制长度，确保成功写入的记录可被严格 reader 读回；
+  回滚或预检引用退休后刷新目录，避免后续重试一直使用旧引用。
+  coordinator 定向 34 项及 schema/事务等定向 46 项均通过。
+  修复后的完整协议 r5 为 2524 项：2509 通过、15 跳过、0 失败/取消，
+  耗时约 191.6 秒；日志为
+  `D:\DFSC Builds\plugin-update-20261112-full-tests-r5-review.log`。
+- 完整插件中心浏览器验收通过，覆盖预检/取消、重复点击、关闭重开、
+  consumed token 后重新检查、连续候选版本、dirty 保护、已提交不重复安装，
+  以及 remount、延迟 hydration、旧 token/无关版本忽略、active 只读轮询到终态。
+  提交前重新通过完整验收，并新增三条引用退休后的重试回归；
+  对应证据位于 `Desktop/test-results/plugin-center-live-reference-retry`。
+  明暗与窄屏截图通过检查，390px 无水平溢出或遮挡。
+- r3 及审查修复后的 r4-review 轻构建真实 Electron 六组验收通过：真实 main/preload/renderer/runtime，
+  本地 Git 市场 v0.1 安装配置、v0.2 无 worker 更新保留 disabled 开关、
+  空会话只读阻止、两份明确离线 JSONL 历史加载、v0.3 释放/更新/同身份恢复，
+  v0.4 默认/类型/enum 删除/必填四类差异聚合阻止。两旧 PID 退出并替换为
+  两新 PID，两个 MCP 重连，前台选择与历史保留；零 provider 请求、零 page error。
+  这是隔离夹具，不是个人历史、真实账户、公开市场或安装器验收。
+- 真实多会话 RPC/SSE 并发回归通过，Cron 真实运行时 14 组通过。
+  Windows Job 单测覆盖孤立孙进程、Step Node PID 语义和
+  0/100/400/900/1400ms 启动取消；事务故障注入覆盖 v1/v2 中断恢复、
+  快照写入失败、回滚与 committed cleanup，历史秘密保持不变。
+
+失败记录保留：首次完整测试缺少隔离 runtime；r2 完整测试卡在未改动的
+终端测试，精确终止该测试树后，单独六项及完整 r3/r4 均通过，挂起根因未确证。
+原生早轮发现空会话未落盘；r2 已提交新版但被原生启动元数据误判恢复失败，
+这两轮不计为成功，不用最终通过覆盖失败证据。所有验收进程均有独立档案。
+
+最终轻构建为 `D:\DFSC Builds\plugin-update-20261112-verification-r4-review`，
+主证据为 `D:\DFSC Builds\plugin-update-20261112-evidence-r4-review`；
+早轮构建、失败证据及完整测试日志同在 `D:\DFSC Builds` 的本轮前缀下。
+最终轻构建自有文件约 7.97 MiB，另只读复用三个 runtime junction，不可独立分发。
+最终原生证据约 15.29 MiB，复审浏览器证据约 6.90 MiB，
+工作区依赖约 921 MiB，dist 约 13 MiB；
+已核对没有本轮验收 Electron、测试 worker 或 Vite 进程残留。
+未获清理授权，不删除依赖、证据或
+旧目录，初轮 runtime 仍被工作区 junction 引用，不能递归误删其目标。
+未执行 macOS 自动释放、真实账户/计费、安装器、云端 CI、合并或发布验收。
+恢复失败后通过“查看会话”重新打开持久历史的原生故障注入尚未覆盖，
+仅核对了对应源码路径，不把该项记为已验收。
+补填、复杂迁移、WebUI 及跨进程自动重放恢复不属于本轮。
+
+## Ultra CI 的迁移终态与 Remote 确认区（2026-11-12）
+
+`4daa344` 的 Windows 全组及 `CI result` 通过，macOS runtime 源码组
+通过。macOS sessions 源码组在 `verify-session-import.mjs:192` 失败：
+重复导入显示“跳过 1”后，立即读取列表第一条任务的 `aria-expanded`，
+实际为 `true`、严格期望 `false`。跳过结果计数可以先于任务终态更新；
+产品在 `job.status === 'running'` 时保持展开，这是预期行为。
+
+仅修正验收：以本次跳过摘要定位同一个任务，最多五秒等待它的触发器
+实际折叠，再保留严格 false 断言。未改产品、导入状态机、持久化、
+去重、数据内容或 CI 门禁，不重发导入，也不接受错误任务的折叠状态。
+新增三项夹具回归，旧脚本未满足契约；修正后与迁移测试合计 18/18 通过，
+类型检查及两轮完整原生迁移验收通过，包括不可变预览、重复保护、
+历史与原生续写、持久重启、分页、批量导入及自动快照。
+
+日志为 `Desktop/test-results/ultra-ci-import-*.log`，原云端失败为
+`ultra-ci-4daa344-macos-sessions-failure.log`。本地结果不能替代后续
+head 的 macOS 源码及包内验收，尚未宣称整轮 CI 修复完成；不绕过检查、
+合并 PR 或改动现用应用。仅新增小型测试及日志，没有新包或产物删除。
+
+同一 head 的计时验收在 macOS 源码、包内均通过；runtime 包内组另在
+Remote 解绑后等待“暂无已授权连接”满 30 秒超时。这个失败不能以
+增加等待时间解释。确认区本身有展开动画，验收现在复用 `settleLayout`
+等待实际确认按钮及父层动画稳定后只点击一次，同时保留原来的 30 秒
+解绑结果等待。失败补充脱敏连接/授权状态、确认区状态、UI 错误和截图；
+未修改解绑业务或直接调用 API 代替原 UI 操作。两项夹具测试确认动画
+未就绪不能点击、就绪失败不能重试；合并定向回归 149/149 通过。
+类型检查及两轮完整 Remote 原生验收也通过，日志为
+`ultra-ci-remote-confirm-fixed-*.log` 与 `ultra-ci-readiness-combined-final.log`。
+该包内原始超时仍未在本机复现，保留原失败日志
+`ultra-ci-4daa344-macos-runtime-failure.log`，后续云端结果独立判断。
+
+## Ultra CI 的计时验收交互边界（2026-11-12）
+
+`84e45b7` 的 Windows 全组及 `CI result` 通过，macOS 候选构建/协议、
+sessions 源码与包内组通过。macOS runtime 源码组在
+`verify-conversation-timing.mjs:90` 失败：悬停后时间戳透明度实际为
+`0`，严格期望 `1`。原云端没有记录 DOM 悬停及读取预览状态，不能据此
+断言具体根因；此前两处夹具与这个脚本也没有调用关系。
+
+计时夹具特意延迟真实 runtime 以验证历史先显示，但原本在完成悬停
+断言后才等待 runtime 就绪。保留历史计时断言在前，将原有的 60 秒
+交互就绪检查移到首次悬停之前，避免交互落在待替换的历史预览上。
+`settleLayout`、精确 `0/1` 透明度、计时数值、重载、主题、窄屏及
+实时冻结断言均保留，不修改产品或共享动画函数；失败补充预览、忙态、
+文档焦点及实际 DOM 悬停状态。
+
+执行原脚本真实交互片段的浏览器回归确认：忙态或预览任一未结束时
+不能开始悬停，永久就绪失败保留原异常且不触发悬停。完整 motion
+回归 20/20 通过，继续覆盖动画层等待及持久透明度错误负控；两轮完整
+原生计时验收通过。日志为 `Desktop/test-results/ultra-ci-timing-*.log`，
+云端失败原文为 `ultra-ci-84e45b7-macos-runtime-failure.log`。
+本机未复现原始 macOS 悬停失败，新 head 仍须单独完成两端云端验收；
+不将旧 head 的 Windows 通过当作新 head 全绿，不绕过或合并 PR。
+
+## Ultra CI 的 Remote 断开就绪与 ARM64 排队（2026-11-12）
+
+首轮夹具加固 `ffca523` 的 Windows interface、sessions 组通过，runtime
+组在 `verify-remote-access.mjs:573` 立即比较断开状态时失败：
+期望 `idle`、实际 `connected`。该脚本未调用命令派发夹具，本轮没有
+修改 Remote 产品实现；完整构建、类型检查、协议及上游回归仍通过。
+
+在隔离原生 IPC 中，仅为这一次 UI 断开请求增加 250ms 延迟后，旧即时
+断言复现相同失败；不加延迟的原脚本本机通过。保留有界延迟作为回归场景，
+点击后复用原脚本已有的 30 秒状态等待，必须实际达到 `idle` 且已保存
+标记为 false。原来的严格状态、加密凭据文件删除、子进程退出、拒绝
+未授权操作断言均保留，不重复发送断开、不改变产品时序或 CI 门禁。
+修正后 Remote 相关测试 101/101 通过，两轮完整原生 Remote 验收通过，
+包括真实隔离退出重启恢复。证据为
+`Desktop/test-results/ultra-ci-remote-{original,delayed-negative,delayed-fixed-*}.log`
+和 `ultra-ci-remote-regressions-fixed.log`。
+
+同一 head 的 macOS run `43213891480` 候选构建/协议通过，但三个验收
+组排队 15 分钟后全部取消：runner 名称为空、steps 为空，GitHub 注释为
+“The job was not acquired by Runner of type hosted even after multiple attempts”，
+并提示 macOS ARM64 容量受限。这不是脚本执行失败，也不是验收通过；
+先前命令派发问题的 macOS 结果仍未确认。新 head 的两端云端结果须
+另行检查，不用旧 head 或本地通过替代，不绕过或合并 PR。
+
+## Ultra 合并候选的命令派发夹具加固（2026-11-12）
+
+PR #236 的 `4ecc342` 在 macOS run `43205867019` 中，仅 interface
+源码验收的 `verify-command-dispatch.mjs` 失败：响应式 `/todos` 场景在
+`prepareDispatchInput` 等待输入不变、ARIA 关闭和补全菜单卸载时超时。
+Windows 全组及 macOS 构建、协议、sessions/runtime 源码与包内组通过；
+macOS 最终汇总失败由 interface 失败导致。该夹具来自同步的主线
+`f96733b`，不是 Ultra 对 Todo 业务的修改。
+
+本机原脚本通过；真实编辑器/菜单探针正常和模拟未激活窗口各运行
+40 次也未复现。因此不能断言原云端根因，以下是夹具的定向加固：
+填入文本后等待 ProseMirror 值、React 空值标记及输入焦点就绪，
+再等待匹配补全；Escape 发送给已聚焦输入，不通过 locator 隐式重聚焦。
+超时输出阶段、预期/实际文本、焦点、补全、主题、语言和视口。
+保留原异常、五秒期限、文本不变及菜单关闭/卸载条件，不重试失败，
+不修改产品、Todo 断言或 CI 路由/门禁。
+
+新增契约测试先在旧夹具上失败，修正后四份定向测试 28/28 通过；
+Desktop 类型检查、三次独立完整命令派发原生验收和完整输入框菜单
+原生验收通过。日志为 `Desktop/test-results/ultra-ci-*-fixed*.log`，
+原失败片段保留于 `ultra-ci-macos-command-failure.log`。这些 Windows
+本地结果不能代替新 head 的 macOS 源码与包内云端验收，推送时仍待确认。
+本轮仅修改测试夹具、回归测试和本记录，未重新打包、绕过检查或合并 PR。
+现有 dist 约 12.7 MiB、验收证据约 5.2 MiB；未新增大型包或删除产物。
+
+## Ultra 同步主线与冲突解决（2026-11-12）
+
+PR #236 正常合入主线 `ed7c6e4`，唯一文本冲突是本文件顶部并列
+新增的验收记录。双方新增内容和原有历史逐字核对保留，仅补齐节间空行；
+其余文件保持 Git 自动合并结果，没有额外手改生产代码、运行时锁定或
+CI 门禁。运行时管理适配层 `admin.mjs` 与 staged 副本的 SHA-256 一致。
+
+- 文档 pin/patch 契约、3 项文档检查测试、合并新增行冲突标记检查及
+  差异空白检查通过；Desktop 类型检查、生产构建和 45 项相关测试通过。
+- 重新运行模型选择器原生验收：Ultra 独立档位、紫色斜体流光、明暗
+  主题、390px 窄屏、推条共享进度及无障碍回退通过，三张截图已实看。
+- 重新运行完整供应商原生验收：发现、选择、首轮与工具续轮、刷新、
+  重启后显式打开原会话、手动映射及三种协议实际发送 Ultra 均通过。
+  仅使用隔离 profile 和受控本机 HTTP 端点，不证明真实供应商验收。
+
+本轮构建及两份原生验收日志为 `Desktop/test-results/ultra-main-sync-*.log`。
+旧提交 `5f11fe2` 的全量本地测试和 Windows/macOS 云 CI 结果仅属于原组合；
+本轮未手动重跑完整协议或全套云 CI，新 head 的自动 CI 结果以 PR 为准。
+未绕过检查、合并 PR、打包或修改现用 profile/快捷方式。
+已盘点独立源码约 316.9 MiB、重放目录 17.5 MiB、staged runtime
+124.1 MiB、Desktop dist 12.7 MiB 和验收证据 4.8 MiB，未经授权未删除。
+
+## Ultra 思考档位适配（2026-11-11）
+
+基于主线 `cb8852c`，保持运行时锁定在
+`29eb460780489801ce8afc8bffc1a2efae7cbded`，新增独立的 `ultra` 档位。
+上游显式声明或手动配置后才提供，排序在 `max` 之上；不与 `max`
+互换，不启用 UltraCode 或自动委派，也不保证每次请求消耗更多 Token。
+未声明模型、未知思考控制和 Anthropic 非 adaptive 配置保留既有行为。
+上下文容量发现逻辑未更改，不补猜上游没有返回的元数据。
+
+- 发现、保存、手动发送值映射、管理进程草稿选项、待应用选择、运行时
+  类型与配置校验均已适配；混有未来未知字符串时保留已识别的声明，
+  保存配置仍严格拒绝未知档位。
+- 原生 Electron 供应商验收通过：从真实界面选择 Ultra、首轮及工具
+  续轮发包、供应商刷新、退出重启后显式打开原会话、手动添加 Ultra，
+  以及三种协议的精确字段。分别核对 `reasoning_effort`、
+  `reasoning.effort` 和显式 adaptive 下的 `output_config.effort`。
+  继续覆盖有密钥/无需密钥、真实工具、隔离保存、忙时延迟应用和禁用。
+- 完整模型选择器验收通过：紫色最高档、斜体流光、明暗对比度、
+  390px 窄屏、减少动态效果及高对比度回退。保留当前主线收藏、
+  键盘/IME、待应用选择与推条共享进度动画；Ultra 全程推条采样最大
+  填充/滑块偏差小于 0.01px。三张 Ultra 截图已实看。
+- 类型检查、最终生产构建通过。根目录 67 项中 66 通过、1 项既有平台
+  跳过；五份相关测试共 45 项通过，上游四份测试共 293 项通过。
+  上游全量类型检查、离线构建和干净源码完整补丁重放通过；
+  staging 的 72/72 份源码哈希匹配，Node 为 24.16.0。
+- 修正管理适配层后的完整协议最终重跑 234/234 文件通过，
+  `complete:true`；2,366 项中 2,352 通过、14 项既有跳过，无失败或取消。
+  最终逐文件证据位于 `Desktop/test-results/protocol-ultra-final/`。
+
+证据保留于独立工作树的 `Desktop/test-results/ultra-*.log`、
+`model-effort-ultra-*.png`，以及独立运行时构建目录
+`D:\Desktop Runtime Builds\ultra-effort-20261111`。
+初轮发包失败暴露管理进程仍只列到 max，已补齐并新增原生回归；
+随后重启断言误读空白草稿，已改为实际打开原会话验证。失败记录均保留，
+供应商最终通过记录为 `ultra-custom-providers-r5.log`。
+
+本轮仅使用本机受控 HTTP 端点，不代表真实供应商、真实账户或 macOS
+验收；预算型接口沿用 high 的既有预算回退，不虚构 Ultra 数字预算。
+未打包、修改现用 profile/快捷方式、合并或发布。已盘点独立源码、
+重放目录、staged runtime、Desktop dist 和验收证据，未经授权未删除。
+
+## Remote 主线冲突同步（2026-11-11）
+
+听写修复 `884663f` 推送后，#223 因 `main ed018f1` 新增验收记录而
+无法生成可测试的合并树，尚未启动新 CI。本轮仅为实际冲突同步主线，
+保留双方记录，同时审查干净合入的 Remote 资源操作、Cron 与连接复核改动，
+未将文档冲突当成纯文档同步。
+
+主线新增的真实 main 测试夹具没有背景同步钩子，在合并树中复现 6 项
+`syncCustomBackground is not defined`。补齐计数钩子，验证安装/更新/删除
+会协调背景，保留产品 `finally` 同步及全部 Remote/资源占用拒绝断言。
+354 项 Remote、运行时、背景、能力门与首次引导定向回归全部通过，
+类型检查和合并后的生产构建通过。`884663f` 的原生听写证据只属于其旧树；
+合并候选的完整协议、原生回归和 Windows/macOS 云端结果另行确认。
+
+## 听写背压输入与真实包启动修正（2026-11-11，本地）
+
+#223 的 `7d5f301` 在 Windows 三组、macOS 候选构建及 sessions/runtime
+通过，但 macOS interface 的 package 步骤在听写背压等待失败。
+诊断只有 201,600 个有声采样，即 12.6 秒有效 PCM；现有队列要约
+384,000 个采样才能触发该断言。35 秒墙钟不足以证明输入前提成立，
+也不能据此断定队列损坏或云端负载就是根因。
+
+- 新增确定性回归，从真实 `SpeechInput` AST 提取队列和清理方法，
+  使用真实分段/WAV 编码，覆盖首段在途、四段等待、第六段停止、
+  串行完成、清空队列、释放音轨和晚到结果不覆盖草稿。
+- 原生验收只将背压场景改为 capture 端口上的受控 PCM：先见证原生
+  有声输入，首段确实到达挂起的回环 HTTP 后再推进队列；前五段
+  音轨仍存活，第六段停止、收回权限且只上传一次。其他连续转写和
+  Finish 场景保留原生麦克风、生产 Worklet、分段、IPC 和 provider。
+  原生与注入计数分离，不将此项称为 24 秒实时采集验收。
+- 增加 AudioContext 状态/时钟、首末消息时间和最大间隔诊断，
+  不修改产品采集约束、队列阈值、超时或自动重试策略。
+- 发现原脚本完全忽略 `DESKTOP_VERIFY_EXE`，名为包轮的听写实际
+  仍加载源码。本轮包分支启动指定 EXE，不传源码 entry，并核对
+  `isPackaged`、执行路径、资源目录和已加载的主模块来源。
+  另有实际启动表达式回归覆盖 Windows/macOS 路径和禁止源码回落。
+- 无账户凭据启动、初始模型走回环、关闭自动更新；安装隔离 transport
+  后只重启本夹具 admin，再通过回环 OAuth 登录。重启前退出账户，
+  重启后在重新登录前验证听写同意和设置；切回账户路线应清除独立 key。
+  renderer 的 OS 沙箱、context isolation 和禁用 Node 断言保持不变。
+
+41 项听写定向回归、类型检查、语法及 diff 检查通过。Windows 源码与
+指定 EXE 原生验收串行通过，各 7 次 ASR 请求全部经回环；两轮原生连续
+采集各 64,000 个有声样本且注入为零，背压各精确注入 384,000 个样本。
+指定 EXE 验证使用 `test-results/speech-ci-package-fixture` 下的本地目录
+装载夹具，Electron 文件硬链接、运行时只读 junction；它验证包启动分支，
+不是可分发安装包，也不替代 macOS 云端真实候选包验收。
+
+证据位于 `D:\Desktop For Step Code\output\custom-background-finish-20261111\speech-ci`。
+本轮仅改验收与测试，不改产品、不新增交付包、不改快捷方式或个人档案。
+云端采样落后的具体原因仍未确证；新提交需要自身的 Windows/macOS CI，
+不得沿用 `7d5f301` 的绿项声称修复完成。
+
+## 自定义背景收尾与主线整合（2026-11-11，本地）
+
+#223 已合入 `main 310c679`，本记录对应合并树 `afe3288` 之上的材质、
+首次引导退出及验收修复。保留主题作者指南、示例和协议的主线版本；
+唯一文档冲突保留双方历史，未恢复旧版作者稿。
+
+- 对话区、输入框、左右栏独立透明度与界面毛玻璃覆盖整个主视图，
+  包括输入区周围、底部状态区和摘要下方留白。前景不淡化或模糊，
+  Stellar 自有材质不覆盖；终端背景关闭后恢复主题实底。
+- 首次引导接入退出确认、重载恢复及错误提示；退出失败记录实际阶段。
+  新增 helper 覆盖离线授权失败、待完成会话的确认/取消/重载，以及停机失败重试。
+  停机失败注入兼容 Windows 与 POSIX，但本轮原生执行平台仅为 Windows。
+- 类型检查和生产构建通过。完整协议 232 文件、2259 项：
+  2244 通过、15 项既有平台/权限跳过、0 失败。随后只改轻构建入口和对应断言，
+  `runtime-staging.test.ts` 的 8 项单独复验通过，未重复整套协议。
+- CI 策略/执行器 67 项：66 通过、1 项 POSIX-only 跳过；文档契约通过。
+  设置浏览器 13 组、组件渲染 7 组及真实 main/MiniChat 交界像素矩阵通过；
+  主题背景浏览器 10 组、非空 canvas 像素检查通过。
+- 最终 r2 轻构建重新通过隔离原生背景 13 组与主题组合验收，
+  包括 PNG/JPEG、Stellar 互斥、主窗/MiniChat 边界像素、重启及卸载重装。
+  未仅凭 r1/r2 的主进程哈希相同沿用最终渲染证据。
+- 完整首次引导（含三组退出）、正常主界面退出、PowerShell 终端验收通过。
+  从正确的 `Desktop/` 源码目录执行完整 MiniChat 与听写验收通过，
+  包括双窗共享输入、审批、发送、重开，以及录音取消、背压和持久化。
+  所有模型/听写请求均使用回环夹具，不代表真实账户或物理麦克风验收。
+- MiniChat 首次完整运行在置顶原生状态断言失败。最小诊断和随后保留全部
+  原断言的完整调用轨迹运行均通过，按钮、IPC 与 OS 状态一致。
+  未改产品置顶逻辑、放宽断言或延长超时，根因仍未确认，不能声称已修复。
+
+首次轻构建被补丁指纹门禁拒绝，旧运行时未被覆盖；后续只读复用
+`29eb460`、Node 24.16 及全部 53 项补丁指纹匹配的运行时。
+轻构建 helper 补齐 `runtime-compile-cache.mjs` 和 `tray-menu.html`，
+避免隔离首次引导缺少托盘页面。MiniChat 的早期 ENOENT 来自错误执行目录，
+不是产品路径错误；听写未运行的阶段不计为通过。失败和中断证据均保留。
+
+最终隔离轻构建为
+`Desktop/release/custom-background-finish-20261111-verification-r2`；
+自有文件约 8.53 MiB，另有只读 junction，不是可独立安装的交付包。
+主证据位于 `D:\Desktop For Step Code\output\custom-background-finish-20261111`，
+浏览器证据位于 `output\playwright\custom-background-finish-20261111`。
+未删除历史产物、改快捷方式、个人档案或运行时版本。新提交仍需自己的
+Windows/macOS 云端验收，`33bd0dd` 的旧绿灯不作为本轮通过证据。
+
+## 首次引导退出反馈修复（2026-11-10，本地）
+
+用户反馈独立体验包在首次引导页无法从托盘退出。本轮仅结束核对过
+可执行路径的该体验包进程树，保留档案，未触及日常客户端或快捷方式。
+普通新档案及离线授权失败本身均能正常退出，不能据截图断言网络失败
+就是退出卡住的根因。
+
+- 确认并复现一个退出死等分支：首次引导中的会话操作未完成时，
+  主进程等待退出确认，但 FirstRunShell 未订阅或呈现该确认。
+  新增验收在原体验包上确认真实 transition review 存在，却等不到确认框。
+- 首次引导现在接入现有退出确认和错误通知，支持取消、确认及页面重载恢复；
+  订阅后重读退出状态并按 revision 合并，避免挂载期间漏掉请求。
+- 主进程退出失败时记录 `quit-failure` 及失败阶段，非终端失败不再误报
+  为终端无法结束。不通过跳过安全停机或强制退出应用来掩盖失败。
+- `verify-first-run.mjs --exit-only` 提供三组隔离原生验收：
+  离线授权失败后的隐藏/托盘退出、会话操作期间的确认/重载/取消/退出、
+  注入停机失败后的可见提示/诊断记录/重试退出。
+  默认首次引导验收也运行这三组，清理时自动确认不参与功能通过判定。
+
+证据位于 `D:\Desktop For Step Code\output\first-run-exit-20261110`，
+隔离轻构建为 `Desktop\release\first-run-exit-20261110-verification`。
+修复候选三组通过，原包在退出确认缺失处失败。用户现场没有留下退出
+失败日志，因此本轮复现不能证明已还原其全部触发条件。完整首次引导、
+普通主界面退出回归及修正版包的结果以对应原生验收记录为准。
+未据此宣称全套云 CI、真实账户授权、安装器安装或发布通过。
+
+## 自定义背景主视图连续材质修复（2026-11-10）
+
+用户体验上一版后指出消息区底边、输入区周围、底部状态区和摘要下方留白
+存在材质断层。上一轮组件夹具及 CSS 属性断言没有覆盖真实窗口的这些交界，
+不能据其通过认为主视图已完整适配。
+
+- 将对话材质从消息滚动容器提升到整个 main，同时覆盖摘要预留轨道。
+  主窗口与 MiniChat 复用真实布局，不硬编码标题栏高度或侧栏坐标。
+- 输入框与摘要卡片保留额外遮色调节，不重复模糊已有阅读材质。
+  100% 输入框/摘要透明度移除自身遮色，底下仍是主视图材质。
+  不改变布局、前景文字、代码底色、主题所有权或背景生命周期。
+- 渲染验收新增真实 main.tsx 离线桥夹具，包含实际消息、输入框及摘要，
+  检查明暗、侧栏隐藏、摘要关闭、760px 窄屏、MiniChat、透明端点、
+  明亮锐利测试图与实际壁纸。交界像素与连续整面参考材质比较，
+  按截图实际像素比例采样；注入旧实现时必须检出至少三处缺口。
+- 类型检查、原背景渲染七组和主题背景组合十组回归通过。
+  隔离 Electron 背景十三组通过，新增真实主窗/MiniChat 边界像素检查，
+  保留导入、重启、主题互斥、卸载/重装、共享只读和草稿保留断言。
+- 原生首轮在主题切换后因设置页等待定位不准确而失败，保留失败证据；
+  改为等待当前可见设置区域的导入控件后通过，未扩大超时或修改产品行为。
+
+证据位于 `D:\Desktop For Step Code\output\playwright` 下的
+`custom-background-continuity-20261110-verified`、
+`custom-background-continuity-20261110-theme-regression` 及
+`custom-background-continuity-20261110-native-final`。
+隔离轻构建为 `Desktop\release\custom-background-continuity-20261110-verification`。
+本记录对应 `33bd0dd` 上的未提交本地修改，不代表云 CI、真实账户/模型、
+安装器安装或发布通过。体验包完整性及包内原生验收另留交付记录。
+
+## 自定义背景分区材质（2026-11-10，本地源代码）
+
+在 `33bd0dd` 之上的未提交改动中，补齐对话区、输入框、左栏、右栏的
+独立透明度（0% 实底、100% 透明）及界面毛玻璃。只改变底层材质平面，
+不使用整块 UI 的 opacity/filter，不更改代码、菜单和审批对话框底色。
+移除消息阅读列实底和输入框上方的旧渐变遮罩；终端支持透明背景并能恢复实底。
+仅在已解码的个人图片实际生效且 UI 为 `standard-v1` 时启用，
+Stellar 皮肤仍由主题管理。旧存档补默认值，不丢失已有图片调节。
+
+本地验收：
+
+- Desktop 类型检查通过；背景存储、真实主进程处理器、插件和主题组合五文件
+  共 91 项，89 通过，2 项 Windows 文件符号链接权限条件跳过。
+- 设置浏览器矩阵 13 组、真实消息/输入/摘要组件渲染矩阵 7 组、
+  原主题背景组合回归 10 组通过。覆盖明暗/390px 窄屏、四边焦点、
+  分区端点及独立调节、布局/文字颜色不变、代码/确认框实底、
+  固定定位控件坐标、图片失效/主题切换/卸载的材质清理。
+- 隔离真实 Electron 主进程/预加载/渲染验收 13 组通过，包含 PNG/JPEG
+  导入、实际侧栏/摘要/输入区材质、关闭/重启、MiniChat 共享且只读、
+  删除及插件卸载/重装。使用离线模型配置，没有真实账户或付费模型请求。
+- 原生 PowerShell 终端完整定向验收通过，新增 xterm 背景透明/恢复断言，
+  保留原有输入输出、剪贴板、停靠、尺寸、背压、作用域和进程回收断言。
+- 几何验收等待实际入场动画结束后再测量；设置夹具等待初始化，
+  不通过延长超时或关闭动画放宽断言。首次并行 Vite 冷启动的空白失败
+  保留截图，其原因未确证，最终单独运行通过。
+
+证据：`D:\Desktop For Step Code\output\custom-background-surfaces-20261110`，
+原生背景成功记录位于 `native-background-settled`。
+隔离轻构建为 `Desktop\release\custom-background-surfaces-20261110-verification`，
+自有文件约 8 MB，运行时为只读复用 junction，不是可独立交付的安装包。
+未删除历史产物、更新体验包/快捷方式、修改用户档案、推送或重跑云 CI；
+原 PR 的旧 head 云结果不作为本轮改动的通过证据。
+
+## 导航验收进程归属修复（2026-11-10）
+
+`6f41e91` 的 Windows sessions 云验收在第二个冷启动拦截处失败。
+本地隔离复现确认：插件目录查询的 `capability-admin.mjs --mode rpc`
+占用了旧夹具的第二个拦截名额；真正的第二个会话进程未被挂起。
+不是双冷启动断言失败，也不是自定义背景修改了会话行为。
+
+- 夹具现在只匹配当前 source/package 运行时的确切 `step/dist/bundle/step.js`
+  入口，管理进程不占名额。保留双启动、账户锁、草稿隔离和回收的原断言及超时。
+- 新增 source/package 回归在修复前均失败，修复后均通过；相关导航及运行时
+  三文件共 115 项通过，类型检查通过。
+- 在 `6f41e91` 的隔离构建上运行修复后的完整原生导航验收通过，正常退出。
+  本次只改夹具与回归测试，未改变产品、依赖或构建输入，因此未重建应用或
+  重跑本地完整矩阵。新提交仍须独立云验收，不能沿用旧 head 的云结果。
+
+证据追加在 `output\custom-background-main-sync-20261110` 的
+`navigation-baseline`、`navigation-entry-probe` 和 `navigation-fixed` 子目录。
+
+## 自定义背景同步组合协议主线（2026-11-10）
+
+#222 已合并为 `5beaa5d`，本次将 #223 的 `c0c9627` 同步到该主线，
+包含 #231 CI、通用插件宿主与插件工作区，未改变运行时 pin。
+合并保留图片背景的独立操作门、被动读取、关闭前等待与卸载归属核对，
+同时保留主线插件目录变更通知、宿主设置及插件窗口权限。
+
+- 定向协议回归 9 文件、143 项：141 通过，2 项既有 Windows 文件符号链接
+  权限跳过；目录 junction 拒绝测试实际运行。最后修改的主进程边界文件单独
+  复验 16 项通过，真实市场 2 项另用当前补丁运行时复验通过。
+- 首次定向回归在关闭顺序夹具失败：新增插件宿主服务未被旧夹具模拟。
+  已补齐 `pluginHosts` / `pluginWindows`，保留原关闭顺序断言，另覆盖插件
+  变更成功与失败时的目录通知，以及插件窗口拒绝全部个人背景读取和修改。
+- 类型检查与隔离生产构建通过；CI 策略、清单和执行器 67 项：
+  66 通过，1 项既有 POSIX-only 跳过。
+- 编辑面板浏览器 12 项、渲染浏览器 6 项通过，含明暗／390px 窄屏四侧焦点、
+  4 组非空色彩像素、视差暂停／减少动态、场景互斥及失败回退。使用本机 Chrome。
+- 完整隔离 Electron 背景验收 12 项通过：真实市场安装、PNG/JPEG 原生解码、
+  参数持久化、封闭主题保留场景、重启、MiniChat 只读、确认删除和卸载／重装。
+  无页面错误，默认关闭流程正常结束，未使用强制退出测试选项。
+
+工作区旧 runtime 的补丁指纹不匹配新增宿主协议，未用于本次 Electron 验收，
+也未覆盖。新隔离构建只读复用 `plugin-host-contracts` 工作区的 Node 24.16
+及完整匹配当前 manifest 的 runtime，构建脚本核对 pin 和全部补丁源指纹。
+初始定向矩阵的真实市场测试曾使用旧 runtime，上述两项已在新隔离运行时复验，
+其余定向测试不依赖该 runtime。未重复本地完整云端矩阵。
+
+证据位于 `D:\Desktop For Step Code\output\custom-background-main-sync-20261110`
+及 `output\playwright\custom-background-main-sync-20261110`。隔离构建位于
+`Desktop\release\custom-background-main-sync-20261110`，这些目录均在共享 D: 仓库。
+本记录仅确认本地范围；新候选仍需新的 Windows/macOS 云端验收。
+未生成安装包、发布、替换日常客户端／快捷方式，未修改个人档案或 Remote 绑定。
+
+## 自定义背景 Review 与 CI 修复（2026-11-09）
+
+- 基础 PR #222 的原生插件夹具漏拷贝 `theme-composition.mjs`，
+  已在 `082e773` 补齐，并合入插件分支；未修改产品权限或测试断言。
+- PR #223 的 P2 已复现并修复：图片先写独占临时文件并同步，再原子发布。
+  再次导入可修复旧版本中断留下的普通文件；仍拒绝目录、链接和被替换的条目。
+  修复已被元数据引用的图片后，即使元数据提交失败，也不会误删该图片。
+- 存储、实际 main、插件权限和操作门回归共 89 项：88 通过，
+  1 项因本机文件符号链接权限跳过；目录 junction 拒绝测试实际运行。
+  新增空文件、截断文件、超限残留、重启后重选、删除后重选及提交失败回滚覆盖。
+- 类型检查、隔离生产构建通过。本机原生插件完整重跑在最后一项清理时
+  报 `Runtime process-tree termination failed (1)`，并留下测试进程；
+  单项重跑以及带 `--test-force-exit` 的诊断重跑分别为 1/1 和 9/9。
+  后者不是默认退出流程验收，未据此宣称关闭行为通过。
+- `custom-background-20261109-review-r4` 的隔离 Electron 完成七项导入、
+  解码、编辑和主题兼容检查，页面错误为空，但在正常关闭时超时，完整验收失败。
+  证据保存在 `output/custom-background-20261109/review-r4/failure.json`。
+  已按本轮精确进程路径清理残留，没有修改终止策略或放宽关闭断言。
+- 新构建约 7.5 MiB，另有只读运行时链接；未生成安装包、删除历史构建、
+  切换快捷方式或触碰个人档案。新提交的云端 CI 仍需独立确认。
+
+## Custom Background MVP (2026-11-09)
+
+The optional host-adapter package now opens a real local PNG/JPEG editor.
+The host owns import, normalized private storage, bounded revisions and renderer
+lifecycle. Themes still decide whether image replacement is accepted. Existing
+integrated Stellar themes remain closed; incompatible themes retain the saved
+personal image without running its renderer.
+
+The first version supports fit, position, zoom, brightness, background blur,
+weak mouse parallax, disable/restore, reset and confirmed deletion. UI material
+and panel opacity are unchanged. Video, HTML, arbitrary CSS/JavaScript and WebP
+are not supported. The existing opaque welcome/conversation surfaces deliberately
+remain opaque, so personal media is most visible in the surrounding workspace.
+
+Local verification:
+
+- Store, gate and actual-main boundary suites: 77 passes and one Windows
+  file-symlink privilege skip. Directory-junction and directory-replacement
+  rejection cases run. The boundary suite includes cached passive reads during
+  import, pre/post installation proof, shutdown during a pending picker proof,
+  storage-failure startup fallback and failed-uninstall reconciliation.
+- Theme/image/adapter/library/policy suites: 79 passes and one Windows
+  file-symlink privilege skip. Additional foundation/worker suites: 40 passes.
+- Runtime-backed theme, Remote ownership, idle-race, diagnostics and real
+  marketplace suites: 132 passes.
+- Production settings browser verifier: 12 cases. Production background
+  renderer: six cases and four desktop/mobile bitmap checks, with no page or
+  console errors. The existing foundation browser matrix also passes ten cases.
+  Desktop and 390-pixel light/dark screenshots were inspected for overlap,
+  horizontal overflow and four-sided focus clipping.
+- Final isolated Electron build `custom-background-20261109-verification-r3`:
+  12 lifecycle checks pass, with no page errors or remaining test Electron
+  processes. This includes real recorded marketplace installation, native
+  PNG/JPEG normalization, cancel/invalid input retention, all adjustments,
+  theme compatibility, orderly restart, MiniChat read-only propagation,
+  uninstall/reinstall activation safety and confirmed removal. Concurrent
+  state polling during PNG import does not interrupt the write.
+- Typecheck, production build, verifier inventory and whitespace checks pass.
+
+The combined CI-policy/runner local suite has 20 passes and one failure:
+the existing Windows descendant-cancellation test receives `taskkill` error
+"call cancelled" on this host. Its four exact fixture processes were identified
+by PID, parent and command line and stopped with PowerShell. No runner source
+or cancellation assertion was weakened.
+
+Foundation PR #222 cloud review reports no findings, but its Windows protocol
+jobs and macOS ARM64 preparation fail because the isolated native-plugin fixture
+does not copy the new `theme-composition.mjs` dependency. Both platforms report
+the same nine native-plugin startup failures. After owner approval, the fixture
+copy list includes the missing dependency in `082e773`. Replacement cloud CI is
+running; it is not yet a green result. This is separate from the local product
+acceptance above.
+
+Final native evidence is in
+`D:\Desktop For Step Code\output\custom-background-20261109\electron-final`.
+Browser evidence is under
+`D:\Desktop For Step Code\output\playwright\custom-background-settings` and
+`custom-background-rendering`. Earlier failed fixture attempts remain separate
+from `electron-final/results.json`.
+
+Three isolated builds contain approximately 7.4-7.5 MiB of owned files each,
+plus three immutable runtime-directory links per build. No installer was
+produced and no historical package was deleted. The owner's checkout, running
+client, profile, Remote binding and shortcut remain unchanged. This evidence
+does not establish native macOS, installer, real-model or release acceptance.
+
 ## 主线同步与 Hermes 全新安装验收（2026-11-11）
 
 将通用本机接入与插件连接引导合入当前分支，并正常合并主线
@@ -13863,6 +14557,118 @@ window. No installer, public release, cloud CI, native macOS, real-account or
 Hermes/Feishu business-flow acceptance is claimed by this local source record.
 No live-model inference or active-model-task continuity was exercised.
 
+## Ultracode Role Icons (2026-11-11)
+
+Ultracode overview rows and agent details now share the background-task role
+icons. Role identity comes from the workflow's explicit `agentType`, not its
+task label or prompt. New runtime progress includes the default `general`
+role; legacy records without role metadata keep a generic icon with an
+unknown-role description. Custom roles retain their name and generic icon.
+State icons remain separate.
+
+The transcript follow-up also replaces the generic icon on ordinary subagent
+rows with the shared role icon. Inline Ultracode summaries show up to six role
+groups with counts and an overflow entry, all opening the existing overview.
+They do not infer roles from task labels. The production transcript fixture
+checks grouping, role/state coexistence and navigation into overview and
+ordinary subagent detail in the same 12 viewport/theme/language combinations.
+The follow-up passed typecheck, build and 43 conversation/workflow tests.
+
+Local verification on the `ed018f1` baseline:
+
+- Desktop typecheck and production build passed.
+- Workflow projection, background-agent and staging tests passed: 50 tests.
+- Pinned runtime workflow tests passed: 63 tests, using injected runners.
+- The complete v0.1.7 integration patch sequence replayed successfully with
+  the new role patch and matching source hashes.
+- `node scripts/verify-workflow-roles.mjs` passed 12 light/dark, zh/en and
+  1280/520/360-pixel combinations for overview/detail icons and row layout.
+  Screenshots are in `Desktop/test-results/workflow-role*.png`.
+
+Final source verification after merging main `cb8852c`:
+
+- Desktop typecheck and production build passed, with existing build warnings.
+- The focused conversation, workflow, background-agent and staging run passed
+  74 tests. Pinned runtime workflow tests passed 63 tests.
+- CI policy/inventory tests passed 66 tests with one platform skip.
+- The production-component browser matrix passed all 12 combinations again.
+  Desktop and narrow transcript screenshots were inspected.
+- Fresh runtime staging passed against the pinned patched source. The native
+  `verify-workflow-runtime.mjs` passed actual RPC parallel/chain execution,
+  explicit role propagation, restart hydration, stop/drain/resume, replay,
+  forced-crash recovery, partial failure/selective retry and HTTP 429 recovery.
+  Inference requests used only the controlled loopback model fixture.
+- `verify-workflow.mjs` passed role icons, overview/detail navigation, retained
+  final snapshots, failure/retry/recovery, reload, light/dark/narrow/English
+  and session isolation. `verify-subagent-status.mjs` passed status animation,
+  stable layout, history, themes, narrow/reduced-motion and click-toggle.
+- `git diff --check` passed.
+
+Earlier local setup attempts are not passing evidence. Missing dependency
+links initially blocked staging. The first native RPC run then found missing
+role metadata: the isolated CLI dependency junction resolved an older shared
+coding-agent build. Only the task-owned CLI dependency layout was corrected
+to resolve the patched local coding-agent; fresh staging and the complete
+native RPC rerun then passed. Shared upstream source was not modified.
+The failed screenshot remains `Desktop/test-results/workflow-runtime-failed.png`;
+final UI and crash-recovery screenshots are alongside the role matrix evidence.
+
+Rebuildable artifacts were inventoried, not deleted: the task-owned D: runtime
+is approximately 124 MiB, Node tooling 88 MiB, coding-agent dist 26 MiB and CLI
+dist 4 MiB; `Desktop/dist` is approximately 13 MiB. The existing fixture preview
+remains on port 5187; no native acceptance process is intentionally retained.
+No installer, running-app replacement, shortcut change, cloud CI result,
+native macOS or real-model acceptance is claimed.
+
+### CI Follow-Up (2026-11-13)
+
+PR #235's original Windows jobs passed, as did the macOS role-icon browser
+matrix, runtime and session groups. The macOS interface job in run
+`43034461083` failed in the existing speech backpressure acceptance, not a role
+assertion. Artifact `13864906474`, `speech/failure-diagnostic.json`, records
+300,800 voiced PCM samples after the 35-second wall-clock wait, with no
+renderer, transport or native audio errors. That is only 18.8 seconds at
+16 kHz: one in-flight phrase and four pending four-second phrases require
+the sixth phrase, or 384,000 samples, to exercise the existing queue guard.
+
+The initial local correction waited for real PCM rather than a 35-second
+wall-clock assumption. It passed the full Windows speech acceptance at
+384,000 voiced samples after 24,039 ms, but is superseded by the later main
+sync below. An earlier diagnostic run failed later at logout with
+`Runtime process-tree termination failed (1)` and is not a passing full run.
+These records remain in `windows-after` and `windows-before`, respectively.
+
+Main `affe0da` already includes the independent speech fix from #223.
+This branch now retains that verifier unchanged: native synthetic audio proves
+continuous ASR, while controlled PCM at the capture boundary proves that four
+queued phrases remain allowed and the sixth phrase stops capture. It still
+checks serial requests, retained draft and ended microphone tracks. The main
+fix also verifies actual source/package launch identity. Product queue limits,
+capture, transport and security settings were not changed by this follow-up.
+The additional segmentation regression retains the original 300,800-sample
+shortfall and the remaining samples needed for six complete phrases.
+
+After resolving the main merge, Desktop typecheck/build and 116 focused
+speech, workflow, conversation, background-agent and staging tests passed.
+CI inventory/runner tests passed 27 tests with one platform skip. All 12
+role-icon browser combinations passed. The combined runtime patches replayed
+in an isolated Git index with all pre/post-image hashes verified; fresh
+providers/agent-core builds and runtime staging passed. Pinned workflow/role
+and Ultra tests passed 67 tests.
+The complete Windows source speech acceptance passed on the merged source,
+including native continuous audio with zero injected samples, controlled
+384,000-sample backpressure, ended tracks and relaunch identity.
+Both `verify-workflow-runtime.mjs` and `verify-workflow.mjs` passed again
+against that staged runtime, including explicit role propagation, restart
+hydration, parallel/chain, crash recovery, failure/retry, layout and navigation.
+Evidence is under
+`D:\DFSC-Preview-QA\ultracode-role-icons-ci-20261113\main-synced`.
+Earlier failed records and the partial downloaded archive are retained;
+the D: diagnostics directory totals approximately 54 MiB.
+Existing task-owned build directories were reused; no installer was produced,
+user application restarted or shortcut changed. Fresh macOS source/package
+CI remains required.
+
 ## Hermes x DFSC First-Run Guidance (2026-11-10, Local Source Verification)
 
 The Agent Bridge connection page now separates four preparation checkpoints:
@@ -14091,3 +14897,56 @@ BVR 原有原生验收另行通过 8 项：实际 MCP、正式确认界面、拒
 本轮没有升级 runtime pin、改动上游、提 PR、打安装包、发布插件、
 修改主快捷方式或日用 profile。只生成源码构建和隔离验收证据，
 未删除旧包或其他会话的产物。
+
+## PR #234 整合统一更新预检（2026-11-13）
+
+将主线 `965d27e`（已包含 #238）正常合入 #234。
+`capability-settings.mjs` 与作者指南的冲突保留统一预检、配置 stamp
+重核、版本化事务和恢复规则；首次新增配置走同一更新入口，不恢复旧的
+独立更新路径。新增清单使用严格解析，未知属性和重复属性也拒绝。
+仅在旧包没有清单及通用配置绑定时，允许原有同名 stdio 消费者加强隔离；
+已有 schema 的宿主迁移限制、服务边界和默认开关检查不变。
+首次配置的预检展示独立原因，更新完成后仍需明确设置，不导入旧秘密。
+保留旧宿主来源投影为未配置、允许明确重选的修复，不继承旧授权。
+
+Windows 定向回归串行完成，三组文件不重叠：
+
+- 宿主契约、原生插件及配置更新三个文件，41 项通过。
+- 配置、快照竞态、设置竞态、宿主运行时、launcher、broker、
+  更新协调、会话释放、Remote 管理和 runtime staging 十二个文件，
+  232 项通过。
+- capability worker 与更新夹具两个文件，25 项通过。
+
+以上合计 298 项，零失败；不代表完整本地测试集。
+类型检查和生产构建通过；构建仅有既有的依赖 `use client` 警告。
+根目录 CI 策略测试 56 项中 55 通过、1 项平台跳过、零失败。
+暂存与工作区的差异空白检查通过。
+
+扩展 `verify-plugin-update-electron.mjs`，使用隔离 Git 市场和实际
+Electron main、preload、renderer、Step 运行时完成七组验收：
+旧包首次新增配置实际点击更新，保留实例、来源、禁用服务及旧文件，
+不自动创建配置绑定或导入 Key；随后明确配置并继续普通兼容更新、
+未落盘空会话阻断、双会话只读预检及取消、释放后恢复真实 MCP、
+不兼容变更聚合阻断。双会话恢复前后已落盘历史、会话与 runtime ID
+保持，旧 worker PID 退出，新 worker 已连接；浅色、深色、窄屏
+二级界面截图已生成。最终 `complete: true`、七项检查通过、
+provider 请求为零、renderer 错误为零，验收结束无残留测试进程。
+
+本轮证据：
+
+- `D:\DFSC Builds\pr234-20261113-integration-r1.log`
+- `D:\DFSC Builds\pr234-20261113-regressions-r1.log`
+- `D:\DFSC Builds\pr234-20261113-fixture-regressions-r1.log`
+- `D:\DFSC Builds\pr234-20261113-typecheck-r1.log`
+- `D:\DFSC Builds\pr234-20261113-build-r1.log`
+- `D:\DFSC Builds\pr234-20261113-ci-policy-r1.log`
+- `D:\DFSC Builds\pr234-20261113-native-update-r2.log`
+- `D:\DFSC Builds\pr234-20261113-native-update-r2-evidence\acceptance.json`
+
+只生成 `D:\DFSC Builds\pr234-20261113-main-sync` 隔离源码验收构建，
+复用已有 runtime 资产，只在其独立 helper 目录替换本次源码。
+runtime pin 保持 `29eb460780489801ce8afc8bffc1a2efae7cbded`；
+未运行 runtime staging、改写共享链接资产、打安装包、切换快捷方式、
+重启日用程序、接触真实账户或发布插件。历史包不作为当前提交验收。
+此记录写入时当前整合提交尚未推送，云端 CI 待重新运行；旧提交的
+Windows/macOS/SDK 绿灯不算本次整合通过，云端结果以 PR 当前 head 为准。

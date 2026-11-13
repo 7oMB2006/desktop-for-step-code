@@ -202,7 +202,10 @@ try {
   console.log('Cold coalesced navigation ms:', Math.round(cold.times[0]));
   phase = 'two overtaken startups cannot block a resident or unlock billing changes';
   const residentRuntimeId = (await page.evaluate(() => window.desktop.snapshot())).runtimeId;
-  await app.evaluate(() => {
+  await app.evaluate(({ app }) => {
+    const { join, resolve } = process.getBuiltinModule('path');
+    const runtime = app.isPackaged ? join(process.resourcesPath, 'runtime') : resolve('runtime');
+    const sessionEntry = join(runtime, 'step/dist/bundle/step.js');
     const childProcess = process.getBuiltinModule('child_process');
     const spawn = childProcess.spawn;
     let claimed = 0;
@@ -211,7 +214,15 @@ try {
     globalThis.navigationReleaseStartup = index => releases[index]?.();
     childProcess.spawn = function (...args) {
       const child = spawn.apply(this, args);
-      if (claimed >= 2 || !args[1]?.includes('--mode') || !args[1]?.includes('rpc')) return child;
+      let workerArgs = args[1];
+      const jobIndex = workerArgs?.indexOf('-File'), specIndex = workerArgs?.indexOf('-Spec');
+      if (jobIndex >= 0 && specIndex >= 0 && workerArgs[jobIndex + 1] === join(runtime, 'windows-runtime-job.ps1')) {
+        try { workerArgs = JSON.parse(Buffer.from(workerArgs[specIndex + 1], 'base64').toString('utf8')).args; }
+        catch { return child; }
+      }
+      // Management RPC also spawns here, but cannot consume a cold-session slot.
+      if (claimed >= 2 || !Array.isArray(workerArgs) || workerArgs[0] !== sessionEntry
+        || !workerArgs.includes('--mode') || !workerArgs.includes('rpc')) return child;
       const index = claimed++;
       const write = child.stdin.write;
       let held = false;

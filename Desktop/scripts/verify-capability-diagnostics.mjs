@@ -184,7 +184,7 @@ const assertRemoteRetained = async runtimeId => {
     const native = records.at(-1), remote = globalThis.diagnosticRemote;
     if (capture) globalThis.diagnosticExpectedChildren = { native: native?.child, remote };
     return {
-      nativeGeneration: native?.generation, nativePid: native?.child.pid,
+      nativeGeneration: native?.generation, nativePid: native?.pid, supervisorPid: native?.supervisorPid,
       remotePid: remote?.pid, bindingIds: globalThis.diagnosticBindingIds,
       nativeAlive: Boolean(native && native.child.exitCode === null && native.child.signalCode === null),
       remoteAlive: Boolean(remote && remote.exitCode === null && remote.signalCode === null),
@@ -195,6 +195,7 @@ const assertRemoteRetained = async runtimeId => {
   }, { sessionId: summary.sessionId, capture: !remoteIdentity });
   assert.ok(summary.sessionId && transport.nativePid && transport.remotePid);
   ownedPids.add(transport.nativePid);
+  if (transport.supervisorPid) ownedPids.add(transport.supervisorPid);
   ownedPids.add(transport.remotePid);
   assert.equal(transport.nativeAlive, true);
   assert.equal(transport.remoteAlive, true);
@@ -289,9 +290,12 @@ try {
   await page.waitForURL('**/renderer/index.html');
   await page.waitForFunction(() => Boolean(window.desktop));
   // Install observers before creating the peer so replacements cannot hide behind a cached runtime ID.
-  await app.evaluate((_, path) => {
+  await app.evaluate(({ app }, path) => {
     const cp = process.getBuiltinModule('node:child_process'), original = cp.spawn;
     const { StringDecoder } = process.getBuiltinModule('node:string_decoder');
+    const { join, resolve } = process.getBuiltinModule('node:path');
+    const runtime = app.isPackaged ? join(process.resourcesPath, 'runtime') : resolve('runtime');
+    const sessionEntry = join(runtime, 'step/dist/bundle/step.js');
     globalThis.diagnosticNatives = [];
     globalThis.diagnosticBindingIds = [];
     globalThis.diagnosticChildren = [];
@@ -313,6 +317,17 @@ try {
     };
     cp.spawn = (command, args, options) => {
       const entry = args?.[0]?.replaceAll('\\', '/');
+      let workerArgs = args, job;
+      const jobIndex = args?.indexOf('-File'), specIndex = args?.indexOf('-Spec');
+      if (jobIndex >= 0 && specIndex >= 0 && args[jobIndex + 1] === join(runtime, 'windows-runtime-job.ps1')) {
+        try {
+          const spec = JSON.parse(Buffer.from(args[specIndex + 1], 'base64').toString('utf8'));
+          if (typeof spec.job === 'string' && spec.job) {
+            workerArgs = spec.args;
+            job = spec.job;
+          }
+        } catch {}
+      }
       if (entry?.endsWith('/remote-channel.mjs')) {
         const child = globalThis.diagnosticRemote = remember(original(command, [path], options));
         observe(child, value => {
@@ -342,8 +357,10 @@ try {
           return write(chunk, ...args);
         };
       }
-      if (entry?.endsWith('/step/dist/bundle/step.js')) {
-        const record = { child, generation: globalThis.diagnosticNatives.length + 1 };
+      if (Array.isArray(workerArgs) && workerArgs[0] === sessionEntry
+        && workerArgs.includes('--mode') && workerArgs.includes('rpc')) {
+        const record = { child, pid: job ? undefined : child.pid,
+          supervisorPid: job ? child.pid : undefined, generation: globalThis.diagnosticNatives.length + 1 };
         globalThis.diagnosticNatives.push(record);
         const write = child.stdin.write.bind(child.stdin);
         child.stdin.write = (chunk, ...args) => {
@@ -354,6 +371,8 @@ try {
           return write(chunk, ...args);
         };
         observe(child, value => {
+          if (job && !record.pid && value.type === 'dfsc_runtime_job' && value.job === job
+            && Number.isInteger(value.pid) && value.pid > 0) record.pid = value.pid;
           if (value.type === 'response' && value.success && value.data?.sessionId)
             record.sessionId = value.data.sessionId;
           if (value.type === 'extension_ui_request' && value.method === 'setStatus' && value.statusKey === 'step-permission')

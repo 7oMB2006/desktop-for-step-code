@@ -4,6 +4,7 @@ import { mkdtemp, mkdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { _electron as electron } from 'playwright';
+import { installRuntimeFixturePreload } from './runtime-transport-fixture.mjs';
 
 const profile = await mkdtemp(join(tmpdir(), 'desktop-account-routing-'));
 await mkdir(join(profile, 'step-runtime'), { recursive: true });
@@ -116,21 +117,15 @@ try {
   const page = await app.firstWindow();
   await page.getByRole('heading', { name: /^(让想法阶跃星辰|星辰因你而阶跃)$/ }).waitFor();
   console.log('Account routing: installing isolated transport');
-  await app.evaluate(async ({ BrowserWindow, net, shell, dialog }, { preload, address }) => {
+  await app.evaluate(installRuntimeFixturePreload, { preload });
+  await app.evaluate(async ({ BrowserWindow, net, shell, dialog }, { address }) => {
     const window = BrowserWindow.getAllWindows()[0];
     window.setOpacity(0); window.setIgnoreMouseEvents(true); window.showInactive();
     dialog.showMessageBox = async () => ({ response: 1 });
-    const cp = process.getBuiltinModule('child_process');
-    const spawn = cp.spawn;
-    cp.spawn = function(file, args, options) {
-      if (args?.some(arg => /(?:admin\.mjs|step\.js)$/.test(arg))) args = ['--require', preload, ...args];
-      return spawn.call(this, file, args, options);
-    };
-    process.getBuiltinModule('module').syncBuiltinESMExports();
     net.fetch = (input, init) => fetch(address + '/?url=' + encodeURIComponent(String(input)), init);
     globalThis.routingAuthUrl = undefined;
     shell.openExternal = async url => { globalThis.routingAuthUrl = url; };
-  }, { preload, address });
+  }, { address });
   console.log('Account routing: transport installed');
   await page.evaluate(() => window.desktop.snapshot());
   // Force the test-owned management process to restart with the transport hook.

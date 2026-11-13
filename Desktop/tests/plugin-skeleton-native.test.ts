@@ -12,6 +12,7 @@ import { isolatedEnvironment } from '../electron/runtime';
 import { PluginHostBindingStore } from '../electron/plugin-host-contract.mjs';
 import { mockHost } from '../../examples/plugins/host-client/testing.mjs';
 import type { RuntimeEvent } from '../src/contracts';
+import { PluginConfigurationStore } from '../electron/plugin-configuration.mjs';
 
 async function fixture(hostAvailable = false) {
   const folder = await realpath(await mkdtemp(join(tmpdir(), 'dfsc-skeleton-native-'))), root = join(folder, 'profile');
@@ -19,7 +20,7 @@ async function fixture(hostAvailable = false) {
   const runtime = join(folder, 'runtime'), cached = resolve(process.env.DESKTOP_TEST_RUNTIME ?? 'runtime');
   await mkdir(runtime);
   for (const name of ['step', 'node']) await symlink(join(cached, name), join(runtime, name), process.platform === 'win32' ? 'junction' : 'dir');
-  for (const name of ['capability-admin.mjs', 'capability-failure.mjs', 'marketplace-refresh.mjs', 'capability-settings.mjs', 'plugin-files.mjs', 'theme-composition.mjs', 'plugin-update.mjs', 'plugin-configuration.mjs'])
+  for (const name of ['capability-admin.mjs', 'capability-failure.mjs', 'marketplace-refresh.mjs', 'capability-settings.mjs', 'plugin-files.mjs', 'theme-composition.mjs', 'plugin-update.mjs', 'plugin-configuration.mjs', 'plugin-schema-update.mjs', 'windows-runtime-job.ps1'])
     await copyFile(resolve('electron', name), join(runtime, name));
   const service = new CapabilityService({ root, runtime, node: join(runtime, 'node', process.platform === 'win32' ? 'node.exe' : 'node'),
     environment: () => isolatedEnvironment(root), hostAvailable: () => hostAvailable });
@@ -108,12 +109,16 @@ test('native update keeps the installation, settings revision, secrets and disab
     await assert.rejects(readFile(join(root, 'desktop-plugins/update-transaction.json')), { code: 'ENOENT' });
   } finally { await service.stop(); await rm(folder, { recursive: true, force: true, maxRetries: 5 }); }
 });
-test('native update can introduce a first configuration without adopting legacy files or authorizing its host', { timeout: 90000 }, async () => {
+for (const host of ['none', 'added', 'existing'] as const) test(`first configuration upgrade preserves legacy data and requires explicit setup (${host} host)`, { timeout: 90000 }, async () => {
   const { folder, service, market, root } = await fixture(true);
   try {
     const packageRoot = join(market, 'plugins/dfsc-config-example');
-    const schema = await readFile(join(packageRoot, 'dfsc.settings.json'));
+    const schema = JSON.parse(await readFile(join(packageRoot, 'dfsc.settings.json'), 'utf8'));
+    schema.groups[0].fields.push({ id: 'key', label: 'Main key', type: 'secret', required: true });
+    const declaration = JSON.stringify({ schemaVersion: 1, hostApiVersion: 1,
+      consumer: { kind: 'mcp-stdio', server: 'notes' }, capabilities: ['model.text'] });
     await rm(join(packageRoot, 'dfsc.settings.json'));
+    if (host === 'existing') await writeFile(join(packageRoot, 'dfsc.host.json'), declaration);
     const original = JSON.parse(await readFile(join(packageRoot, 'step.plugin.json'), 'utf8'));
     const legacy = { ...original, mcpServers: { notes: { ...original.mcpServers.notes,
       env: { STEPFUN_API_KEY: 'legacy-managed-context' } } } };
@@ -122,10 +127,15 @@ test('native update can introduce a first configuration without adopting legacy 
     await service.mutate({ action: 'plugin-install', name: original.id, marketplace: 'dfsc-config-example-local' });
     const installed = (await service.catalog()).plugins[0];
     assert.equal(installed.package!.configurationAvailable, false);
+    if (host === 'existing') await service.hostSettings({ ref: installed.package!.ref },
+      { ref: installed.package!.ref, revision: 'unconfigured', mode: 'follow' });
     await service.mutate({ action: 'plugin-toggle', id: installed.id, enabled: false });
     const switches = await readFile(join(root, 'config.toml'));
     const receiptPath = join(root, 'desktop-plugins/installations.json');
+    const receiptsBefore = await readFile(receiptPath);
     const previous = JSON.parse(await readFile(receiptPath, 'utf8')).installations[0];
+    const hostBindingPath = join(root, 'desktop-plugins/host/bindings', `${previous.instance}.json`);
+    const hostBindingBefore = await readFile(hostBindingPath).catch(() => undefined);
     const legacyDirectory = join(root, 'legacy-plugin');
     await mkdir(legacyDirectory);
     const legacyFiles = [
@@ -136,11 +146,17 @@ test('native update can introduce a first configuration without adopting legacy 
     const sourceName = (await service.catalog()).marketplaces.find(item => item.kind === 'local')!.name;
     const source = join(root, 'marketplaces', sourceName, 'plugins/dfsc-config-example');
     await writeFile(join(source, 'step.plugin.json'), JSON.stringify({ ...original, version: '0.2.0' }));
-    await writeFile(join(source, 'dfsc.settings.json'), schema);
-    await writeFile(join(source, 'dfsc.host.json'), JSON.stringify({ schemaVersion: 1, hostApiVersion: 1,
-      consumer: { kind: 'mcp-stdio', server: 'notes' }, capabilities: ['model.text'] }));
+    await writeFile(join(source, 'dfsc.settings.json'), JSON.stringify(schema));
+    if (host !== 'none') await writeFile(join(source, 'dfsc.host.json'), declaration);
     const candidate = (await service.catalog()).plugins[0];
-    await service.mutate({ action: 'plugin-update', id: installed.id, ref: candidate.package!.ref, candidate: candidate.update!.ref! });
+    const input = { id: installed.id, ref: candidate.package!.ref, candidate: candidate.update!.ref! };
+    const checked = await service.preflightUpdate(input);
+    assert.equal(checked.status, 'compatible');
+    assert.deepEqual(checked.changes, [{ code: 'configuration-added' }]);
+    assert.deepEqual(await readFile(receiptPath), receiptsBefore);
+    assert.deepEqual(await readFile(hostBindingPath).catch(() => undefined), hostBindingBefore);
+    await assert.rejects(readFile(join(root, 'plugins', previous.folder, 'dfsc.settings.json')), { code: 'ENOENT' });
+    await service.mutate({ action: 'plugin-update', ...input }, undefined, checked);
     const after = (await service.catalog()).plugins[0];
     assert.equal(after.version, '0.2.0');
     const current = JSON.parse(await readFile(receiptPath, 'utf8')).installations[0];
@@ -148,11 +164,18 @@ test('native update can introduce a first configuration without adopting legacy 
     assert.equal(current.source, previous.source);
     assert.deepEqual(await readFile(join(root, 'config.toml')), switches);
     for (const [name, bytes] of legacyFiles) assert.equal(await readFile(join(legacyDirectory, name), 'utf8'), bytes);
-    const settings = await service.hostSettings({ ref: after.package!.ref });
-    assert.equal(settings.mode, null);
+    const settings = await service.configuration({ ref: after.package!.ref });
     assert.equal(settings.revision, 'unconfigured');
-    assert.equal(settings.independent!.configured, false);
-    await assert.rejects(readFile(join(root, 'desktop-plugins/host/bindings', `${current.instance}.json`)), { code: 'ENOENT' });
+    assert.equal(settings.configured, false);
+    assert.equal(settings.hasSecret.key, false);
+    if (host !== 'none') {
+      const hostSettings = await service.hostSettings({ ref: after.package!.ref });
+      assert.equal(hostSettings.mode, null);
+      assert.equal(hostSettings.revision, 'unconfigured');
+      assert.equal(hostSettings.independent!.configured, false);
+      assert.doesNotMatch(JSON.stringify(hostSettings), /old-main-secret|old-asr-secret/);
+    }
+    assert.deepEqual(await readFile(hostBindingPath).catch(() => undefined), hostBindingBefore);
     await assert.rejects(readFile(join(root, 'desktop-plugins/bindings', `${current.folder}.json`)), { code: 'ENOENT' });
     await assert.rejects(service.hostSettings({ ref: candidate.package!.ref }), /host-unavailable/);
     assert.doesNotMatch(JSON.stringify(settings), /old-main-secret|old-asr-secret/);
@@ -174,19 +197,25 @@ test('first configuration upgrades reject invalid schemas, foreign consumers and
     const source = join(root, 'marketplaces', sourceName, 'plugins/dfsc-config-example');
     const receipts = await readFile(join(root, 'desktop-plugins/installations.json'));
     const next = { ...original, version: '0.2.0' };
-    for (const [settings, manifest, error] of [
-      [{ ...schema, schemaVersion: 99 }, next, /configuration-schema-changed/],
-      [{ ...schema, consumer: { kind: 'json-file-v1', server: 'foreign' } }, next, /configuration-schema-changed/],
-      [schema, { ...next, mcpServers: { notes: { url: 'https://example.invalid/mcp' } } }, /configuration-schema-changed/],
-      [schema, { ...legacy, version: '0.2.0' }, /configuration-schema-changed/],
-      [schema, { ...next, mcpServers: { notes: { ...original.mcpServers.notes, enabled: false } } }, /update-capabilities-changed/],
-      [schema, { ...next, mcpServers: { ...original.mcpServers, extra: { command: 'node' } } }, /update-capabilities-changed/],
+    for (const [settings, manifest, reason, error] of [
+      [{ ...schema, schemaVersion: 99 }, next, 'invalid-schema', /update-capabilities-changed/],
+      [{ ...schema, future: true }, next, 'invalid-schema', /update-capabilities-changed/],
+      [JSON.stringify(schema).replace('"schemaVersion":1', '"schemaVersion":1,"schemaVersion":1'),
+        next, 'invalid-schema', /update-capabilities-changed/],
+      [{ ...schema, consumer: { kind: 'json-file-v1', server: 'foreign' } }, next, 'consumer-unsupported', /update-capabilities-changed/],
+      [schema, { ...next, mcpServers: { notes: { url: 'https://example.invalid/mcp' } } }, 'consumer-unsupported', /update-capabilities-changed/],
+      [schema, { ...legacy, version: '0.2.0' }, 'consumer-unsupported', /configuration-schema-changed/],
+      [schema, { ...next, mcpServers: { notes: { ...original.mcpServers.notes, enabled: false } } }, 'services-changed', /update-capabilities-changed/],
+      [schema, { ...next, mcpServers: { ...original.mcpServers, extra: { command: 'node' } } }, 'services-changed', /update-capabilities-changed/],
     ] as const) {
-      await writeFile(join(source, 'dfsc.settings.json'), JSON.stringify(settings));
+      await writeFile(join(source, 'dfsc.settings.json'), typeof settings === 'string' ? settings : JSON.stringify(settings));
       await writeFile(join(source, 'step.plugin.json'), JSON.stringify(manifest));
       const candidate = (await service.catalog()).plugins[0];
-      await assert.rejects(service.mutate({ action: 'plugin-update', id: candidate.id,
-        ref: candidate.package!.ref, candidate: candidate.update!.ref! }), error);
+      const input = { id: candidate.id, ref: candidate.package!.ref, candidate: candidate.update!.ref! };
+      const checked = await service.preflightUpdate(input);
+      assert.equal(checked.status, 'unsupported');
+      assert.ok(checked.changes.some(change => change.code === reason), reason);
+      await assert.rejects(service.mutate({ action: 'plugin-update', ...input }, undefined, checked), error);
       assert.deepEqual(await readFile(join(root, 'desktop-plugins/installations.json')), receipts);
     }
     await writeFile(join(source, 'dfsc.settings.json'), JSON.stringify(schema));
@@ -195,10 +224,18 @@ test('first configuration upgrades reject invalid schemas, foreign consumers and
     await mkdir(join(root, 'desktop-plugins/bindings'), { recursive: true });
     const bindingPath = join(root, 'desktop-plugins/bindings', `${receipt.folder}.json`);
     const revoked = JSON.stringify({ version: 1, instance: receipt.instance, id: receipt.id, revoked: true });
+    const ready = (await service.catalog()).plugins[0];
+    const input = { id: ready.id, ref: ready.package!.ref, candidate: ready.update!.ref! };
+    const checked = await service.preflightUpdate(input);
+    assert.equal(checked.status, 'compatible');
     await writeFile(bindingPath, revoked);
+    await assert.rejects(service.mutate({ action: 'plugin-update', ...input }, undefined, checked), /stale-configuration/);
     const candidate = (await service.catalog()).plugins[0];
+    const blocked = await service.preflightUpdate({ id: candidate.id, ref: candidate.package!.ref, candidate: candidate.update!.ref! });
+    assert.equal(blocked.status, 'unsupported');
+    assert.ok(blocked.changes.some(change => change.code === 'schema-added-or-removed'));
     await assert.rejects(service.mutate({ action: 'plugin-update', id: candidate.id,
-      ref: candidate.package!.ref, candidate: candidate.update!.ref! }), /configuration-schema-changed/);
+      ref: candidate.package!.ref, candidate: candidate.update!.ref! }), /update-capabilities-changed/);
     assert.equal(await readFile(bindingPath, 'utf8'), revoked);
   } finally { await service.stop(); await rm(folder, { recursive: true, force: true, maxRetries: 5 }); }
 });
@@ -289,7 +326,9 @@ test('native update rejects incompatible settings, service changes, stale candid
     }
     await writeFile(manifestPath, JSON.stringify({ ...original, version: '0.2.0' }));
     const schemaPath = join(source, 'dfsc.settings.json'), schemaBytes = await readFile(schemaPath);
-    await writeFile(schemaPath, Buffer.concat([schemaBytes, Buffer.from('\n')]));
+    const incompatible = JSON.parse(schemaBytes.toString('utf8'));
+    incompatible.groups[0].fields[0].default = 'Changed default';
+    await writeFile(schemaPath, JSON.stringify(incompatible));
     await assert.rejects(service.mutate(await updateInput()), /configuration-schema-changed/);
     await rm(schemaPath);
     await assert.rejects(service.mutate(await updateInput()), /configuration-schema-changed/);
@@ -319,6 +358,74 @@ test('native update rejects incompatible settings, service changes, stale candid
     await assert.rejects(service.mutate(await updateInput()), /stale/);
   } finally { await service.stop(); await rm(folder, { recursive: true, force: true, maxRetries: 5 }); }
 });
+for (const state of ['active', 'unconfigured', 'revoked'] as const) {
+  test(`native compatible schema migration preserves ${state} configuration without read-side writes`, { timeout: 90000 }, async () => {
+    const { folder, service, market, root } = await fixture();
+    try {
+      const marketSchema = join(market, 'plugins/dfsc-config-example/dfsc.settings.json');
+      const schema = JSON.parse(await readFile(marketSchema, 'utf8'));
+      schema.groups[0].fields.push({ id: 'key', type: 'secret', label: 'Fixture key' });
+      await writeFile(marketSchema, JSON.stringify(schema));
+      await service.mutate({ action: 'marketplace-add', source: market });
+      await service.mutate({ action: 'plugin-install', name: 'dfsc-config-example', marketplace: 'dfsc-config-example-local' });
+      let plugin = (await service.catalog()).plugins[0];
+      const initial = await service.configuration({ ref: plugin.package!.ref });
+      let revision = initial.revision;
+      if (state !== 'unconfigured') {
+        const saved = await service.configuration({ ref: plugin.package!.ref }, { ref: plugin.package!.ref, revision,
+          values: { ...initial.values, prefix: 'Keep ', uppercase: false, limit: 1 },
+          secrets: { key: { action: 'replace', value: 'native-migration-private' } } });
+        revision = saved.revision;
+      }
+      if (state === 'revoked') await new PluginConfigurationStore(root).revoke(plugin.id);
+      const target = join(root, 'plugins/dfsc-config-example');
+      const { ConfigurationReader } = await import(pathToFileURL(join(target, 'server/configuration.mjs')).href);
+      const reader = new ConfigurationReader(pathToFileURL(`${target}/`));
+      if (state === 'active') await reader.current();
+      const sourceName = (await service.catalog()).marketplaces.find(item => item.kind === 'local')!.name;
+      const source = join(root, 'marketplaces', sourceName, 'plugins/dfsc-config-example');
+      const manifest = JSON.parse(await readFile(join(source, 'step.plugin.json'), 'utf8'));
+      await writeFile(join(source, 'step.plugin.json'), JSON.stringify({ ...manifest, version: '0.2.0' }));
+      schema.groups[0].title = 'Updated presentation';
+      schema.groups[0].fields.push({ id: 'optional', label: 'Optional new setting', type: 'text' });
+      await writeFile(join(source, 'dfsc.settings.json'), JSON.stringify(schema, null, 2) + '\n');
+      plugin = (await service.catalog()).plugins[0];
+      const input = { id: plugin.id, ref: plugin.package!.ref, candidate: plugin.update!.ref! };
+      const receiptPath = join(root, 'desktop-plugins/installations.json');
+      const before = await readFile(receiptPath);
+      const bindingPath = join(root, 'desktop-plugins/bindings/dfsc-config-example.json');
+      const bindingBefore = await readFile(bindingPath).catch(() => undefined);
+      const settingsPath = join(root, 'desktop-plugins/settings');
+      const filesBefore = await import('node:fs/promises').then(fs => fs.readdir(settingsPath, { recursive: true }).catch(() => []));
+      const checked = await service.preflightUpdate(input);
+      assert.equal(checked.status, 'compatible');
+      assert.ok((await readFile(receiptPath)).equals(before));
+      assert.deepEqual(await readFile(bindingPath).catch(() => undefined), bindingBefore);
+      assert.deepEqual(await import('node:fs/promises').then(fs => fs.readdir(settingsPath, { recursive: true }).catch(() => [])), filesBefore);
+      assert.doesNotMatch(JSON.stringify(checked), /native-migration-private|values|secrets/);
+      await service.mutate({ action: 'plugin-update', ...input }, undefined, checked);
+      plugin = (await service.catalog()).plugins[0];
+      const configured = await service.configuration({ ref: plugin.package!.ref });
+      assert.equal(plugin.version, '0.2.0');
+      assert.equal(configured.configured, state === 'active');
+      assert.equal(Object.hasOwn(configured.values, 'optional'), false);
+      if (state === 'active') {
+        assert.notEqual(configured.revision, revision);
+        assert.equal(configured.values.prefix, 'Keep ');
+        assert.equal(configured.values.uppercase, false);
+        assert.equal(configured.values.limit, 1);
+        assert.equal(configured.hasSecret.key, true);
+        await assert.rejects(reader.current(), /restart/);
+        const current = await new ConfigurationReader(pathToFileURL(`${target}/`)).current();
+        assert.equal(current.values.prefix, 'Keep ');
+        assert.equal(current.secrets.key, 'native-migration-private');
+      } else {
+        assert.equal(configured.revision, 'unconfigured');
+        assert.deepEqual(await readFile(bindingPath).catch(() => undefined), bindingBefore);
+      }
+    } finally { await service.stop(); await rm(folder, { recursive: true, force: true, maxRetries: 5 }); }
+  });
+}
 test('native installation preserves provenance and blocks two package names declaring the same runtime ID', { timeout: 90000 }, async () => {
   const { folder, service, market, root } = await fixture();
   try {

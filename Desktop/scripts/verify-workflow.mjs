@@ -98,6 +98,7 @@ try {
     ['合并事实并修订摘要', '整理摘要', 'completed'], ['限定词与断言强度', '交叉审查', 'running'],
     ['主体与合作关系', '交叉审查', 'running'], ['新增信息与来源归属', '交叉审查', 'running'], ['逐项确认修改结果', '最终核验', 'queued'],
   ].map(([label, phase, status], index) => ({ id: `agent-${index}`, label, phase, status,
+    agentType: ['explore', 'review', 'implement', 'test', 'general', 'docs-helper', undefined, 'review'][index],
     task: `对照原始报告与修订摘要，核验${label}。逐项列出差异，保留来源和限定条件。`,
     startedAt: status === 'queued' ? undefined : Date.now() - 32000,
     finishedAt: status === 'completed' ? Date.now() - 5000 : undefined }));
@@ -159,6 +160,11 @@ try {
   await page.locator('.working .workflow-trigger').click();
   await panel.waitFor();
   assert.equal(await panel.locator('.workflow-agent').count(), 8);
+  for (const [index, icon] of ['scan-search', 'shield-check', 'code-xml', 'flask-conical', 'bot', 'bot', 'bot', 'shield-check'].entries()) {
+    assert.equal(await panel.locator('.workflow-agent').nth(index).locator(`.agent-role-icon svg.lucide-${icon}`).count(), 1);
+  }
+  assert.equal(await panel.locator('.workflow-agent').nth(6).locator('.agent-role-icon').getAttribute('data-agent-role'), 'unknown',
+    'Legacy records do not infer a role from a task label');
   await page.screenshot({ path: 'test-results/workflow-orchestration-running-dark.png' });
   const overviewScroll = panel.locator('.workflow-pane').first();
   await overviewScroll.evaluate(element => element.scrollTop = 100);

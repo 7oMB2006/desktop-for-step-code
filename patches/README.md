@@ -23,6 +23,13 @@ Desktop context injection. Live-event opt-in, credentials isolation, BTW,
 background controls, template-input provenance and completion review are retained.
 See [v0.1.7 boundaries](../docs/UPSTREAM_V017.md).
 
+`step-code-desktop-ultra.patch` adds an independent `ultra` thinking level to
+the provider and agent types, explicit capability maps, model configuration
+and CLI validation. It is opt-in per model, not an alias for `max` or the
+UltraCode collaboration mode. Compatible effort-based endpoints receive the
+configured value unchanged; budget-based providers retain their existing
+high-budget fallback. No built-in catalog model is opted in by this patch.
+
 ## Historical v0.1.6 Baseline
 
 The v016 set also includes `step-code-desktop-btw.patch`: a model-only,

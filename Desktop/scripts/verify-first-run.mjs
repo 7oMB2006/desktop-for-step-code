@@ -8,6 +8,8 @@ import { assertFocusVisible } from './assert-focus-visible.mjs';
 import { closeDesktopFixtureAndWait } from './close-desktop-fixture.mjs';
 import { settleLayout } from './settle-layout.mjs';
 import { waitForSessionFixtureSnapshot } from './session-fixture.mjs';
+import { verifyFirstRunExit } from './first-run-exit-checks.mjs';
+import { installRuntimeFixturePreload } from './runtime-transport-fixture.mjs';
 
 const output = resolve('test-results/first-run-native');
 await mkdir(output, { recursive: true });
@@ -160,18 +162,12 @@ const routed = (input, init) => {
 Object.defineProperty(globalThis, 'fetch', { configurable: true, get: () => routed,
   set: value => { if (value !== routed) transport = value; } });
 `);
-  await app.evaluate(({ net, shell }, { preload, base }) => {
-    const cp = process.getBuiltinModule('child_process');
-    const spawn = cp.spawn;
-    cp.spawn = function(file, args, options) {
-      if (args?.some(arg => /(?:admin\.mjs|step\.js)$/.test(arg))) args = ['--require', preload, ...args];
-      return spawn.call(this, file, args, options);
-    };
-    process.getBuiltinModule('module').syncBuiltinESMExports();
+  await app.evaluate(installRuntimeFixturePreload, { preload });
+  await app.evaluate(({ net, shell }, { base }) => {
     net.fetch = (input, init) => fetch(base + '/?url=' + encodeURIComponent(String(input)), init);
     globalThis.firstRunAuthUrl = undefined;
     shell.openExternal = async url => { globalThis.firstRunAuthUrl = url; };
-  }, { preload, base });
+  }, { base });
   // Restart only the isolated admin child so subsequent login uses the loopback transport.
   await page.evaluate(address => window.desktop.saveProvider({
     id: '', name: 'Disabled transport fixture', baseUrl: address, api: 'openai-completions', enabled: false, keyless: true,
@@ -179,6 +175,8 @@ Object.defineProperty(globalThis, 'fetch', { configurable: true, get: () => rout
   }), address);
 };
 try {
+  await verifyFirstRunExit(output);
+  if (!process.argv.includes('--exit-only')) {
   mark('fresh profile, real production entry and interrupted setup');
   const root = await profile();
   await launch(root);
@@ -437,6 +435,7 @@ try {
   assert.deepEqual(errors, []);
   assert.deepEqual(transportErrors, []);
   console.log('Production first-run lifecycle, native chooser, saved provider, permissions, model handoff and loopback first send passed.');
+  }
 } catch (error) {
   console.error(`First-run failure during ${phase}`);
   if (page && !page.isClosed()) {

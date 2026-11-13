@@ -1,4 +1,4 @@
-import { lstat, realpath, rename, rm } from 'node:fs/promises';
+import { lstat, readdir, realpath, rename, rm } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { dataOnlyThemeFingerprint, digest, object, optionalFile, packageFingerprint, readReceipts, writePrivateData, writePrivateJson,
   writeReceipts, PluginFileError } from './plugin-files.mjs';
@@ -15,23 +15,63 @@ const receiptValid = value => object(value) && uuid(value.instance) && hash(valu
 const journalPath = 'desktop-plugins/update-transaction.json';
 const bindingPath = receipt => `desktop-plugins/bindings/${receipt.folder}.json`;
 const parse = bytes => { try { return JSON.parse(bytes.toString('utf8')); } catch { fail(); } };
+const bindingValid = (binding, receipt) => {
+  if (!object(binding) || binding.version !== 1) return false;
+  if (binding.revoked === true) return equal(binding, { version: 1, revoked: true })
+    || Object.keys(binding).length === 4 && binding.instance === receipt.instance && binding.id === receipt.id;
+  return [7, 8].includes(Object.keys(binding).length) && (binding.revoked === undefined || binding.revoked === false)
+    && binding.instance === receipt.instance && binding.id === receipt.id
+    && binding.fingerprint === receipt.fingerprint && ['schemaHash', 'revision', 'contentHash'].every(key => hash(binding[key]))
+    && Object.keys(binding).every(key => ['version', 'instance', 'id', 'fingerprint', 'schemaHash', 'revision', 'contentHash', 'revoked'].includes(key));
+};
 
-// Journal entries contain binding metadata only. Settings snapshots (including secrets)
-// never move, and installation instance/revision identities survive the replacement.
+// Journals contain binding metadata only. Existing settings snapshots (including
+// secrets) never move; schema migration derives a new revision for the same instance.
 export async function updateBinding(root, receipt) {
   const bytes = await optionalFile(root, bindingPath(receipt), 65536);
   if (!bytes) return null;
   const binding = parse(bytes);
-  const keys = ['version', 'instance', 'id', 'revoked', 'fingerprint', 'schemaHash', 'revision', 'contentHash'];
-  if (!object(binding) || Object.keys(binding).some(key => !keys.includes(key))
-    || binding.version !== 1 || binding.instance !== receipt.instance || binding.id !== receipt.id
-    || !binding.revoked && (binding.fingerprint !== receipt.fingerprint
-      || !['schemaHash', 'revision', 'contentHash'].every(key => hash(binding[key]))))
+  if (!bindingValid(binding, receipt))
     throw new PluginFileError('stale-configuration');
   return binding;
 }
-const nextBinding = journal => journal.binding && !journal.binding.revoked
+const nextBinding = journal => journal.version === 2 ? journal.nextBinding : journal.binding && !journal.binding.revoked
   ? { ...journal.binding, fingerprint: journal.next.fingerprint } : journal.binding;
+const snapshotPath = (receipt, binding) => `desktop-plugins/settings/${receipt.instance}/${binding.revision}.json`;
+async function assertSnapshot(root, receipt, binding) {
+  if (!binding || binding.revoked) return;
+  const bytes = await optionalFile(root, snapshotPath(receipt, binding), 256 * 1024);
+  if (!bytes) fail();
+  const snapshot = parse(bytes);
+  if (!object(snapshot) || snapshot.version !== 1 || snapshot.instance !== receipt.instance || snapshot.id !== receipt.id
+    || snapshot.revision !== binding.revision || snapshot.schemaHash !== binding.schemaHash
+    || digest(JSON.stringify(snapshot)) !== binding.contentHash) fail();
+}
+async function removeCandidateSnapshot(root, journal) {
+  if (!journal.snapshot) return;
+  const path = snapshotPath(journal.next, journal.nextBinding);
+  const temporary = `desktop-plugins/settings/${journal.next.instance}/update-${journal.transaction}.tmp`;
+  const pending = await optionalFile(root, temporary, 256 * 1024);
+  if (pending) {
+    const saved = parse(pending);
+    if (digest(JSON.stringify(saved)) !== journal.nextBinding.contentHash) fail();
+    await rm(join(root, temporary));
+  }
+  const bytes = await optionalFile(root, path, 256 * 1024);
+  if (!bytes) return;
+  await assertSnapshot(root, journal.next, journal.nextBinding);
+  const directory = join(root, 'desktop-plugins/bindings');
+  const entries = await readdir(directory);
+  if (entries.length > 1000) fail();
+  for (const entry of entries) {
+    if (!/^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,79}\.json$/u.test(entry)) continue;
+    const bytes = await optionalFile(root, `desktop-plugins/bindings/${entry}`, 65536);
+    if (!bytes) continue;
+    const binding = parse(bytes);
+    if (binding.instance === journal.next.instance && binding.revision === journal.nextBinding.revision) fail();
+  }
+  await rm(join(root, path));
+}
 
 async function directory(path) {
   const stat = await lstat(path);
@@ -67,20 +107,30 @@ async function cleanup(root, journal, staging, expectedJournal) {
   // Every recursive removal is confined to one validated, private transaction directory.
   await paths(root, journal);
   if (expectedJournal !== undefined) await assertJournal(root, expectedJournal);
-  await rm(join(root, journalPath), { force: true });
-  await rm(staging, { recursive: true, force: true, maxRetries: 3 });
+  if (journal.version === 2) {
+    await rm(staging, { recursive: true, force: true, maxRetries: 3 });
+    await rm(join(root, journalPath), { force: true });
+  } else {
+    await rm(join(root, journalPath), { force: true });
+    await rm(staging, { recursive: true, force: true, maxRetries: 3 });
+  }
 }
 function readJournal(bytes) {
   const journal = parse(bytes);
-  if (!object(journal) || journal.version !== 1 || !uuid(journal.transaction)
+  if (!object(journal) || ![1, 2].includes(journal.version) || !uuid(journal.transaction)
     || !['prepared', 'committed'].includes(journal.phase)
     || !receiptValid(journal.previous) || !receiptValid(journal.next)
     || journal.next.fingerprint === journal.previous.fingerprint
     || !equal({ ...journal.previous, fingerprint: journal.next.fingerprint }, journal.next)
-    || journal.binding !== null && (!object(journal.binding) || journal.binding.version !== 1
-      || journal.binding.instance !== journal.previous.instance || journal.binding.id !== journal.previous.id
-      || !journal.binding.revoked && (journal.binding.fingerprint !== journal.previous.fingerprint
-        || !['schemaHash', 'revision', 'contentHash'].every(key => hash(journal.binding[key]))))) fail();
+    || journal.binding !== null && !bindingValid(journal.binding, journal.previous)) fail();
+  if (journal.version === 2) {
+    if (journal.nextBinding !== null && !bindingValid(journal.nextBinding, journal.next)) fail();
+    if (!journal.binding || journal.binding.revoked) {
+      if (!equal(journal.binding, journal.nextBinding) || journal.snapshot !== null) fail();
+    } else if (!journal.nextBinding || journal.nextBinding.revoked
+      || journal.binding.revision === journal.nextBinding.revision
+      || !equal(journal.snapshot, { revision: journal.nextBinding.revision, contentHash: journal.nextBinding.contentHash })) fail();
+  }
   return journal;
 }
 export async function inspectPluginUpdate(root) {
@@ -98,10 +148,12 @@ export async function recoverPluginUpdate(root, options = {}) {
   const journal = readJournal(bytes);
   const location = await paths(root, journal);
   const state = await observed(root, journal);
+  if (journal.version === 2) await assertSnapshot(root, journal.previous, journal.binding);
   const current = await fingerprint(location.target);
   if (journal.phase === 'committed') {
     if (current !== journal.next.fingerprint || !equal(state.receipts.installations[state.index], journal.next)
       || !equal(state.binding, nextBinding(journal))) fail();
+    if (journal.version === 2) await assertSnapshot(root, journal.next, journal.nextBinding);
     await cleanup(root, journal, location.staging, journalFingerprint);
     return;
   }
@@ -121,12 +173,17 @@ export async function recoverPluginUpdate(root, options = {}) {
   if (!equal(state.binding, journal.binding)) await writePrivateData(root, bindingPath(journal.previous), journal.binding);
   state.receipts.installations[state.index] = journal.previous;
   await writeReceipts(root, state.receipts);
+  if (journal.version === 2) await removeCandidateSnapshot(root, journal);
   await cleanup(root, journal, location.staging, journalFingerprint);
 }
 
 export async function applyPluginUpdate(root, transaction, options = {}) {
   if (await optionalFile(root, journalPath, 65536)) fail();
-  const journal = { version: 1, ...transaction, phase: 'prepared' };
+  const journal = { ...transaction, version: options.migration ? 2 : 1,
+    ...(options.migration ? { nextBinding: options.migration.binding,
+      snapshot: options.migration.snapshot ? { revision: options.migration.binding.revision,
+        contentHash: options.migration.binding.contentHash } : null } : {}), phase: 'prepared' };
+  readJournal(Buffer.from(JSON.stringify(journal)));
   const location = await paths(root, journal);
   const state = await observed(root, journal);
   if (!equal(state.receipts.installations[state.index], journal.previous)
@@ -140,6 +197,13 @@ export async function applyPluginUpdate(root, transaction, options = {}) {
   if (await optionalFile(root, journalPath, 65536)) fail();
   await writePrivateJson(root, 'update-transaction.json', journal);
   try {
+    if (journal.version === 2 && options.migration.snapshot) {
+      await assertSnapshot(root, journal.previous, journal.binding);
+      const path = snapshotPath(journal.next, journal.nextBinding);
+      if (await optionalFile(root, path, 256 * 1024)) fail();
+      await writePrivateData(root, path, options.migration.snapshot, { temporaryName: `update-${journal.transaction}.tmp` });
+      await assertSnapshot(root, journal.next, journal.nextBinding);
+    }
     await rename(location.target, location.backup);
     await rename(location.candidate, location.target);
     if (await fingerprint(location.target) !== journal.next.fingerprint) throw new PluginFileError('stale');

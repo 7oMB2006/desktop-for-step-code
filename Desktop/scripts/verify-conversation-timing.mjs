@@ -5,6 +5,7 @@ import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { closeDesktopFixture } from './close-desktop-fixture.mjs';
+import { settleLayout } from './settle-layout.mjs';
 
 const profile = await mkdtemp(join(tmpdir(), 'step-elapsed-ui-'));
 const workspace = join(profile, 'workspace');
@@ -57,12 +58,22 @@ try {
   });
   await page.getByText('Step Code 已连接', { exact: true }).waitFor({ timeout: 60000 });
   // Force history to paint before the authoritative runtime, as on slower runners.
-  await app.evaluate(() => {
+  await app.evaluate(({ app }) => {
+    const { join, resolve } = process.getBuiltinModule('path');
+    const runtime = app.isPackaged ? join(process.resourcesPath, 'runtime') : resolve('runtime');
+    const sessionEntry = join(runtime, 'step/dist/bundle/step.js');
     const childProcess = process.getBuiltinModule('child_process');
     const spawn = childProcess.spawn;
     childProcess.spawn = function (...args) {
       const child = spawn.apply(this, args);
-      if (!args[1]?.includes('--mode') || !args[1]?.includes('rpc')) return child;
+      let workerArgs = args[1];
+      const jobIndex = workerArgs?.indexOf('-File'), specIndex = workerArgs?.indexOf('-Spec');
+      if (jobIndex >= 0 && specIndex >= 0 && workerArgs[jobIndex + 1] === join(runtime, 'windows-runtime-job.ps1')) {
+        try { workerArgs = JSON.parse(Buffer.from(workerArgs[specIndex + 1], 'base64').toString('utf8')).args; }
+        catch { return child; }
+      }
+      if (!Array.isArray(workerArgs) || workerArgs[0] !== sessionEntry
+        || !workerArgs.includes('--mode') || !workerArgs.includes('rpc')) return child;
       childProcess.spawn = spawn;
       const write = child.stdin.write;
       child.stdin.write = function (...values) {
@@ -78,19 +89,21 @@ try {
   });
   await page.getByText(user.content, { exact: true }).click();
   await page.locator('.elapsed-total').waitFor();
-  await page.locator('.sidebar').hover();
-  await page.waitForTimeout(180);
+  const messageTime = page.locator('.assistant-actions .message-time');
   assert.deepEqual(await page.locator('.thinking .elapsed-label').allTextContents(), ['已耗时 17s', '已耗时 15s']);
   assert.equal(await page.locator('.elapsed-total').textContent(), '共耗时 1m 23s');
-  assert.equal(await page.locator('.assistant-actions .message-time').evaluate(element => getComputedStyle(element).opacity), '0');
-  await page.locator('.assistant-actions').hover();
-  await page.waitForTimeout(180);
-  assert.equal(await page.locator('.assistant-actions .message-time').evaluate(element => getComputedStyle(element).opacity), '1');
-  await page.locator('.sidebar').hover();
-  await page.waitForTimeout(180);
-  await page.screenshot({ path: 'test-results/conversation-elapsed-dark.png' });
+  // History can paint first, but hovering it must not race its runtime replacement.
   await page.waitForFunction(() => document.querySelector('.composer-wrap')?.getAttribute('aria-busy') === 'false'
     && !document.querySelector('.session-reading-preview'), undefined, { timeout: 60000 });
+  await page.locator('.sidebar').hover();
+  await settleLayout(messageTime);
+  assert.equal(await page.locator('.assistant-actions .message-time').evaluate(element => getComputedStyle(element).opacity), '0');
+  await page.locator('.assistant-actions').hover();
+  await settleLayout(messageTime);
+  assert.equal(await page.locator('.assistant-actions .message-time').evaluate(element => getComputedStyle(element).opacity), '1');
+  await page.locator('.sidebar').hover();
+  await settleLayout(messageTime);
+  await page.screenshot({ path: 'test-results/conversation-elapsed-dark.png' });
   await page.reload();
   await page.locator('.elapsed-total').waitFor();
   assert.equal(await page.locator('.elapsed-total').textContent(), '共耗时 1m 23s');
@@ -140,6 +153,16 @@ try {
   assert.deepEqual(errors, []);
   console.log('Elapsed UI: history/reload, dark/light/narrow, ticking/freeze passed.');
 } catch (error) {
+  console.error('Elapsed hover state:', await (await app.firstWindow()).evaluate(() => ({
+    preview: Boolean(document.querySelector('.session-reading-preview')),
+    busy: document.querySelector('.composer-wrap')?.getAttribute('aria-busy'),
+    documentFocused: document.hasFocus(),
+    timestamps: [...document.querySelectorAll('.assistant-actions .message-time')].map(element => ({
+      connected: element.isConnected, opacity: getComputedStyle(element).opacity,
+      hovered: element.closest('.message')?.matches(':hover'),
+      footerHovered: element.closest('.assistant-actions')?.matches(':hover'),
+    })),
+  })).catch(() => ({ unavailable: true })));
   console.log(JSON.stringify(await (await app.firstWindow()).evaluate(() => window.desktop.snapshot()), null, 2));
   await (await app.firstWindow()).screenshot({ path: 'test-results/conversation-elapsed-failure.png' });
   throw error;

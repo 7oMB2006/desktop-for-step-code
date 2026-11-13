@@ -1,0 +1,78 @@
+diff --git a/packages/coding-agent/src/features/workflow/runtime.ts b/packages/coding-agent/src/features/workflow/runtime.ts
+index 4c8a5b3..c530f62 100644
+--- a/packages/coding-agent/src/features/workflow/runtime.ts
++++ b/packages/coding-agent/src/features/workflow/runtime.ts
+@@ -382,7 +382,13 @@ export class WorkflowRuntime {
+ 		const task = normalizedPrompt.replace(/\s+/gu, " ").slice(0, 200);
+ 		const label = normalizedOptions.label?.trim() || task;
+ 		const agentId = `${this.runId}-${seq + 1}`;
+-		const identity = { id: agentId, label, task, phase: normalizedOptions.phase };
++		const identity = {
++			id: agentId,
++			label,
++			task,
++			phase: normalizedOptions.phase,
++			agentType: normalizedOptions.agentType ?? "general",
++		};
+ 		if (cached) {
+ 			this.cacheHits += 1;
+ 			await this.journal.append({
+diff --git a/packages/coding-agent/src/features/workflow/types.ts b/packages/coding-agent/src/features/workflow/types.ts
+index c12bdec..e07822d 100644
+--- a/packages/coding-agent/src/features/workflow/types.ts
++++ b/packages/coding-agent/src/features/workflow/types.ts
+@@ -94,6 +94,7 @@ export interface WorkflowMeta {
+ }
+ 
+ export interface WorkflowProgressAgent {
++	agentType?: string;
+ 	error?: { code: string; message: string; retryable: boolean; retryExhausted?: boolean };
+ 	rateLimitRetries?: number;
+ 	retry?: { attempt: number; maxRetries: number; delayMs: number };
+diff --git a/packages/coding-agent/test/workflow-agent-role.test.ts b/packages/coding-agent/test/workflow-agent-role.test.ts
+new file mode 100644
+index 0000000..9f4f9cc
+--- /dev/null
++++ b/packages/coding-agent/test/workflow-agent-role.test.ts
+@@ -0,0 +1,41 @@
++import { mkdtemp, readFile, rm } from "node:fs/promises";
++import os from "node:os";
++import path from "node:path";
++import { expect, test } from "vitest";
++import { createWorkflowRunPaths, WorkflowJournal } from "../src/features/workflow/journal.ts";
++import { WorkflowRuntime } from "../src/features/workflow/runtime.ts";
++import type { WorkflowProgress } from "../src/features/workflow/types.ts";
++
++test("workflow progress preserves explicit and default roles independently of task labels", async () => {
++	const cwd = await mkdtemp(path.join(os.tmpdir(), "workflow-role-"));
++	const paths = createWorkflowRunPaths(cwd, "test_roles");
++	const journal = new WorkflowJournal(paths);
++	const snapshots: WorkflowProgress[] = [];
++	const runtime = new WorkflowRuntime({
++		cwd,
++		runId: "test_roles",
++		name: "roles",
++		journal,
++		runner: async () => ({ text: "done" }),
++		onProgress: (progress) => {
++			snapshots.push(progress);
++		},
++	});
++	try {
++		await runtime.runScript(
++			`
++			await agent("Read files", { label: "ref-config-starter", agentType: "explore" });
++			await agent("Review output", { label: "review" });
++			await agent("Custom task", { label: "test", agentType: "docs-helper" });
++		`,
++			null,
++		);
++		const progress = JSON.parse(await readFile(paths.progressPath, "utf8")) as WorkflowProgress;
++		expect(progress.agents.map((agent) => agent.agentType)).toEqual(["explore", "general", "docs-helper"]);
++		expect(progress.agents.map((agent) => agent.label)).toEqual(["ref-config-starter", "review", "test"]);
++		expect(snapshots.flatMap((snapshot) => snapshot.agents).every((agent) => !!agent.agentType)).toBe(true);
++	} finally {
++		await journal.flush();
++		await rm(cwd, { recursive: true, force: true });
++	}
++});

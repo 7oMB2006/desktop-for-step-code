@@ -143,7 +143,7 @@ export async function writePrivateJson(root, filename, value) {
   if (!/^[a-z-]+\.json$/u.test(filename)) throw new PluginFileError('invalid-path');
   return writePrivateData(root, `desktop-plugins/${filename}`, value);
 }
-export async function writePrivateData(root, path, value) {
+export async function writePrivateData(root, path, value, options = {}) {
   packagePath(path);
   if (!path.startsWith('desktop-plugins/')) throw new PluginFileError('invalid-path');
   const directory = dirname(join(root, path));
@@ -161,7 +161,9 @@ export async function writePrivateData(root, path, value) {
     try { await mkdir(current); } catch (error) { if (error.code !== 'EEXIST') throw error; }
     await remember(current);
   }
-  const temporary = `${relative(root, directory).split(sep).join('/')}/${randomUUID()}.tmp`;
+  if (options.temporaryName !== undefined && !/^update-[a-f0-9-]{36}\.tmp$/u.test(options.temporaryName))
+    throw new PluginFileError('invalid-path');
+  const temporary = `${relative(root, directory).split(sep).join('/')}/${options.temporaryName ?? `${randomUUID()}.tmp`}`;
   const temporaryPath = join(root, temporary), destination = join(root, path);
   const handle = await open(temporaryPath, 'wx', 0o600);
   let identity;

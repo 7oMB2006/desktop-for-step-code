@@ -36,7 +36,7 @@ export function ThemeWelcome({ id, motion, load, loadPoster, children, brightnes
     const stop = () => { cancelAnimationFrame(raf); raf = 0; last = 0; };
     const frame = (now: number) => {
       raf = 0;
-      if (disposed || lost || !scene || document.hidden || pausedRef.current) return;
+      if (disposed || lost || !scene || !host.isConnected || document.hidden || pausedRef.current) return;
       const animate = motionRef.current && !reduced.matches;
       if (!last || now - last >= 1000 / (ambientRef.current ? 20 : 30) - 1) {
         scene.draw(1, last ? Math.min(.06, (now - last) / 1000) : 0, animate);
@@ -47,7 +47,7 @@ export function ThemeWelcome({ id, motion, load, loadPoster, children, brightnes
     };
     const resume = () => {
       stop();
-      if (disposed || lost || !scene || document.hidden || pausedRef.current) return;
+      if (disposed || lost || !scene || !host.isConnected || document.hidden || pausedRef.current) return;
       scene.configure({ ...defaults, brightness: brightnessRef.current * (ambientRef.current ? .82 : 1),
         speed: ambientRef.current ? 12 : defaults.speed, parallax: ambientRef.current ? 8 : defaults.parallax });
       // Resizing rebuilds the particles; defer it while the workspace is covered.
@@ -69,7 +69,7 @@ export function ThemeWelcome({ id, motion, load, loadPoster, children, brightnes
     surface.addEventListener('webglcontextlost', onLost);
     surface.addEventListener('webglcontextrestored', onRestored);
     void Promise.all([load(id), import('./stellar/universe')]).then(async ([data, { Universe }]) => {
-      if (disposed) return;
+      if (disposed || !host.isConnected) return;
       scene = new Universe(surface, host, data, () => reduced.matches || !motionRef.current || pausedRef.current,
         workspace ? document.documentElement : host, workspace);
       await scene.ready();

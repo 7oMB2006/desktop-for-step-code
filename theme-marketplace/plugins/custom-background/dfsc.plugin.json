@@ -1,8 +1,13 @@
 {
   "schemaVersion": 1,
+  "authors": [{ "name": "Desktop for Step Code contributors" }],
+  "requirements": {
+    "dfsc": "0.6.0",
+    "external": []
+  },
   "categories": ["themes"],
   "keywords": ["自定义背景", "本机图片", "背景", "视差"],
-  "documentation": { "readme": "README.md" },
+  "documentation": { "readme": "README.md", "changelog": "CHANGELOG.md" },
   "locales": {
     "en": {
       "description": "Use a local PNG or JPEG background with composition, brightness, blur and pointer parallax controls in compatible themes. Requires the DFSC custom-background-v1 host adapter."

@@ -69,7 +69,7 @@ test('retention applies to explicit cleanup and reports each exact path once', (
     keep: true, ending: 'await removeTestProfile(profile); await removeTestProfile(profile);',
   });
   assert.equal(statSync(profile).isDirectory(), true);
-  assert.equal(stderr.split(`Retained test profile: ${realpathSync(profile)}\n`).length - 1, 1);
+  assert.equal(stderr.split(`Retained test profile: ${realpathSync.native(profile)}\n`).length - 1, 1);
 }));
 
 test('unregistered paths are refused without touching their contents', () => fixture(parent => {
@@ -101,7 +101,7 @@ for (const keep of [false, true]) {
     for (const profile of profiles) {
       if (keep) {
         assert.equal(statSync(profile).isDirectory(), true);
-        assert.equal(stderr.split(`Retained test profile: ${realpathSync(profile)}\n`).length - 1, 1);
+        assert.equal(stderr.split(`Retained test profile: ${realpathSync.native(profile)}\n`).length - 1, 1);
       } else assert.throws(() => statSync(profile), { code: 'ENOENT' });
     }
   }));
@@ -115,7 +115,7 @@ test('cleanup failure reports the exact path, fails and does not loop forever', 
     'syncBuiltinESMExports();',
   ].join('\n') });
   assert.equal(statSync(profile).isDirectory(), true);
-  assert.ok(stderr.includes(`Failed to remove test profile ${realpathSync(profile)}: synthetic locked profile\n`));
+  assert.ok(stderr.includes(`Failed to remove test profile ${realpathSync.native(profile)}: synthetic locked profile\n`));
 }));
 
 test('aliased parents preserve requested paths but report each canonical path exactly once', () => fixture(parent => {
@@ -127,7 +127,7 @@ test('aliased parents preserve requested paths but report each canonical path ex
     keep: true, ending: 'await removeTestProfile(profile); await removeTestProfile(profile);',
   });
   assert.equal(retained.profile.startsWith(join(alias, 'profile-')), true);
-  const canonical = realpathSync(retained.profile);
+  const canonical = realpathSync.native(retained.profile);
   assert.notEqual(retained.profile, canonical);
   assert.equal(retained.stderr, `Retained test profile: ${canonical}\n`);
   const failed = runChild(alias, { status: 1, beforeImport: [
@@ -137,7 +137,7 @@ test('aliased parents preserve requested paths but report each canonical path ex
     'syncBuiltinESMExports();',
   ].join('\n') });
   assert.equal(failed.profile.startsWith(join(alias, 'profile-')), true);
-  assert.equal(failed.stderr, `Failed to remove test profile ${realpathSync(failed.profile)}: synthetic locked profile\n`);
+  assert.equal(failed.stderr, `Failed to remove test profile ${realpathSync.native(failed.profile)}: synthetic locked profile\n`);
   const cleaned = runChild(alias);
   assert.throws(() => statSync(cleaned.profile), { code: 'ENOENT' });
   assert.equal(statSync(retained.profile).isDirectory(), true);

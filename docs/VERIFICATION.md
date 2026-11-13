@@ -4,8 +4,12 @@
 
 PR #239 首轮 Windows runtime 与 macOS prepare 均在三个新单测失败：
 helper 登记、输出 canonical 路径，而测试直接比较 mkdtemp 返回的原始路径。
-在 D: 自有 junction 下复现同样三项失败后，将预期值统一为 realpath；
+在 D: 自有 junction 下复现同样三项失败后，将预期值统一为 native realpath；
 不改变 helper 返回路径语义、不放宽精确路径与输出次数检查。
+第一次使用普通 `realpathSync` 只解决了 junction；云端 Windows 再次失败，
+明确显示预期仍是 `RUNNER~1`，实际日志已展开成 `runneradmin`。
+改为 `realpathSync.native`，与 helper 的 promises realpath 使用相同原生解析，
+保留完整路径比较；本机 D: 未提供短文件名，不将 junction 回归称为 8.3 实测。
 
 - 新增 alias-parent 回归，验证返回原前缀、日志输出精确 canonical 路径、
   重复保留只报告一次、清理失败非零退出，以及默认删除不碰其他目录。

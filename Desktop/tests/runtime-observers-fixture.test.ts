@@ -25,6 +25,7 @@ async function installer(file: string, marker: string) {
 
 class FixtureChild extends EventEmitter {
   readonly stdout = new EventEmitter();
+  readonly stderr = new EventEmitter();
   readonly writes: unknown[] = [];
   readonly stdin = { destroyed: false, write: (value: unknown) => { this.writes.push(value); return true; } };
   exitCode: number | null = null;
@@ -38,7 +39,49 @@ const observers = [
   ['diagnostics', 'verify-capability-diagnostics.mjs', 'globalThis.diagnosticNatives = []'],
   ['timing', 'verify-conversation-timing.mjs', 'const childProcess ='],
   ['performance', 'verify-session-navigation-performance.mjs', 'globalThis.navigationPerformance ='],
+  ['speech', 'verify-speech.mjs', 'globalThis.speechRuntimeDiagnostics = []'],
 ] as const;
+
+test('speech bootstrap diagnostics are bounded and exclude URLs, credentials and arbitrary handle names', async () => {
+  const source = ts.createSourceFile('verify-speech.mjs',
+    await readFile(new URL('../scripts/verify-speech.mjs', import.meta.url), 'utf8'),
+    ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
+  let template: ts.Expression | undefined;
+  const visit = (node: ts.Node) => {
+    if (ts.isCallExpression(node) && node.expression.getText(source) === 'writeFile'
+      && node.arguments[0]?.getText(source) === 'preload') template = node.arguments[1];
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+  assert.ok(template);
+  const code = runInNewContext(template.getText(source), { join, evidence: 'fixture', base: 'http://127.0.0.1:1234' });
+  const records: string[] = [], requests: string[] = [];
+  const timers: (() => void)[] = [], exit: ((code: number) => void)[] = [];
+  const context = {
+    URL, Request,
+    require(name: string) {
+      assert.equal(name, 'node:fs');
+      return { appendFileSync(_path: string, value: string) { records.push(value); } };
+    },
+    process: { argv: ['node', 'step.js'], pid: 123, uptime: () => 1,
+      once(event: string, callback: (code: number) => void) { assert.equal(event, 'exit'); exit.push(callback); },
+      _getActiveHandles: () => [{ constructor: { name: 'Socket' } }, { constructor: { name: 'private-fixture-secret' } }],
+      _getActiveRequests: () => [{ constructor: { name: 'GetAddrInfoReqWrap' } }],
+    },
+    setTimeout(callback: () => void) { timers.push(callback); return { unref() {} }; },
+    fetch: async (input: string | URL) => { requests.push(String(input)); return { status: 200 }; },
+  };
+  runInNewContext(code, context);
+  await context.fetch('https://api.stepfun.com/v1/models?key=private-fixture-secret');
+  timers[0](); exit[0](0);
+  assert.equal(records.map(value => JSON.parse(value)).some(value => value.phase === 'pending'
+    && value.handles.join(',') === 'Socket,other' && value.requests[0] === 'GetAddrInfoReqWrap'), true);
+  assert.match(requests[0], /^http:\/\/127\.0\.0\.1:1234\/\?url=/);
+  assert.doesNotMatch(records.join(''), /private-fixture-secret|https:|api\.stepfun/);
+  assert.throws(() => context.fetch('https://private-fixture-secret.invalid/'), /External fixture request blocked/);
+  for (let index = 0; index < 140; index++) await context.fetch('http://127.0.0.1:1234/models');
+  assert.equal(records.length, 128);
+});
 
 for (const [kind, file, marker] of observers) {
   const callback = await installer(file, marker);
@@ -69,6 +112,7 @@ for (const [kind, file, marker] of observers) {
           getBuiltinModule(name: string) {
             if (name === 'child_process' || name === 'node:child_process') return cp;
             if (name === 'path' || name === 'node:path') return path;
+            if (name === 'node:module') return { syncBuiltinESMExports() {} };
             assert.equal(name, 'node:string_decoder');
             return { StringDecoder };
           },
@@ -78,6 +122,10 @@ for (const [kind, file, marker] of observers) {
         diagnosticRemote: undefined as FixtureChild | undefined,
         diagnosticBindingIds: [] as string[],
         diagnosticPromptMessages: [] as string[],
+        speechRuntimeDiagnostics: [] as {
+          supervised: boolean; commands: { type: string }[]; responses: { type: string; success: boolean }[];
+          outputBytes: number; stderrBytes: number; errorCodes: string[]; exit: { code: number } | null;
+        }[],
         navigationPerformance: { runtimes: [] as { firstResponseMs: number | null; exited: boolean }[],
           commands: [] as { command: string; success: boolean }[] },
       };
@@ -99,6 +147,7 @@ for (const [kind, file, marker] of observers) {
       }
       assert.equal(context.diagnosticNatives.length, 0);
       assert.equal(context.navigationPerformance.runtimes.length, 0);
+      assert.equal(context.speechRuntimeDiagnostics.length, 0);
       assert.equal(timers.length, 0);
       const args = supervised ? ['-NoProfile', '-File', jobScript, '-Spec', encode(spec)] : spec.args;
       const command = supervised ? 'powershell.exe' : 'node';
@@ -137,6 +186,22 @@ for (const [kind, file, marker] of observers) {
         timers[0].callback();
         child.stdin.write(request);
         assert.deepEqual(child.writes, [request, request]);
+      } else if (kind === 'speech') {
+        assert.equal(context.speechRuntimeDiagnostics.length, 1);
+        const record = context.speechRuntimeDiagnostics[0];
+        assert.equal(record.supervised, supervised);
+        child.send({ type: 'response', id: 'state', success: true, data: { secret: 'never-log-fixture-data' } });
+        child.stdin.write('{"type":"prompt","message":"never-log-fixture-data"}\n');
+        child.stderr.emit('data', Buffer.from('ERR_MODULE_NOT_FOUND never-log-fixture-data ERR_PRIVATE_SECRET'));
+        assert.deepEqual([...record.commands].map(value => value.type), ['get_state']);
+        assert.deepEqual([...record.responses].map(value => ({ type: value.type, success: value.success })),
+          [{ type: 'get_state', success: true }]);
+        assert.deepEqual([...record.errorCodes], ['ERR_MODULE_NOT_FOUND']);
+        assert.ok(record.outputBytes > 0 && record.stderrBytes > 0);
+        assert.doesNotMatch(JSON.stringify(record), /never-log-fixture-data|ERR_PRIVATE_SECRET/);
+        child.emit('exit', 0, null);
+        assert.equal(record.exit?.code, 0);
+        assert.deepEqual(child.writes, [request, '{"type":"prompt","message":"never-log-fixture-data"}\n']);
       } else {
         assert.equal(context.navigationPerformance.runtimes.length, 1);
         child.send({ type: 'response', id: 'state', success: true });

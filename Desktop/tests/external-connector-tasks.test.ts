@@ -493,12 +493,76 @@ test('policy revoke stops native automatic work, invalidates requests and remain
   assert.deepEqual(next.core.localApprovals().policies, []);
   assert.deepEqual(f.answers, []);
 });
+for (const ending of ['completed', 'local-stop', 'remote-stop', 'queue-failed'] as const) {
+  test(`automatic ${ending} retains local ownership until native permission reset, without touching later local changes`, async () => {
+    const f = await persistent();
+    await f.core.configurePolicy({ ...policyAction, permissionPreset: 'approve-for-me' }, boundGrant);
+    const task = await f.create(), native = f.workers[0];
+    await f.call('run.submit', { taskId: task.id, key: 'run', message: 'Inspect project' }, boundGrant);
+    let release!: () => void, resets = 0;
+    const held = new Promise<void>(resolve => { release = resolve; });
+    f.host.restrict = async (worker, stop) => {
+      resets++;
+      assert.equal(stop, ending === 'queue-failed', 'settled native work must not be needlessly aborted');
+      await held; worker.permissionPreset = 'ask';
+    };
+    if (ending === 'completed') complete(f);
+    else if (ending === 'local-stop') f.core.locallyStopped(native);
+    else if (ending === 'remote-stop') await f.call('task.stop', { taskId: task.id }, boundGrant);
+    else f.core.queueFailed(native);
+    assert.equal(f.core.retains(native), true, 'terminal phase alone must not unlock local input');
+    assert.deepEqual(f.core.localApprovals().tasks, []);
+    const phase = ending === 'completed' ? 'completed' : ending === 'queue-failed' ? 'unknown' : 'stopped';
+    assert.equal((await f.call('task.get', { taskId: task.id }, boundGrant) as any).phase, phase);
+    release(); await f.core.flush();
+    assert.equal(resets, 1);
+    assert.equal(native.permissionPreset, 'ask');
+    assert.equal(f.core.retains(native), false);
+    native.permissionPreset = 'full-access';
+    await f.core.configurePolicy({ type: 'unpolicy', agentId: grant.agentId, cwd: grant.roots[0] });
+    assert.equal(native.permissionPreset, 'full-access', 'a later explicit local choice is not policy-owned');
+    assert.equal(resets, 1);
+  });
+}
+test('policy revoke waits for a completed worker reset without rewriting its completed result', async () => {
+  const f = await persistent();
+  await f.core.configurePolicy({ ...policyAction, permissionPreset: 'approve-for-me' }, boundGrant);
+  const task = await f.create();
+  await f.call('run.submit', { taskId: task.id, key: 'run', message: 'Inspect project' }, boundGrant);
+  let release!: () => void, settled = false;
+  const held = new Promise<void>(resolve => { release = resolve; });
+  f.host.restrict = async worker => { await held; worker.permissionPreset = 'ask'; };
+  complete(f, 'Frozen completion');
+  const revoke = f.core.configurePolicy({ type: 'unpolicy', agentId: grant.agentId, cwd: grant.roots[0] })
+    .then(() => { settled = true; });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(settled, false);
+  assert.equal(f.core.retains(f.workers[0]), true);
+  release(); await revoke; await f.core.flush();
+  const result: any = await f.call('task.get', { taskId: task.id }, boundGrant);
+  assert.equal(result.phase, 'completed');
+  assert.equal(result.summary, 'Frozen completion');
+  assert.equal(f.core.retains(f.workers[0]), false);
+});
+test('a failed automatic permission reset keeps local ownership fenced and reports cleanup failure', async () => {
+  const f = await persistent();
+  await f.core.configurePolicy({ ...policyAction, permissionPreset: 'approve-for-me' }, boundGrant);
+  const task = await f.create();
+  await f.call('run.submit', { taskId: task.id, key: 'run', message: 'Inspect project' }, boundGrant);
+  f.host.restrict = async () => { throw new Error('reset and disposal unconfirmed'); };
+  complete(f);
+  await assert.rejects(f.core.flush(), /connector:cleanup-unconfirmed/);
+  assert.equal(f.core.retains(f.workers[0]), true);
+  assert.equal(f.workers[0].permissionPreset, 'approve-for-me');
+  assert.equal((await f.call('task.get', { taskId: task.id }, boundGrant) as any).phase, 'completed');
+});
 test('shutdown preserves policies but disabling/revoking authorization removes them', async () => {
   const f = await persistent();
-  await f.core.configurePolicy(policyAction, boundGrant);
+  await f.core.configurePolicy({ ...policyAction, permissionPreset: 'approve-for-me' }, boundGrant);
   await f.create();
   await f.core.invalidate(undefined, true); await f.core.flush();
   assert.equal(f.state().policies?.length, 1);
+  assert.deepEqual(f.restricted, [], 'normal application shutdown owns process termination');
   await f.core.invalidate(grant.agentId); await f.core.flush();
   assert.equal(f.state().policies, undefined);
 });

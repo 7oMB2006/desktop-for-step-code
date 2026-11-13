@@ -338,6 +338,16 @@ try {
   assert.equal(await page.evaluate(runtimeId => window.connectorRequests.some(r =>
     r.runtimeId === runtimeId && r.title?.startsWith('Approve write_file')), automatic.runtimeId), false);
   checks.push('explicit persistent approve-for-me policy runs ordinary native writes without another approval');
+  const nativeAsk = value => until(() => page.evaluate(sessionId => window.desktop.switchSession(sessionId), value.sessionId),
+    state => state.permissionPreset === 'ask', 'terminal automatic session resets native permissions');
+  await nativeAsk(automatic);
+  const automaticStop = await create('connector-automatic-local-stop');
+  await submit(automaticStop.id, 'auto-stop-run', 'CONNECTOR-HOLD');
+  await until(() => task(automaticStop.id), value => value.phase === 'running', 'automatic native work before local stop');
+  await page.evaluate(runtimeId => window.desktop.command('abort', {}, runtimeId), automaticStop.runtimeId);
+  assert.equal((await task(automaticStop.id)).phase, 'stopped');
+  await nativeAsk(automaticStop);
+  checks.push('completed and locally stopped automatic sessions reset to native Ask before local ownership is released');
 
   await mkdir(join(workspace, 'connector-risk-empty'));
   const risk = await create('connector-persistent-risk');

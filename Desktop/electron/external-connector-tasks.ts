@@ -31,7 +31,7 @@ export interface ExternalTaskHost {
   stop(worker: SessionRuntime): Promise<void>;
   discard?(worker: SessionRuntime): Promise<void>;
   respond?(worker: SessionRuntime, request: UIRequest, answer: boolean | string): void;
-  restrict?(worker: SessionRuntime): Promise<void>;
+  restrict?(worker: SessionRuntime, stop?: boolean): Promise<void>;
 }
 type TaskPhase = 'creating' | 'waiting' | 'queued' | 'running' | 'completed' | 'stopped' | 'failed' | 'interrupted' | 'unknown';
 interface Submission {
@@ -94,6 +94,7 @@ function safe(value: string, limit: number) {
 export class ExternalConnectorTasks {
   private tasks: SavedExternalTask[] = [];
   private attachments = new Map<SessionRuntime, Attachment>();
+  private releasing = new Map<SessionRuntime, { attached: Attachment; pending: Promise<void> }>();
   private summaries = new Map<string, { text: string; truncated: boolean }>();
   private mutations: Promise<unknown> = Promise.resolve();
   private writes: Promise<void> = Promise.resolve();
@@ -205,7 +206,11 @@ export class ExternalConnectorTasks {
   private remember() { void this.persist().catch(() => {}); }
   private discard(worker: SessionRuntime) {
     if (!this.host.discard) return Promise.resolve();
-    const pending = Promise.resolve().then(() => this.host.discard!(worker)).catch(() => {
+    const release = this.releasing.get(worker)?.pending;
+    const pending = Promise.resolve().then(async () => {
+      await release;
+      await this.host.discard!(worker);
+    }).catch(() => {
       this.cleanupFailed = true;
       fail('cleanup-unconfirmed');
     });
@@ -278,19 +283,28 @@ export class ExternalConnectorTasks {
     return attached?.task === task && worker.permissionPreset === attached.preset
       && (attached.preset === 'ask' || this.policy(task.agentId, task.cwd, attached.binding)?.id === attached.policyId);
   }
+  private releaseAutomatic(attached: Attachment) {
+    const existing = this.releasing.get(attached.worker);
+    if (existing) return existing.pending;
+    const stop = !['completed', 'stopped'].includes(attached.task.phase);
+    // Terminal task state is not permission cleanup. Keep local input fenced until reset or removal succeeds.
+    const pending = Promise.resolve().then(() => this.host.restrict
+      ? this.host.restrict(attached.worker, stop) : fail('cleanup-unconfirmed')).then(() => {
+      if (this.releasing.get(attached.worker)?.pending === pending) this.releasing.delete(attached.worker);
+    }).catch(() => { this.cleanupFailed = true; fail('cleanup-unconfirmed'); });
+    this.releasing.set(attached.worker, { attached, pending });
+    this.cleanups.add(pending);
+    void pending.finally(() => this.cleanups.delete(pending)).catch(() => {});
+    return pending;
+  }
   private restrictAutomatic(agentId?: string, cwd?: string) {
-    const operations: Promise<void>[] = [];
+    const matches = (attached: Attachment) => (agentId === undefined || attached.task.agentId === agentId)
+      && (cwd === undefined || attached.task.cwd === cwd);
     for (const attached of [...this.attachments.values()]) {
-      if (agentId !== undefined && attached.task.agentId !== agentId || cwd !== undefined && attached.task.cwd !== cwd
-        || attached.preset !== 'approve-for-me') continue;
+      if (!matches(attached) || attached.preset !== 'approve-for-me') continue;
       this.finish(attached.task, 'interrupted', 'approval-policy-ended');
-      const pending = Promise.resolve().then(() => this.host.restrict?.(attached.worker) ?? this.host.stop(attached.worker))
-        .catch(() => { this.cleanupFailed = true; fail('cleanup-unconfirmed'); });
-      operations.push(pending);
-      this.cleanups.add(pending);
-      void pending.finally(() => this.cleanups.delete(pending)).catch(() => {});
     }
-    return Promise.all(operations).then(() => {});
+    return Promise.all([...this.releasing.values()].filter(value => matches(value.attached)).map(value => value.pending)).then(() => {});
   }
   private monitorPolicies() {
     if (this.monitor) return;
@@ -657,11 +671,14 @@ export class ExternalConnectorTasks {
     } finally { this.waiting.delete(grant.agentId); }
   }
 
-  private finish(task: SavedExternalTask, phase: TaskPhase, reason?: string) {
+  private finish(task: SavedExternalTask, phase: TaskPhase, reason?: string, release = true) {
     task.phase = phase;
     this.leases.delete(task.id);
     if (reason) task.reason = reason;
-    for (const [worker, attachment] of this.attachments) if (attachment.task === task) this.attachments.delete(worker);
+    for (const [worker, attachment] of this.attachments) if (attachment.task === task) {
+      this.attachments.delete(worker);
+      if (release && attachment.preset === 'approve-for-me') void this.releaseAutomatic(attachment).catch(() => {});
+    }
   }
   event(worker: SessionRuntime, event: RuntimeEvent) {
     const attached = this.attachments.get(worker);
@@ -724,7 +741,7 @@ export class ExternalConnectorTasks {
     if (!attached) return;
     this.finish(attached.task, 'interrupted', 'native-session-disposed'); this.remember();
   }
-  retains(worker: SessionRuntime) { return this.attachments.has(worker); }
+  retains(worker: SessionRuntime) { return this.attachments.has(worker) || this.releasing.has(worker); }
   invalidate(agentId?: string, shutdown = false) {
     if (!shutdown) {
       for (const p of this.policies) if (agentId === undefined || p.agentId === agentId) {
@@ -741,7 +758,7 @@ export class ExternalConnectorTasks {
       if (terminal(task.phase)) continue;
       const attachment = [...this.attachments.values()].find(value => value.task === task);
       const removed = attachment && task.submission?.queueId ? this.host.withdraw(attachment.worker, task.submission.queueId) : false;
-      this.finish(task, 'interrupted', 'authorization-revoked');
+      this.finish(task, 'interrupted', 'authorization-revoked', !shutdown);
       if (attachment && (!task.submission || removed)) void this.discard(attachment.worker).catch(() => {});
     }
     this.remember();

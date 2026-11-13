@@ -784,10 +784,10 @@ const externalTasks: ExternalConnectorTasks = new ExternalConnectorTasks({
       : answer === '' ? { cancelled: true } : { value: answer }) });
     externalTasks.event(worker, { type: 'desktop_ui_expired', runtimeId: worker.id });
   },
-  restrict: async worker => {
+  restrict: async (worker, stop = true) => {
     if (runtimes.workers.get(worker.id) !== worker || worker.status !== 'connected') return;
     try {
-      await handle('command', ['abort', {}, worker.id]);
+      if (stop) await handle('command', ['abort', {}, worker.id]);
       await worker.rpc.request('prompt', { message: '/permissions ask' }, 10000);
       if (worker.permissionPreset !== 'ask') throw new Error('connector:unavailable');
     } catch {

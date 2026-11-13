@@ -14950,3 +14950,63 @@ runtime pin 保持 `29eb460780489801ce8afc8bffc1a2efae7cbded`；
 重启日用程序、接触真实账户或发布插件。历史包不作为当前提交验收。
 此记录写入时当前整合提交尚未推送，云端 CI 待重新运行；旧提交的
 Windows/macOS/SDK 绿灯不算本次整合通过，云端结果以 PR 当前 head 为准。
+
+## Windows RPC taskkill 截止与清理归属（2026-11-13）
+
+基于 `main 85a52e1398025b2f19c9232a16ee189f24bdfb1c`，仅收窄修复
+`RpcProcess` 等待 Windows `taskkill.exe` 无截止的问题。辅助进程超过
+10 秒即拒绝本次 stop，并尝试结束该辅助进程；不把超时或 `kill()`
+返回值当作目标进程树已释放。辅助进程尚未确认 exit/close 时保留归属，
+阻止替换 runtime 或继续累积 helper。迟到事件按 helper 对象身份处理。
+保留原有退出码、准确目标退出确认、Job 验证、管理 ACK 停机及 POSIX 分支。
+
+本轮在独立工作树与 D 盘测试临时目录中验证，未改旧脏工作树或 Step-Code：
+
+- 先在未修改产品代码时运行新增夹具：12 项中 5 项因 helper 无限挂起而失败，
+  7 项既有边界通过；修复后 12/12 通过。独立审查无阻塞项，随后补充
+  旧 helper exit → 重试产生新 helper → 旧 helper close 的归属回归，
+  最终新增夹具 13/13 通过。夹具执行实际生产类，仅替换 OS 边界与时钟。
+- 真实 Windows 管理停机、Job 原子启动及后代释放、会话更新与 pool 回归
+  共 154/154 通过（含初版新增 12 项）；额外 RPC 边界 6/6、退出与插件更新
+  调用方及终端清理 48/48 通过。补测后新增文件单独重跑 13/13，
+  合计覆盖 209 个不同测试，未将重跑次数叠加为测试数。
+- Node 24.16.0、pnpm 9.15.9；冻结 lockfile 离线安装依赖，未改依赖版本。
+  完整类型检查、生产构建通过，保留既有 Vite directive/chunk-size 警告。
+  默认系统临时目录出现 EPERM 后，仅为本轮测试指定独立 D 盘临时目录，
+  未修改产品路径或全局临时目录设置。
+- 独立 Electron 44.4.5 验收加载本次生产 `runtime.ts` 的 bundle，使用真实
+  Windows 子进程及本地编译的永久等待 helper，普通 stop 与 Job update
+  分别在 10021/10020 ms 拒绝；确认 helper PID 已退出、目标仍存活且归属保留、
+  RPC 已断开，恢复系统 taskkill 后重试确认退出，随后可重启并再次清理。
+  使用独立 userData、隐藏窗口、默认开启的 renderer sandbox；验收结束时
+  无本轮 Electron、helper 或 worker 残留。不修改产品 sandbox 或日用程序。
+
+证据位于 `D:/dev/taskkill-verification-temp/`：`baseline.tap`、
+`taskkill-red.tap`、`taskkill-green.tap`、`taskkill-final.tap`、`regression.tap`、
+`runtime-boundaries.tap`、`caller-regression.tap`、`typecheck.log`、`typecheck-final.log`、`build.log`、
+`electron-acceptance.json`；独立原生验收源码同目录留存。
+
+实现期间再次核对远端：main 及 owner 的 #239/#240/#241 head 未变化，
+三者均未修改 runtime 关闭实现。本节追加在文件末尾，减少与其验收记录
+的文本重叠；其他贡献者 Linux 草稿 #106 仍涉及同一 runtime 文件，未来
+合并需要复核，不承诺尚未公开的 owner 工作没有冲突。
+
+提交前补验：
+
+- 同一最终产品代码的定向回归合并重跑 203/203，额外 RPC 边界 6/6；
+  CI 策略/清单 66 通过、1 项平台跳过。类型检查和生产构建再次通过。
+  原生 Electron 普通/Job update 截止分别为 10008/10017 ms，退出、
+  归属保留、清理重试和重启断言再次通过。
+- 在新建的隔离 Step Code checkout 应用当前 manifest 全部补丁并校验源码，
+  完成离线构建与正式 staging 配方；runtime pin 未变，未修改旧 checkout。
+- 尝试完整 251 文件串行协议套件，在 `capabilities.test.ts` 的 Git
+  marketplace 用例失败：`capability:marketplace-source-unavailable`。
+  未修改的同版 main 对照树重现相同失败；独立 Node 本地 file Git clone
+  探针捕获 `sh.exe` 的 `NtCreateDirectoryObject(msys-2.0S5)` 权限拒绝
+  `0xC0000022`。本机全量不计通过，不修改产品、断言或安全设置绕过。
+  其余文件继续按原 CI 单文件执行器收集结果，后续完整云端状态以 PR head 为准。
+- owner #239/#240 的共享验收文档按真实共同祖先进行三方合并检查，
+  均无文本冲突；#241 未修改本次三个目标文件。
+
+这不是完整 Step Code 模型/UI 验收、全量协议通过、安装包、macOS 本机
+或云端 CI 结果；本次不升级 runtime pin 或打包发布。

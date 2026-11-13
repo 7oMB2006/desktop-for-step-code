@@ -6,6 +6,8 @@ import { dataOnlyThemeFingerprint, installationReceipt, object, optionalFile, pa
   sourceIdentity, writePrivateData, writePrivateJson, writeReceipts } from './plugin-files.mjs';
 import { applyPluginUpdate, inspectPluginUpdate, updateBinding } from './plugin-update.mjs';
 import { PluginConfigurationStore } from './plugin-configuration.mjs';
+import { compareConfigurationSchemas, migrateConfigurationSnapshot, parseConfigurationJson, strictConfigurationSchema,
+  validateConfigurationSnapshot } from './plugin-schema-update.mjs';
 import { capabilityFailureCode, capabilityFailureDetails, marketplaceFailureCode } from './capability-failure.mjs';
 
 const NAME = /^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,79}$/;
@@ -436,7 +438,7 @@ export function createCapabilitySettings(upstream, options) {
     await sourceOutcome(result);
     return result;
   }
-  async function mutate(input, signal) {
+  async function mutate(input, signal, preflight = false) {
     if (!record(input)) throw new CapabilityError('invalid-input');
     await assertNoPendingUpdate();
     switch (input.action) {
@@ -490,29 +492,70 @@ export function createCapabilitySettings(upstream, options) {
             || fingerprint === previous.fingerprint) throw new CapabilityError('stale');
           const schema = await optionalFile(target, 'dfsc.settings.json', 65536);
           const nextSchema = await optionalFile(snapshot, 'dfsc.settings.json', 65536);
-          if ((schema?.toString('base64') ?? null) !== (nextSchema?.toString('base64') ?? null))
-            throw new CapabilityError('configuration-schema-changed');
-          const services = async (directory, manifest) => {
+          const schemaChanged = (schema?.toString('base64') ?? null) !== (nextSchema?.toString('base64') ?? null);
+          let comparison = { status: 'compatible', changes: [] };
+          let parsedNext;
+          if (schemaChanged) {
+            try {
+              comparison = schema && nextSchema
+                ? compareConfigurationSchemas(parseConfigurationJson(schema), parseConfigurationJson(nextSchema))
+                : { status: 'unsupported', changes: [{ code: 'schema-added-or-removed' }] };
+              if (nextSchema && comparison.status === 'compatible')
+                parsedNext = strictConfigurationSchema(parseConfigurationJson(nextSchema));
+            } catch { comparison = { status: 'unsupported', changes: [{ code: 'invalid-schema' }] }; }
+            const exists = async path => {
+              try { await lstat(path); return true; } catch (error) { if (error.code === 'ENOENT') return false; throw error; }
+            };
+            if (await exists(join(target, 'dfsc.host.json')) || await exists(join(snapshot, 'dfsc.host.json'))
+              || await exists(join(root, 'desktop-plugins/host/bindings', `${previous.instance}.json`)))
+              comparison = { status: 'unsupported', changes: [...comparison.changes, { code: 'host-migration-unsupported' }] };
+          }
+          const services = async (directory, manifest, consumer) => {
             let servers = manifest.mcpServers;
             if (typeof servers === 'string') {
               const parsed = JSON.parse((await plainFile(directory, servers, 256 * 1024)).toString('utf8'));
               servers = parsed.mcpServers ?? parsed;
             }
+            if (consumer) {
+              const server = servers?.[consumer.server];
+              if (!object(server) || typeof server.command !== 'string' || server.url
+                || server.env?.STEPFUN_API_KEY !== 'DFSC_INDEPENDENT_PLUGIN')
+                comparison = { status: 'unsupported', changes: [...comparison.changes, { code: 'consumer-unsupported' }] };
+            }
             return Object.entries(servers ?? {}).sort(([a], [b]) => a.localeCompare(b)).map(([key, server]) =>
               [key, server.url ? 'http' : 'stdio', server.enabled !== false,
                 server.env?.STEPFUN_API_KEY === 'DFSC_INDEPENDENT_PLUGIN']);
           };
-          if (JSON.stringify(await services(target, old.manifest)) !== JSON.stringify(await services(snapshot, checked.manifest)))
-            throw new CapabilityError('update-capabilities-changed');
+          const previousConsumer = schemaChanged && parsedNext
+            ? strictConfigurationSchema(JSON.parse(schema.toString('utf8'))).consumer : undefined;
+          if (JSON.stringify(await services(target, old.manifest, previousConsumer))
+            !== JSON.stringify(await services(snapshot, checked.manifest, schemaChanged ? parsedNext?.consumer : undefined)))
+            comparison = { status: 'unsupported', changes: [...comparison.changes, { code: 'services-changed' }] };
           const binding = await updateBinding(root, previous);
-          if (binding && !binding.revoked) await new PluginConfigurationStore(root).context({
+          const context = binding && !binding.revoked ? await new PluginConfigurationStore(root).context({
             kind: 'installed', provenance: 'recorded', instance: previous.instance, id, name: requested,
             root: target, fingerprint: previous.fingerprint,
-          });
+          }) : undefined;
+          const stamp = hash(JSON.stringify([binding,
+            schema ? hash(schema) : null, nextSchema ? hash(nextSchema) : null,
+            (await optionalFile(root, 'config.toml', 1024 * 1024))?.toString('base64') ?? null,
+            (await optionalFile(root, '.stepcode/config.toml', 1024 * 1024))?.toString('base64') ?? null]));
+          if (schemaChanged && parsedNext && context) validateConfigurationSnapshot(context, parsedNext);
+          if (preflight) return { ...comparison, stamp, warnings: warnings(result.warnings) };
+          if (input.expectedConfiguration !== undefined && input.expectedConfiguration !== stamp)
+            throw new CapabilityError('stale-configuration');
+          if (comparison.status !== 'compatible') throw new CapabilityError(comparison.changes.some(change =>
+            change.code === 'services-changed') ? 'update-capabilities-changed' : 'configuration-schema-changed');
+          let migration;
+          if (schemaChanged) {
+            const saved = context ? migrateConfigurationSnapshot(context, hash(nextSchema), parsedNext) : undefined;
+            migration = { binding: saved ? { ...binding, fingerprint, schemaHash: saved.schemaHash,
+              revision: saved.revision, contentHash: hash(JSON.stringify(saved)) } : binding, snapshot: saved };
+          }
           signal?.throwIfAborted();
           await rename(snapshot, join(transactionRoot, 'candidate'));
           const notes = await applyPluginUpdate(root, { transaction, previous,
-            next: { ...previous, fingerprint }, binding }, { preserveRuntime: input.preserveRuntime === true });
+            next: { ...previous, fingerprint }, binding }, { preserveRuntime: input.preserveRuntime === true, migration });
           finalized = true;
           return { warnings: [...warnings(result.warnings), ...notes] };
         } finally {
@@ -734,7 +777,11 @@ export function createCapabilitySettings(upstream, options) {
     await cp(path, target, { recursive: true, force: false, errorOnExist: true });
     return { warnings: [] };
   }
-  return { catalog, initialize, mutate, importSkill };
+  return { catalog, initialize, mutate, importSkill,
+    preflightUpdate: (input, signal) => {
+      if (input?.action !== 'plugin-update') throw new CapabilityError('invalid-input');
+      return mutate(input, signal, true);
+    } };
 }
 
 async function rejectLinks(root, budget = { files: 0, bytes: 0 }) {

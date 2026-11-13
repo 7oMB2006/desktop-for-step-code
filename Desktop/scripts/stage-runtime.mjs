@@ -85,6 +85,7 @@ await cp(join(source, 'dist'), join(runtime, 'step/dist'), { recursive: true });
 for (const name of ['package.json', 'README.md']) await cp(join(source, name), join(runtime, 'step', name));
 for (const name of ['LICENSE', 'NOTICE', 'THIRD_PARTY_NOTICES.md']) await cp(join(upstream, name), join(runtime, name));
 await cp('electron/admin.mjs', join(runtime, 'admin.mjs'));
+await cp('electron/windows-runtime-job.ps1', join(runtime, 'windows-runtime-job.ps1'));
 await build({ entryPoints: ['electron/compaction-configuration.ts'], outfile: join(runtime, 'compaction-configuration.mjs'),
   bundle: true, platform: 'node', format: 'esm', target: 'node24' });
 await cp('electron/capability-admin.mjs', join(runtime, 'capability-admin.mjs'));
@@ -94,6 +95,7 @@ await cp('electron/capability-settings.mjs', join(runtime, 'capability-settings.
 await cp('electron/plugin-files.mjs', join(runtime, 'plugin-files.mjs'));
 await cp('electron/theme-composition.mjs', join(runtime, 'theme-composition.mjs'));
 await cp('electron/plugin-update.mjs', join(runtime, 'plugin-update.mjs'));
+await cp('electron/plugin-schema-update.mjs', join(runtime, 'plugin-schema-update.mjs'));
 await cp('electron/plugin-configuration.mjs', join(runtime, 'plugin-configuration.mjs'));
 await cp('electron/session-import.mjs', join(runtime, 'session-import.mjs'));
 await cp('electron/session-history.mjs', join(runtime, 'session-history.mjs'));

@@ -1,12 +1,13 @@
 import { ArrowRight, ArrowUpFromLine, Check, CircleAlert, LoaderCircle, RotateCcw } from 'lucide-react';
 
 export interface PluginUpdateState {
-  phase: 'available' | 'downloading' | 'verifying' | 'applying' | 'updated' | 'failed' | 'current' | 'unavailable';
+  phase: 'available' | 'checking' | 'blocked' | 'assistance' | 'downloading' | 'verifying' | 'applying' | 'updated' | 'failed' | 'current' | 'unavailable';
   version: string;
   summary?: string;
   progress?: number;
   error?: string;
   restartRequired?: boolean;
+  detailsAvailable?: boolean;
 }
 
 // Both native operations and the visual fixture use the same compact presentation.
@@ -18,7 +19,7 @@ export interface PluginUpdatesPresentation {
 }
 
 export function pluginUpdatePending(state?: PluginUpdateState) {
-  return Boolean(state && ['downloading', 'verifying', 'applying'].includes(state.phase));
+  return Boolean(state && ['checking', 'downloading', 'verifying', 'applying'].includes(state.phase));
 }
 
 export function PluginUpdateBadge({ state, language }: { state?: PluginUpdateState; language: string }) {
@@ -26,7 +27,8 @@ export function PluginUpdateBadge({ state, language }: { state?: PluginUpdateSta
   const t = (zh: string, en: string) => language === 'zh' ? zh : en;
   const updated = state.phase === 'updated';
   const working = pluginUpdatePending(state), failed = state.phase === 'failed';
-  const label = state.phase === 'downloading' ? state.progress === undefined ? t('获取中', 'Downloading') : `${Math.round(state.progress)}%`
+  const label = state.phase === 'checking' ? t('预检中', 'Checking') : state.phase === 'blocked' ? t('待处理', 'Blocked')
+    : state.phase === 'assistance' ? t('待处理', 'Needs attention') : state.phase === 'downloading' ? state.progress === undefined ? t('获取中', 'Downloading') : `${Math.round(state.progress)}%`
     : state.phase === 'verifying' ? t('校验中', 'Verifying')
       : state.phase === 'applying' ? t('应用中', 'Applying')
         : failed ? t('更新失败', 'Update failed')
@@ -45,18 +47,19 @@ export function PluginUpdateAction({ state, name, language, disabled = false, on
   disabled?: boolean; onUpdate(): void; onRestart?(): void;
 }) {
   if (!state || state.phase === 'current' || state.phase === 'unavailable'
-    || state.phase === 'updated' && (!state.restartRequired || !onRestart)) return null;
+    || state.phase === 'updated' && !state.detailsAvailable && (!state.restartRequired || !onRestart)) return null;
   const t = (zh: string, en: string) => language === 'zh' ? zh : en;
   const working = pluginUpdatePending(state), failed = state.phase === 'failed', updated = state.phase === 'updated';
-  const label = updated ? t(`重启会话以应用 ${name} 更新`, `Restart session to apply ${name} update`)
+  const details = state.detailsAvailable;
+  const label = details ? t(`查看 ${name} 更新详情`, `View ${name} update details`) : updated ? t(`重启会话以应用 ${name} 更新`, `Restart session to apply ${name} update`)
     : failed ? t(`重试更新 ${name}`, `Retry updating ${name}`)
       : t(`更新 ${name} 至 v${state.version}`, `Update ${name} to v${state.version}`);
-  const caption = working ? t('更新中', 'Updating') : updated ? t('重启', 'Restart')
+  const caption = details ? t('查看', 'View') : working ? t('更新中', 'Updating') : updated ? t('重启', 'Restart')
     : failed ? t('重试', 'Retry') : t('更新', 'Update');
   return <span className="pc-update-action" data-phase={state.phase}>
     <button className="pc-update-trigger" type="button" disabled={disabled || working}
       aria-label={label} title={failed ? `${label} · ${state.error ?? ''}` : label}
-      onClick={updated ? onRestart : onUpdate}>
+      onClick={updated && !details ? onRestart : onUpdate}>
       {caption}
     </button>
     {working && <span className="pc-update-progress" role="progressbar" aria-label={t(`${name} 更新进度`, `${name} update progress`)}
@@ -74,14 +77,16 @@ export function PluginUpdateRow({ state, name, currentVersion, language, disable
   const t = (zh: string, en: string) => language === 'zh' ? zh : en;
   const working = pluginUpdatePending(state);
   const failed = state.phase === 'failed', updated = state.phase === 'updated', unavailable = state.phase === 'unavailable';
-  const title = state.phase === 'downloading' ? t('正在获取更新', 'Downloading update')
+  const title = state.phase === 'checking' ? t('正在预检', 'Checking update')
+    : state.phase === 'blocked' ? t('暂不能更新', 'Update blocked') : state.phase === 'assistance' ? t('更新待处理', 'Update needs attention')
+      : state.phase === 'downloading' ? t('正在获取更新', 'Downloading update')
     : state.phase === 'verifying' ? t('正在校验资源', 'Verifying files')
       : state.phase === 'applying' ? t('正在应用更新', 'Applying update')
         : failed ? t('更新未完成', 'Update failed')
           : updated ? t('已更新', 'Updated')
             : unavailable ? t('暂不能检查更新', 'Update check unavailable')
               : t('有新版本', 'Update available');
-  const note = failed ? state.error
+  const note = state.phase === 'blocked' || state.phase === 'assistance' ? state.summary : failed ? state.error
     : updated ? state.restartRequired ? t('重启会话后生效', 'Restart session to apply') : t('新会话将使用此版本', 'New sessions use this version')
       : unavailable ? state.error
         : working ? t('原有配置与服务开关保持不变', 'Configuration and service switches are kept')
@@ -97,11 +102,11 @@ export function PluginUpdateRow({ state, name, currentVersion, language, disable
       </span>
       {note && <span className="pc-update-note">{note}</span>}
     </div>
-    {!updated && !unavailable && <button className="pc-update-button" type="button" disabled={disabled || working}
-      aria-label={failed ? t(`重试更新 ${name}`, `Retry updating ${name}`) : t(`更新 ${name} 至 v${state.version}`, `Update ${name} to v${state.version}`)}
+    {(!updated || state.detailsAvailable) && !unavailable && <button className="pc-update-button" type="button" disabled={disabled || working}
+      aria-label={state.detailsAvailable ? t(`查看 ${name} 更新详情`, `View ${name} update details`) : failed ? t(`重试更新 ${name}`, `Retry updating ${name}`) : t(`更新 ${name} 至 v${state.version}`, `Update ${name} to v${state.version}`)}
       onClick={onUpdate}>
       {working ? <LoaderCircle size={13} className="pc-spin"/> : failed ? <RotateCcw size={13}/> : <ArrowUpFromLine size={13}/>}
-      {working ? t('更新中', 'Updating') : failed ? t('重试', 'Retry') : t('更新', 'Update')}
+      {state.detailsAvailable ? t('查看', 'View') : working ? t('更新中', 'Updating') : failed ? t('重试', 'Retry') : t('更新', 'Update')}
     </button>}
     {updated && state.restartRequired && onRestart && <button className="pc-update-button" type="button" disabled={disabled}
       aria-label={t(`重启会话以应用 ${name} 更新`, `Restart session to apply ${name} update`)} onClick={onRestart}>

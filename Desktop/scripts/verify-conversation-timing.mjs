@@ -58,12 +58,22 @@ try {
   });
   await page.getByText('Step Code 已连接', { exact: true }).waitFor({ timeout: 60000 });
   // Force history to paint before the authoritative runtime, as on slower runners.
-  await app.evaluate(() => {
+  await app.evaluate(({ app }) => {
+    const { join, resolve } = process.getBuiltinModule('path');
+    const runtime = app.isPackaged ? join(process.resourcesPath, 'runtime') : resolve('runtime');
+    const sessionEntry = join(runtime, 'step/dist/bundle/step.js');
     const childProcess = process.getBuiltinModule('child_process');
     const spawn = childProcess.spawn;
     childProcess.spawn = function (...args) {
       const child = spawn.apply(this, args);
-      if (!args[1]?.includes('--mode') || !args[1]?.includes('rpc')) return child;
+      let workerArgs = args[1];
+      const jobIndex = workerArgs?.indexOf('-File'), specIndex = workerArgs?.indexOf('-Spec');
+      if (jobIndex >= 0 && specIndex >= 0 && workerArgs[jobIndex + 1] === join(runtime, 'windows-runtime-job.ps1')) {
+        try { workerArgs = JSON.parse(Buffer.from(workerArgs[specIndex + 1], 'base64').toString('utf8')).args; }
+        catch { return child; }
+      }
+      if (!Array.isArray(workerArgs) || workerArgs[0] !== sessionEntry
+        || !workerArgs.includes('--mode') || !workerArgs.includes('rpc')) return child;
       childProcess.spawn = spawn;
       const write = child.stdin.write;
       child.stdin.write = function (...values) {

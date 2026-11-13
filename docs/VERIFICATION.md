@@ -1,5 +1,210 @@
 # Verification
 
+## 监管进程观测补齐与类型声明（2026-11-13）
+
+`9d0d0bc` 的云端 Windows runtime 和 macOS prepare 都在类型检查失败：
+新增测试直接导入共享 `.mjs` helper，却遗漏配套声明，产生 TS7016。
+这是本轮提交遗漏；补充精确 `.d.mts` 参数声明，不排除测试或放宽 strict。
+
+同 head 的 Windows sessions 全组通过；interface 已通过首次引导、语音及
+插件能力验收，随后 diagnostics 因旧观测器只识别直接 Node，无法记录
+supervisor 内的会话而失败。补齐精确 runtime 路径和结构化 spec 识别，
+从匹配 Job 的首条有效 receipt 取得真实 Node PID，另记 supervisor PID，
+保留原 transport 对象、Remote 绑定、权限、模型和进程退出断言。
+历史计时的一次性延迟及本地导航性能观测也存在同源遗漏，一并补齐；
+只观察真实会话，不改启动命令、参数或 Job Object 包含关系。
+
+- 完整类型检查通过；四个文件的定向回归 32/32 通过。
+  新增 12 项实际回调执行覆盖 source/packaged、direct/supervised，
+  拒绝无关管理 RPC、错误路径和非法 spec；核对 PID receipt、原对象、
+  Remote 替换、实际 1600 ms 延迟及命令/退出观测。
+- CI 清单测试通过，未调整门禁或放宽产品停机要求。
+  日志为 `D:\DFSC Builds\plugin-update-20261113-observer-typecheck.log`、
+  `plugin-update-20261113-observer-fixture-tests.log` 及
+  `plugin-update-20261113-observer-ci-policy.log`。
+- 本机系统可用提交余量仍不足 1 GB，未再启动重型 Electron/全量协议补验；
+  不将上一 head 的分组或更早本地通过沿用为最终树的完整通过。
+  新提交仍需完整云端 Windows/macOS/SDK 确认。
+
+## 同类 transport 夹具补齐与本机资源边界（2026-11-13）
+
+`b78f0e1` 推送后横向核查发现，账户路由、账户设置、插件宿主授权和语音
+验收也使用了只认识直接 Node 的旧 preload hook。旧 Windows interface
+在 first-run 处提前停止，尚未覆盖这些后续场景。本机原账户路由首次
+请求绕过 loopback 并收到官方 401；只有隔离夹具占位 key，没有使用真实账户。
+
+五个验收脚本现在共用 `runtime-transport-fixture.mjs`，将 preload 注入
+精确 supervisor 的结构化 Node 参数，保留原有 direct/source/packaged 路径、
+supervisor 及 job/node/cwd。账户设置仍只注入 Step，不扩大到管理 worker；
+不修改产品请求、凭据路由、授权流程或 CI 门禁。
+
+- 共享 helper、五处实际接线、导航及更新终态定向回归 20/20 通过。
+  CI 清单仍为 66 通过、1 项平台跳过、0 失败。
+- 修复后账户路由完整通过（34.618 秒），覆盖四种官方账户、运行中切换阻止、
+  取消保留旧身份及 Plan 拒绝不得回退 API。账户设置完整通过（15.795 秒），
+  保留首次请求的模型/effort、官方计费估算、凭据、主题和窄屏断言。
+  证据为 `D:\DFSC Builds\plugin-update-20261113-transport-fixed-r2.log` 及同名 summary。
+- 后续本机资源耗尽，系统剩余提交额度一度约 140 MB，独立 PowerShell 也崩溃。
+  授权夹具临时诊断确认管理 worker 在加载源码时发生
+  `ERR_MEMORY_ALLOCATION_FAILED`，退出前没有停机确认；不能将其记为授权验收通过。
+  诊断位于 `D:\DFSC Builds\plugin-update-20261113-host-stop-diagnostic-r2.log`，
+  临时产品日志已撤回，未放宽停机确认或隔离门禁。
+  只结束核对过的本轮重型测试树，未关闭其他应用或删除文件。
+
+本轮最终 helper 变更后的完整本地协议重跑因资源问题中止，
+`plugin-update-20261113-ci-protocol-final` 没有 completion receipt，
+不沿用上一轮 2548 项通过宣称最终树已全量通过。
+授权、语音及 helper 提取后的 first-run 原生补验尚需新 head 的云端验证。
+`b78f0e1` 的 Windows/macOS 集成运行 `43334638554` / `43334638673`
+因发现同源遗漏主动取消，不是绿项；其 SDK 通过也不能替代整轮结果。
+
+## 插件更新主线同步与 CI 入口兼容（2026-11-13）
+
+PR #238 合入 `main 948bbdc`，唯一文本冲突在本文件；保留双方验收记录，
+同时保留主线 Ultra/角色图标的自动合并结果。runtime pin 未升级。
+旧 head `0362e25` 的 Windows runtime 组和 macOS runtime/sessions 组已通过，
+但 Windows interface/sessions 与 macOS interface 失败，不能算整轮成功。
+
+- Windows 导航夹具只识别直接 Node 启动，漏掉 Job Object supervisor，
+  导致两次冷启动没有被拦截。现在精确识别本 runtime 的 `-File/-Spec`，
+  解析内部会话参数，仍只挂起两个真实聊天 worker，不拦截管理 RPC。
+- 首次引导的官方 loopback transport 同样漏掉 supervisor 内部的 Step。
+  现在把 Node preload 加到其结构化启动参数，而不是 PowerShell 参数；
+  保留 supervisor、job/node/cwd 及原有官方路径、无效凭据、Plan 取消、
+  Full Access 未确认不得发请求等断言，不修改产品模型发现或权限流程。
+- 能力验收不再等待未加载插件更新后的旧重启按钮，而是等待目标版本，
+  严格核对 operation 为 `done/committed`、受影响会话为空、原 worker 未替换。
+  原有版本、图标、配置字节、安装 instance/fingerprint 断言全部保留。
+
+本地补验：
+
+- 新增/扩展的真实夹具回归 13/13，通过 direct/supervised 和 source/packaged
+  路径，并拒绝错误版本、未完成/未提交操作、意外会话或重启入口。
+  schema/coordinator/staging 等定向回归也通过。CI 清单 67 项，
+  66 通过、1 项平台相关跳过、0 失败。类型检查与生产构建通过，
+  保留既有 Vite directive/chunk-size 警告。
+- 经现有 CI `runGroup/executeScript`、默认 Desktop 启动入口，依次完整通过
+  navigation（53.522 秒）、first-run（75.629 秒）、capabilities（151.175 秒）
+  和 plugin-update（119.216 秒）。插件更新六组通过、零 provider 请求、
+  零 page error，覆盖取消、空会话阻止、两会话释放/恢复及不兼容更新阻止。
+  日志与结果为 `D:\DFSC Builds\plugin-update-20261113-ci-native.log`、
+  `plugin-update-20261113-ci-native-summary.json`；
+  更新证据为 `D:\DFSC Builds\plugin-update-20261113-ci-native-evidence`。
+
+初轮本机默认并发 `pnpm test` 使用 Node 24.15.0，三项运行时测试超时，
+随后 CLM 夹具挂起；五分钟后只结束核对过的本次测试进程树。
+失败日志 `D:\DFSC Builds\plugin-update-20261113-ci-full-tests.log` 保留，
+不计为完整通过。另以 Windows CI 的 Node 24.16.0 和逐文件串行执行器
+完整通过 249/249 文件、2548 项：2533 通过、15 跳过、0 失败/取消，
+累计约 666.994 秒，completion receipt 为 true。独立 TAP、console log 与结果
+保存在 `D:\DFSC Builds\plugin-update-20261113-ci-protocol`；
+两种运行条件同时改变，不能据后续结果断言初轮挂起的单一根因。
+
+本次隔离 runtime 的 75 份 patched source hash 与当前 manifest 一致。
+轻构建 `D:\DFSC Builds\plugin-update-20261113-ci-sync` 自有文件约 7.97 MiB，
+另只读复用 runtime junction；更新原生证据约 15.34 MiB，dist 约 12.76 MiB，
+既有依赖约 921.32 MiB。保留旧 runtime 链接，不删除旧包、依赖或证据，
+不改日用档案、快捷方式或重启日用应用。以上不是安装器、macOS 本机、
+真实账户、已合并或已发布验收；新 head 的云端结果另行确认。
+
+## 插件更新 CI 验收登记（2026-11-12）
+
+PR #238 的 `9d15b94` 首次云端运行在 Windows/macOS 分类阶段失败：
+新增 `verify-plugin-update-electron.mjs` 未登记到统一验收清单。
+这是本次提交遗漏，不是运行器故障；后续原生集成任务因此跳过。
+对应运行 `43219805446` / `43219805367` 不计为通过。
+
+将脚本编入 Windows `runtime` 组，沿用串行执行、300 秒期限及进程树清理；
+macOS 明确排除该 Windows Job Object 释放/恢复场景，不暗中标为 local-only。
+测试固定 Windows 分组和 macOS 排除理由，不改变产品逻辑、runtime pin 或工作流门禁。
+
+- `node --test scripts/ci-*.test.mjs scripts/windows-ci-summary.test.mjs`：
+  67 项，66 通过、1 项平台相关跳过、0 失败/取消。
+- 经实际 CI `executeScript` 执行器、默认 Desktop 启动入口重新运行原生验收，
+  不设置自定义构建根或 entry；六组通过、零 provider 请求、零 page error。
+  证据为 `Desktop/test-results/plugin-update-ci-registration`，约 14.76 MiB；
+  已核对 owner、两旧 worker 及两恢复 worker 均退出。未新增构建包或删除旧产物。
+
+以上为本地补验结果，新提交的云端分类及完整集成结果仍需分别确认；
+不能沿用首版 SDK 绿项或本地通过宣称整轮 CI 已通过。
+
+## 首轮插件更新体验（2026-11-12，本地）
+
+基于 `main ed7c6e46c5fdad85b678eff857ae0b39b96977ba`，在独立工作区
+`codex/plugin-update-experience` 实现和验收。原工作目录的既有未提交改动未覆盖。
+这是实现候选，不是已合并、已打包或已发布能力；未升级 runtime pin，
+未修改日用档案、快捷方式或重启日用应用。
+
+- schema 预检聚合差异，保留精确包指纹和提交复审。普通独立
+  `json-file-v1` stdio 消费者允许展示调整、保留旧值的 enum 扩展、
+  无 default 的非秘密可选新增；默认值增删改、必填/秘密新增、
+  类型/约束/消费者/服务变化及复杂 host 绑定迁移继续阻止。
+  活跃快照派生新 revision，旧秘密快照不改写；未配置/撤销状态不被恢复。
+- 首层仍使用单一更新入口，就绪直接提交，占用时才进入二级确认。
+  关闭详情不取消已执行操作；丢失响应与轮询按本次 operation/token 核对。
+  页面重挂载只读恢复 attention/运行中结果，不重放安装或重启许可；
+  已安装但恢复失败的结果仍可查看。
+- Windows 聊天运行时从创建起原子纳入 Job Object。核对精确 supervisor
+  退出及整个 Job 无进程，公开 PID 仍是 Step Node，而不是 PowerShell。
+  任务、队列、Goal、Cron、后台、审批、受影响 Remote 和未知状态不强停。
+  自动恢复保持会话身份、原历史分支、模型/effort、持久权限、前台与未读状态；
+  不重放 Full Access。只允许同会话的原生启动能力/技能发现元数据追加，
+  不因其改变叶 ID 误拒，也不接受任意 custom、调用记录或分支漂移。
+  这是可信运行时记录的一致性白名单，不是对恶意插件伪造记录的来源认证。
+- 没有可用非空持久历史的受影响会话在预检阻止。真实空会话可能已有路径、
+  但尚未落盘；本轮不伪造历史来重启它。未占用目标插件的空会话不受此限制。
+
+验证与证据：
+
+- 类型检查与最终生产构建通过，保留既有 Vite directive/chunk-size 警告。
+  完整协议 r3 为 2513 项：2498 通过、15 跳过、0 失败。
+  随后原生验收暴露启动元数据的叶 ID 差异；修复后的恢复/coordinator
+  45 项定向测试通过。最终完整协议 r4 为 2516 项：2501 通过、
+  15 跳过、0 失败/取消，耗时约 185.7 秒；日志为
+  `D:\DFSC Builds\plugin-update-20261112-full-tests-r4.log`。
+- 提交前本地复审修复四处问题：延迟读取旧操作记录不得覆盖正在执行的新操作；
+  会话展示名与更新 warning 归一并限制长度，确保成功写入的记录可被严格 reader 读回；
+  回滚或预检引用退休后刷新目录，避免后续重试一直使用旧引用。
+  coordinator 定向 34 项及 schema/事务等定向 46 项均通过。
+  修复后的完整协议 r5 为 2524 项：2509 通过、15 跳过、0 失败/取消，
+  耗时约 191.6 秒；日志为
+  `D:\DFSC Builds\plugin-update-20261112-full-tests-r5-review.log`。
+- 完整插件中心浏览器验收通过，覆盖预检/取消、重复点击、关闭重开、
+  consumed token 后重新检查、连续候选版本、dirty 保护、已提交不重复安装，
+  以及 remount、延迟 hydration、旧 token/无关版本忽略、active 只读轮询到终态。
+  提交前重新通过完整验收，并新增三条引用退休后的重试回归；
+  对应证据位于 `Desktop/test-results/plugin-center-live-reference-retry`。
+  明暗与窄屏截图通过检查，390px 无水平溢出或遮挡。
+- r3 及审查修复后的 r4-review 轻构建真实 Electron 六组验收通过：真实 main/preload/renderer/runtime，
+  本地 Git 市场 v0.1 安装配置、v0.2 无 worker 更新保留 disabled 开关、
+  空会话只读阻止、两份明确离线 JSONL 历史加载、v0.3 释放/更新/同身份恢复，
+  v0.4 默认/类型/enum 删除/必填四类差异聚合阻止。两旧 PID 退出并替换为
+  两新 PID，两个 MCP 重连，前台选择与历史保留；零 provider 请求、零 page error。
+  这是隔离夹具，不是个人历史、真实账户、公开市场或安装器验收。
+- 真实多会话 RPC/SSE 并发回归通过，Cron 真实运行时 14 组通过。
+  Windows Job 单测覆盖孤立孙进程、Step Node PID 语义和
+  0/100/400/900/1400ms 启动取消；事务故障注入覆盖 v1/v2 中断恢复、
+  快照写入失败、回滚与 committed cleanup，历史秘密保持不变。
+
+失败记录保留：首次完整测试缺少隔离 runtime；r2 完整测试卡在未改动的
+终端测试，精确终止该测试树后，单独六项及完整 r3/r4 均通过，挂起根因未确证。
+原生早轮发现空会话未落盘；r2 已提交新版但被原生启动元数据误判恢复失败，
+这两轮不计为成功，不用最终通过覆盖失败证据。所有验收进程均有独立档案。
+
+最终轻构建为 `D:\DFSC Builds\plugin-update-20261112-verification-r4-review`，
+主证据为 `D:\DFSC Builds\plugin-update-20261112-evidence-r4-review`；
+早轮构建、失败证据及完整测试日志同在 `D:\DFSC Builds` 的本轮前缀下。
+最终轻构建自有文件约 7.97 MiB，另只读复用三个 runtime junction，不可独立分发。
+最终原生证据约 15.29 MiB，复审浏览器证据约 6.90 MiB，
+工作区依赖约 921 MiB，dist 约 13 MiB；
+已核对没有本轮验收 Electron、测试 worker 或 Vite 进程残留。
+未获清理授权，不删除依赖、证据或
+旧目录，初轮 runtime 仍被工作区 junction 引用，不能递归误删其目标。
+未执行 macOS 自动释放、真实账户/计费、安装器、云端 CI、合并或发布验收。
+恢复失败后通过“查看会话”重新打开持久历史的原生故障注入尚未覆盖，
+仅核对了对应源码路径，不把该项记为已验收。
+补填、复杂迁移、WebUI 及跨进程自动重放恢复不属于本轮。
+
 ## Ultra CI 的迁移终态与 Remote 确认区（2026-11-12）
 
 `4daa344` 的 Windows 全组及 `CI result` 通过，macOS runtime 源码组

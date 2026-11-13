@@ -7,6 +7,7 @@ import type { WindowConversationBridge, WindowPresentation } from './window-conv
 import type { RemoteBridge } from './remote';
 import type { ExternalConnectorBridge } from './external-connectors';
 import type { SpeechBridge } from './speech';
+import type { PluginUpdateBridge } from './plugin-update';
 export interface Snapshot { windowPresentation?: WindowPresentation; windowPresentationRevision?: number }
 export interface Message { desktopWorkflow?: WorkflowState; desktopToolPending?: boolean }
 export interface Message { desktopImported?: boolean }
@@ -114,7 +115,7 @@ export interface PluginWindowSnapshot {
   plugin: import('./capabilities').CapabilityPlugin;
   preferences: Pick<Preferences, 'language' | 'theme' | 'accentColor' | 'appearance'>;
 }
-export interface DesktopBridge extends SessionImportBridge, BtwBridge, BackgroundAgentClient, WindowConversationBridge, RemoteBridge, ExternalConnectorBridge, SpeechBridge {
+export interface DesktopBridge extends SessionImportBridge, BtwBridge, BackgroundAgentClient, WindowConversationBridge, RemoteBridge, ExternalConnectorBridge, SpeechBridge, PluginUpdateBridge {
   pluginWindowOpen(input: { ref: string }): Promise<void>;
   pluginWindowState(): Promise<PluginWindowSnapshot>;
   pluginWindowConfigure(): Promise<void>;

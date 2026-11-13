@@ -296,8 +296,19 @@ try {
   await writeFile(join(source, 'step.plugin.json'), JSON.stringify({ ...candidateManifest, version: '1.1.0' }));
   await writeFile(join(source, 'logo.png'), updatedIcon);
   await page.getByRole('button', { name: '检查插件更新', exact: true }).click();
+  const runtimeBeforeUpdate = (await page.evaluate(() => window.desktop.snapshot())).runtimeId;
   await examplePanel.getByRole('button', { name: '更新 Example plugin 至 v1.1.0', exact: true }).click();
-  await examplePanel.getByRole('button', { name: '重启会话以应用 Example plugin 更新', exact: true }).waitFor();
+  await page.waitForFunction(() => [...document.querySelectorAll('.pc-plugin-row')]
+    .some(row => row.textContent.includes('Example plugin') && /^v1.1.0/.test(row.querySelector('.pc-card-version')?.textContent)));
+  assert.equal(await examplePanel.getByRole('button', { name: '重启会话以应用 Example plugin 更新', exact: true }).count(), 0,
+    'Updating a plugin with no loaded worker does not require a session restart');
+  const updatedOperation = await page.evaluate(() => window.desktop.pluginUpdateOperation({ pluginId: 'example' }));
+  assert.equal(updatedOperation.version, '1.1.0');
+  assert.equal(updatedOperation.phase, 'done');
+  assert.equal(updatedOperation.installation, 'committed');
+  assert.deepEqual(updatedOperation.sessions, [], 'The existing worker has not loaded this newly installed plugin');
+  assert.equal((await page.evaluate(() => window.desktop.snapshot())).runtimeId, runtimeBeforeUpdate,
+    'A ready update does not replace an unaffected worker');
   assert.match(await examplePanel.locator('.pc-card-version').innerText(), /^v1.1.0/);
   assert.equal(await examplePanel.locator('img').getAttribute('src'), `data:image/png;base64,${updatedIcon.toString('base64')}`);
   assert.ok((await readFile(join(profile, 'step-runtime/config.toml'))).equals(switchesBefore));

@@ -8,6 +8,7 @@ import { createPatch } from 'diff';
 import { closeDesktopFixtureAndWait } from './close-desktop-fixture.mjs';
 import { sampleMotion } from './sample-motion.mjs';
 import { settleLayout } from './settle-layout.mjs';
+import { installRuntimeFixturePreload } from './runtime-transport-fixture.mjs';
 
 const evidence = resolve(process.env.DESKTOP_SPEECH_EVIDENCE || 'test-results/speech');
 await mkdir(evidence, { recursive: true });
@@ -169,16 +170,11 @@ const launch = async () => {
     assert.ok(identity.loadedMain.includes(resolve('dist/main.cjs')),
       'Source speech acceptance must load the current Desktop main module');
   }
+  await app.evaluate(installRuntimeFixturePreload, { preload });
   await app.evaluate(({ ipcMain, net, shell }, preload) => {
     const modules = process.getBuiltinModule('node:module');
     modules.createRequire(preload)(preload);
     net.fetch = (input, init) => globalThis.fetch(input, init);
-    const cp = process.getBuiltinModule('node:child_process'), spawn = cp.spawn;
-    cp.spawn = function(file, args, options) {
-      if (args?.some(arg => /(?:admin\.mjs|step\.js)$/.test(arg))) args = ['--require', preload, ...args];
-      return spawn.call(this, file, args, options);
-    };
-    modules.syncBuiltinESMExports();
     shell.openExternal = async input => {
       if (new URL(input).hostname !== 'platform.stepfun.com') throw new Error('External fixture browser request blocked');
     };

@@ -63,6 +63,7 @@ import { AccountAllowanceService } from './account-allowance';
 import { StepPagePreparer } from './steppage-prepare';
 import { CapabilityService, assertPluginUnused } from './capability-service';
 import { CapabilityGate } from './capability-gate';
+import { PluginUpdateCoordinator } from './plugin-update-coordinator';
 import { diagnoseCapabilityMutation, type CapabilityPhaseMarker } from './capability-diagnostics';
 import { capabilityFailureDetails } from './capability-failure.mjs';
 import { UsageEstimates } from './usage-estimates';
@@ -659,6 +660,29 @@ const bvrBridge = new BvrBridge(dataRoot, runtimes, () => appliedAuthData,
   () => settingsMutation || providerSettingsPending || providerApplyFailed || quitting || quitPending,
   () => preferences.language, (input, init) => net.fetch(input instanceof URL ? input.href : String(input), init));
 const bvrSettings = new BvrSettings(dataRoot, () => bvrBridge.invalidate());
+const pluginUpdates = new PluginUpdateCoordinator({
+  root: dataRoot, pool: runtimes, gate: capabilityGate,
+  check: input => capabilityService.preflightUpdate(input),
+  mutate: (input, guard, checked) => capabilityService.mutate({ action: 'plugin-update', ...input }, guard, checked),
+  assertAvailable: () => {
+    if (settingsMutation || speechSaving || undoBusy || transition || updateInstalling || quitting || quitPending
+      || providerSettingsPending || providerApplyFailed || miniNavigation.busy) throw new Error('capability:busy');
+    if (!capabilityService.available || !capabilityService.runtimeAvailable) throw new Error('capability:management-unavailable');
+  },
+  acquire: () => {
+    settingsMutation = true;
+    return () => { settingsMutation = !capabilityService.runtimeAvailable; };
+  },
+  external: worker => externallyOwned(worker),
+  canRestore: () => capabilityService.runtimeAvailable,
+  restore: lease => runtimes.restoreAfterUpdate(lease, nodePath, join(runtimeRoot, 'step/dist/bundle/step.js'), authEnvironment()),
+  refreshed: async () => {
+    await refreshThemePacks();
+    await syncCustomBackground();
+    emit({ type: 'desktop_plugin_catalog_changed' });
+    window.webContents.send('runtime-event', { type: 'desktop_theme_packs', packs: themePacks.packs, preferences });
+  },
+});
 const pluginHosts = new PluginHostLauncher({ root: dataRoot, pool: runtimes, capabilities: capabilityService,
   provider: new StepPluginHostProvider(runtimes, () => appliedAuthData,
     () => settingsMutation || providerSettingsPending || providerApplyFailed || quitting || quitPending,
@@ -1027,7 +1051,7 @@ async function snapshot(worker = runtimes.active, refresh = true, ignoreDraft = 
       pendingUI: new Map() };
   }
   if (draft) worker = undefined;
-  if (refresh && worker?.status === 'connected') await runtimes.read(worker);
+  if (refresh && worker?.status === 'connected' && !worker.mutating) await runtimes.read(worker);
   const sessions = refresh ? await listSessions() : cachedSessions();
   return {
     windowPresentation: presentations[surface].get(composerKey(draft ? { draftId: draft.id } : worker?.state?.sessionId ? { sessionId: worker.state.sessionId } : undefined)),
@@ -2243,23 +2267,30 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
       }
     }
     case 'deleteSession': {
-      if (transition || deletingArchived) throw new Error('Session operation in progress');
+      if (transition || settingsMutation || deletingArchived) throw new Error('Session operation in progress');
       const target = (await listSessions()).find(s => s.id === text(args[0]));
       if (!target) throw new Error('Unknown session');
       if (target.id === runtimes.active?.state?.sessionId || target.id === miniView.worker?.state?.sessionId)
         throw new Error(preferences.language === 'zh' ? '请先在主窗口和小窗切换到其他会话，再删除当前会话' : 'Open a different session in both windows before deleting this one');
       const worker = [...runtimes.workers.values()].find(worker => worker.state?.sessionId === target.id);
       if (worker && externallyOwned(worker)) throw new Error('Stop the external task before deleting its session');
+      if (worker?.mutating || worker?.operations || worker?.stopping) throw new Error('Session operation in progress');
       if (worker) await runtimes.assertIdle(worker, { stopHost: true });
       const response = await dialog.showMessageBox(window, { type: 'question', message: preferences.language === 'zh' ? '将此会话移到回收站？' : 'Move this session to the Recycle Bin?', buttons: ['Cancel', 'Move to Recycle Bin'], defaultId: 0, cancelId: 0 });
       if (response.response !== 1) return false;
+      if (transition || settingsMutation || deletingArchived || worker?.mutating || worker?.operations || worker?.stopping
+        || [...runtimes.workers.values()].find(item => item.state?.sessionId === target.id) !== worker)
+        throw new Error('Session operation in progress');
       if (target.id === runtimes.active?.state?.sessionId || target.id === miniView.worker?.state?.sessionId)
         throw new Error(preferences.language === 'zh' ? '会话已在窗口中打开，请先切换到其他会话' : 'The conversation was opened in a window; select a different one first');
-      if (worker) { await runtimes.assertIdle(worker, { stopHost: true }); await runtimes.remove(worker); }
-      if (target.path) await shell.trashItem(target.path);
-      await workflowBindings.remove(target.id);
-      await usageEstimates.remove(target.id);
-      return true;
+      transition = true;
+      try {
+        if (worker) { await runtimes.assertIdle(worker, { stopHost: true }); await runtimes.remove(worker); }
+        if (target.path) await shell.trashItem(target.path);
+        await workflowBindings.remove(target.id);
+        await usageEstimates.remove(target.id);
+        return true;
+      } finally { transition = false; }
     }
     case 'projectInstructions': {
       const owner = args[0];
@@ -2697,6 +2728,9 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
       await refreshCustomBackground();
       return catalog;
     }
+    case 'pluginUpdatePreflight': return pluginUpdates.preflight(args[0]);
+    case 'pluginUpdateOperation': return pluginUpdates.latest(args[0]?.pluginId);
+    case 'pluginUpdateApply': return pluginUpdates.apply(args[0]);
     case 'pluginWindowOpen': {
       if (quitting || quitPending || settingsMutation) throw new Error('capability:busy');
       const plugin = await capabilityService.desktop(args[0]?.ref);
@@ -3281,29 +3315,30 @@ else app.whenReady().then(async () => {
       if (method === 'quitRespond' || method === 'windowControl') return handle(method, args, surface);
       // Reads must not observe the admin transport halfway through an idle reload.
       if (providerApplication) await providerApplication;
-      const capabilityMutation = ['capabilityMutate', 'capabilityImportSkill', 'bvrSaveConfiguration', 'pluginSaveConfiguration', 'pluginSaveHostSettings', 'saveCompactionSettings'].includes(method);
+      const capabilityMutation = ['capabilityMutate', 'pluginUpdateApply', 'capabilityImportSkill', 'bvrSaveConfiguration', 'pluginSaveConfiguration', 'pluginSaveHostSettings', 'saveCompactionSettings'].includes(method);
       const capabilityRead = ['capabilityCatalog', 'pluginDocument', 'pluginRepositoryInfo', 'pluginConfiguration', 'pluginHostSettings', 'pluginWindowOpen',
+        'pluginUpdatePreflight', 'pluginUpdateOperation',
         'pluginConnectionState', 'pluginConnectionChooseProfile', 'pluginConnectionForgetProfile',
         'pluginChoosePath', 'themeScene', 'themePoster', 'themeImage', 'customBackgroundState', 'customBackgroundImage',
         'customBackgroundImport', 'customBackgroundSave', 'customBackgroundRemove',
         'bvrConfiguration', 'bvrCheckEnvironment', 'bvrChoosePath'].includes(method);
       // CapabilityService selects its trusted scope after freezing the package.
       // Discovery network work and data-only themes must not block Remote I/O.
-      const shared = capabilityMutation && method !== 'capabilityMutate'
+      const shared = capabilityMutation && !['capabilityMutate', 'pluginUpdateApply'].includes(method)
         || ['login', 'logout', 'saveMcp', 'saveProvider', 'deleteProvider', 'prepareStepPage', 'finishFirstRun'].includes(method);
-      if ((shared || method === 'capabilityMutate') && speechSaving) throw new Error('Speech settings operation in progress');
-      if ((shared || method === 'capabilityMutate') && capabilityGate.active)
+      if ((shared || method === 'capabilityMutate' || method === 'pluginUpdateApply') && speechSaving) throw new Error('Speech settings operation in progress');
+      if ((shared || method === 'capabilityMutate' || method === 'pluginUpdateApply') && capabilityGate.active)
         throw new Error('Shared settings operation in progress');
-      if ((shared || method === 'capabilityMutate') && !capabilityService.available)
+      if ((shared || method === 'capabilityMutate' || method === 'pluginUpdateApply') && !capabilityService.available)
         throw new Error('capability:management-unavailable');
       if (capabilityMutation && (settingsMutation || undoBusy || transition || updateInstalling || quitting || quitPending))
         throw new Error('Shared settings operation in progress');
       if (undoBusy && ['moveSessionToProject', 'prepareStepPage', 'removeWorkspace', 'relocateWorkspace', 'beginSession', 'chooseSessionProject', 'createDraftSession', 'command', 'branchSession', 'cloneSession', 'retryMessage', 'restart', 'workspace', 'chooseWorkspace',
         'switchSession', 'navigateSession', 'newIndependentSession', 'deleteSession', 'deleteArchivedSessions', 'login', 'logout', 'saveMcp', 'saveProvider', 'deleteProvider'].includes(method))
         throw new Error('Undo in progress');
-      if (settingsMutation && ['moveSessionToProject', 'prepareStepPage', 'removeWorkspace', 'relocateWorkspace', 'beginSession', 'chooseSessionProject', 'createDraftSession', 'command', 'branchSession', 'cloneSession', 'retryMessage', 'restart', 'workspace', 'chooseWorkspace', 'switchSession', 'navigateSession', 'newIndependentSession', 'login', 'logout', 'saveMcp', 'saveProvider', 'deleteProvider', 'finishFirstRun'].includes(method)) throw new Error('Shared settings operation in progress');
+      if (settingsMutation && ['moveSessionToProject', 'prepareStepPage', 'removeWorkspace', 'relocateWorkspace', 'beginSession', 'chooseSessionProject', 'createDraftSession', 'command', 'branchSession', 'cloneSession', 'retryMessage', 'restart', 'workspace', 'chooseWorkspace', 'switchSession', 'navigateSession', 'newIndependentSession', 'deleteSession', 'deleteArchivedSessions', 'login', 'logout', 'saveMcp', 'saveProvider', 'deleteProvider', 'finishFirstRun'].includes(method)) throw new Error('Shared settings operation in progress');
       const speechOperation = ['speechSettings', 'saveSpeech', 'acknowledgeSpeech', 'beginSpeech', 'transcribeSpeech', 'finishSpeech', 'cancelSpeech'].includes(method);
-      if (!capabilityRead && !speechOperation && method !== 'capabilityMutate' && !updateInstalling && providerSettingsPending && !settingsMutation && canApplyProviders()) {
+      if (!capabilityRead && !speechOperation && !['capabilityMutate', 'pluginUpdateApply'].includes(method) && !updateInstalling && providerSettingsPending && !settingsMutation && canApplyProviders()) {
         await applyProviderSettings();
       }
       if (rendererGenerations.get(senderId) !== generation) throw new Error('Window reloaded; retry the current action');
@@ -3320,7 +3355,7 @@ else app.whenReady().then(async () => {
       }
       finally {
         if (shared) settingsMutation = !capabilityService.runtimeAvailable;
-        if (shared || method === 'capabilityMutate') await pluginHosts.resumeDeferred();
+        if (shared || method === 'capabilityMutate' || method === 'pluginUpdateApply') await pluginHosts.resumeDeferred();
       }
     }, (error, details) => crashLog.record('capability-operation', error, details));
     if (method === 'command' && args[0] === 'prompt' && args[1]?.composerReceipt !== undefined) {

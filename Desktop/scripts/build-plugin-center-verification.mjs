@@ -25,7 +25,8 @@ for (const name of await readdir(runtime, { withFileTypes: true })) {
     await copyFile(await access(current).then(() => current).catch(() => source), target);
   }
 }
-for (const name of ['plugin-files.mjs', 'theme-composition.mjs', 'marketplace-refresh.mjs', 'runtime-compile-cache.mjs'])
+for (const name of ['plugin-files.mjs', 'theme-composition.mjs', 'marketplace-refresh.mjs', 'runtime-compile-cache.mjs',
+  'plugin-schema-update.mjs', 'windows-runtime-job.ps1'])
   await copyFile(resolve('electron', name), join(output, 'runtime', name));
 await mkdir(join(output, 'build'));
 for (const name of ['icon.ico', 'icon.png', 'tray.png'])

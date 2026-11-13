@@ -13,6 +13,7 @@ const server = process.env.DESKTOP_PREVIEW_URL ? undefined : await createServer(
 });
 await server?.listen();
 const base = process.env.DESKTOP_PREVIEW_URL ?? `http://127.0.0.1:${server.httpServer.address().port}`;
+console.log(`PluginCenter browser fixture: ${base}`);
 const output = process.env.DESKTOP_PREVIEW_OUTPUT ?? 'test-results/plugin-center-live';
 await mkdir(output, { recursive: true });
 const browser = await chromium.launch({ channel: process.env.PLAYWRIGHT_CHANNEL || undefined });
@@ -140,46 +141,307 @@ try {
     console.log('Plugin update presentation preview passed; installation operations are simulated.');
   } finally { await updates.close(); }
   const native = await browser.newPage({ viewport: { width: 1440, height: 980 } });
+  const nativeErrors = [];
+  native.on('pageerror', error => nativeErrors.push(error.message));
   try {
-    await native.goto(`${base}/tests/fixtures/plugin-center-live.html?updates=native`);
+    const loadNative = async (readiness = 'ready') => {
+      await native.goto(`${base}/tests/fixtures/plugin-center-live.html?updates=native`);
+      await native.getByRole('tab', { name: /^已安装/ }).waitFor();
+      await native.evaluate(value => window.pluginCenterTest.updateReadiness(value), readiness);
+    };
     const card = native.locator('.pc-plugin-row').filter({ has: native.locator('.pc-card-heading strong', { hasText: /^Bilibili Video Research$/ }) });
     const action = card.locator('.pc-update-action');
+    const dialog = native.getByRole('dialog', { name: '插件更新', exact: true });
+    const startUpdate = (version = '0.1.1') => native.getByRole('button', {
+      name: `更新 Bilibili Video Research 至 v${version}`, exact: true,
+    }).click();
+    const closeUpdate = () => dialog.getByRole('button', { name: '关闭更新详情', exact: true }).click();
+    const confirmUpdate = () => dialog.getByRole('button', { name: '重启相关会话并更新', exact: true }).click();
+    const remountNative = async () => {
+      const before = await native.evaluate(() => ({
+        catalog: window.pluginCenterTest.counts().catalogReads,
+        operation: window.pluginCenterTest.updateCounts().operationReads,
+      }));
+      await native.evaluate(() => window.pluginCenterTest.remount());
+      await native.waitForFunction(before => window.pluginCenterTest.counts().catalogReads > before.catalog
+        && window.pluginCenterTest.updateCounts().operationReads > before.operation, before);
+      await native.getByRole('tab', { name: /^已安装/ }).waitFor();
+    };
+    await loadNative();
     await native.getByRole('tab', { name: '发现', exact: true }).click();
     assert.match(await card.locator('.pc-card-version').innerText(), /^v0.1.1[\s\S]*已安装 v0.1.0/,
       'Discover labels candidate metadata with its own version and separately identifies the installed version');
     await native.getByRole('tab', { name: /^已安装/ }).click();
     await native.getByRole('button', { name: '检查插件更新', exact: true }).click();
     await native.waitForFunction(() => window.pluginCenterTest.updateCounts().checks === 1);
-    await native.getByRole('button', { name: '更新 Bilibili Video Research 至 v0.1.1', exact: true }).waitFor({ state: 'visible' });
-    await native.evaluate(() => window.pluginCenterTest.failUpdate());
-    await native.getByRole('button', { name: '更新 Bilibili Video Research 至 v0.1.1', exact: true }).dblclick();
-    await action.getByRole('progressbar').waitFor();
-    assert.equal(await action.getByRole('progressbar').getAttribute('aria-valuenow'), null, 'Native Promise work does not invent percentages');
+    await startUpdate();
+    await native.waitForFunction(() => window.pluginCenterTest.updateCounts().attempts === 1);
+    assert.equal(await dialog.isVisible(), false, 'A ready, compatible update applies without another confirmation');
     assert.equal(await native.evaluate(() => window.pluginCenterTest.updateCounts().attempts), 1);
     assert.equal(await card.getByRole('switch').isDisabled(), true);
     await native.screenshot({ path: `${output}/updates-native-pending.png` });
-    await native.evaluate(() => window.pluginCenterTest.releaseUpdate());
-    await action.getByRole('button', { name: '重试更新 Bilibili Video Research', exact: true }).waitFor();
-    await card.getByRole('button', { name: '查看 Bilibili Video Research 使用说明', exact: true }).click();
-    assert.match(await native.locator('.pc-update-row').innerText(), /再更新或卸载/);
     await native.evaluate(() => window.pluginCenterTest.holdUpdateCatalog());
-    await native.getByRole('button', { name: '重试更新 Bilibili Video Research', exact: true }).click();
-    await native.waitForFunction(() => window.pluginCenterTest.updateCounts().attempts === 2);
     await native.evaluate(() => window.pluginCenterTest.releaseUpdate());
     await native.waitForFunction(() => window.pluginCenterTest.updateCounts().applied === 1);
-    assert.equal(await native.locator('.pc-update-badge').getAttribute('data-phase'), 'applying',
-      'A completed mutation is not presented as updated before its catalog arrives');
-    assert.match(await native.locator('.pc-plugin-title').innerText(), /v0.1.0/);
+    assert.match(await card.locator('.pc-card-version').innerText(), /v0.1.0/,
+      'The installed version stays tied to the catalog until the post-commit catalog arrives');
     await native.evaluate(() => window.pluginCenterTest.releaseUpdateCatalog());
-    await native.getByRole('button', { name: '重启会话以应用 Bilibili Video Research 更新', exact: true }).waitFor();
-    assert.match(await native.locator('.pc-plugin-title').innerText(), /v0.1.1/);
+    await native.waitForFunction(() => document.querySelector('.pc-card-version')?.textContent.includes('v0.1.1'));
+    await action.waitFor({ state: 'hidden' });
+    assert.deepEqual(await native.evaluate(() => window.pluginCenterTest.updateCounts().consents), [false]);
+    assert.equal(await native.evaluate(() => window.pluginCenterTest.counts().restarts), 0);
     await native.screenshot({ path: `${output}/updates-native-success.png` });
-    await native.getByRole('button', { name: '重启会话以应用 Bilibili Video Research 更新', exact: true }).click();
-    await native.waitForFunction(() => window.pluginCenterTest.counts().restarts === 1);
-    await native.waitForFunction(() => !document.querySelector('.pc-update-row'));
-    await native.getByRole('button', { name: '全部插件', exact: true }).click();
-    assert.equal(await card.locator('.pc-update-action').count(), 0);
-    console.log('Plugin update native presentation adapter passed against the typed bridge fixture.');
+
+    await native.evaluate(() => window.pluginCenterTest.publishUpdate('0.1.2'));
+    await native.getByRole('button', { name: '检查插件更新', exact: true }).click();
+    await startUpdate('0.1.2');
+    await native.waitForFunction(() => window.pluginCenterTest.updateCounts().attempts === 2);
+    assert.equal(await native.evaluate(() => window.pluginCenterTest.updateOperation().version), '0.1.2',
+      'A later candidate does not reopen the previous version operation');
+    assert.equal(await dialog.isVisible(), false);
+    await native.evaluate(() => window.pluginCenterTest.releaseUpdate());
+    await native.waitForFunction(() => document.querySelector('.pc-card-version')?.textContent.includes('v0.1.2'));
+    await action.waitFor({ state: 'hidden' });
+    assert.equal(await native.evaluate(() => window.pluginCenterTest.updateCounts().preflights), 2);
+    await remountNative();
+    assert.equal(await dialog.isVisible(), false, 'A normally completed persisted operation is not reopened on remount');
+    await action.waitFor({ state: 'hidden' });
+    assert.equal(await native.evaluate(() => window.pluginCenterTest.updateCounts().attempts), 2);
+
+    await loadNative('needs-release');
+    await startUpdate();
+    await dialog.waitFor();
+    assert.match(await dialog.innerText(), /需要释放会话占用/);
+    assert.equal(await dialog.locator('.pc-update-sessions li').count(), 2);
+    assert.equal(await native.evaluate(() => window.pluginCenterTest.updateCounts().attempts), 0);
+    await dialog.getByRole('button', { name: '取消', exact: true }).click();
+    assert.equal(await native.evaluate(() => window.pluginCenterTest.updateCounts().attempts), 0,
+      'Canceling assistance does not start an update');
+    await action.getByRole('button', { name: '查看 Bilibili Video Research 更新详情', exact: true }).click();
+    await dialog.getByRole('button', { name: '重启相关会话并更新', exact: true }).dblclick();
+    await native.waitForFunction(() => window.pluginCenterTest.updateCounts().attempts === 1);
+    assert.match(await dialog.innerText(), /关闭此窗口不会取消操作/);
+    await closeUpdate();
+    const readsBeforeReopen = await native.evaluate(() => window.pluginCenterTest.updateCounts().operationReads);
+    await action.getByRole('button', { name: '查看 Bilibili Video Research 更新详情', exact: true }).click();
+    await dialog.waitFor();
+    await native.waitForFunction(before => window.pluginCenterTest.updateCounts().operationReads > before, readsBeforeReopen);
+    assert.equal(await native.evaluate(() => window.pluginCenterTest.updateCounts().attempts), 1,
+      'Double confirmation and reopening a running operation never start it again');
+    await native.setViewportSize({ width: 390, height: 844 });
+    assert.equal(await dialog.evaluate(element => element.scrollWidth > element.clientWidth + 1), false);
+    await native.screenshot({ path: `${output}/updates-native-release-mobile.png` });
+    await native.setViewportSize({ width: 1440, height: 980 });
+    await native.evaluate(() => window.pluginCenterTest.releaseUpdate());
+    await native.waitForFunction(() => window.pluginCenterTest.updateOperation()?.phase === 'done');
+    await dialog.getByText('新版已安装', { exact: true }).waitFor();
+    await closeUpdate();
+    assert.deepEqual(await native.evaluate(() => window.pluginCenterTest.updateCounts().consents), [true]);
+    assert.equal(await native.evaluate(() => window.pluginCenterTest.counts().restarts), 0,
+      'The UI does not chain its current-session restart after coordinated restoration');
+
+    await loadNative('needs-release');
+    await native.evaluate(() => window.pluginCenterTest.failRestoration());
+    await startUpdate();
+    await confirmUpdate();
+    await native.waitForFunction(() => window.pluginCenterTest.updateCounts().attempts === 1);
+    await native.evaluate(() => window.pluginCenterTest.releaseUpdate());
+    await dialog.getByText('新版已安装', { exact: true }).waitFor();
+    assert.match(await dialog.innerText(), /部分会话未恢复/);
+    assert.equal(await dialog.getByRole('button', { name: '重新检查', exact: true }).count(), 0,
+      'A committed installation is not offered another package update as runtime recovery');
+    await closeUpdate();
+    await action.getByRole('button', { name: '查看 Bilibili Video Research 更新详情', exact: true }).click();
+    await dialog.getByText('新版已安装', { exact: true }).waitFor();
+    assert.equal(await native.evaluate(() => window.pluginCenterTest.updateCounts().attempts), 1);
+    assert.equal(await native.evaluate(() => window.pluginCenterTest.updateCounts().preflights), 1);
+    await closeUpdate();
+    await remountNative();
+    await dialog.getByText('新版已安装', { exact: true }).waitFor();
+    assert.match(await dialog.innerText(), /部分会话未恢复/,
+      'A remount restores committed-but-failed session recovery even when the catalog is current');
+    await closeUpdate();
+    await action.getByRole('button', { name: '查看 Bilibili Video Research 更新详情', exact: true }).click();
+    await dialog.getByText('新版已安装', { exact: true }).waitFor();
+    assert.equal(await native.evaluate(() => window.pluginCenterTest.updateCounts().attempts), 1,
+      'Hydrating recovery details never replays an installation or its consent');
+    await closeUpdate();
+
+    await native.evaluate(() => {
+      window.pluginCenterTest.publishUpdate('0.1.2');
+      window.pluginCenterTest.holdNextOperation();
+    });
+    await remountNative();
+    await startUpdate('0.1.2');
+    await dialog.getByRole('button', { name: '重启相关会话并更新', exact: true }).waitFor();
+    await native.evaluate(() => window.pluginCenterTest.releaseOperation());
+    await native.waitForTimeout(150);
+    assert.match(await dialog.innerText(), /v0.1.2/);
+    assert.doesNotMatch(await dialog.innerText(), /v0.1.1/,
+      'A late persisted snapshot cannot overwrite a newer locally requested preflight');
+    await confirmUpdate();
+    await native.waitForFunction(() => window.pluginCenterTest.updateCounts().attempts === 2);
+    await native.evaluate(() => window.pluginCenterTest.releaseUpdate());
+    await dialog.getByText('新版已安装', { exact: true }).waitFor();
+    await closeUpdate();
+
+    await native.evaluate(() => {
+      const operation = window.pluginCenterTest.updateOperation();
+      window.pluginCenterTest.persistUpdateOperation({ ...operation, phase: 'attention', installation: 'unknown',
+        error: 'capability:update-interrupted',
+        sessions: operation.sessions.map(session => ({ ...session, restoration: 'unknown' })) });
+    });
+    await remountNative();
+    await dialog.getByText('更新结果待核对', { exact: true }).waitFor();
+    assert.equal(await dialog.getByRole('button', { name: '重新检查', exact: true }).count(), 0,
+      'An unknown cross-process result is recovery information, not fresh update consent');
+    await closeUpdate();
+    await native.getByRole('button', { name: '检查插件更新', exact: true }).click();
+    await action.getByRole('button', { name: '查看 Bilibili Video Research 更新详情', exact: true }).click();
+    await dialog.getByText('更新结果待核对', { exact: true }).waitFor();
+    assert.equal(await native.evaluate(() => window.pluginCenterTest.updateCounts().attempts), 2);
+    await closeUpdate();
+
+    await loadNative('needs-release');
+    await startUpdate();
+    await confirmUpdate();
+    await native.waitForFunction(() => window.pluginCenterTest.updateCounts().attempts === 1);
+    await remountNative();
+    await dialog.getByText('正在释放占用', { exact: true }).waitFor();
+    assert.equal(await native.evaluate(() => window.pluginCenterTest.updateCounts().attempts), 1,
+      'Remounting an active current-process operation only resumes read-only polling');
+    const readsBeforeStalePoll = await native.evaluate(() => window.pluginCenterTest.updateCounts().operationReads);
+    await native.evaluate(() => {
+      const operation = window.pluginCenterTest.updateOperation();
+      window.pluginCenterTest.nextOperation({ ...operation, id: 'previous-consumed-token', version: '9.9.9',
+        phase: 'attention', installation: 'committed' });
+    });
+    await native.waitForFunction(before => window.pluginCenterTest.updateCounts().operationReads > before, readsBeforeStalePoll);
+    await native.waitForTimeout(100);
+    assert.match(await dialog.innerText(), /正在释放占用/);
+    assert.doesNotMatch(await dialog.innerText(), /9.9.9|新版已安装/,
+      'A poll response for a different consumed token cannot replace the active operation');
+    await native.evaluate(() => window.pluginCenterTest.releaseUpdate());
+    await dialog.getByText('新版已安装', { exact: true }).waitFor();
+    await closeUpdate();
+    await action.waitFor({ state: 'hidden' });
+    assert.equal(await card.getByRole('switch').isEnabled(), true, 'Read-only polling clears the active lock at terminal state');
+    assert.equal(await native.evaluate(() => window.pluginCenterTest.updateCounts().attempts), 1);
+
+    await loadNative();
+    await native.evaluate(() => window.pluginCenterTest.persistUpdateOperation({
+      id: 'unrelated-old-operation', pluginId: 'bilibili-video-research', version: '0.0.1',
+      phase: 'attention', installation: 'unknown', sessions: [], warnings: [],
+    }));
+    await remountNative();
+    await native.waitForTimeout(100);
+    assert.equal(await dialog.isVisible(), false, 'An unrelated persisted version does not replace the current candidate');
+    await action.getByRole('button', { name: '更新 Bilibili Video Research 至 v0.1.1', exact: true }).waitFor();
+
+    await loadNative('needs-release');
+    await native.evaluate(() => window.pluginCenterTest.failUpdate());
+    await startUpdate();
+    await confirmUpdate();
+    await native.waitForFunction(() => window.pluginCenterTest.updateCounts().attempts === 1);
+    const readsBeforeRollback = await native.evaluate(() => window.pluginCenterTest.counts().catalogReads);
+    await native.evaluate(() => window.pluginCenterTest.releaseUpdate());
+    await dialog.getByText('尚未更新', { exact: true }).waitFor();
+    await native.waitForFunction(before => window.pluginCenterTest.counts().catalogReads > before
+      && !document.querySelector('[aria-label="启用 Bilibili Video Research 服务"]')?.disabled, readsBeforeRollback);
+    assert.equal(await native.evaluate(() => window.pluginCenterTest.updateCounts().retiredReferences), 1);
+    assert.match(await dialog.innerText(), /仍被会话占用/,
+      'Refreshing retired package references preserves the unchanged operation and its error');
+    await dialog.getByRole('button', { name: '重新检查', exact: true }).click();
+    await native.waitForFunction(() => window.pluginCenterTest.updateCounts().preflights === 2);
+    assert.equal(await native.evaluate(() => window.pluginCenterTest.updateCounts().staleRequests), 0,
+      'A rolled-back operation rechecks with fresh package references');
+    assert.equal(await native.evaluate(() => window.pluginCenterTest.updateCounts().attempts), 1,
+      'Rechecking a rollback does not replay its installation or restart consent');
+    await confirmUpdate();
+    await native.waitForFunction(() => window.pluginCenterTest.updateCounts().attempts === 2);
+    await native.evaluate(() => window.pluginCenterTest.releaseUpdate());
+    await dialog.getByText('新版已安装', { exact: true }).waitFor();
+    await closeUpdate();
+
+    await loadNative();
+    await native.evaluate(() => window.pluginCenterTest.rejectUpdate());
+    await startUpdate();
+    await native.waitForFunction(() => window.pluginCenterTest.updateCounts().attempts === 1);
+    await native.evaluate(() => window.pluginCenterTest.releaseUpdate());
+    await native.waitForFunction(() => window.pluginCenterTest.updateCounts().retiredReferences === 1
+      && window.pluginCenterTest.counts().catalogReads > 1
+      && !document.querySelector('[aria-label="启用 Bilibili Video Research 服务"]')?.disabled);
+    await dialog.getByRole('button', { name: '重新检查', exact: true }).click();
+    await native.waitForFunction(() => window.pluginCenterTest.updateCounts().attempts === 2);
+    assert.equal(await native.evaluate(() => window.pluginCenterTest.updateCounts().preflights), 2,
+      'A rejected ready operation does not strand a running panel or reuse its consumed receipt');
+    assert.equal(await native.evaluate(() => window.pluginCenterTest.updateCounts().staleRequests), 0,
+      'An apply exception without a matching operation also refreshes retired references');
+    await native.evaluate(() => window.pluginCenterTest.releaseUpdate());
+    await action.waitFor({ state: 'hidden' });
+
+    await loadNative();
+    await native.evaluate(() => window.pluginCenterTest.retireUpdateReferences());
+    await startUpdate();
+    await action.getByRole('button', { name: '重试更新 Bilibili Video Research', exact: true }).waitFor();
+    await native.waitForFunction(() => window.pluginCenterTest.counts().catalogReads > 1
+      && !document.querySelector('[aria-label="启用 Bilibili Video Research 服务"]')?.disabled);
+    assert.equal(await native.evaluate(() => window.pluginCenterTest.updateCounts().staleRequests), 1);
+    assert.equal(await native.evaluate(() => window.pluginCenterTest.updateCounts().attempts), 0,
+      'A stale preflight has not started an installation');
+    await action.getByRole('button', { name: '重试更新 Bilibili Video Research', exact: true }).click();
+    await native.waitForFunction(() => window.pluginCenterTest.updateCounts().attempts === 1);
+    assert.equal(await native.evaluate(() => window.pluginCenterTest.updateCounts().staleRequests), 1,
+      'Retry after a preflight exception uses the refreshed references');
+    assert.equal(await native.evaluate(() => window.pluginCenterTest.updateCounts().preflights), 1);
+    await native.evaluate(() => window.pluginCenterTest.releaseUpdate());
+    await action.waitFor({ state: 'hidden' });
+
+    await loadNative('blocked');
+    await startUpdate();
+    await dialog.waitFor();
+    assert.match(await dialog.innerText(), /有会话仍有任务或受保护的运行状态/);
+    assert.equal(await dialog.getByRole('button', { name: '重启相关会话并更新', exact: true }).count(), 0);
+    assert.equal(await native.evaluate(() => window.pluginCenterTest.updateCounts().attempts), 0);
+    assert.doesNotMatch(await card.locator('.pc-update-badge').innerText(), /更新失败/);
+    await native.evaluate(() => window.pluginCenterTest.updateReadiness('ready'));
+    await dialog.getByRole('button', { name: '重新检查', exact: true }).click();
+    await native.waitForFunction(() => window.pluginCenterTest.updateCounts().attempts === 1);
+    await native.evaluate(() => window.pluginCenterTest.releaseUpdate());
+    await action.waitFor({ state: 'hidden' });
+
+    await loadNative('needs-release');
+    await startUpdate();
+    await dialog.getByRole('button', { name: '取消', exact: true }).click();
+    await card.getByRole('button', { name: '查看 Bilibili Video Research 使用说明', exact: true }).click();
+    await native.getByRole('tab', { name: '配置', exact: true }).click();
+    const runtime = native.getByLabel('BVR 运行目录', { exact: true });
+    await runtime.fill('D:\\Unsaved\\BVR');
+    const dirtyDialog = native.getByRole('dialog', { name: '放弃未保存的插件配置？', exact: true });
+    const requestWithDirtyDraft = async () => {
+      await native.getByRole('button', { name: '查看 Bilibili Video Research 更新详情', exact: true }).click();
+      if (!await dirtyDialog.isVisible()) await confirmUpdate();
+      await dirtyDialog.waitFor();
+    };
+    await requestWithDirtyDraft();
+    assert.equal(await native.evaluate(() => window.pluginCenterTest.updateCounts().attempts), 0);
+    await dirtyDialog.getByRole('button', { name: '取消', exact: true }).click();
+    if (await dialog.isVisible()) await closeUpdate();
+    assert.equal(await runtime.inputValue(), 'D:\\Unsaved\\BVR', 'Canceling discard keeps the unsaved draft');
+    assert.equal(await native.evaluate(() => window.pluginCenterTest.configuration().runtimeDirectory), 'D:\\Tools\\BVR');
+    await requestWithDirtyDraft();
+    await dirtyDialog.getByRole('button', { name: '确认', exact: true }).click();
+    await dirtyDialog.waitFor({ state: 'hidden' });
+    if (await dialog.getByRole('button', { name: '重启相关会话并更新', exact: true }).isVisible()) await confirmUpdate();
+    await native.waitForFunction(() => window.pluginCenterTest.updateCounts().attempts === 1);
+    await native.evaluate(() => window.pluginCenterTest.releaseUpdate());
+    await native.waitForFunction(() => window.pluginCenterTest.updateCounts().applied === 1);
+    assert.equal(await native.evaluate(() => window.pluginCenterTest.counts().saves), 0,
+      'Accepting discard does not silently save the unrelated draft');
+    assert.equal(await native.evaluate(() => window.pluginCenterTest.updateCounts().legacy), 0,
+      'Native presentation uses only the coordinated update bridge');
+    assert.deepEqual(nativeErrors, []);
+    console.log('Plugin update coordinated browser flows passed against the typed bridge fixture.');
   } finally { await native.close(); }
   const metadata = await browser.newPage({ viewport: { width: 1440, height: 980 } });
   try {

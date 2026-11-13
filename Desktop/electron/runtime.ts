@@ -1,4 +1,5 @@
-import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
+import { execFile, spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
+import { dirname, join, resolve } from 'node:path';
 import { StringDecoder } from 'node:string_decoder';
 import { randomUUID } from 'node:crypto';
 
@@ -62,10 +63,13 @@ export class RpcManagementStopError extends Error {
   }
 }
 
+const powershell = () => join(process.env.SystemRoot ?? 'C:\\Windows', 'System32/WindowsPowerShell/v1.0/powershell.exe');
+
 export class RpcProcess {
   private child?: ChildProcessWithoutNullStreams;
   private exitedChild?: ChildProcessWithoutNullStreams;
-  get pid() { return this.child?.pid; }
+  private runtimePid?: number;
+  get pid() { return this.job ? this.runtimePid : this.child?.pid; }
   private stopping?: Promise<void>;
   private stoppingManagement = false;
   private managementStopError?: RpcManagementStopError;
@@ -74,19 +78,32 @@ export class RpcProcess {
     finish: (reason?: string) => void;
   };
   private disconnected = false;
+  private job?: { name: string; script: string };
   private stderr = '';
   private pending = new Map<string, { resolve: (data: any) => void; reject: (e: Error) => void; timer: NodeJS.Timeout }>();
   get hasPendingRequests() { return this.pending.size > 0; }
-  constructor(private event: (value: any) => void, private maxRecordChars?: number) {}
+  constructor(private event: (value: any) => void, private maxRecordChars?: number, private containTree = false) {}
   start(node: string, entry: string, cwd: string, env: NodeJS.ProcessEnv, args: string[] = []) {
     if (this.child || this.stopping || this.managementStopError) throw new Error('Runtime already started or still stopping');
     this.disconnected = false;
     this.exitedChild = undefined;
     this.stderr = '';
-    const child = spawn(node, [entry, '--mode', 'rpc', ...args], { cwd, env, windowsHide: true, stdio: 'pipe' });
+    this.runtimePid = undefined;
+    this.job = this.containTree && process.platform === 'win32'
+      ? { name: `Local\\DFSC-${randomUUID()}`, script: resolve(dirname(entry), '../../../windows-runtime-job.ps1') } : undefined;
+    const executable = this.job ? powershell() : node;
+    const launchArgs = this.job ? ['-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
+      '-File', this.job.script, '-Spec', Buffer.from(JSON.stringify({ job: this.job.name, node,
+        args: [entry, '--mode', 'rpc', ...args], cwd }), 'utf8').toString('base64')] : [entry, '--mode', 'rpc', ...args];
+    const child = spawn(executable, launchArgs, { cwd, env, windowsHide: true, stdio: 'pipe' });
     this.child = child;
     const decoder = new JsonLines(value => {
       if (this.child !== child) return;
+      if (this.job && !this.runtimePid && value?.type === 'dfsc_runtime_job' && value.job === this.job.name
+        && Number.isInteger(value.pid) && value.pid > 0) {
+        this.runtimePid = value.pid;
+        return;
+      }
       const shutdown = this.managementShutdown;
       if (shutdown?.child === child && value?.type === 'response' && value.id === shutdown.id) {
         if (value.success === true && value.data?.shutdown === true) shutdown.acknowledged = true;
@@ -134,6 +151,7 @@ export class RpcProcess {
       // A final response can still be buffered on stdout when exit is emitted.
       if (this.managementShutdown?.child === child) return;
       this.child = undefined;
+      this.runtimePid = undefined;
       this.exitedChild = child;
       if (this.disconnected) return;
       const details = { kind: 'runtime-exit', exitCode: code ?? null, signal: signal ?? null, stderrTail: stderrForLog(this.stderr) };
@@ -166,6 +184,20 @@ export class RpcProcess {
     if (this.stopping) return this.stopping;
     return this.stopProcess(false);
   }
+  async stopForUpdate() {
+    const child = this.child;
+    const job = this.job;
+    if (process.platform !== 'win32' || !job || !this.runtimePid || !child?.pid || this.stopping || this.disconnected
+      || child.exitCode !== null || child.signalCode !== null) throw new Error('capability:release-unconfirmed');
+    await this.stopProcess(false, 5000, true);
+  }
+  private async verifyJob(job: { name: string; script: string }) {
+    await new Promise<void>((resolve, reject) => {
+      execFile(powershell(), ['-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
+        '-File', job.script, '-Verify', job.name], { windowsHide: true, timeout: 15000 },
+      error => error ? reject(new Error('capability:release-unconfirmed')) : resolve());
+    });
+  }
   async stopManagement(timeoutMs = 5000): Promise<void> {
     if (!Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 30000)
       throw new RangeError('Management shutdown timeout must be between 1 and 30000ms');
@@ -175,9 +207,13 @@ export class RpcProcess {
     }
     return this.stopProcess(true, timeoutMs);
   }
-  private async stopProcess(management: boolean, timeoutMs = 5000) {
+  private async stopProcess(management: boolean, timeoutMs = 5000, requireTree = false) {
     const child = this.child;
     if (!child) {
+      if (!management && this.job && this.exitedChild) {
+        await this.verifyJob(this.job);
+        this.exitedChild = undefined;
+      }
       if (management && (this.managementStopError || this.exitedChild)) {
         const previous = this.managementStopError;
         const error = new RpcManagementStopError(previous?.message ?? 'Management worker exited without shutdown acknowledgment',
@@ -190,8 +226,10 @@ export class RpcProcess {
     this.disconnected = true;
     this.fail(new Error('Runtime stopped'));
     this.stoppingManagement = management;
-    this.stopping = (management ? this.terminateManagement(child, timeoutMs) : this.terminate(child)).then(() => {
+    this.stopping = (management ? this.terminateManagement(child, timeoutMs) : this.terminate(child, requireTree)).then(async () => {
+      if (!management && this.job) await this.verifyJob(this.job);
       if (this.child === child) this.child = undefined;
+      this.runtimePid = undefined;
       this.exitedChild = undefined;
       this.managementStopError = undefined;
     }).finally(() => { this.stopping = undefined; this.stoppingManagement = false; });
@@ -232,13 +270,13 @@ export class RpcProcess {
       } catch { failed(); }
     });
   }
-  private async terminate(child: ChildProcessWithoutNullStreams) {
+  private async terminate(child: ChildProcessWithoutNullStreams, requireTree = false) {
     if (process.platform === 'win32' && child.pid) {
       const code = await new Promise<number | null>((resolve, reject) => {
         const killer = spawn('taskkill.exe', ['/PID', String(child.pid), '/T', '/F'], { windowsHide: true, stdio: 'ignore' });
         killer.on('error', () => reject(new Error('Runtime process-tree termination failed: helper unavailable')));
         killer.on('exit', (code, signal) => {
-          if (code === 0 || code === 128) resolve(code);
+          if (code === 0 || code === 128 && !requireTree || this.job) resolve(code);
           else reject(new Error(`Runtime process-tree termination failed (${code ?? signal ?? 'unknown'})`));
         });
       });

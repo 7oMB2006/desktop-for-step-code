@@ -35,6 +35,10 @@ export function capabilityErrorText(error: unknown, zh: boolean) {
     'resource-in-use': ['插件仍被会话占用或无法确认已释放。请先在 MCP 中停用其服务并重启相关会话，再更新或卸载。', 'The plugin is still in use or its release could not be verified. Disable its MCP servers and restart the relevant sessions before updating or uninstalling.'],
     'update-capabilities-changed': ['新版的服务结构或默认开关已变化，需要迁移确认；本次未替换旧版。', 'Service declarations or defaults changed and require migration review; the installed version was not replaced.'],
     'update-recovery-required': ['插件更新恢复未完成。请停止使用该插件并保留现场，不要重装覆盖；需要检查恢复记录。', 'Plugin update recovery needs attention. Stop using this plugin and preserve its files; do not overwrite it by reinstalling.'],
+    'release-unconfirmed': ['无法确认相关进程已全部退出，未继续更新。请查看会话状态后重新检查。', 'Complete process exit could not be confirmed. The update was stopped; review the sessions and check again.'],
+    'runtime-history-unavailable': ['会话的持久历史暂不可用，无法安全重启。请保留会话并核对历史文件后再更新。', 'Saved session history is unavailable, so this session cannot be safely restarted. Preserve it and review the history files before updating.'],
+    'update-operation-interrupted': ['上次更新被中断，安装与会话恢复结果需要核对。请保留现场，不要重复更新。', 'The previous update was interrupted. Verify installation and session recovery before retrying; preserve the existing files.'],
+    'update-operation-record-failed': ['更新进度记录未能保存，请核对安装结果和会话状态，勿重复提交。', 'Update progress could not be saved. Review the installation and sessions; do not repeat the update blindly.'],
     'busy': ['共享设置、撤销或更新操作尚未结束，请完成后重试。', 'A shared settings, undo or update operation is still in progress. Finish it and retry.'],
     'workspace-busy': ['工作区正在切换，请等待切换完成后重试。', 'The workspace is changing. Wait for it to finish and retry.'],
     'session-busy': ['有会话仍在执行任务、整理上下文或变更状态，请结束后重试。', 'A session is running, compacting or changing state. Wait for it to finish and retry.'],
@@ -61,6 +65,6 @@ export function capabilityErrorText(error: unknown, zh: boolean) {
 }
 
 export function capabilityWarningText(value: string, zh: boolean) {
-  return /^capability:[a-z-]+; diagnostic:[a-f0-9]{12}$/u.test(value)
+  return /^capability:[a-z-]+(?:; diagnostic:[a-f0-9]{12})?$/u.test(value)
     ? capabilityErrorText(value, zh) : value;
 }

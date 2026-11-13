@@ -47,17 +47,27 @@ const samples = [], errors = [];
 try {
   const page = await app.firstWindow();
   page.on('pageerror', error => errors.push(error.message));
-  await app.evaluate(({ BrowserWindow, dialog }) => {
+  await app.evaluate(({ app, BrowserWindow, dialog }) => {
     const window = BrowserWindow.getAllWindows()[0];
     window.setOpacity(0); window.setIgnoreMouseEvents(true); window.showInactive();
     dialog.showMessageBox = async () => ({ response: 1 });
     // Fixture-only instrumentation records command names and durations, never payloads.
+    const { join, resolve } = process.getBuiltinModule('path');
+    const runtime = app.isPackaged ? join(process.resourcesPath, 'runtime') : resolve('runtime');
+    const sessionEntry = join(runtime, 'step/dist/bundle/step.js');
     const childProcess = process.getBuiltinModule('child_process');
     const spawn = childProcess.spawn;
     const trace = globalThis.navigationPerformance = { phase: 'startup', runtimes: [], commands: [] };
     childProcess.spawn = function (...args) {
       const child = spawn.apply(this, args);
-      if (!args[1]?.includes('--mode') || !args[1]?.includes('rpc')) return child;
+      let workerArgs = args[1];
+      const jobIndex = workerArgs?.indexOf('-File'), specIndex = workerArgs?.indexOf('-Spec');
+      if (jobIndex >= 0 && specIndex >= 0 && workerArgs[jobIndex + 1] === join(runtime, 'windows-runtime-job.ps1')) {
+        try { workerArgs = JSON.parse(Buffer.from(workerArgs[specIndex + 1], 'base64').toString('utf8')).args; }
+        catch { return child; }
+      }
+      if (!Array.isArray(workerArgs) || workerArgs[0] !== sessionEntry
+        || !workerArgs.includes('--mode') || !workerArgs.includes('rpc')) return child;
       const run = { phase: trace.phase, spawnAt: performance.now(), firstResponseMs: null, exited: false };
       trace.runtimes.push(run);
       const pending = new Map();

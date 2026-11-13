@@ -10,6 +10,7 @@ import { CapabilityService } from '../electron/capability-service';
 import { SessionRuntimes } from '../electron/session-runtimes';
 import { isolatedEnvironment } from '../electron/runtime';
 import type { RuntimeEvent } from '../src/contracts';
+import { PluginConfigurationStore } from '../electron/plugin-configuration.mjs';
 
 async function fixture() {
   const folder = await realpath(await mkdtemp(join(tmpdir(), 'dfsc-skeleton-native-'))), root = join(folder, 'profile');
@@ -17,7 +18,7 @@ async function fixture() {
   const runtime = join(folder, 'runtime'), cached = resolve(process.env.DESKTOP_TEST_RUNTIME ?? 'runtime');
   await mkdir(runtime);
   for (const name of ['step', 'node']) await symlink(join(cached, name), join(runtime, name), process.platform === 'win32' ? 'junction' : 'dir');
-  for (const name of ['capability-admin.mjs', 'capability-failure.mjs', 'marketplace-refresh.mjs', 'capability-settings.mjs', 'plugin-files.mjs', 'theme-composition.mjs', 'plugin-update.mjs', 'plugin-configuration.mjs'])
+  for (const name of ['capability-admin.mjs', 'capability-failure.mjs', 'marketplace-refresh.mjs', 'capability-settings.mjs', 'plugin-files.mjs', 'theme-composition.mjs', 'plugin-update.mjs', 'plugin-configuration.mjs', 'plugin-schema-update.mjs', 'windows-runtime-job.ps1'])
     await copyFile(resolve('electron', name), join(runtime, name));
   const service = new CapabilityService({ root, runtime, node: join(runtime, 'node', process.platform === 'win32' ? 'node.exe' : 'node'),
     environment: () => isolatedEnvironment(root) });
@@ -128,7 +129,9 @@ test('native update rejects incompatible settings, service changes, stale candid
     }
     await writeFile(manifestPath, JSON.stringify({ ...original, version: '0.2.0' }));
     const schemaPath = join(source, 'dfsc.settings.json'), schemaBytes = await readFile(schemaPath);
-    await writeFile(schemaPath, Buffer.concat([schemaBytes, Buffer.from('\n')]));
+    const incompatible = JSON.parse(schemaBytes.toString('utf8'));
+    incompatible.groups[0].fields[0].default = 'Changed default';
+    await writeFile(schemaPath, JSON.stringify(incompatible));
     await assert.rejects(service.mutate(await updateInput()), /configuration-schema-changed/);
     await writeFile(schemaPath, schemaBytes);
     await writeFile(manifestPath, JSON.stringify({ ...original, version: '0.2.0', mcpServers: { ...original.mcpServers,
@@ -148,6 +151,74 @@ test('native update rejects incompatible settings, service changes, stale candid
     await assert.rejects(service.mutate(await updateInput()), /stale/);
   } finally { await service.stop(); await rm(folder, { recursive: true, force: true, maxRetries: 5 }); }
 });
+for (const state of ['active', 'unconfigured', 'revoked'] as const) {
+  test(`native compatible schema migration preserves ${state} configuration without read-side writes`, { timeout: 90000 }, async () => {
+    const { folder, service, market, root } = await fixture();
+    try {
+      const marketSchema = join(market, 'plugins/dfsc-config-example/dfsc.settings.json');
+      const schema = JSON.parse(await readFile(marketSchema, 'utf8'));
+      schema.groups[0].fields.push({ id: 'key', type: 'secret', label: 'Fixture key' });
+      await writeFile(marketSchema, JSON.stringify(schema));
+      await service.mutate({ action: 'marketplace-add', source: market });
+      await service.mutate({ action: 'plugin-install', name: 'dfsc-config-example', marketplace: 'dfsc-config-example-local' });
+      let plugin = (await service.catalog()).plugins[0];
+      const initial = await service.configuration({ ref: plugin.package!.ref });
+      let revision = initial.revision;
+      if (state !== 'unconfigured') {
+        const saved = await service.configuration({ ref: plugin.package!.ref }, { ref: plugin.package!.ref, revision,
+          values: { ...initial.values, prefix: 'Keep ', uppercase: false, limit: 1 },
+          secrets: { key: { action: 'replace', value: 'native-migration-private' } } });
+        revision = saved.revision;
+      }
+      if (state === 'revoked') await new PluginConfigurationStore(root).revoke(plugin.id);
+      const target = join(root, 'plugins/dfsc-config-example');
+      const { ConfigurationReader } = await import(pathToFileURL(join(target, 'server/configuration.mjs')).href);
+      const reader = new ConfigurationReader(pathToFileURL(`${target}/`));
+      if (state === 'active') await reader.current();
+      const sourceName = (await service.catalog()).marketplaces.find(item => item.kind === 'local')!.name;
+      const source = join(root, 'marketplaces', sourceName, 'plugins/dfsc-config-example');
+      const manifest = JSON.parse(await readFile(join(source, 'step.plugin.json'), 'utf8'));
+      await writeFile(join(source, 'step.plugin.json'), JSON.stringify({ ...manifest, version: '0.2.0' }));
+      schema.groups[0].title = 'Updated presentation';
+      schema.groups[0].fields.push({ id: 'optional', label: 'Optional new setting', type: 'text' });
+      await writeFile(join(source, 'dfsc.settings.json'), JSON.stringify(schema, null, 2) + '\n');
+      plugin = (await service.catalog()).plugins[0];
+      const input = { id: plugin.id, ref: plugin.package!.ref, candidate: plugin.update!.ref! };
+      const receiptPath = join(root, 'desktop-plugins/installations.json');
+      const before = await readFile(receiptPath);
+      const bindingPath = join(root, 'desktop-plugins/bindings/dfsc-config-example.json');
+      const bindingBefore = await readFile(bindingPath).catch(() => undefined);
+      const settingsPath = join(root, 'desktop-plugins/settings');
+      const filesBefore = await import('node:fs/promises').then(fs => fs.readdir(settingsPath, { recursive: true }).catch(() => []));
+      const checked = await service.preflightUpdate(input);
+      assert.equal(checked.status, 'compatible');
+      assert.ok((await readFile(receiptPath)).equals(before));
+      assert.deepEqual(await readFile(bindingPath).catch(() => undefined), bindingBefore);
+      assert.deepEqual(await import('node:fs/promises').then(fs => fs.readdir(settingsPath, { recursive: true }).catch(() => [])), filesBefore);
+      assert.doesNotMatch(JSON.stringify(checked), /native-migration-private|values|secrets/);
+      await service.mutate({ action: 'plugin-update', ...input }, undefined, checked);
+      plugin = (await service.catalog()).plugins[0];
+      const configured = await service.configuration({ ref: plugin.package!.ref });
+      assert.equal(plugin.version, '0.2.0');
+      assert.equal(configured.configured, state === 'active');
+      assert.equal(Object.hasOwn(configured.values, 'optional'), false);
+      if (state === 'active') {
+        assert.notEqual(configured.revision, revision);
+        assert.equal(configured.values.prefix, 'Keep ');
+        assert.equal(configured.values.uppercase, false);
+        assert.equal(configured.values.limit, 1);
+        assert.equal(configured.hasSecret.key, true);
+        await assert.rejects(reader.current(), /restart/);
+        const current = await new ConfigurationReader(pathToFileURL(`${target}/`)).current();
+        assert.equal(current.values.prefix, 'Keep ');
+        assert.equal(current.secrets.key, 'native-migration-private');
+      } else {
+        assert.equal(configured.revision, 'unconfigured');
+        assert.deepEqual(await readFile(bindingPath).catch(() => undefined), bindingBefore);
+      }
+    } finally { await service.stop(); await rm(folder, { recursive: true, force: true, maxRetries: 5 }); }
+  });
+}
 test('native installation preserves provenance and blocks two package names declaring the same runtime ID', { timeout: 90000 }, async () => {
   const { folder, service, market, root } = await fixture();
   try {

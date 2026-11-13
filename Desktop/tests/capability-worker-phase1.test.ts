@@ -52,7 +52,7 @@ async function load(key) {
       for (const [name, value] of Object.entries(values)) this.setExport(name, value);
     }, { context, identifier: key });
   } else {
-    assert.ok(['capability-settings.mjs', 'capability-failure.mjs', 'plugin-files.mjs', 'theme-composition.mjs', 'plugin-update.mjs', 'plugin-configuration.mjs'].includes(key));
+    assert.ok(['capability-settings.mjs', 'capability-failure.mjs', 'plugin-files.mjs', 'theme-composition.mjs', 'plugin-update.mjs', 'plugin-configuration.mjs', 'plugin-schema-update.mjs'].includes(key));
     module = new SourceTextModule(readFileSync(join(repository, 'Desktop/electron', key), 'utf8'),
       { context, identifier: key });
   }

@@ -14,8 +14,10 @@ import { executeWithLog } from './ci-macos.mjs';
 const files = readdirSync(new URL('../Desktop/scripts/', import.meta.url)).filter(file => /^verify-.*\.mjs$/.test(file));
 test('macOS inherits shared feature coverage with only explicit native exclusions', () => {
   validateMacosInventory(files);
-  assert.deepEqual(Object.keys(macosExclusions), ['verify-windows-commands.mjs']);
+  assert.deepEqual(Object.keys(macosExclusions), ['verify-windows-commands.mjs', 'verify-plugin-update-electron.mjs']);
+  assert.match(macosExclusions['verify-plugin-update-electron.mjs'], /Windows Job Object/);
   const scripts = macosGroupScripts('all');
+  assert.ok(!scripts.includes('verify-plugin-update-electron.mjs'));
   for (const script of Object.values(acceptanceGroups).flat()) {
     assert.ok(scripts.includes(script) || script in macosExclusions, script);
   }

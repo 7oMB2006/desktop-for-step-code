@@ -4,6 +4,7 @@ import { mkdtemp, mkdir, writeFile, readFile, realpath } from 'node:fs/promises'
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { createServer } from 'node:http';
+import { installRuntimeFixturePreload } from './runtime-transport-fixture.mjs';
 
 const profile = await realpath(await mkdtemp(join(tmpdir(), 'desktop-account-settings-')));
 const requests = [];
@@ -139,14 +140,7 @@ try {
   assert.equal(refreshed.sessions.length, 0);
   assert.equal(refreshed.runtimes.length, 0);
   // Official login owns the endpoint, regardless of models.json baseUrl overrides.
-  await app.evaluate((_, preload) => {
-    const cp = process.getBuiltinModule('child_process'), spawn = cp.spawn;
-    cp.spawn = function(file, args, options) {
-      if (args?.some(arg => /step\.js$/.test(arg))) args = ['--require', preload, ...args];
-      return spawn.call(this, file, args, options);
-    };
-    process.getBuiltinModule('module').syncBuiltinESMExports();
-  }, transportPreload);
+  await app.evaluate(installRuntimeFixturePreload, { preload: transportPreload, admin: false });
   const created = await page.evaluate(id => window.desktop.createDraftSession(id), refreshed.draftId);
   assert.equal(created.state.model.id, 'step-thinking-alternative');
   assert.equal(created.state.thinkingLevel, refreshed.state.thinkingLevel, 'Created runtime must use the effort displayed in the proposal, not its own model-switch fallback');

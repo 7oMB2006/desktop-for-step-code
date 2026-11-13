@@ -214,9 +214,15 @@ try {
     globalThis.navigationReleaseStartup = index => releases[index]?.();
     childProcess.spawn = function (...args) {
       const child = spawn.apply(this, args);
+      let workerArgs = args[1];
+      const jobIndex = workerArgs?.indexOf('-File'), specIndex = workerArgs?.indexOf('-Spec');
+      if (jobIndex >= 0 && specIndex >= 0 && workerArgs[jobIndex + 1] === join(runtime, 'windows-runtime-job.ps1')) {
+        try { workerArgs = JSON.parse(Buffer.from(workerArgs[specIndex + 1], 'base64').toString('utf8')).args; }
+        catch { return child; }
+      }
       // Management RPC also spawns here, but cannot consume a cold-session slot.
-      if (claimed >= 2 || args[1]?.[0] !== sessionEntry
-        || !args[1]?.includes('--mode') || !args[1]?.includes('rpc')) return child;
+      if (claimed >= 2 || !Array.isArray(workerArgs) || workerArgs[0] !== sessionEntry
+        || !workerArgs.includes('--mode') || !workerArgs.includes('rpc')) return child;
       const index = claimed++;
       const write = child.stdin.write;
       let held = false;

@@ -12,6 +12,7 @@ export function pluginUpdateChangeText(code: string, zh: boolean) {
     'presentation': ['显示信息调整，保留配置', 'Presentation changes; settings retained'],
     'options-extended': ['枚举选项扩展，保留原选择', 'Options extended; existing selection retained'],
     'optional-added': ['新增可选设置，未设置的值仍留空', 'Optional setting added; missing values stay unset'],
+    'configuration-added': ['首次提供配置，更新后需设置，不继承旧秘密或授权', 'First configuration added; configure after updating, without inheriting legacy secrets or authorization'],
     'input-required': ['新增必填设置，本轮暂不支持补填升级', 'Required setting added; fill-in upgrades are not supported yet'],
     'default-changed': ['默认值发生变化，需要单独确认旧用户行为', 'Default changed; existing behavior needs separate review'],
     'field-removed': ['删除或重命名字段，暂不支持自动迁移', 'Removed or renamed field; automatic migration is unsupported'],

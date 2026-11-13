@@ -2,7 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { join, resolve } from 'node:path';
 import { PluginConfigurationStore } from './plugin-configuration.mjs';
 import { digest, optionalFile, packageFingerprint, plainFile, readReceipts, writePrivateData, PluginFileError } from './plugin-files.mjs';
-import { parseHostDeclaration, parseLaunch, parseModelSelection, hash, keys } from '../../examples/plugins/host-client/protocol.mjs';
+import { CAPABILITIES, parseHostDeclaration, parseLaunch, parseModelSelection, hash, id, keys } from '../../examples/plugins/host-client/protocol.mjs';
 
 export { parseHostDeclaration } from '../../examples/plugins/host-client/protocol.mjs';
 const fail = (code = 'stale') => { throw new PluginFileError(code); };
@@ -48,13 +48,17 @@ export class PluginHostBindingStore {
     } catch { fail(); }
     const { receipt, declaration, declarationHash } = identity;
     if (snapshot.version !== 1 || snapshot.instance !== receipt.instance || snapshot.pluginId !== receipt.id
-      || snapshot.fingerprint !== receipt.fingerprint || snapshot.declarationHash !== declarationHash
-      || snapshot.consumer !== declaration.consumer.server || snapshot.revision !== binding.revision
+      || !hash(snapshot.fingerprint) || !hash(snapshot.declarationHash) || !id(snapshot.consumer)
+      || snapshot.revision !== binding.revision
       || !['follow', 'independent'].includes(snapshot.mode)) fail();
-    parseModelSelection(snapshot.models, declaration.capabilities);
+    parseModelSelection(snapshot.models, CAPABILITIES);
     if (snapshot.mode === 'follow' && snapshot.configurationRevision !== null) fail();
     if (snapshot.mode === 'independent' && (!hash(snapshot.configurationRevision)
       || Object.keys(snapshot.models).length)) fail();
+    // A package update revokes the old selection, but must not prevent explicit reselection.
+    if (snapshot.fingerprint !== receipt.fingerprint) return { ...identity, revision: 'unconfigured' };
+    if (snapshot.declarationHash !== declarationHash || snapshot.consumer !== declaration.consumer.server) fail();
+    parseModelSelection(snapshot.models, declaration.capabilities);
     let configurationCurrent = snapshot.mode === 'follow';
     if (snapshot.mode === 'independent') {
       try {

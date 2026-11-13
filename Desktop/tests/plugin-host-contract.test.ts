@@ -20,13 +20,13 @@ const manifest = { id: 'dfsc-host-example', mcpServers: {
 const identity = { pluginId: manifest.id, consumer: 'example' };
 const invocation = (revision: string) => ({ requestId: newRequestId(), revision,
   capability: 'model.text' as const, input: { messages: [{ role: 'user' as const, content: 'offline fixture' }] } });
-async function fixture(t: test.TestContext, settings = false) {
+async function fixture(t: test.TestContext, settings = false, host = declaration) {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'dfsc-host-contract-')));
   t.after(() => rm(root, { recursive: true, force: true, maxRetries: 5 }));
   const directory = join(root, 'plugins', 'example');
   await mkdir(directory, { recursive: true });
   await writeFile(join(directory, 'step.plugin.json'), JSON.stringify(manifest));
-  await writeFile(join(directory, 'dfsc.host.json'), JSON.stringify(declaration));
+  await writeFile(join(directory, 'dfsc.host.json'), JSON.stringify(host));
   if (settings) await writeFile(join(directory, 'dfsc.settings.json'), JSON.stringify({
     schemaVersion: 1, consumer: { kind: 'json-file-v1', server: 'example' },
     groups: [{ id: 'connection', title: 'Connection', fields: [
@@ -130,6 +130,61 @@ test('orphan snapshots do not commit a mode, and corruption, unknown sources and
   await assert.rejects(store.current({ ...descriptor, provenance: 'unknown' }));
   await writeFile(join(directory, 'changed.txt'), 'changed');
   await assert.rejects(store.current(descriptor));
+});
+for (const changedDeclaration of [false, true]) test(`updated packages require explicit source reselection (declaration changed: ${changedDeclaration})`, async t => {
+  const { root, directory, descriptor, receipt, store } = await fixture(t, false, {
+    ...declaration, capabilities: ['model.text', 'model.asr'],
+  });
+  const first = await store.select(descriptor, { revision: 'unconfigured', mode: 'follow',
+    models: { 'model.asr': 'old-asr' } });
+  const pointerPath = join(root, 'desktop-plugins/host/bindings', `${descriptor.instance}.json`);
+  const snapshotPath = join(root, 'desktop-plugins/host/selections', descriptor.instance, `${first.revision}.json`);
+  const pointer = await readFile(pointerPath), snapshot = await readFile(snapshotPath);
+  await writeFile(join(directory, 'updated.txt'), 'new package');
+  if (changedDeclaration) await writeFile(join(directory, 'dfsc.host.json'), JSON.stringify({
+    ...declaration, capabilities: ['model.text'],
+  }));
+  const fingerprint = await packageFingerprint(directory), next = { ...descriptor, fingerprint };
+  await writeReceipts(root, { version: 1, installations: [{ ...receipt, fingerprint }] });
+  const reset = await store.current(next);
+  assert.equal(reset.revision, 'unconfigured');
+  assert.equal('mode' in reset, false);
+  assert.equal('models' in reset, false);
+  assert.deepEqual(await readFile(pointerPath), pointer);
+  assert.deepEqual(await readFile(snapshotPath), snapshot);
+  const broker = await mockHost(); t.after(() => broker.close());
+  await assert.rejects(store.launch(descriptor, broker.launch()), /stale/);
+  await assert.rejects(store.launch(next, broker.launch()), /invalid-configuration/);
+  await assert.rejects(store.select(next, { revision: first.revision, mode: 'follow' }), /stale-configuration/);
+  const selected = await store.select(next, { revision: 'unconfigured', mode: 'follow' });
+  assert.notEqual(selected.revision, first.revision);
+  assert.equal((await store.launch(next, broker.launch())).revision, selected.revision);
+  assert.deepEqual(await readFile(snapshotPath), snapshot, 'Explicit reselection does not erase history');
+});
+test('older-package selections must still have a valid identity and structure before being reset', async t => {
+  const { root, directory, descriptor, receipt, store } = await fixture(t);
+  const selected = await store.select(descriptor, { revision: 'unconfigured', mode: 'follow' });
+  const pointerPath = join(root, 'desktop-plugins/host/bindings', `${descriptor.instance}.json`);
+  const snapshotPath = join(root, 'desktop-plugins/host/selections', descriptor.instance, `${selected.revision}.json`);
+  const pointer = JSON.parse(await readFile(pointerPath, 'utf8'));
+  const snapshot = JSON.parse(await readFile(snapshotPath, 'utf8'));
+  await writeFile(join(directory, 'updated.txt'), 'new package');
+  const fingerprint = await packageFingerprint(directory), next = { ...descriptor, fingerprint };
+  await writeReceipts(root, { version: 1, installations: [{ ...receipt, fingerprint }] });
+  for (const changed of [
+    { instance: randomUUID() }, { pluginId: 'foreign-plugin' }, { fingerprint: 'not-a-hash' },
+    { declarationHash: 'not-a-hash' }, { consumer: '../foreign' }, { revision: 'f'.repeat(64) },
+    { mode: 'unknown' }, { mode: 'follow', configurationRevision: 'f'.repeat(64) },
+    { mode: 'independent', configurationRevision: null }, { authorized: true },
+    { models: { 'model.text': 'not-allowed' } }, { models: { 'model.asr': '\0' } },
+    { mode: 'independent', configurationRevision: 'f'.repeat(64), models: { 'model.asr': 'fixture' } },
+  ]) {
+    const bytes = JSON.stringify({ ...snapshot, ...changed });
+    await writeFile(snapshotPath, bytes);
+    await writeFile(pointerPath, JSON.stringify({ ...pointer,
+      contentHash: createHash('sha256').update(bytes).digest('hex') }));
+    await assert.rejects(store.current(next), Error, JSON.stringify(changed));
+  }
 });
 test('changed independent settings stop launches, but never prevent explicit recovery to follow mode', async t => {
   const { descriptor, store } = await fixture(t, true);

@@ -2342,6 +2342,8 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
           copyPath, { kind: 'open-copy', sessionId: copy.id, permissionPreset: source?.permissionPreset, name });
         copyOpened = true;
         await modelSelections.copyHistory(sessionId, worker.state!.sessionId!);
+        // Startup may invalidate its initial history read; bindings need the copied calls.
+        await runtimes.read(worker);
         await workflowBindings.copyHistory(sessionId, worker.state!.sessionId!, worker.messages);
         await runtimes.read(worker);
         preferences.workspace = worker.cwd;
@@ -2378,6 +2380,7 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
           sessionPath, { kind, entryId, leafId: source.leafId, permissionPreset: source.permissionPreset,
             name });
         await modelSelections.copyHistory(source.state!.sessionId!, worker.state!.sessionId!);
+        await runtimes.read(worker);
         await workflowBindings.copyHistory(source.state!.sessionId!, worker.state!.sessionId!, worker.messages);
         await runtimes.read(worker);
         selectRuntime(surface, worker);

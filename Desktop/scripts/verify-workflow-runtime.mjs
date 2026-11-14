@@ -235,6 +235,8 @@ try {
   const script = `await agent("WORKFLOW-RECOVERY-A", ${options}); await agent("WORKFLOW-RECOVERY-B", ${options}); return await agent("WORKFLOW-RECOVERY-C", ${options});`;
   recoveryCalls.set('WORKFLOW-STOP', { script, agentTimeoutMs: 30000 });
   const submitRecovery = async task => {
+    const owner = await page.evaluate(() => window.desktop.snapshot());
+    await waitForSessionFixtureTools(page, owner.runtimeId);
     await page.evaluate(message => window.desktop.command('prompt', { message }), task);
     return waitSnapshot(async state => {
       for (const request of state.requests ?? []) {
@@ -308,7 +310,9 @@ try {
   });
   await waitSnapshot(state => state.status === 'ready' && state.sessions.some(session => session.id === sessionId));
   await page.evaluate(id => window.desktop.switchSession(id), sessionId);
-  const afterCrash = await waitSnapshot(state => state.state?.sessionId === sessionId && !state.state.isStreaming);
+  const afterCrash = await waitSnapshot(state => state.state?.sessionId === sessionId && !state.state.isStreaming
+    && state.messages.some(message => message.role === 'assistant' && Array.isArray(message.content)
+      && message.content.some(block => block.type === 'toolCall' && block.id === 'WORKFLOW-CRASH')));
   const crashResult = afterCrash.messages.find(message => message.toolCallId === 'WORKFLOW-CRASH');
   assert.equal(crashResult, undefined, 'abrupt termination did not persist a final tool result');
   await page.reload();

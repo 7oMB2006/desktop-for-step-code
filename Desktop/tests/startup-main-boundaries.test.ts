@@ -20,6 +20,45 @@ function find(file: ts.SourceFile, predicate: (node: ts.Node) => boolean): ts.No
 const javascript = (source: string) => ts.transpileModule(source, {
   compilerOptions: { target: ts.ScriptTarget.ES2022 },
 }).outputText;
+
+for (const method of ['cloneSession', 'branchSession']) {
+  test(`actual main ${method} reads copied messages before copying Workflow bindings, then hydrates them`, async () => {
+    const clause = find(main, node => ts.isCaseClause(node)
+      && node.expression.getText(main) === `'${method}'`) as ts.CaseClause;
+    const calls: string[] = [];
+    const visit = (node: ts.Node) => {
+      if (ts.isExpressionStatement(node) && ts.isAwaitExpression(node.expression)
+        && ts.isCallExpression(node.expression.expression)
+        && ['modelSelections.copyHistory', 'workflowBindings.copyHistory', 'runtimes.read']
+          .includes(node.expression.expression.expression.getText(main))) calls.push(node.getText(main));
+      ts.forEachChild(node, visit);
+    };
+    visit(clause);
+    const start = calls.findIndex(call => call.includes('modelSelections.copyHistory'));
+    assert.ok(start >= 0);
+    const statements = calls.slice(start);
+    const worker = { state: { sessionId: 'copy' }, messages: [] as object[] };
+    const history = [{ role: 'assistant', content: [{ type: 'toolCall', id: 'interrupted', name: 'workflow' }] }];
+    const order: string[] = [];
+    let copied = false;
+    const run = new Function('worker', 'source', 'sessionId', 'modelSelections', 'workflowBindings', 'runtimes',
+      javascript(`return (async () => { ${statements.join('\n')} })();`));
+    await run(worker, { state: { sessionId: 'original' } }, 'original',
+      { copyHistory: async () => { order.push('model'); } },
+      { copyHistory: async (from: string, to: string, messages: object[]) => {
+        assert.equal(from, 'original'); assert.equal(to, 'copy');
+        assert.deepEqual(messages, history, 'an empty startup snapshot cannot filter out Workflow bindings');
+        copied = true; order.push('bindings');
+      } },
+      { read: async (owner: typeof worker) => {
+        assert.equal(owner, worker);
+        order.push(copied ? 'hydrate' : 'history');
+        worker.messages = history;
+      } });
+    assert.deepEqual(order, ['model', 'history', 'bindings', 'hydrate']);
+  });
+}
+
 function submitCallback(constructor: 'RemoteManager' | 'ExternalConnectorTasks') {
   const expression = find(main, node => ts.isNewExpression(node)
     && node.expression.getText(main) === constructor) as ts.NewExpression;

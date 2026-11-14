@@ -15311,3 +15311,27 @@ Windows interface 与 sessions 已通过；汇总任务失败是上述失败的�
 相关五个文件最终定向复验 116/116，CI 文档与协议 runner 自测 7/7；
 未改产品代码或运行时资产，不重建包、不动日用配置。
 本段记录为本地修复证据，新 head 的完整云端检查需独立通过。
+
+## Session Startup CI Follow-up (2026-11-14)
+
+PR #246 follow-up `d321fcc` passed Windows startup/new-session/Plan and the
+other session fixtures before failing first-run's missing clean-machine MCP
+command and session-move's immediate restored-history assertion. The fixtures
+now supply a valid disabled StepPage declaration after genuine fresh-profile
+detection and await selected history. Custom-provider successful submissions
+use authoritative tool readiness, awaited IPC polling and bounded orderly
+shutdown; no production admission gate or deadline was relaxed.
+
+Additional local Workflow acceptance found missing cloned interruption metadata.
+Clone/fork now read copied messages before filtering Workflow bindings and
+reread after copying them. The original immediate cloned-state assertion is
+retained; forced-crash coverage still terminates the owned fixture tree.
+
+Final local evidence under
+`D:\DFSC Builds\session-startup-decoupling\evidence-20261114\ci-fix`:
+four focused test files passed 88 tests; typecheck and production build passed;
+first-run, session-move, custom-providers, Workflow runtime and session-branching
+completed with exit code zero in their `r2`/`r3` logs. Earlier failing attempts
+are diagnostics, not passes. No installer, runtime pin upgrade, production
+profile change, shortcut change, merge or release is included.
+Current-head cloud CI remains a separate required check.

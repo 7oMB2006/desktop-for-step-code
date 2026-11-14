@@ -378,6 +378,26 @@ The fresh `patch-replay-ci-fix` checkout verifies the Windows patch sequence and
 macOS overlay source hashes; this is not a native macOS build or acceptance run.
 Cloud CI must be checked again on the pushed revision before calling the PR green.
 
+The next run at `d321fcc` exposed two more fixture assumptions: clean first-run
+settings have no local StepPage command to spread into a disabled declaration,
+and navigation may return before restored messages are published. First-run now
+supplies a valid disabled declaration even on a clean machine, and session-move
+waits for the selected history. Custom-provider success paths wait for tools;
+their IPC polls and orderly shutdown now use the same bounded fixture helpers.
+
+Workflow acceptance also caught a product regression: startup events can
+invalidate the first history read, leaving no calls when clone/fork filters
+Workflow bindings. Both paths now read copied calls before transferring bindings,
+then reread to hydrate their metadata. The immediate cloned-interruption assertion
+remains unchanged. Crash acceptance positively waits for the saved assistant call
+before asserting that no final result was persisted.
+
+The additional local four-file regression selection passed 88 tests, typecheck
+and production build passed, and final zero-exit Electron logs include
+`verify-first-run-r2`, `verify-session-move-r2`, `verify-custom-providers-r2`,
+`verify-workflow-runtime-r3` and `verify-session-branching-r3` under `ci-fix`.
+The earlier failing runner attempts remain diagnostic evidence only.
+
 ## Remaining Boundaries
 
 This fixes startup coupling generically; it does not special-case Scrapling,

@@ -253,7 +253,9 @@ try {
   assert.equal(reopened.preferences.workspace, projects[1]);
   assert.equal(reopened.permissionPreset, 'ask');
   assert.equal(reopened.sessions.find(session => session.id === 'move-two').cwd, projects[0]);
-  assert.ok(JSON.stringify(reopened.messages).includes('Keep this brainstorm'));
+  const restored = await waitSnapshot(page, value => value.state?.sessionId === 'move-one'
+    && JSON.stringify(value.messages).includes('Keep this brainstorm'));
+  assert.ok(JSON.stringify(restored.messages).includes('Keep this brainstorm'));
   const restarted = await page.evaluate(() => window.desktop.restart());
   assert.equal(restarted.permissionPreset, 'ask', 'explicit runtime restart keeps moved history gated');
   const tomorrow = new Date(Date.now() + 86400000);

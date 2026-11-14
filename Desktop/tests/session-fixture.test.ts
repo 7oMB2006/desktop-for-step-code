@@ -300,6 +300,87 @@ test('first-run model fixture excludes unrelated MCP only after real fresh-profi
   assert.match(text.slice(intro, provider), /enabled: false/);
 });
 
+test('first-run MCP isolation supplies a valid disabled server on clean profiles without a local StepPage install', async () => {
+  const source = ts.createSourceFile('verify-first-run.mjs',
+    await readFile(new URL('../scripts/verify-first-run.mjs', import.meta.url), 'utf8'),
+    ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
+  let configure: ts.Node | undefined;
+  const visit = (node: ts.Node) => {
+    if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)
+      && node.expression.getText(source) === 'page.evaluate'
+      && node.arguments[0]?.getText(source).includes("window.desktop.saveMcp('steppage__steppage'"))
+      configure = node.arguments[0];
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+  assert.ok(configure);
+  const profiles: Record<string, { command: string; args: string[] }>[] = [
+    {}, { steppage__steppage: { command: '/local/steppage', args: ['serve'] } },
+  ];
+  for (const mcp of profiles) {
+    let calls = 0;
+    await runInNewContext(`(${configure.getText(source)})()`, {
+      window: { desktop: {
+        settings: async () => ({ mcp }),
+        saveMcp: async (name: string, config: { command: string; args: string[]; enabled: boolean }) => {
+          assert.equal(name, 'steppage__steppage');
+          assert.equal(config.enabled, false);
+          assert.equal(typeof config.command, 'string');
+          assert.ok(config.command.length > 0);
+          assert.ok(Array.isArray(config.args));
+          assert.equal(config.command, mcp.steppage__steppage?.command ?? 'node');
+          calls++;
+        },
+      } },
+    });
+    assert.equal(calls, 1);
+  }
+});
+
+test('restored-session assertions wait for the selected history rather than the navigation response', async () => {
+  const cases = [
+    {
+      script: 'verify-session-move.mjs', variable: 'restored',
+      pending: { state: { sessionId: 'move-one' }, messages: [] },
+      ready: { state: { sessionId: 'move-one' }, messages: [{ content: 'Keep this brainstorm' }] },
+      context: {},
+    },
+    {
+      script: 'verify-workflow-runtime.mjs', variable: 'afterCrash',
+      pending: { state: { sessionId: 'original', isStreaming: false }, messages: [] },
+      ready: { state: { sessionId: 'original', isStreaming: false },
+        messages: [{ role: 'assistant', content: [{ type: 'toolCall', id: 'WORKFLOW-CRASH' }] }] },
+      context: { sessionId: 'original' },
+    },
+  ];
+  for (const entry of cases) {
+    const source = ts.createSourceFile(entry.script,
+      await readFile(new URL(`../scripts/${entry.script}`, import.meta.url), 'utf8'),
+      ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
+    let initializer: ts.Expression | undefined;
+    const visit = (node: ts.Node) => {
+      if (ts.isVariableDeclaration(node) && node.name.getText(source) === entry.variable)
+        initializer = node.initializer;
+      ts.forEachChild(node, visit);
+    };
+    visit(source);
+    assert.ok(initializer && ts.isAwaitExpression(initializer), entry.variable);
+    const result = await runInNewContext(`(async () => ${initializer.getText(source)})()`, {
+      ...entry.context,
+      page: {},
+      waitSnapshot: async (...args: unknown[]) => {
+        const predicate = args.at(-1) as (snapshot: unknown) => boolean;
+        assert.equal(predicate(entry.pending), false, `${entry.variable}: empty cold history cannot pass`);
+        assert.equal(predicate({ ...entry.ready, state: { sessionId: 'unrelated' } }), false,
+          `${entry.variable}: unrelated history cannot pass`);
+        assert.equal(predicate(entry.ready), true);
+        return entry.ready;
+      },
+    });
+    assert.equal(result, entry.ready);
+  }
+});
+
 test('update installer fixture awaits native startup before creating a separate harness window', async () => {
   const source = ts.createSourceFile('verify-update-installer.mjs',
     await readFile(new URL('../scripts/verify-update-installer.mjs', import.meta.url), 'utf8'),

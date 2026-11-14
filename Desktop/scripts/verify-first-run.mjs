@@ -237,7 +237,9 @@ try {
   // Use the real settings API only after fresh-profile detection has completed.
   await page.evaluate(async () => {
     const settings = await window.desktop.settings();
-    await window.desktop.saveMcp('steppage__steppage', { ...settings.mcp.steppage__steppage, enabled: false });
+    await window.desktop.saveMcp('steppage__steppage', {
+      command: 'node', args: [], ...settings.mcp.steppage__steppage, enabled: false,
+    });
   });
   await page.locator('.first-run-service').filter({ hasText: '其他供应商' }).click();
   await page.getByRole('heading', { name: '自定义供应商', exact: true }).waitFor();

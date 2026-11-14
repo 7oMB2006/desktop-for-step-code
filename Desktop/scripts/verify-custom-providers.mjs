@@ -6,6 +6,8 @@ import { mkdtemp } from './test-profile.mjs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { createServer } from 'node:http';
+import { submitSessionFixture, waitForSessionFixtureSnapshot, waitForSessionFixtureTools } from './session-fixture.mjs';
+import { closeDesktopFixtureAndWait } from './close-desktop-fixture.mjs';
 
 const profile = await mkdtemp(join(tmpdir(), 'desktop-custom-providers-'));
 await writeFile(join(profile, 'preferences.json'), JSON.stringify({ language: 'zh', theme: 'dark', workspaces: [] }));
@@ -113,7 +115,7 @@ const waitFor = async predicate => {
   const until = Date.now() + 60000;
   while (Date.now() < until) {
     const state = await snapshot();
-    if (predicate(state)) return state;
+    if (await predicate(state)) return state;
     await page.waitForTimeout(100);
   }
   throw new Error('Provider snapshot wait timed out');
@@ -237,7 +239,7 @@ try {
   state = await snapshot();
   await page.getByRole('button', { name: '模型与思考强度' }).click();
   await page.getByRole('slider', { name: '思考强度' }).press('End');
-  await page.waitForFunction(async () => (await window.desktop.snapshot()).state?.thinkingLevel === 'ultra');
+  await waitFor(s => s.state?.thinkingLevel === 'ultra');
   assert.equal(await page.getByRole('slider', { name: '思考强度' }).getAttribute('aria-valuetext'), 'Ultra');
   await page.keyboard.press('Escape');
   const invalidLevel = await page.evaluate(async runtimeId => {
@@ -246,7 +248,7 @@ try {
   assert.equal(invalidLevel, true, 'undeclared thinking level is rejected');
   assert.equal((await snapshot()).state.thinkingLevel, 'ultra', 'draft keeps Ultra before its first message');
   await page.getByRole('textbox', { name: '消息', exact: true }).fill('Test custom provider');
-  await page.getByRole('textbox', { name: '消息', exact: true }).press('Enter');
+  await submitSessionFixture(page, () => page.getByRole('textbox', { name: '消息', exact: true }).press('Enter'));
   state = await waitFor(s => s.messages.some(m => m.role === 'assistant' && m.stopReason === 'stop'));
   assert.equal(state.state.model.provider, provider.id);
   assert.equal(requests.at(-1).path, '/v1/chat/completions');
@@ -289,7 +291,7 @@ try {
   });
   await page.getByRole('button', { name: 'Close', exact: true }).click();
   await page.locator('.settings-backdrop').waitFor({ state: 'detached' });
-  await app.close(); app = undefined;
+  await closeDesktopFixtureAndWait(app); app = undefined;
   await launch();
   await settings();
   const restored = await page.evaluate(async () => (await window.desktop.settings()).providers[0]);
@@ -303,7 +305,7 @@ try {
   hold = true;
   const prompt = page.getByRole('textbox', { name: '消息', exact: true });
   await prompt.fill('Hold this response');
-  await prompt.press('Enter');
+  await submitSessionFixture(page, () => prompt.press('Enter'));
   await waitFor(s => s.state?.isStreaming);
   const oldRuntime = await snapshot();
   const beforeProjection = await readFile(join(profile, 'step-runtime/models.json'), 'utf8');
@@ -378,7 +380,7 @@ try {
     await page.getByRole('button', { name: 'Close', exact: true }).click();
     await page.locator('.settings-backdrop').waitFor({ state: 'detached' });
     await page.getByRole('textbox', { name: '消息', exact: true }).fill(promptText);
-    await page.getByRole('textbox', { name: '消息', exact: true }).press('Enter');
+    await submitSessionFixture(page, () => page.getByRole('textbox', { name: '消息', exact: true }).press('Enter'));
     await page.getByText(reply, { exact: true }).waitFor({ timeout: 60000 });
     await waitFor(s => !s.state?.isStreaming);
     assert.equal(requests.at(-1).path.split('?')[0], path);
@@ -413,7 +415,7 @@ try {
     const beforeRequests = requests.length;
     await page.getByRole('textbox', { name: '消息', exact: true }).fill(`Test no-auth ${label}`);
     // Protocol labels end in slash tokens; Enter belongs to command completion.
-    await page.getByRole('button', { name: '发送', exact: true }).click();
+    await submitSessionFixture(page, () => page.getByRole('button', { name: '发送', exact: true }).click());
     try {
       const finished = await waitFor(s => !s.state?.isStreaming && (s.messages.filter(m => m.role === 'assistant' && m.stopReason === 'stop').length > beforeReplies
         || (s.messages.filter(m => m.role === 'user').length > beforeUsers && s.messages.at(-1)?.stopReason === 'error')));
@@ -445,6 +447,7 @@ try {
     const before = await snapshot();
     const replies = before.messages.filter(m => m.role === 'assistant' && m.stopReason === 'stop').length;
     const requestCount = requests.length;
+    await waitForSessionFixtureTools(page, before.runtimeId);
     await page.evaluate(async ({ message, id }) => window.desktop.command('prompt', { message }, id), { message, id: before.runtimeId });
     await waitFor(s => !s.state?.isStreaming && s.messages.filter(m => m.role === 'assistant' && m.stopReason === 'stop').length > replies);
     assert.ok(requests.length > requestCount, 'a new generation request must reach the fixture');
@@ -528,7 +531,8 @@ try {
   await page.getByRole('button', { name: '移除供应商', exact: true }).click();
   await page.getByRole('button', { name: '移除', exact: true }).click();
   await page.getByRole('button', { name: '移除供应商', exact: true }).waitFor({ state: 'hidden' });
-  await page.waitForFunction(async () => (await window.desktop.settings()).providers.length === 0);
+  await waitForSessionFixtureSnapshot(page, async () => (await page.evaluate(() => window.desktop.settings())).providers.length === 0,
+    'the provider removal to persist');
   assert.equal((await snapshot()).models.some(m => m.provider === provider.id), false);
   assert.deepEqual(errors, []);
   console.log('Custom provider UI, three wire protocols with and without authentication, real tool invocation, secure persistence, running save/add/remove, deferred idle application with stable identity, rename, relaunch, disable, rejected save and removal passed. Local HTTP fixtures only.');
@@ -546,6 +550,6 @@ try {
       if (state.state?.isStreaming) await window.desktop.command('abort', {}, state.runtimeId);
     }).catch(() => {});
   }
-  if (app) await app.close();
-  await new Promise(resolve => server.close(resolve));
+  try { if (app) await closeDesktopFixtureAndWait(app); }
+  finally { await new Promise(resolve => server.close(resolve)); }
 }

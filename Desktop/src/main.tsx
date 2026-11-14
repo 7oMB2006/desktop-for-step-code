@@ -35,11 +35,13 @@ import { ConversationDisclosureMemory, type ConversationDisclosureState } from '
 import { useWindowComposer } from './use-window-composer';
 import { composerErrorText, composerKey, composerOwner, type ComposerOwner, type ComposerReceipt, type WindowPresentation } from './window-conversation';
 import './session-navigation.css';
+import { RuntimeStartupStatus } from './RuntimeStartupStatus';
+import { startupBlocked } from './runtime-startup';
 import { WindowBar, type WindowMenu } from './WindowBar';
 import { NoticeToast, type NoticeToastItem } from './NoticeToast';
 import { PerformanceBar } from './PerformanceBar';
 import { WorkingIndicator } from './WorkingIndicator';
-import { ModelEffortPicker } from './ModelEffortPicker';
+import { ModelEffortPicker, ModelEffortPlaceholder } from './ModelEffortPicker';
 import { PermissionPicker } from './PermissionPicker';
 import { LaunchStatus } from './LaunchStatus';
 import { TurnStatusTrigger } from './TurnStatusTrigger';
@@ -292,7 +294,9 @@ function App() {
   const [clock, setClock] = useState(() => performance.now());
   const [loading, setLoading] = useState(true);
   useEffect(() => { window.dispatchEvent(new Event('desktop-shell-ready')); }, []);
-  const [navigationTarget, setNavigationTarget] = useState<{ session: Session; reading?: SessionReading } | null>(null);
+  const [navigationTarget, setNavigationTarget] = useState<{
+    session: Session; reading?: SessionReading; failed?: boolean; readingUnavailable?: boolean;
+  } | null>(null);
   const [remoteWait, setRemoteWait] = useState<RemoteNavigationWait>();
   const [preparedMarkdown, setPreparedMarkdown] = useState<{ sessionId: string; trees?: PreparedMarkdown }>();
   const markdownPreparation = useRef<AbortController | undefined>(undefined);
@@ -300,6 +304,10 @@ function App() {
   const [navigationSlow, setNavigationSlow] = useState(false);
   const navigationSequence = useRef(0);
   const navigationPending = useRef<{ sequence: number; session: Session; reading?: SessionReading } | null>(null);
+  useEffect(() => () => {
+    const pending = navigationPending.current;
+    if (pending) void bridge?.cancelSessionReading?.(pending.sequence).catch(() => {});
+  }, []);
   const readingCache = useRef(new SessionReadingCache());
   const previewPosition = useRef<ReadingPosition | undefined>(undefined);
   const readingRestore = useRef<{ runtimeId?: string; position: ReadingPosition; expectedTop?: number } | undefined>(undefined);
@@ -620,10 +628,10 @@ function App() {
   }, []);
   useEffect(() => {
     setNavigationSlow(false);
-    if (!navigationTarget) return;
+    if (!navigationTarget || navigationTarget.failed) return;
     const timer = setTimeout(() => setNavigationSlow(true), 180);
     return () => clearTimeout(timer);
-  }, [navigationTarget?.session.id]);
+  }, [navigationTarget?.session.id, navigationTarget?.failed]);
   useLayoutEffect(followLayout, [navigationTarget, followLayout]);
   const sidebarVisible = compactSidebar ? compactSidebarOpen : sidebar;
   const bottomTerminalExpanded = terminalDock === 'bottom' && bottomTerminalOpen && expandedRightPanel === 'terminal'
@@ -850,7 +858,9 @@ function App() {
       if (!navigationPending.current) rememberView();
       const saved = value.state?.sessionId ? composerBySession.current.get(value.state.sessionId) : undefined;
       composer.client.select(composerOwner(value));
-      setArrivingUser(null); setError(value.state?.sessionId ? errorsBySession.current.get(value.state.sessionId) ?? '' : ''); setNotice(value => value?.icon ? value : null); setDetails('');
+      setArrivingUser(null);
+      setError(composerErrorText(value.state?.sessionId ? errorsBySession.current.get(value.state.sessionId) ?? '' : '', value.preferences.language));
+      setNotice(value => value?.icon ? value : null); setDetails('');
       if (value.state?.sessionId) errorsBySession.current.delete(value.state.sessionId);
       stoppingRef.current = false; setStopping(false);
       follow.current = saved?.follow ?? true;
@@ -875,7 +885,23 @@ function App() {
     if (!bridge) return;
     const id = viewId.current;
     const value = await bridge.snapshot();
-    if (!switching.current && id === viewId.current && (!id || value.runtimeId === id)) installSnapshot(value);
+    if (!switching.current && !navigationPending.current && id === viewId.current && (!id || value.runtimeId === id)) installSnapshot(value);
+  };
+  const leaveReading = () => {
+    const pending = navigationPending.current;
+    if (!pending) return;
+    if (pending.reading && previewPosition.current) {
+      const saved = composerBySession.current.get(pending.session.id);
+      composerBySession.current.set(pending.session.id, {
+        draft: '', quotes: [], attachments: [], ...saved, ...previewPosition.current,
+      });
+    }
+    void bridge?.cancelSessionReading?.(pending.sequence).catch(() => {});
+    markdownPreparation.current?.abort();
+    setPreparedMarkdown(undefined);
+    navigationPending.current = null;
+    previewPosition.current = undefined;
+    setNavigationTarget(null);
   };
   const applySnapshot = async (action: () => Promise<Snapshot | null>) => {
     setFulltextOpen(false);
@@ -886,6 +912,7 @@ function App() {
     setSelectedBackgroundAgent(undefined);
     setSelectedWorkflow(null); setSelectedWorkflowAgent(null); setSubagentView('agent');
     if (switching.current) return;
+    leaveReading();
     switching.current = true; setLoading(true);
     let succeeded = false;
     await run(async () => { const result = await action(); if (result) installSnapshot(result); succeeded = true; });
@@ -903,6 +930,7 @@ function App() {
     if (!bridge || switching.current && !navigationPending.current) return false;
     if (!cronRuntimeId && !navigationPending.current && session.id === view.current.sessionId && data.status === 'connected') return true;
     if (!navigationPending.current) rememberView();
+    else leaveReading();
     markdownPreparation.current?.abort();
     const preparation = new AbortController();
     markdownPreparation.current = preparation;
@@ -920,15 +948,27 @@ function App() {
     setNavigationTarget({ session, reading }); setError(''); setRequests([]);
     setSelectedSubagent(null); setSelectedBackgroundLane(undefined); setSelectedBackgroundAgent(undefined); setSelectedWorkflow(null); setSelectedWorkflowAgent(null); setSubagentView('agent'); setRightPanel(null); setContextMenu(null);
     setQueuePreviewOpen(false); setLiveChangesOpen(false);
-    if (!reading && !cronRuntimeId && bridge.sessionReading) void bridge.sessionReading(session.id).then(async value => {
+    if (!reading && !cronRuntimeId && bridge.sessionReading) void bridge.sessionReading(session.id, sequence).then(async value => {
       const pending = navigationPending.current;
-      if (!value || value.sessionId !== session.id || pending?.sequence !== sequence) return;
+      if (pending?.sequence !== sequence) return;
+      if (!value) {
+        setNavigationTarget(current => current?.session.id === session.id ? { ...current, readingUnavailable: true } : current);
+        return;
+      }
+      if (value.sessionId !== session.id) return;
+      if ('unavailable' in value) {
+        setNavigationTarget(current => current?.session.id === session.id ? { ...current, readingUnavailable: true } : current);
+        return;
+      }
       const trees = await prepare(value.messages);
       if (navigationPending.current?.sequence !== sequence) return;
       pending.reading = value;
       setPreparedMarkdown({ sessionId: session.id, trees });
-      setNavigationTarget({ session, reading: value });
-    }).catch(() => { /* Preview is optional; only the authoritative navigation reports errors. */ });
+      setNavigationTarget(current => current?.session.id === session.id ? { ...current, reading: value } : current);
+    }).catch(() => {
+      if (navigationPending.current?.sequence === sequence)
+        setNavigationTarget(current => current?.session.id === session.id ? { ...current, readingUnavailable: true } : current);
+    });
     let failed = false;
     try {
       const result = cronRuntimeId ? await bridge.cronOpenHost(cronRuntimeId) : await bridge.navigateSession(session.id, sequence);
@@ -950,21 +990,20 @@ function App() {
     } catch (error) {
       if (navigationPending.current?.sequence !== sequence) return false;
       failed = true;
-      // Reconcile with the main-process identity, including a commit preceding this click.
-      try {
-        const value = await bridge.snapshot();
-        if (navigationPending.current?.sequence !== sequence) return false;
-        installSnapshot(value);
-        const saved = value.state?.sessionId ? composerBySession.current.get(value.state.sessionId) : undefined;
-        readingRestore.current = saved ? { runtimeId: value.runtimeId, position: saved } : undefined;
-      } catch { /* Keep the last confirmed view if the snapshot also failed. */ }
+      // Preview is inert: a failed runtime must not replace it with the prior
+      // active conversation. Reading may still complete after startup failed.
+      setNavigationTarget(current => current?.session.id === session.id ? { ...current, failed: true } : current);
       setError(String(error instanceof Error ? error.message : error));
     } finally {
       if (navigationPending.current?.sequence === sequence) {
-        preparation.abort();
-        navigationPending.current = null; previewPosition.current = undefined;
-        setNavigationTarget(null); setRemoteWait(undefined); switching.current = false; setLoading(false);
-        if (!failed) void run(refresh);
+        switching.current = false; setLoading(false); setRemoteWait(undefined);
+        if (!failed) {
+          preparation.abort();
+          void bridge.cancelSessionReading?.(sequence).catch(() => {});
+          navigationPending.current = null; previewPosition.current = undefined;
+          setNavigationTarget(null);
+          void run(refresh);
+        }
       }
     }
     return !failed;
@@ -999,6 +1038,12 @@ function App() {
         setData(value => ({ ...value, customBackground: event.state })); return;
       }
       if (event.type === 'desktop_view_changed' && event.surface === (isMini ? 'mini' : 'main')) {
+        const wasReading = Boolean(navigationPending.current);
+        if (wasReading) {
+          leaveReading();
+          switching.current = false;
+          setLoading(false);
+        }
         // Revealing the old view can emit scroll/blur before the transferred snapshot arrives.
         if (event.restorePresentation) pendingPresentationRestores.current++;
         if (!isMini && event.restorePresentation) {
@@ -1008,7 +1053,7 @@ function App() {
         }
         void run(async () => {
           try {
-            rememberView(false);
+            if (!wasReading) rememberView(false);
             const value = await bridge.snapshot();
             if (event.restorePresentation) {
               // Do not persist the previous viewport while the handoff is in flight.
@@ -1067,14 +1112,14 @@ function App() {
         const id = event.sessionId ?? view.current.sessionId;
         if (id) metricsBySession.current.set(id, updateRunMetrics(metricsBySession.current.get(id) ?? null,
           event.type === 'desktop_completion_review' ? { ...event, type: 'agent_end' } : event, receivedAt));
-        if (!switching.current && (!event.runtimeId || event.runtimeId === viewId.current)) {
+        if (!switching.current && !navigationPending.current && (!event.runtimeId || event.runtimeId === viewId.current)) {
           if (event.type === 'agent_start' && !event.desktopRecoveryContinuation) setClock(receivedAt);
           setRunMetrics(id ? metricsBySession.current.get(id) ?? null : null);
         }
       }
       if (event.type === 'extension_ui_request' && event.method === 'set_editor_text') {
         if (isMini) return;
-        if (!switching.current && (!event.runtimeId || event.runtimeId === viewId.current)) {
+        if (!switching.current && !navigationPending.current && (!event.runtimeId || event.runtimeId === viewId.current)) {
           view.current = { ...view.current, draft: event.text };
           setDraft(event.text);
         } else if (event.sessionId) {
@@ -1082,7 +1127,7 @@ function App() {
         }
         return;
       }
-      if (event.runtimeId && (event.runtimeId !== viewId.current || switching.current)) return;
+      if (event.runtimeId && (event.runtimeId !== viewId.current || switching.current || navigationPending.current)) return;
       if (['extension_ui_request', 'desktop_ui_expired', 'desktop_model_selection', 'desktop_queue', 'desktop_history', 'message_start', 'message_update', 'message_end', 'tool_execution_update', 'tool_execution_end'].includes(event.type)
         && !messageRevision.current.acceptEvent(event)) return;
       if (event.type === 'agent_end' || event.type === 'tool_execution_end'
@@ -1092,6 +1137,8 @@ function App() {
       if (event.type === 'desktop_stats') setData(d => ({ ...d, stats: event.stats }));
       if (event.desktopEstimate) setData(d => ({ ...d, estimate: event.desktopEstimate }));
       if (event.type === 'desktop_history') setData(d => ({ ...d, messages: event.messages }));
+      if (event.type === 'desktop_startup_changed' && event.startup?.sessionId === view.current.sessionId)
+        setData(d => ({ ...d, state: d.state ? { ...d.state, desktopStartup: event.startup } : d.state }));
       if (event.type === 'desktop_ui_expired') {
         questionDrafts.current.delete(event.id);
         setRequests(previous => previous.filter(request => request.id !== event.id));
@@ -1453,6 +1500,7 @@ function App() {
     addAttachments(added, id);
   });
   const stop = async () => {
+    if (navigationPending.current) return;
     if (!composerBusy || !connected || stoppingRef.current) return;
     stoppingRef.current = true;
     setStopping(true);
@@ -1527,7 +1575,8 @@ function App() {
       else { setDetails(''); setContextView(local.name === 'clm' ? 'clm' : 'status'); setRightPanel('context'); }
       return;
     }
-    if (navigationPending.current || (!draft.trim() && !attachments.length && !quotes.length) || !connected || loading || firstSend.current) return;
+    if (navigationPending.current || startupBlocked(data.state?.desktopStartup)
+      || (!draft.trim() && !attachments.length && !quotes.length) || !connected || loading || firstSend.current) return;
     const message = draft; const attached = attachments; const sentQuotes = quotes; const scope = quoteScope;
     let id = viewId.current;
     let sessionId = data.state?.sessionId;
@@ -1604,11 +1653,12 @@ function App() {
     });
   };
   const queueAction = async (type: 'queue_edit' | 'queue_remove' | 'queue_steer', item: import('./contracts').PendingMessage, message?: string) => {
-    if (!bridge || !viewId.current || loading) return;
+    if (!bridge || !viewId.current || loading || navigationPending.current) return;
     try { await bridge.command(type, { id: item.id, version: item.version, ...(message === undefined ? {} : { message }) }, viewId.current); }
     catch (error) { setError(String(error instanceof Error ? error.message : error)); throw error; }
   };
   const shortcutSteer = async () => {
+    if (navigationPending.current) return;
     const runtimeId = viewId.current;
     try {
       const pendingSend = queueSend.current;
@@ -1618,7 +1668,7 @@ function App() {
     } catch (error) { if (runtimeId === viewId.current) setError(String(error instanceof Error ? error.message : error)); }
   };
   const branchMessage = async (message: Message) => {
-    if (!bridge || !message.entryId || !viewId.current || !connected || busy || loading) return;
+    if (!bridge || !message.entryId || !viewId.current || !connected || busy || loading || navigationPending.current) return;
     const id = viewId.current;
     await createBranch(() => bridge.branchSession('clone', message.entryId!, id));
   };
@@ -1630,7 +1680,7 @@ function App() {
     });
   };
   const editMessage = async (message: Message, text: string) => {
-    if (!bridge || !message.entryId || !viewId.current || !connected || busy || loading) throw new Error(t('会话暂时无法编辑', 'This conversation cannot be edited right now'));
+    if (!bridge || !message.entryId || !viewId.current || !connected || busy || loading || navigationPending.current) throw new Error(t('会话暂时无法编辑', 'This conversation cannot be edited right now'));
     const id = viewId.current;
     setError('');
     await bridge.retryMessage(message.entryId, text, id);
@@ -1784,17 +1834,17 @@ function App() {
     { id: 'file', label: t('文件', 'File'), items: [
       { label: t('新建独立会话', 'New independent session'), disabled: !bridge || loading, action: () => { setRemoteOpen(false); setPluginsOpen(false); setScheduledOpen(false); void applySnapshot(() => bridge!.beginSession()); } },
       { label: t('打开项目…', 'Open project...'), disabled: !bridge || loading, action: () => void openProject() },
-      { label: t('打开会话文件夹', 'Open session folder'), disabled: !bridge || !data.runtimeId || loading, action: () => void run(() => bridge!.openSessionFolder()) },
+      { label: t('打开会话文件夹', 'Open session folder'), disabled: !bridge || !data.runtimeId || loading || Boolean(navigationTarget), action: () => void run(() => bridge!.openSessionFolder()) },
       { label: t('退出应用', 'Quit application'), disabled: !bridge, action: () => void run(() => bridge!.windowControl('quit')) },
     ] },
     { id: 'edit', label: t('编辑', 'Edit'), items: [
-      { label: t('重命名会话', 'Rename session'), disabled: !connected || busy || !data.state?.sessionId, action: () => beginRename('session', data.state!.sessionId!) },
-      { label: t('停止生成', 'Stop response'), disabled: !busy || stopping, action: () => void stop() },
+      { label: t('重命名会话', 'Rename session'), disabled: !connected || busy || !data.state?.sessionId || Boolean(navigationTarget), action: () => beginRename('session', data.state!.sessionId!) },
+      { label: t('停止生成', 'Stop response'), disabled: !busy || stopping || Boolean(navigationTarget), action: () => void stop() },
     ] },
     { id: 'view', label: t('视图', 'View'), items: [
       { label: sidebarVisible ? t('隐藏侧栏', 'Hide sidebar') : t('显示侧栏', 'Show sidebar'), action: toggleSidebar },
-      { label: t('会话统计', 'Session statistics'), disabled: !data.runtimeId, action: () => void run(async () => setDetails(JSON.stringify(await bridge!.command('get_session_stats', undefined, viewId.current), null, 2))) },
-      { label: t('重启运行时', 'Restart runtime'), disabled: !data.runtimeId || busy || loading, action: () => void applySnapshot(() => bridge!.restart()) },
+      { label: t('会话统计', 'Session statistics'), disabled: !data.runtimeId || Boolean(navigationTarget), action: () => void run(async () => setDetails(JSON.stringify(await bridge!.command('get_session_stats', undefined, viewId.current), null, 2))) },
+      { label: t('重启运行时', 'Restart runtime'), disabled: !data.runtimeId || busy || loading || Boolean(navigationTarget), action: () => void applySnapshot(() => bridge!.restart()) },
     ] },
     { id: 'help', label: t('帮助', 'Help'), items: [
       { label: t('设置', 'Settings'), disabled: !bridge, action: () => void openSettings() },
@@ -2139,6 +2189,8 @@ function App() {
           <button disabled={loading} onClick={() => void repairProject(unavailableWorkspace)}><FolderOpen size={14}/>{t('重新定位', 'Locate folder')}</button>
           <button disabled={loading} onClick={() => confirmRemoveProject(unavailableWorkspace)}>{t('移除项目', 'Remove project')}</button>
         </>}
+        {navigationTarget?.failed && <IconButton title={t('重新连接会话', 'Reconnect conversation')}
+          onClick={() => void navigateSession(navigationTarget.session)}><RotateCcw size={14}/></IconButton>}
         <IconButton title={t('关闭', 'Dismiss')} onClick={() => { setError(''); setUnavailableWorkspace(null); }}><X size={14}/></IconButton>
       </div>}
       <ConversationSearchLocation active={!navigationTarget && !usageOpen && !remoteOpen && !scheduledOpen && !pluginsOpen && !fulltextOpen}
@@ -2161,6 +2213,16 @@ function App() {
         onDetails={() => { setNotice(null); setTab('mcp'); void openSettings(); }}/>
       {!!requests.length && !approvalOpen && !reviewPlan && !planFeedback && !reviewQuestion && <div className="approval-notice"><TriangleAlert size={16}/><span>{t('此会话有待确认的操作', 'This session is awaiting approval')}</span><button onClick={() => setApprovalOpen(true)}>{t('查看', 'Review')}</button></div>}
       {!bridge && <div className="error-banner">{t('请从 Electron 桌面窗口打开此应用。', 'Open this application in the Electron desktop window.')}</div>}
+      {navigationTarget && <div className="session-reading-status" role="status">
+        {navigationTarget.failed ? t('运行时未连接 · 模型未就绪', 'Runtime disconnected · Model unavailable')
+          : t('运行时连接中 · 正在恢复模型', 'Connecting runtime · Restoring model')}
+        {navigationTarget.readingUnavailable && !navigationTarget.reading
+          ? t(' · 历史预览不可用', ' · History preview unavailable') : ''}
+      </div>}
+      {!navigationTarget && <RuntimeStartupStatus state={data.state?.desktopStartup}
+        language={data.preferences.language} disabled={busy || loading || Boolean(data.pendingMessages?.length) || requests.length > 0}
+        reconnect={isMini ? undefined : () => void applySnapshot(() => bridge!.restart())}
+        settings={() => { setTab('mcp'); void openSettings(); }}/>}
       <div className="conversation-shell"
           onWheelCapture={event => {
             readingRestore.current = undefined;
@@ -2184,7 +2246,7 @@ function App() {
           onTouchEnd={() => { touchY.current = undefined; }}
           onTouchCancel={() => { touchY.current = undefined; }}>
         <div className="conversation" id="conversation-scroll" ref={scroll}
-          aria-busy={Boolean(navigationTarget)}
+          aria-busy={Boolean(navigationTarget && !navigationTarget.failed)}
           onPointerDown={() => { readingRestore.current = undefined; }}
           onScroll={() => {
             if (!scroll.current) return;
@@ -2212,7 +2274,9 @@ function App() {
               openImage={openImage} edit={editMessage} branch={branchMessage} onError={setError}
               onLayoutChange={scheduleFollowLayout} arrivingUser={null} onOpenSubagent={() => setError(t('请等待会话打开', 'Wait for the conversation to open'))}/>
             </QuestionContext.Provider>
-          </div> : <div className="session-reading-placeholder" aria-hidden="true"><span/><span/><span/></div>
+          </div> : navigationTarget.readingUnavailable
+            ? <div className="session-reading-unavailable">{t('未能读取历史', 'Could not read history')}</div>
+            : <div className="session-reading-placeholder" aria-hidden="true"><span/><span/><span/></div>
           : !data.messages.length && !hasPendingReceipt ? <NewSession language={data.preferences.language}
             emblem={bridge && data.themePacks?.some(pack => pack.id === data.preferences.theme && hasStellarUi(pack))
               ? <StellarEmblem motion={data.preferences.themeMotion !== false} paused={settingsOpen || scheduledOpen}/> : undefined}
@@ -2247,7 +2311,7 @@ function App() {
         {isMini && <ConversationScrollThumb scrollRef={scroll} language={data.preferences.language}
           sessionId={data.state?.sessionId} messageCount={data.messages.length} onScrollIntent={handleScrollIntent}/>}
       </div>
-      <div className={`composer-wrap${navigationTarget ? ' session-navigation-pending' : ''}`} aria-busy={Boolean(navigationTarget)}>
+      <div className={`composer-wrap${navigationTarget ? ' session-navigation-pending' : ''}`} aria-busy={Boolean(navigationTarget && !navigationTarget.failed)}>
         <div className="composer-underlay" inert={Boolean(permissionApproval && approvalOpen)}>
         {!navigationTarget && <ComposerContextBar queued={queuedMessages.length > 0}>
         <QuotePreview quotes={quotes} language={data.preferences.language}
@@ -2314,7 +2378,7 @@ function App() {
               void shortcutSteer();
             } else void send();
           }}/>
-          <div className="composer-tools" inert={Boolean(navigationTarget)}>
+          <div className="composer-tools" inert={Boolean(navigationTarget)} aria-hidden={Boolean(navigationTarget)}>
             <IconButton title={t('添加附件', 'Add attachments')} aria-expanded={referencesOpen} disabled={!connected || loading} onClick={() => setReferencesOpen(value => !value)}><Plus size={17}/></IconButton>
             <PermissionPicker preset={data.permissionPreset} language={data.preferences.language} disabled={!connected || loading} supported={Boolean(data.draftId) || commands.some(c => c.name === 'permissions' && c.source === 'extension')} onSelect={preset => command('set_permission_preset', { preset })}
               launch={data.launch} busy={busy} launchSupported={{
@@ -2343,13 +2407,15 @@ function App() {
                 setDraft(value => appendSpeechText(value, text, continuation));
               }}
               onConfigure={() => { setTab('general'); void openSettings(); }}/>}
-            <ModelEffortPicker model={data.modelSelection?.model ?? data.state?.model} models={data.models} favoriteModels={data.preferences.favoriteModels} onFavorite={changeModelFavorite} level={data.modelSelection?.thinkingLevel ?? data.state?.thinkingLevel} levels={levels} pending={Boolean(data.modelSelection)} language={data.preferences.language} disabled={!connected || loading} onModel={m => command('set_model', { provider: m.provider, modelId: m.id })} onEffort={level => command('set_thinking_level', { level })} onConfigure={() => {
+            {navigationTarget ? <ModelEffortPlaceholder language={data.preferences.language} failed={navigationTarget.failed}/>
+              : <ModelEffortPicker model={data.modelSelection?.model ?? data.state?.model} models={data.models} favoriteModels={data.preferences.favoriteModels} onFavorite={changeModelFavorite} level={data.modelSelection?.thinkingLevel ?? data.state?.thinkingLevel} levels={levels} pending={Boolean(data.modelSelection)} language={data.preferences.language} disabled={!connected || loading} onModel={m => command('set_model', { provider: m.provider, modelId: m.id })} onEffort={level => command('set_thinking_level', { level })} onConfigure={() => {
               if (isMini) void run(() => handoff('settings', 'providers'));
               else { setTab('providers'); void openSettings(); }
-            }}/>
+            }}/>}
             <IconButton title={action.mode === 'stop' ? stopping ? t('正在停止此轮', 'Stopping response') : t('停止此轮', 'Stop response') : composerBusy ? t('加入队列', 'Queue message') : t('发送', 'Send')}
               className="composer-action-button" data-action={action.mode}
-              disabled={!connected || loading || composer.conflict && action.mode !== 'stop' || (action.mode === 'stop' ? stopping : speechActive || !action.hasContent)}
+              disabled={!connected || loading || Boolean(navigationTarget) || composer.conflict && action.mode !== 'stop'
+                || (action.mode === 'stop' ? stopping : startupBlocked(data.state?.desktopStartup) || speechActive || !action.hasContent)}
               onClick={() => void (action.mode === 'stop' ? stop() : send())}><ComposerActionIcon stop={action.mode === 'stop'}/></IconButton>
           </div>
         </div></ComposerMenu>{!isMini && interfaceSettings.performanceVisible && <PerformanceBar run={runMetrics} stats={data.stats} connected={connected} language={data.preferences.language} now={clock}/>}

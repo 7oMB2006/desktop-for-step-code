@@ -1,14 +1,14 @@
 import test, { type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
-import { mkdtemp, mkdir, open, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, open, readFile, rename, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { importedHistoryMessages } from '../electron/imported-history';
 import { messagesWithEntryIds } from '../electron/session-branching';
 // @ts-expect-error Node ESM adapter is staged verbatim beside admin.mjs.
-import { readSessionHistory, MAX_HISTORY_PREVIEW_BYTES } from '../electron/session-history.mjs';
+import { readSessionHistory, readHistorySource, assertHistoryUnchanged, MAX_HISTORY_PREVIEW_BYTES } from '../electron/session-history.mjs';
 
 const bundle = resolve('runtime/step/dist/bundle/index.js');
 const native = existsSync(bundle) ? await import(pathToFileURL(bundle).href) : undefined;
@@ -86,6 +86,30 @@ test('expanded projection cannot overflow the shared management response', async
   assert.equal(await readSessionHistory({ ...upstream,
     buildSessionContext: () => ({ messages: [{ role: 'user', content: 'x'.repeat(24 * 1024 * 1024) }] }),
   }, sessions, file, 'history'), null);
+});
+test('source reader allows case-sized histories without changing the small management cap', async t => {
+  const { sessions, file } = await fixture(t, [header, message('a', null, 'x'.repeat(15 * 1024 * 1024))]);
+  const before = await readFile(file);
+  assert.equal(await readSessionHistory(upstream, sessions, file, 'history'), null);
+  const history = await readHistorySource(upstream, sessions, file, 'history');
+  assert.equal(history.messages[0].content.length, 15 * 1024 * 1024);
+  await assertHistoryUnchanged(sessions, file, history.source);
+  assert.deepEqual(await readFile(file), before);
+});
+test('current canonical path is checked even when the old handle metadata is unchanged', async t => {
+  const { sessions, file } = await fixture(t);
+  const history = await readHistorySource(upstream, sessions, file, 'history');
+  await rename(file, file + '.old');
+  await writeFile(file, [header, message('a', null, 'replaced')].map(value => JSON.stringify(value)).join('\n'));
+  await assert.rejects(assertHistoryUnchanged(sessions, file, history.source), /changed/);
+});
+test('appends and non-UTF-8 bytes cannot publish a mixed or corrupted version', async t => {
+  const { sessions, file } = await fixture(t);
+  const history = await readHistorySource(upstream, sessions, file, 'history');
+  await writeFile(file, Buffer.concat([await readFile(file), Buffer.from('\n')]));
+  await assert.rejects(assertHistoryUnchanged(sessions, file, history.source), /changed/);
+  await writeFile(file, Buffer.from([0xff, 0xfe, 0x00]));
+  await assert.rejects(readHistorySource(upstream, sessions, file, 'history'));
 });
 test('native preview follows the active branch including custom and compacted context', { skip: !native }, async t => {
   const entries = [

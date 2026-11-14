@@ -5,7 +5,7 @@ import { mkdir, readFile, realpath, writeFile } from 'node:fs/promises';
 import { mkdtemp } from './test-profile.mjs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { prepareSessionFixture } from './session-fixture.mjs';
+import { prepareSessionFixture, waitForSessionFixtureSnapshot } from './session-fixture.mjs';
 import { closeDesktopFixture } from './close-desktop-fixture.mjs';
 
 const profile = await realpath(await mkdtemp(join(tmpdir(), 'step-model-switch-')));
@@ -61,6 +61,13 @@ try {
   });
   await page.getByText('Step Code 已连接', { exact: true }).waitFor({ timeout: 60000 });
   const fixture = await prepareSessionFixture(page), id = fixture.runtimeId;
+  // Async startup may advance independently while a favorite is saved.
+  await waitForSessionFixtureSnapshot(page, snapshot => {
+    const startup = snapshot.state?.desktopStartup;
+    return !startup || startup.targetBound && startup.modelReady && startup.discovery === 'ready'
+      && startup.cleanupConfirmed && startup.toolsSettledAt
+      && startup.tools.every(tool => tool.status === 'connected');
+  }, 'settled model-switch fixture startup', 60000);
   const command = (type, args) => page.evaluate(({ type, args, id }) => window.desktop.command(type, args, id), { type, args, id });
   const snapshot = () => page.evaluate(() => window.desktop.snapshot());
   const favorites = async () => (await snapshot()).preferences.favoriteModels;

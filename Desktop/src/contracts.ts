@@ -28,6 +28,11 @@ export interface Snapshot { statusAccount?: StatusAccount }
 export interface Snapshot { estimate?: import('./usage-estimates').SessionEstimate; quitReview?: import('./quit-confirmation').QuitReviewState }
 export interface Session { id: string; path: string; cwd: string; workspacePath?: string; name?: string; firstMessage: string; modified: string; messageCount: number; independent?: boolean }
 export interface SessionReading { sessionId: string; version?: string; messages: Message[]; modelChanges?: ModelChange[] }
+export interface SessionReadingUnavailable {
+  sessionId: string;
+  unavailable: 'source-limit' | 'response-limit' | 'node-limit' | 'future-format' | 'changed' | 'queue-timeout' | 'timeout' | 'unavailable';
+}
+export type SessionReadingResult = SessionReading | SessionReadingUnavailable | null;
 export interface Model { id: string; provider: string; name: string; providerName?: string; reasoning?: boolean; thinkingLevels?: string[]; thinkingServiceDefault?: boolean; input?: string[]; contextWindow?: number; maxTokens?: number; declaredInput?: string[]; declaredOutput?: string[]; metadataSource?: 'upstream' | 'manual' }
 export interface Preferences { preferredModel?: Pick<Model, 'provider' | 'id' | 'name'> }
 export interface Preferences { favoriteModels?: import('./model-favorites').ModelIdentity[] }
@@ -45,6 +50,7 @@ export interface MessageTiming { run: ElapsedTiming; thinking: Record<string, El
 export interface Message { role: string; content: string | Content[]; customType?: string; display?: boolean; timestamp?: number; desktopTiming?: MessageTiming; desktopSteered?: boolean; toolCallId?: string; toolName?: string; isError?: boolean; usage?: Usage; stopReason?: string; entryId?: string; provider?: string; model?: string; errorMessage?: string; summary?: string; command?: string; output?: string; excludeFromContext?: boolean; details?: { patch?: string; diff?: string; results?: unknown[]; [key: string]: unknown } }
 export interface Message { incomplete?: 'no_visible_output' | 'missing_tool_call' }
 export interface RuntimeState { desktopCompletionReview?: 1; isStreaming: boolean; isCompacting?: boolean; sessionId?: string; sessionName?: string; sessionFile?: string; model?: Model; thinkingLevel?: string; messageCount?: number; pendingMessageCount?: number }
+export interface RuntimeState { desktopStartup?: import('./runtime-startup').RuntimeStartup }
 export interface ModelSelection { model: Model; thinkingLevel?: string }
 export interface ModelChange { id: string; userTimestamp: number; from: Pick<Model, 'id' | 'provider' | 'name'>; to: Pick<Model, 'id' | 'provider' | 'name'> }
 export interface UIRequest { type: 'extension_ui_request'; id: string; runtimeId?: string; method: string; title?: string; message?: string; messageStyle?: 'preformatted'; notifyType?: 'info' | 'warning' | 'error'; options?: string[]; placeholder?: string; prefill?: string; timeout?: number; text?: string; projectTrust?: { cwd: string } }
@@ -216,8 +222,10 @@ export interface DesktopBridge extends SessionImportBridge, BtwBridge, Backgroun
   searchSessions(query: import('./fulltext-search').FulltextQuery): Promise<import('./fulltext-search').FulltextResult>;
   cancelSessionSearch(id: string): Promise<void>;
   switchSession(id: string): Promise<Snapshot>;
-  navigateSession(id: string, requestId?: number): Promise<Snapshot | null>;
+  navigateSession(id: string, selectionRevision?: number): Promise<Snapshot | null>;
   sessionReading(id: string): Promise<SessionReading | null>;
+  sessionReading(id: string, selectionRevision: number): Promise<SessionReadingResult>;
+  cancelSessionReading(selectionRevision: number): Promise<void>;
   branchSession(kind: 'clone' | 'fork', entryId: string, runtimeId: string): Promise<Snapshot>;
   cloneSession(id: string): Promise<Snapshot>;
   retryMessage(entryId: string, message: string, runtimeId: string): Promise<void>;

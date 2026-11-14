@@ -27,7 +27,8 @@
     "step-code-desktop-mcp-credentials.patch": "1fbd6267db3d54e4c109c633f6ab832d94880106",
     "step-code-desktop-plugin-host.patch": "b075e7b79a718b37fb8d6e52012b9565ee7e47cb",
     "step-code-desktop-ultra.patch": "9f21a1d3bbb492c44c81387ec2e5898829407b47",
-    "step-code-desktop-workflow-role.patch": "e5df93cafbabbad797a8663e8468a1da294a5660"
+    "step-code-desktop-workflow-role.patch": "e5df93cafbabbad797a8663e8468a1da294a5660",
+    "step-code-desktop-startup.patch": "671f7155fd1785b386462d4ee41e99d917a3a678"
   },
   "sources": {
     "packages/coding-agent/src/step/mcp-environment.ts": "d46ee0c3e07fbcd2432b43bd355080e52e3aca50",
@@ -91,7 +92,8 @@
     "packages/coding-agent/src/step/defaults.ts": "4f4fcd623e232df9c7a4949bde1ce0d11f7c4ffa",
     "packages/providers/src/step-provider/index.ts": "8f76a894146661063eb97e45a4b40770713cc9f8",
     "packages/providers/scripts/models-dev-reasoning-options.ts": "9d07113956ccce62e1bc401e785f95ea87bbb307",
-    "packages/coding-agent/examples/extensions/preset.ts": "39f55642cd7e9af6d759512c29ee4c209e6adf6f"
+    "packages/coding-agent/examples/extensions/preset.ts": "39f55642cd7e9af6d759512c29ee4c209e6adf6f",
+    "packages/coding-agent/src/step/mcp-startup.test.ts": "fb321ed555f28461c1d551b9321758815e626614"
   },
   "patchedSources": {
     "packages/coding-agent/src/step/mcp-environment.ts": "322aae08a9223421d936ac50e420f8599a3a796c",
@@ -99,9 +101,10 @@
     "packages/coding-agent/src/step/plugins.ts": "23d2d63ab6a30698371b2b4dd756079a766154b1",
     "packages/coding-agent/test/step-plugins.test.ts": "6568fa6648df747f2612f208e19ddb422d8cb797",
     "packages/coding-agent/docs/session-import.md": "c1ec33543cde4f61a187469474cda92e312fbf77",
-    "packages/coding-agent/src/core/agent-session.ts": "c786077177d506b3fa5d3ec16d4bfd8002440240",
+    "packages/coding-agent/src/core/agent-session.ts": "209e8e112796eb201da52c0b8f401ae81bcbeb2e",
+    "packages/coding-agent/src/core/execution-admission.ts": "e0e686132867f6195f7934cd3bc8e7418192659e",
     "packages/coding-agent/src/core/auth-storage.ts": "506db42293f273178e3577cdf9c0494e35924ffc",
-    "packages/coding-agent/src/core/extensions/types.ts": "3dad86d9280de9aff8fd5a58ea045b80efd37af9",
+    "packages/coding-agent/src/core/extensions/types.ts": "9b4e653e17d02fa24da7959e82fe2c1a5d733aaa",
     "packages/coding-agent/src/core/session-import/parsers.ts": "806835c29d1fe9583170019bf0d4d432bec83235",
     "packages/coding-agent/src/core/session-import/service.ts": "9ce143eb8dae8ced14f717d55d0ff68cec647ad0",
     "packages/coding-agent/src/core/session-import/types.ts": "7b8c7f68a9c3e02fcc2aa73aac4e847486c79ffa",
@@ -113,19 +116,20 @@
     "packages/coding-agent/src/features/step-plan.ts": "3af7e494e0d0647eb83d83afb5bcbf40b54062a5",
     "packages/coding-agent/src/features/step-questionnaire.ts": "4b32f0d80c75101e85c35d4b3ea5e98e24daca3f",
     "packages/coding-agent/src/features/step-subagent.ts": "54c9a23772452f8f10eb620dd247490a618a760d",
-    "packages/coding-agent/src/features/step.ts": "84c0d138acc53418edc730280d28e95f66d12b1c",
+    "packages/coding-agent/src/features/step.ts": "ce25300343dfd52ccc85a84a46e34e5d33ccd20c",
     "packages/coding-agent/src/features/subagent/display-text.ts": "93444f6aac6244c727f944dee9cbf7cc4db3a893",
     "packages/coding-agent/src/features/subagent/execute.ts": "c3ac7eb91bb1d8df5fd59f6466e5a6d091dbb751",
     "packages/coding-agent/src/features/subagent/lane-events.ts": "ee924c3e07a272df11a78642a2532cc835948079",
     "packages/coding-agent/src/features/subagent/lane-lifecycle.ts": "7649e1fa56dde947bf047114b5e0e1624fd91b3e",
     "packages/coding-agent/src/features/subagent/projection.ts": "b83ce5525611689f1be4f6452b7fe698fca6e986",
-    "packages/coding-agent/src/features/subagent/rpc-adapter.ts": "0a9a16709c48be43e1479ec67ff76c10066fc2ad",
+    "packages/coding-agent/src/features/subagent/rpc-adapter.ts": "f3536d160022a5efed5ff41f11e8d5dbf799727c",
     "packages/coding-agent/src/index.ts": "88a6fa66fbcb23d623d164ebd7620fbb54aff08c",
     "packages/coding-agent/src/modes/rpc/desktop-btw.ts": "0d9656fb61e93fecee1a602d17b30d5d668017f5",
     "packages/coding-agent/src/modes/rpc/desktop-completion-review.ts": "072dc370724cfc0d2ac9e81b35063ac04885f2a9",
-    "packages/coding-agent/src/modes/rpc/rpc-mode.ts": "45bc8f9712f4a95aa554d65f9d70748e464a504a",
-    "packages/coding-agent/src/modes/rpc/rpc-types.ts": "3551a4f9fa8e20c987702379768cd37b27618772",
-    "packages/coding-agent/src/step/mcp.ts": "350404da2b43b06a03b2b771b4e2ea3b6908ce29",
+    "packages/coding-agent/src/modes/rpc/rpc-mode.ts": "b230ce2d6d2d9d42a060dfde4a9083984c992622",
+    "packages/coding-agent/src/modes/rpc/rpc-types.ts": "a53c1c792569efebb2ddc1bfc359386b83fdb645",
+    "packages/coding-agent/src/step/mcp.ts": "1b047f51cb0e0124e2b2dfe37a3a2eb6863c21d8",
+    "packages/coding-agent/src/step/desktop-startup.ts": "82c85ac9e3f213ce295344b372f49e5054f7f541",
     "packages/coding-agent/src/step/usage/recording.ts": "069045cda51c11b0fb642c4ebc5fddecfe91be1a",
     "packages/coding-agent/src/utils/shell.ts": "34a10c2fcd947c4951e1fb85bea3de9ae3d6a365",
     "packages/coding-agent/test/desktop-background-replies.test.ts": "ea7fa101b0c61628c812e744b360cb204dd09132",
@@ -145,8 +149,9 @@
     "packages/coding-agent/test/workflow-runtime.test.ts": "07eeb84ba39fa010af7481109f943de59782c259",
     "scripts/build-coding-agent-bundle.mjs": "fac2aeda34008d81d0a01b1fa4d8a0af2ab4b476",
     "packages/coding-agent/test/suite/plan-storage.test.ts": "e1f28ca03e6ed8e91f8a13b137af622933259591",
-    "packages/coding-agent/src/step/desktop-plugin-host.ts": "82149ab7ca422968425c3b2e81fae678e195c405",
-    "packages/coding-agent/test/desktop-plugin-host.test.ts": "dd61a808d4fef580264589426227753f3d59923c",
+    "packages/coding-agent/src/step/desktop-plugin-host.ts": "5d9da5d28f9eeda2983d7976de230a6328d261e2",
+    "packages/coding-agent/test/desktop-startup.test.ts": "c19693ddab7499189bb9ce87345e79ddb97e978f",
+    "packages/coding-agent/test/desktop-plugin-host.test.ts": "deff576e16e04fd6d30e0b44234644e16598678a",
     "packages/coding-agent/src/features/workflow/runtime.ts": "c530f62c93a339b65f482af48ab8c03a3e1ca145",
     "packages/coding-agent/src/features/workflow/types.ts": "e07822d501ad403f6d2dc2aa312059021f2756c7",
     "packages/coding-agent/test/workflow-agent-role.test.ts": "9f4f9cc0ed84306a4a1d69332ad4e8b39f27c779",
@@ -168,7 +173,8 @@
     "packages/coding-agent/src/step/defaults.ts": "785c27a392bad5cd468840e7f3e3a468c5cfb00d",
     "packages/providers/src/step-provider/index.ts": "4f33c543024023a870b87804e7fc68ffe3b0399e",
     "packages/providers/scripts/models-dev-reasoning-options.ts": "45f15650e41606b453d144aeb558e15a6b1ced28",
-    "packages/coding-agent/examples/extensions/preset.ts": "7b3bf705d7910818a3b6a93cbd52698e42837303"
+    "packages/coding-agent/examples/extensions/preset.ts": "7b3bf705d7910818a3b6a93cbd52698e42837303",
+    "packages/coding-agent/src/step/mcp-startup.test.ts": "8b0f88704eeec33916b51f509d7c4d67af4061ae"
   },
   "platforms": {
     "darwin": {

@@ -6,24 +6,29 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { closeDesktopFixture } from './close-desktop-fixture.mjs';
+import { setTimeout as delay } from 'node:timers/promises';
+import { closeDesktopFixtureAndWait } from './close-desktop-fixture.mjs';
 
 const profile = await realpath(await mkdtemp(join(tmpdir(), 'desktop-navigation-')));
 const project = join(profile, 'project');
 const failureProject = join(profile, 'failure-project');
 const root = join(profile, 'step-runtime');
 const sessions = join(root, 'sessions');
+const output = resolve(process.env.DESKTOP_VERIFY_OUTPUT ?? 'test-results');
+const modelFor = index => index % 2 ? { id: 'step-fixture', name: 'Step 5 fixture', level: 'high', label: '高' }
+  : { id: 'fixture', name: 'DeepSeek fixture', level: 'low', label: '轻度' };
 await mkdir(project);
 await mkdir(failureProject);
 await mkdir(sessions, { recursive: true });
-await mkdir('test-results', { recursive: true });
+await mkdir(output, { recursive: true });
 await writeFile(join(profile, 'preferences.json'), JSON.stringify({
   language: 'zh', theme: 'light', workspaces: [project, failureProject], workspace: project,
 }));
 await writeFile(join(root, 'config.toml'), 'defaultProvider = "fixture"\ndefaultModel = "fixture"\n[telemetry]\nenabled = false\n');
 await writeFile(join(root, 'models.json'), JSON.stringify({ providers: {
   fixture: { baseUrl: 'http://127.0.0.1:1/v1', api: 'openai-completions', apiKey: 'local-test-only',
-    models: [{ id: 'fixture', name: 'Navigation fixture' }] },
+    models: [modelFor(0), modelFor(1)].map(({ id, name }) => ({ id, name, reasoning: true,
+      thinkingLevelMap: { minimal: null, low: 'low', medium: null, high: 'high', xhigh: null, max: null } })) },
 } }));
 for (let index = 0; index < 6; index++) {
   const timestamp = new Date(Date.now() - 10000 - index * 1000).toISOString();
@@ -51,7 +56,10 @@ for (let index = 0; index < 6; index++) {
       customType: 'fixture', content: [{ type: 'text', text: 'Visible custom history' }], display: true });
     parentId = 'preview-custom';
   }
-  entries.push({ type: 'session_info', id: 'name', parentId, timestamp, name: `Navigation ${index}` });
+  const selected = modelFor(index);
+  entries.push({ type: 'model_change', id: 'model-choice', parentId, timestamp, provider: 'fixture', modelId: selected.id });
+  entries.push({ type: 'thinking_level_change', id: 'effort-choice', parentId: 'model-choice', timestamp, thinkingLevel: selected.level });
+  entries.push({ type: 'session_info', id: 'name', parentId: 'effort-choice', timestamp, name: `Navigation ${index}` });
   await writeFile(join(sessions, `navigation-${index}.jsonl`), entries.map(entry => JSON.stringify(entry)).join('\n') + '\n');
 }
 const env = { ...process.env, DESKTOP_TEST_USER_DATA: profile, DESKTOP_TEST_NO_FOCUS: '1' };
@@ -59,7 +67,16 @@ delete env.ELECTRON_RUN_AS_NODE;
 const executablePath = process.env.DESKTOP_VERIFY_EXE;
 const app = await electron.launch({ ...(executablePath ? { executablePath } : { args: [resolve('.')] }), env, timeout: 60000 });
 const errors = [];
+const modelChecks = [];
+const modelObservations = [];
 let phase = 'startup';
+const waitForTrimmedResidents = async page => {
+  const deadline = Date.now() + 15000;
+  while ((await page.evaluate(() => window.desktop.snapshot())).runtimes.length > 3) {
+    assert.ok(Date.now() < deadline, 'Idle runtimes were not recycled');
+    await delay(50);
+  }
+};
 try {
   const page = await app.firstWindow();
   page.on('pageerror', error => errors.push(error.message));
@@ -67,16 +84,66 @@ try {
     // Exercise the conservative low-memory retention budget deterministically.
     process.getBuiltinModule('os').freemem = () => 1024 ** 3;
     const window = BrowserWindow.getAllWindows()[0];
-    window.setOpacity(0); window.setIgnoreMouseEvents(true); window.showInactive();
+    window.setOpacity(0); window.setIgnoreMouseEvents(true); window.setSize(1400, 900); window.showInactive();
     dialog.showMessageBox = async () => ({ response: 1 });
   });
   await page.waitForFunction(() => document.querySelectorAll('.session-row').length === 6 && !document.querySelector('.new-chat')?.disabled, undefined, { timeout: 60000 });
   const row = index => page.locator(`[data-reorder-id="navigation-${index}"] > button`).first();
+  await page.exposeFunction('recordNavigationModel', value => modelObservations.push(value));
+  const observeModels = () => {
+    window.navigationModelObserver?.disconnect();
+    window.navigationModelReports = [];
+    let previous;
+    window.navigationModelObserver = new MutationObserver(() => {
+      if (!document.querySelector('.session-navigation-pending')) { previous = undefined; return; }
+      const value = {
+        title: document.querySelector('.window-session-title')?.textContent,
+        selection: document.querySelector('.composer-tools .model-effort:not(.model-effort-placeholder)')?.textContent ?? null,
+        placeholder: document.querySelector('.model-effort-placeholder')?.textContent,
+      };
+      const signature = JSON.stringify(value);
+      if (signature === previous) return;
+      previous = signature;
+      window.navigationModelReports.push(window.recordNavigationModel(value));
+    });
+    window.navigationModelObserver.observe(document, { subtree: true, childList: true, attributes: true });
+  };
+  await page.addInitScript(observeModels);
+  await page.evaluate(observeModels);
   const opened = async index => {
     await page.waitForFunction(index => document.querySelector('.window-session-title')?.textContent === `Navigation ${index}` &&
       document.querySelector('.composer-wrap')?.getAttribute('aria-busy') !== 'true' &&
       !document.querySelector('.composer > .composer-input')?.disabled, index, { timeout: 60000 });
-    assert.equal((await page.evaluate(() => window.desktop.snapshot())).state.sessionId, `navigation-${index}`);
+    const state = (await page.evaluate(() => window.desktop.snapshot())).state;
+    assert.equal(state.sessionId, `navigation-${index}`);
+    const expected = modelFor(index);
+    assert.equal(state.model?.id, expected.id, 'Authoritative restoration follows the explicit saved choice, not the last assistant');
+    assert.equal(state.thinkingLevel, expected.level);
+    assert.equal(await page.locator('.model-effort-trigger .model-effort-name').textContent(), expected.name);
+    assert.equal(await page.locator('.model-effort-trigger .model-effort-level').textContent(), expected.label);
+    assert.equal(await page.locator('.model-effort-placeholder').count(), 0);
+    modelChecks.push(index);
+  };
+  const modelPlaceholder = async (failed = false) => {
+    const placeholder = page.locator('.model-effort-placeholder');
+    await placeholder.waitFor({ state: 'visible' });
+    assert.ok(await placeholder.locator('button').isDisabled());
+    assert.equal(await placeholder.locator('.model-effort-name').textContent(), failed ? '模型未就绪' : '正在恢复模型');
+    assert.equal(await page.locator('.composer-tools .model-effort:not(.model-effort-placeholder)').count(), 0);
+    assert.equal(await page.locator('.model-effort-popover, .model-effort-level').count(), 0);
+    assert.equal(await page.getByRole('button', { name: '模型与思考强度', exact: true }).count(), 0,
+      'The stale selection is absent from the accessibility tree too');
+    assert.ok((await page.locator('.session-reading-status').textContent()).includes(failed ? '模型未就绪' : '正在恢复模型'));
+    const box = await placeholder.boundingBox();
+    assert.ok(box.width > 80 && box.width <= 156 && box.height === 29);
+    assert.ok(await placeholder.evaluate(element => {
+      const label = element.querySelector('.model-effort-name');
+      const button = element.querySelector('button').getBoundingClientRect();
+      const send = document.querySelector('.composer-action-button').getBoundingClientRect();
+      return label.scrollWidth <= label.clientWidth && button.right <= send.left
+        && button.left >= document.querySelector('.composer').getBoundingClientRect().left;
+    }), 'Placeholder text fits without overlapping send or the composer edge');
+    return box;
   };
   phase = 'first cold reading before runtime and scroll handoff';
   await app.evaluate(({ ipcMain }) => {
@@ -92,6 +159,7 @@ try {
     const before = await readFile(join(sessions, 'navigation-4.jsonl'));
     await row(4).click();
     await page.waitForFunction(() => document.querySelector('.session-reading-preview')?.textContent.includes('Answer 4/21'));
+    await modelPlaceholder();
     assert.equal(await page.locator('.session-reading-preview').evaluate(element => element.inert), false);
     assert.equal(await page.locator('.composer > .composer-input').isDisabled(), false);
     const composer = page.getByRole('textbox', { name: '消息', exact: true });
@@ -285,7 +353,7 @@ try {
       await opened(index);
       if (index === 1) assert.equal(await page.getByRole('textbox', { name: '消息', exact: true }).evaluate(element => element.value),
         'Draft for overtaken one', 'Overtaken startup retains only its own draft');
-      await page.waitForFunction(async () => (await window.desktop.snapshot()).runtimes.length <= 3);
+      await waitForTrimmedResidents(page);
     }
     await assert.rejects(page.evaluate(() => window.desktop.logout()), /operation in progress/i,
       'Recycling cannot release the shared account/settings lock');
@@ -298,7 +366,7 @@ try {
     });
     await app.evaluate(() => globalThis.navigationReleaseStartup(1));
     await page.waitForFunction(() => window.navigationBackgroundPrepared);
-    await page.waitForFunction(async () => (await window.desktop.snapshot()).runtimes.length <= 3);
+    await waitForTrimmedResidents(page);
     assert.equal((await page.evaluate(() => window.desktop.snapshot())).state.sessionId, 'navigation-3',
       'A late prepared worker cannot reactivate its overtaken target');
   } finally {
@@ -379,7 +447,7 @@ try {
     return article.getBoundingClientRect().top - viewport.getBoundingClientRect().top;
   });
   assert.ok(Math.abs(restored - reading.offset) < 3, `Reading anchor drifted: ${restored} vs ${reading.offset}`);
-  await page.screenshot({ path: 'test-results/session-navigation-light.png' });
+  await page.screenshot({ path: join(output, 'session-navigation-light.png') });
   phase = 'controlled draft preview and dual navigation/snapshot failure';
   await row(1).click();
   await opened(1);
@@ -414,9 +482,16 @@ try {
     await page.getByRole('alert').filter({ hasText: 'NAVIGATION_DOUBLE_FAILURE' }).waitFor();
     await page.waitForFunction(() => {
       const input = document.querySelector('.composer > .composer-input');
-      return !input?.disabled && input?.value === 'Retained draft zero';
+      return !input?.disabled && input?.value === 'Edited while failed target was opening'
+        && document.querySelector('.session-reading-status')?.textContent.includes('运行时未连接');
     });
-    assert.equal(await app.evaluate(() => globalThis.navigationSnapshotFailures), 1);
+    assert.equal(await app.evaluate(() => globalThis.navigationSnapshotFailures), 0,
+      'Failure retains the inert target; it must not reconcile back to another conversation');
+    assert.equal(await page.locator('.window-session-title').textContent(), 'Navigation 1');
+    assert.ok(await page.locator('.composer-action-button').isDisabled());
+    const failedBox = await modelPlaceholder(true);
+    await page.screenshot({ path: join(output, 'session-navigation-model-failed.png') });
+    assert.equal(failedBox.width, 156, 'Failure keeps the same fixed placeholder width');
   } finally {
     await app.evaluate(({ ipcMain }) => {
       ipcMain.removeHandler('desktop');
@@ -425,6 +500,7 @@ try {
       delete globalThis.navigationReleaseFailure;
     });
   }
+  await row(0).click();
   await opened(0);
   await row(1).click();
   await opened(1);
@@ -443,6 +519,11 @@ try {
   try {
     await row(5).click();
     await page.getByRole('alert').filter({ hasText: /项目目录不可用|directory|unavailable/i }).waitFor({ timeout: 60000 });
+    assert.equal((await page.evaluate(() => window.desktop.snapshot())).state.sessionId, 'navigation-0');
+    assert.equal(await page.locator('.window-session-title').textContent(), 'Navigation 5');
+    assert.ok(await page.locator('.composer-action-button').isDisabled());
+    await modelPlaceholder(true);
+    await row(0).click();
     await opened(0);
   } finally { await rename(`${failureProject}-unavailable`, failureProject); }
   await row(5).click();
@@ -539,6 +620,58 @@ try {
       ipcMain.handle('desktop', globalThis.navigationOriginalHandler);
     });
   }
+  phase = 'bidirectional model restoration and held rapid switches';
+  await row(4).click();
+  await opened(4);
+  await app.evaluate(({ ipcMain }) => {
+    globalThis.navigationOriginalHandler = ipcMain._invokeHandlers.get('desktop');
+    globalThis.navigationModelReleases = [];
+    ipcMain.removeHandler('desktop');
+    ipcMain.handle('desktop', async (event, method, ...args) => {
+      if (method === 'navigateSession')
+        await new Promise(resolve => globalThis.navigationModelReleases.push(resolve));
+      return globalThis.navigationOriginalHandler(event, method, ...args);
+    });
+  });
+  try {
+    await page.getByRole('button', { name: '模型与思考强度', exact: true }).click();
+    await page.getByRole('dialog', { name: '模型与思考强度', exact: true }).waitFor();
+    await row(1).click();
+    const loadingBox = await modelPlaceholder();
+    await page.screenshot({ path: join(output, 'session-navigation-model-loading-light.png') });
+    await app.evaluate(() => globalThis.navigationModelReleases.shift()());
+    await opened(1);
+    await row(4).click();
+    const reverseBox = await modelPlaceholder();
+    assert.equal(reverseBox.width, loadingBox.width, 'Both directions use the same loading geometry');
+    await page.evaluate(() => window.desktop.preferences({ theme: 'dark' }));
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(700, 700));
+    await modelPlaceholder();
+    assert.equal(await page.locator('.model-effort-loading-icon').evaluate(element => getComputedStyle(element).animationName), 'none');
+    await page.screenshot({ path: join(output, 'session-navigation-model-loading-dark-narrow.png') });
+    await app.evaluate(() => globalThis.navigationModelReleases.shift()());
+    await opened(4);
+    await page.evaluate(() => window.desktop.preferences({ theme: 'light' }));
+    await page.emulateMedia({ reducedMotion: 'no-preference' });
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1400, 900));
+    for (const index of [1, 0, 3]) { await row(index).click(); await modelPlaceholder(); }
+    await app.evaluate(() => {
+      globalThis.navigationModelReleases.shift()();
+      globalThis.navigationModelReleases.shift()();
+    });
+    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    assert.equal(await page.locator('.window-session-title').textContent(), 'Navigation 3');
+    await modelPlaceholder();
+    await app.evaluate(() => globalThis.navigationModelReleases.shift()());
+    await opened(3);
+  } finally {
+    await app.evaluate(({ ipcMain }) => {
+      for (const release of globalThis.navigationModelReleases) release();
+      ipcMain.removeHandler('desktop');
+      ipcMain.handle('desktop', globalThis.navigationOriginalHandler);
+    });
+  }
   await row(5).click();
   await opened(5);
   phase = 'dark narrow and reduced motion';
@@ -547,14 +680,28 @@ try {
   await opened(5);
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(700, 700));
-  await page.screenshot({ path: 'test-results/session-navigation-dark-narrow.png' });
+  await page.screenshot({ path: join(output, 'session-navigation-dark-narrow.png') });
+  await page.evaluate(async () => {
+    if (!window.navigationModelObserver) throw new Error('Model navigation observer was not installed after reload');
+    await Promise.all(window.navigationModelReports);
+    window.navigationModelObserver.disconnect();
+  });
+  assert.ok(modelObservations.some(value => value.placeholder === '模型未就绪'), 'Failure observations survive reload');
+  assert.ok(modelObservations.filter(value => value.placeholder === '正在恢复模型').length >= 10,
+    'Multiple document generations and held switches were actually monitored');
+  const stale = modelObservations.filter(value => value.selection !== null);
+  assert.deepEqual(stale, []);
   assert.deepEqual(errors, []);
-  console.log('Session navigation passed: latest-target commits, two-startup resident bypass, bounded background recycling, locked billing changes, interactive read-only history, isolated editable drafts, caret handoff, anchors, failure recovery and narrow/reduced-motion layout.');
+  await writeFile(join(output, 'session-navigation-results.json'), JSON.stringify({
+    modelChecks, modelObservations, staleModels: stale, errors,
+    bidirectionalModelRestoration: true, heldRapidSwitches: true, failurePlaceholder: true,
+    lightDarkNarrowReducedMotion: true,
+  }, null, 2));
 } catch (error) {
   console.error('Navigation acceptance failed during:', phase);
   const page = await app.firstWindow().catch(() => null);
   if (page) {
-    await page.screenshot({ path: 'test-results/session-navigation-failure.png' }).catch(() => {});
+    await page.screenshot({ path: join(output, 'session-navigation-failure.png') }).catch(() => {});
     console.error(await page.evaluate(() => ({
       title: document.querySelector('.window-session-title')?.textContent,
       error: document.querySelector('.app-error-banner')?.textContent,
@@ -562,4 +709,5 @@ try {
     })).catch(() => null));
   }
   throw error;
-} finally { await closeDesktopFixture(app); }
+} finally { await closeDesktopFixtureAndWait(app); }
+console.log('Session navigation passed: authoritative model/effort restoration, loading/failure placeholders, latest-target commits, two-startup resident bypass, bounded background recycling, locked billing changes, interactive read-only history, isolated editable drafts, caret handoff, anchors, failure recovery and narrow/reduced-motion layout.');

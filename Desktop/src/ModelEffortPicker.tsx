@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react';
-import { ChevronLeft, SlidersHorizontal, Type, Image, AudioLines, Video, File } from 'lucide-react';
+import { ChevronLeft, SlidersHorizontal, Type, Image, AudioLines, Video, File, LoaderCircle, CircleHelp } from 'lucide-react';
 import type { Model } from './contracts';
 import { ProviderBrand } from './ProviderBrand';
 import { ModelPickerList } from './ModelPickerList';
@@ -84,6 +84,18 @@ interface Props {
   onModel: (model: Model) => Promise<unknown>;
   onEffort: (level: string) => Promise<unknown>;
   onConfigure?: () => void;
+}
+
+export function ModelEffortPlaceholder({ language, failed }: { language: 'zh' | 'en'; failed?: boolean }) {
+  const label = failed ? language === 'zh' ? '模型未就绪' : 'Model unavailable'
+    : language === 'zh' ? '正在恢复模型' : 'Restoring model';
+  const Icon = failed ? CircleHelp : LoaderCircle;
+  return <div className="model-effort model-effort-placeholder" aria-hidden="true">
+    <button type="button" className="model-effort-trigger" disabled>
+      <Icon size={13} className={failed ? undefined : 'model-effort-loading-icon'}/>
+      <span className="model-effort-name">{label}</span>
+    </button>
+  </div>;
 }
 
 export function ModelEffortPicker({ model, models, favoriteModels, onFavorite, level, levels, language, disabled, pending, onModel, onEffort, onConfigure }: Props) {

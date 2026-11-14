@@ -112,7 +112,9 @@ import type { FileTarget, FileDestination, FileOpenResult, FileOpeningOptions } 
 import type { BrowserAction } from '../src/contracts';
 import { conversationEntries } from '../src/conversation-presentation';
 import { turnChanges } from '../src/turn-changes';
-import type { Message, Model, PermissionPreset, Preferences, Session, SessionReading, Snapshot } from '../src/contracts';
+import type { Message, Model, PermissionPreset, Preferences, Session, SessionReadingResult, Snapshot } from '../src/contracts';
+import { SessionHistoryReaders, historyProcessRunner } from './session-history-readers';
+import { assertReadingBudget } from './session-reading-budget';
 import { validateSidebarPreferences } from '../src/sidebar-order';
 import { migrateWorkspaceIdentity, relocatedWorkspace, relocateWorkspace, removeWorkspace, moveSessionToWorkspace } from './workspace-management';
 import { archivedDeletionTargets, deleteManagedSessionFile, managedSessionFile } from './session-deletion';
@@ -457,11 +459,26 @@ const emit = (event: unknown) => {
 };
 const composers = new ComposerStore(snapshot => emit({ type: 'desktop_composer', snapshot }));
 const rendererGenerations = new Map<number, number>();
+const historyReaders = new SessionHistoryReaders(historyProcessRunner(nodePath, join(runtimeRoot, 'session-reading-worker.mjs'), dataRoot));
+const historyReadingOwners = new Map<string, { serial: number; revision?: number }>();
+const readingSelections = new Map<string, { sessionId: string; revision?: number }>();
+let historyReadingSerial = 0;
+function cancelHistoryReading(owner: string, revision?: number) {
+  const current = historyReadingOwners.get(owner);
+  if (revision !== undefined && current?.revision !== revision) return;
+  historyReadingOwners.delete(owner);
+  historyReaders.cancel(owner);
+}
 function watchComposerWindow(view: BrowserWindow) {
   const contents = view.webContents, id = contents.id;
   rendererGenerations.set(id, 0);
   const reset = () => {
     if (view === window) speech.cancel();
+    for (const owner of historyReadingOwners.keys()) if (owner.startsWith(`${id}:`)) {
+      cancelHistoryReading(owner);
+    }
+    for (const owner of readingSelections.keys()) if (owner.startsWith(`${id}:`)) readingSelections.delete(owner);
+    historyReaders.forgetWindow(`${id}:`);
     rendererGenerations.set(id, (rendererGenerations.get(id) ?? 0) + 1);
     composers.recover(id);
   };
@@ -474,7 +491,7 @@ const creatingDrafts = new Set<string>();
 const miniMethods = new Set([
   'snapshot', 'windowControl', 'miniChatState', 'miniChatPin', 'miniChatReturn', 'miniChatMainAction',
   'windowPresentation', 'composerRead', 'composerWrite', 'composerTake', 'composerRestore',
-  'beginSession', 'chooseSessionProject', 'createDraftSession', 'navigateSession', 'sessionReading',
+  'beginSession', 'chooseSessionProject', 'createDraftSession', 'navigateSession', 'sessionReading', 'cancelSessionReading',
   'command', 'projectInstructions', 'branchSession', 'retryMessage', 'preferences',
   'chooseAttachments', 'importFile', 'importClipboardImage', 'imageAction', 'copyText', 'linkPreview',
   'fileOpen', 'fileOpenOptions', 'browserOpenLink', 'artifactFiles', 'artifactAction', 'backgroundAgents',
@@ -580,6 +597,8 @@ const runtimes: SessionRuntimes = new SessionRuntimes(event => {
   },
   beforePrompt: (worker, message) => modelSelections.prepare(worker, message),
   pluginsReady: worker => pluginHosts.attach(worker),
+  pluginsReset: worker => pluginHosts.invalidate(worker),
+  language: () => preferences.language,
   canReuseEmpty: worker => !outdatedInstructions.has(worker),
   // Keep at most two extra idle children when Windows has ample free memory.
   // This is a retention budget, never permission to speculatively start agents.
@@ -596,6 +615,7 @@ const runtimes: SessionRuntimes = new SessionRuntimes(event => {
     usageEstimates.attach(worker);
     const launch = collaboration.attach(worker);
     return { ...launch, env: { ...launch.env,
+      ...(runtimeManifest.patches?.includes('desktop-async-startup') ? { DFSC_ASYNC_STARTUP_V1: '1' } : {}),
       ...(runtimeManifest.patches?.includes('desktop-plugin-host-launch') ? { DFSC_RUNTIME_HOST_V1: '1' } : {}) },
       args: [...launch.args, '--extension', join(runtimeRoot, 'project-instructions.mjs'),
         '--extension', join(runtimeRoot, 'runtime-compile-cache.mjs')] };
@@ -711,11 +731,19 @@ const remote = new RemoteManager({
     return worker;
   },
   submit: async (worker, message, accepted, images) => {
+    const rpc = worker.rpc, sessionId = worker.state?.sessionId;
+    const validate = () => {
+    if (runtimes.workers.get(worker.id) !== worker || worker.status !== 'connected'
+      || worker.rpc !== rpc || worker.state?.sessionId !== sessionId) throw new Error('Remote session identity changed');
     if (externalTasks.retains(worker)) throw new Error('This session belongs to an external task');
     if (transition || sessionNavigation.busy || settingsMutation || undoBusy || quitting || quitPending || updateInstalling
       || providerSettingsPending || worker.mutating || worker.stopping || worker.pendingUI.size
       || worker.failed || worker.interrupted || worker.launch?.goalArmed || worker.launch?.goal?.status === 'active')
       throw new Error('Review the session on Desktop before sending');
+    };
+    validate();
+    await runtimes.assertExecutionReady(worker);
+    validate();
     const id = pendingMessages.enqueue(worker, message, { message, ...(images?.length ? { images } : {}) });
     accepted(id);
     pendingMessages.resumed(worker);
@@ -780,12 +808,19 @@ const externalTasks: ExternalConnectorTasks = new ExternalConnectorTasks({
     }
   },
   submit: async (worker, message, accepted, valid) => {
+    const rpc = worker.rpc, sessionId = worker.state?.sessionId;
+    const validate = () => {
     if (!valid() || runtimes.workers.get(worker.id) !== worker || worker.status !== 'connected'
+      || worker.rpc !== rpc || worker.state?.sessionId !== sessionId
       || !['ask', 'approve-for-me'].includes(worker.permissionPreset ?? '') || transition || sessionNavigation.busy || settingsMutation || undoBusy
       || quitting || quitPending || updateInstalling || providerSettingsPending || worker.mutating || worker.stopping
       || worker.pendingUI.size || worker.failed || worker.interrupted || worker.busy || worker.submissions
       || worker.launch?.goalArmed || worker.launch?.goal?.status === 'active')
       throw new Error('connector:unavailable');
+    };
+    validate();
+    await runtimes.assertExecutionReady(worker);
+    validate();
     const id = pendingMessages.enqueue(worker, message, { message });
     accepted(id);
     pendingMessages.resumed(worker);
@@ -894,6 +929,9 @@ const launchCronRecovery = async (plan: import('./cron-recovery').CronRecoveryPl
       throw new Error('Recovery account changed while opening the host');
     await cronBindings.set(plan.workspace, plan.jobs, plan.sessionId, 'recovered');
     assertRecoveryQueues(runtimes.workers.values(), plan.sessionId);
+    await runtimes.modelReady(worker);
+    await pluginHosts.attach(worker);
+    await runtimes.waitForTools(worker);
     // The resume helper removes explicit rejections; uncertain delivery must retain the host.
     activated = true;
     await resumeCronHost(worker.rpc, () => runtimes.remove(worker), plan.automaticBefore);
@@ -1099,7 +1137,8 @@ async function snapshot(worker = runtimes.active, refresh = true, ignoreDraft = 
     customBackground: backgroundState, providerSettingsPending,
     status: draft ? 'ready' : worker?.status ?? status, draftId: draft?.id, runtimeId: worker?.id, runtimeStartupTiming: draft ? undefined : worker?.startupTiming, runtimes: runtimes.summaries(), unreadSessionIds: [...runtimes.unreadSessionIds],
     state: draft ? { isStreaming: false, model: draft.model ? providerModelNames([draft.model], appliedAuthData)[0] : undefined, thinkingLevel: draft.thinkingLevel }
-      : worker?.state ? { ...worker.state, model: worker.state.model ? providerModelNames([worker.state.model], appliedAuthData)[0] : undefined } : undefined,
+      : worker?.state ? { ...worker.state, desktopStartup: worker.startup,
+        model: worker.state.model ? providerModelNames([worker.state.model], appliedAuthData)[0] : undefined } : undefined,
     modelSelection: worker ? modelSelections.selection(worker) : undefined,
     modelChanges: worker ? modelSelections.changes(worker) : [],
     estimate: usageEstimates.summary(worker),
@@ -1201,6 +1240,11 @@ function commitSessionNavigation(worker: SessionRuntime, value: Snapshot, surfac
   if (runtimes.workers.get(worker.id) !== worker || worker.status !== 'connected' || worker.stopping)
     throw new Error('Session runtime disconnected while opening');
   selectRuntime(surface, worker);
+  const contents = readingSelections.size ? (surface === 'mini' ? miniChat?.window : window)?.webContents : undefined;
+  if (contents) {
+    const owner = `${contents.id}:${rendererGenerations.get(contents.id)}:${surface}`;
+    if (readingSelections.get(owner)?.sessionId === worker.state?.sessionId) readingSelections.delete(owner);
+  }
   if (surface === 'main') {
     preferences.workspace = worker.cwd;
     void savePreferences().catch(() => emit({ type: 'desktop_error', message: 'Could not save the selected workspace' }));
@@ -1212,7 +1256,10 @@ function commitSessionNavigation(worker: SessionRuntime, value: Snapshot, surfac
 async function decorateSessionMessages(id: string, cwd: string, messages: Message[]) {
   return hydrateWorkflowHistory(cwd, await conversationTiming.decorate(id, messages), await workflowBindings.load(id));
 }
-async function sessionReading(id: string): Promise<SessionReading | null> {
+async function sessionReading(id: string, owner: string, revision?: number): Promise<SessionReadingResult> {
+  cancelHistoryReading(owner);
+  const token = { serial: ++historyReadingSerial, revision };
+  historyReadingOwners.set(owner, token);
   if (isChildSession(id)) throw new Error('Child sessions belong to their parent task');
   const target = cachedSessions().find(session => session.id === id);
   if (!target) return null;
@@ -1222,7 +1269,17 @@ async function sessionReading(id: string): Promise<SessionReading | null> {
     messages: worker.messages, modelChanges: modelSelections.changes(worker),
   };
   if (!target.path) return null;
+  const file = await stat(target.path).catch(() => undefined);
+  if (historyReadingOwners.get(owner) !== token) return null;
+  if (!file) return { sessionId: id, unavailable: 'unavailable' };
+  if (file.size > 12 * 1024 * 1024) {
+    const value = await historyReaders.read(owner, token.serial, {
+      root: join(dataRoot, 'sessions'), profile: app.getPath('userData'), file: target.path, sessionId: id, cwd: target.cwd,
+    }, JSON.stringify([file.dev, file.ino, file.size, file.mtimeMs, file.ctimeMs]));
+    return historyReadingOwners.get(owner) === token ? value : null;
+  }
   const history = await admin.request('session_history', { sessionId: id, sessionPath: target.path });
+  if (historyReadingOwners.get(owner) !== token) return null;
   if (!history || history.sessionId !== id) return null;
   const projected = importedHistoryMessages(history.messages, history.entries, history.leafId);
   const messages = projected === history.messages
@@ -1230,7 +1287,10 @@ async function sessionReading(id: string): Promise<SessionReading | null> {
   const [decorated, record] = await Promise.all([
     decorateSessionMessages(id, target.cwd, messages), modelSelections.load(id),
   ]);
-  return { sessionId: id, version: history.version, messages: decorated, modelChanges: record.changes };
+  if (historyReadingOwners.get(owner) !== token) return null;
+  const result = { sessionId: id, version: history.version, messages: decorated, modelChanges: record.changes };
+  try { assertReadingBudget(result); return result; }
+  catch (error) { return { sessionId: id, unavailable: (error as { reason: 'response-limit' | 'node-limit' }).reason }; }
 }
 async function navigationSnapshot(worker: SessionRuntime) {
   worker.operations++;
@@ -1361,6 +1421,12 @@ async function beginSession(workspace?: string, surface: Surface = 'main') {
 const text = (value: unknown, max = 100000): string => { if (typeof value !== 'string' || value.length > max) throw new Error('Invalid text'); return value; };
 async function handle(method: string, args: any[], surface: Surface = 'main', markCapabilityPhase?: CapabilityPhaseMarker) {
   const originWindow = () => surface === 'mini' ? miniChat!.window! : window;
+  const readingOwner = () => {
+    const id = originWindow().webContents.id;
+    return `${id}:${rendererGenerations.get(id)}:${surface}`;
+  };
+  if (['command', 'branchSession', 'retryMessage'].includes(method) && readingSelections.size && readingSelections.has(readingOwner()))
+    throw new Error('Conversation is read-only until its runtime connects');
   const viewSnapshot = (worker?: SessionRuntime, refresh = true, ignoreDraft = false) => snapshot(worker, refresh, ignoreDraft, surface);
   if (surface === 'mini' && method === 'preferences'
     && (!args[0] || Object.keys(args[0]).some(key => key !== 'modelFavorite')))
@@ -1496,6 +1562,9 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
         savePresentation('main', owner, presentation);
         if (draft) selectDraft('main', draft);
         else commitSessionNavigation(worker!, value!);
+        const mainReadingOwner = `${window.webContents.id}:${rendererGenerations.get(window.webContents.id)}:main`;
+        cancelHistoryReading(mainReadingOwner);
+        readingSelections.delete(mainReadingOwner);
         window.webContents.send('runtime-event', { type: 'desktop_view_changed', surface: 'main', restorePresentation: true });
         showMainWindow();
         miniChat!.hide();
@@ -2163,7 +2232,7 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
         // Permissions and project trust from the source are not carried into it.
         await capabilityService.recover();
         prepared = await runtimes.prepare(nodePath, join(runtimeRoot, 'step/dist/bundle/step.js'), canonical,
-          { ...authEnvironment(), ...movedSessionEnvironment() }, path);
+          { ...authEnvironment(), ...movedSessionEnvironment(), DESKTOP_DEFER_MODEL_READY: '1' }, path);
         prepared.mutating = true;
         if (prepared.state?.sessionId !== id || prepared.permissionPreset !== 'ask')
           throw new Error('Could not verify the destination conversation and approval policy');
@@ -2176,6 +2245,7 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
             await prepared.rpc.request('set_thinking_level', { level: source.state.thinkingLevel });
         }
         await runtimes.read(prepared);
+        await runtimes.modelReady(prepared);
         const previous = preferences;
         preferences = moveSessionToWorkspace(preferences, target, destination);
         if (wasActive) preferences.workspace = canonical;
@@ -2192,6 +2262,8 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
           if (prepared) {
             prepared.mutating = false;
             if (!committed) await runtimes.remove(prepared);
+            else if (prepared.startup) void pluginHosts.attach(prepared).catch(() => {});
+            else await pluginHosts.attach(prepared);
           }
         } finally {
           if (locked) for (const worker of sources) worker.mutating = false;
@@ -2199,11 +2271,25 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
         }
       }
     }
-    case 'sessionReading': return sessionReading(text(args[0], 300));
+    case 'sessionReading':
+    case 'cancelSessionReading': {
+      const owner = readingOwner();
+      const revision = method === 'sessionReading' ? args[1] : args[0];
+      if (revision !== undefined && (!Number.isSafeInteger(revision) || revision < 0)) throw new Error('Invalid reading revision');
+      if (method === 'cancelSessionReading') {
+        cancelHistoryReading(owner, revision);
+        if (readingSelections.get(owner)?.revision === revision) readingSelections.delete(owner);
+        return;
+      }
+      const value = await sessionReading(text(args[0], 300), owner, revision);
+      return revision === undefined && value && 'unavailable' in value ? null : value;
+    }
     case 'navigateSession': {
       if (deletingArchived || transition && !sessionNavigation.busy) throw new Error('Workspace operation in progress');
       const id = text(args[0], 300);
       if (isChildSession(id)) throw new Error('Child sessions belong to their parent task');
+      if (args[1] !== undefined && (!Number.isSafeInteger(args[1]) || args[1] < 0)) throw new Error('Invalid reading revision');
+      readingSelections.set(readingOwner(), { sessionId: id, revision: args[1] });
       return (surface === 'mini' ? miniNavigation : sessionNavigation).select(id);
     }
     case 'switchSession': {
@@ -2308,7 +2394,10 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
       if (/^\s*\/_desktop_(?:retry|goal_input|init)\b/.test(message)) throw new Error('Reserved Desktop command');
       worker.mutating = true;
       try { await runtimes.retryLatest(worker, entryId, message); }
-      finally { worker.mutating = false; }
+      finally {
+        worker.mutating = false;
+        void pluginHosts.attach(worker).catch(() => {});
+      }
       return null;
     }
     case 'deleteArchivedSessions': {
@@ -2482,6 +2571,7 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
       if (mutating) worker.mutating = true;
       let submitted = false;
       let restoreReview: (() => void) | undefined;
+      let restoreLaunch: (() => void) | undefined;
       try {
         if (projectRules) await runtimes.assertIdle(worker);
         const wasStreaming = promptNeedsQueue(worker);
@@ -2614,6 +2704,7 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
             });
           }
           if (wasStreaming || worker.state?.isCompacting) {
+            await runtimes.assertExecutionReady(worker);
             if (worker.launch?.goalArmed) throw new Error('Finish the current task before starting a new goal');
             if (worker.state?.desktopCompletionReview === 1)
               await rpc.request('desktop_completion_review_skip');
@@ -2635,21 +2726,23 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
         try {
           let response;
           if (type === 'prompt' && promptLaunch?.goalArmed && !projectRules) {
-            launchControls.consume(worker);
+            await runtimes.assertExecutionReady(worker);
+            restoreLaunch = launchControls.consume(worker);
             await runtimes.preparePrompt(worker, payload.message as string);
             if (!await launchControls.startGoal(worker, payload, promptLaunch)) throw new Error('Goal state changed before submission');
             response = { goal: true };
           } else {
             if (type === 'prompt' && !(payload.message as string).trimStart().startsWith('/')) {
               payload = launchControls.input(worker, payload, promptLaunch);
-              launchControls.consume(worker);
+              restoreLaunch = launchControls.consume(worker);
               await runtimes.preparePrompt(worker, payload.message as string);
             }
             if (projectRules) {
               await runtimes.preparePrompt(worker, '/init');
               payload.message = await projectInstructionsMessage(worker.cwd, '/init');
             }
-            const submission = rpc.request(type, payload, type === 'prompt' || type === 'compact' ? 600000 : 30000);
+            const submission = type === 'prompt' ? runtimes.submitPrompt(worker, payload, true)
+              : rpc.request(type, payload, type === 'compact' ? 600000 : 30000);
             response = await submission;
             if (type === 'prompt') { restoreReview = undefined; runtimes.publishLaunch(worker); }
           }
@@ -2662,7 +2755,10 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
           if (type === 'prompt' && Array.isArray(data.files)) for (const id of data.files) attachedFiles.delete(id);
           return response;
         } catch (error) {
-          if (type === 'prompt') { worker.failed = true; pendingMessages.pause(worker); }
+          if (type === 'prompt') {
+            if (error instanceof Error && error.message.startsWith('STARTUP_NOT_READY:')) restoreLaunch?.();
+            else { worker.failed = true; pendingMessages.pause(worker); }
+          }
           throw error;
         } finally {
           worker.operations--;
@@ -3175,7 +3271,7 @@ app.on('before-quit', event => {
       quitStage = 'external-connectors';
       await externalConnectors.shutdown();
       quitStage = 'services';
-      await Promise.all([runtimes.stopAll(), admin.stop(), capabilityService.stop(), collaboration.stop(), bvrBridge.stop(), pluginHosts.close()]);
+      await Promise.all([historyReaders.close(), runtimes.stopAll(), admin.stop(), capabilityService.stop(), collaboration.stop(), bvrBridge.stop(), pluginHosts.close()]);
       quitStage = 'persistence';
       await externalTasks.flush().catch(() => crashLog.record('external-connectors', new Error('External task state could not be saved')));
       await conversationTiming.flush();
@@ -3518,5 +3614,5 @@ else app.whenReady().then(async () => {
   startupWindow?.destroy();
   await crashLog.record('startup-failure', error, (error as { details?: Record<string, unknown> }).details ?? {});
   if (!backgroundAcceptance) dialog.showErrorBox('Desktop for Step Code', String(error));
-  quitting = true; void Promise.all([remote.shutdown(), externalConnectors.shutdown(), sessionImports.close(), runtimes.stopAll(), admin.stop(), capabilityService.stop(), collaboration.stop(), terminals.stopAll(), pluginHosts.close()]).finally(() => app.quit());
+  quitting = true; void Promise.all([historyReaders.close(), remote.shutdown(), externalConnectors.shutdown(), sessionImports.close(), runtimes.stopAll(), admin.stop(), capabilityService.stop(), collaboration.stop(), terminals.stopAll(), pluginHosts.close()]).finally(() => app.quit());
 });

@@ -102,6 +102,9 @@ async function fixture() {
       models: current?.models ?? selected?.models ?? [], sessions: [] };
   };
   const context = {
+    readingSelections: new Map<string, { sessionId: string }>(),
+    rendererGenerations: new Map([[1, 0], [2, 0]]),
+    window: { webContents: { id: 1 } }, miniChat: { window: { webContents: { id: 2 } } },
     sessionDraft: draft as Draft | undefined, miniView, runtimes, preferences,
     creatingDrafts, createdDrafts, composers, snapshot, transition: false, deletingArchived: false,
     updateInstalling: false, status: 'ready', sessionNavigation: { busy: false },
@@ -156,9 +159,19 @@ async function fixture() {
     return { started: removalStarted.promise, release: removal.resolve };
   };
   return { api, draft, worker, miniView, runtimes, setup, composers, creatingDrafts, createdDrafts, externalWorkers,
-    observedMainDrafts, sessionOptions, removed, start, navigateAway, holdRemoval,
+    observedMainDrafts, sessionOptions, removed, start, navigateAway, holdRemoval, readingSelections: context.readingSelections,
     setModels: (models: Model[]) => { availableModels = models; } };
 }
+
+for (const surface of ['main', 'mini'] as const) test(`read-only ${surface} target rejects execution and old-runtime controls in the main process`, async () => {
+  const f = await fixture();
+  f.readingSelections.set(`${surface === 'main' ? 1 : 2}:0:${surface}`, { sessionId: 'unconnected-target' });
+  for (const args of [['prompt', { message: 'MUST_NOT_PERSIST' }], ['abort'], ['extension_ui_response'], ['set_model'], ['queue_steer_first']])
+    await assert.rejects(f.api.handle('command', args, surface), /read-only/);
+  await assert.rejects(f.api.handle('branchSession', [], surface), /read-only/);
+  await assert.rejects(f.api.handle('retryMessage', [], surface), /read-only/);
+  assert.equal(f.runtimes.workers.size, 0);
+});
 
 for (const mode of ['mini-only', 'separate'] as const) {
   test(`workspace relocation rejects a ${mode} MiniChat project draft without losing input or options`, async () => {

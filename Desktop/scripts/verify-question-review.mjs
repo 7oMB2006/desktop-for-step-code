@@ -3,6 +3,7 @@ import { _electron as electron } from 'playwright';
 import { createServer } from 'node:http';
 import { mkdir, writeFile, realpath } from 'node:fs/promises';
 import { mkdtemp } from './test-profile.mjs';
+import { submitSessionFixture } from './session-fixture.mjs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import assert from 'node:assert/strict';
@@ -58,7 +59,7 @@ const profile = await realpath(await mkdtemp(join(tmpdir(), 'desktop-question-re
 const root = join(profile, 'step-runtime'), workspace = join(profile, 'workspace');
 await mkdir(root); await mkdir(workspace); await mkdir('test-results', { recursive: true });
 await writeFile(join(profile, 'preferences.json'), JSON.stringify({ language: 'zh', theme: 'dark', workspaces: [workspace] }));
-await writeFile(join(root, 'config.toml'), 'defaultProvider = "fixture"\ndefaultModel = "fixture"\npermissionPreset = "approve-for-me"\n[telemetry]\nenabled = false\n');
+await writeFile(join(root, 'config.toml'), 'defaultProvider = "fixture"\ndefaultModel = "fixture"\npermissionPreset = "approve-for-me"\n[telemetry]\nenabled = false\n[mcp_servers.steppage__steppage]\nenabled = false\n');
 await writeFile(join(root, 'models.json'), JSON.stringify({ providers: { fixture: {
   baseUrl: `http://127.0.0.1:${server.address().port}/v1`, api: 'openai-completions', apiKey: 'isolated-test',
   models: [{ id: 'fixture', name: 'Question fixture', contextWindow: 32768, maxTokens: 2048 }],
@@ -103,7 +104,7 @@ try {
   const send = async (prompt, approval = false) => {
     await page.waitForFunction(() => document.querySelector('.composer-action-button')?.getAttribute('data-action') === 'send');
     await page.getByRole('textbox', { name: '消息', exact: true }).fill(prompt);
-    await page.locator('.composer-action-button[data-action="send"]').click();
+    await submitSessionFixture(page, () => page.locator('.composer-action-button[data-action="send"]').click());
     if (approval) {
       const permission = page.locator('.permission-approval');
       await permission.waitFor();

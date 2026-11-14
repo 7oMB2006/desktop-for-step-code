@@ -421,9 +421,10 @@ function remoteFixture(gate: CapabilityGate) {
   const runtimes = new SessionRuntimes(() => {}, () => { throw new Error('No native workers in this test'); });
   const worker = {
     id: 'runtime-a', cwd: 'fixture', status: 'connected', state: { sessionId: 'session-a' }, remoteAttached: true,
-    busy: true, pendingUI: new Map(), uiTimers: new Map(),
+    busy: true, messages: [], pendingUI: new Map(), uiTimers: new Map(),
     rpc: { respond: (answer: Record<string, unknown>) => { answers.push(answer); } },
   } as unknown as SessionRuntime;
+  runtimes.workers.set(worker.id, worker);
   const pendingMessages = {
     enqueue: (_worker: SessionRuntime, message: string) => { queued.push(message); return `queue-${queued.length}`; },
     resumed: () => { events.push('resumed'); }, drain: async () => { events.push('drain'); },

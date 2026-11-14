@@ -5,7 +5,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { mkdtemp } from './test-profile.mjs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { prepareSessionFixture } from './session-fixture.mjs';
+import { prepareSessionFixture, waitForSessionFixtureTools } from './session-fixture.mjs';
 import { closeDesktopFixtureAndWait } from './close-desktop-fixture.mjs';
 
 const profile = await mkdtemp(join(tmpdir(), 'step-background-replies-'));
@@ -59,7 +59,7 @@ const server = createServer(async (request, response) => {
 await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
 await writeFile(join(profile, 'preferences.json'), JSON.stringify({ theme: 'dark', language: 'zh', workspaces: [] }));
 await writeFile(join(root, 'config.toml'),
-  'defaultProvider = "fixture"\ndefaultModel = "fixture"\npermissionPreset = "approve-for-me"\n[telemetry]\nenabled = false\n');
+  'defaultProvider = "fixture"\ndefaultModel = "fixture"\npermissionPreset = "approve-for-me"\n[telemetry]\nenabled = false\n[mcp_servers.steppage__steppage]\nenabled = false\n');
 await writeFile(join(root, 'models.json'), JSON.stringify({ providers: { fixture: {
   baseUrl: `http://127.0.0.1:${server.address().port}/v1`, api: 'openai-completions', apiKey: 'isolated-fixture-only',
   models: [{ id: 'fixture', name: 'Background reply fixture', contextWindow: 100000, maxTokens: 2048 }],
@@ -79,6 +79,7 @@ try {
     window.setOpacity(0); window.setIgnoreMouseEvents(true); window.showInactive(); window.setSize(1400, 900);
   });
   const owner = await prepareSessionFixture(page);
+  await waitForSessionFixtureTools(page, owner.runtimeId);
   await page.evaluate(id => window.desktop.command('prompt', { message: 'REPLY-PARENT' }, id), owner.runtimeId);
   const waitFor = async predicate => {
     const deadline = Date.now() + 30000;

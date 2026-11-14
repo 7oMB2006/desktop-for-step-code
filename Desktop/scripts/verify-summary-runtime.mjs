@@ -31,7 +31,7 @@ const history = join(runtimeProfile, 'sessions');
 await mkdir(history, { recursive: true });
 await mkdir(join(runtimeProfile, 'agent', 'skills', 'summary-fixture'), { recursive: true });
 await writeFile(join(runtimeProfile, 'agent', 'skills', 'summary-fixture', 'SKILL.md'), '---\nname: summary-fixture\ndescription: Local summary fixture\n---\nRead-only fixture.\n');
-await writeFile(join(runtimeProfile, 'config.toml'), 'defaultProvider = "fixture"\ndefaultModel = "fixture"\npermissionPreset = "approve-for-me"\n[telemetry]\nenabled = false\n[mcp_servers.reference-library]\ncommand = "disabled-fixture"\nenabled = false\n[mcp_servers.local-search]\ncommand = "does-not-exist-summary-fixture"\n');
+await writeFile(join(runtimeProfile, 'config.toml'), 'defaultProvider = "fixture"\ndefaultModel = "fixture"\npermissionPreset = "approve-for-me"\n[telemetry]\nenabled = false\n[mcp_servers.steppage__steppage]\nenabled = false\n[mcp_servers.reference-library]\ncommand = "disabled-fixture"\nenabled = false\n[mcp_servers.local-search]\ncommand = "does-not-exist-summary-fixture"\n');
 const timestamp = new Date().toISOString();
 const task = (id, subject, status) => ({ id, subject, status, description: '核对真实运行时数据、会话隔离与界面状态，完成后保留验收结果。', blocks: [], blockedBy: [], createdAt: Date.now(), updatedAt: Date.now() });
 await writeFile(join(history, 'summary-fixture.jsonl'), [
@@ -81,7 +81,7 @@ try {
   await page.waitForFunction(() => document.querySelector('.sb-skills strong')?.textContent === '1');
   await board.locator('.sb-mcp-trigger').click();
   await board.locator('.sb-mcp-server').filter({ hasText: 'local-search' }).getByText('连接失败', { exact: true }).waitFor();
-  assert.equal(await board.getByText('已关闭', { exact: true }).count(), 1);
+  await board.locator('.sb-mcp-server').filter({ hasText: 'reference-library' }).getByText('已关闭', { exact: true }).waitFor();
   await page.waitForFunction(() => [...document.querySelectorAll('.sb-mcp-server [role="switch"]')]
     .some(button => button.getAttribute('aria-label') === '启用 reference-library' && !button.disabled));
   assert.equal(await board.locator('.sb-mcp-error').count(), 0, 'MCP configuration reads succeed before switches become available');
@@ -123,6 +123,11 @@ try {
     // Keep the actual RPC/local-provider path; observe its resulting DOM commit.
     await page.locator('.composer > .composer-input').fill('完成第二项');
     await page.locator('.composer > .composer-input').press('Enter');
+    const confirmation = page.getByRole('dialog', { name: '工具不可用', exact: true });
+    await confirmation.waitFor();
+    assert.ok((await confirmation.textContent()).includes('local-search'));
+    assert.equal(calls, 0, 'the intentionally failed MCP requires explicit per-submission consent');
+    await confirmation.getByRole('button', { name: '确认', exact: true }).click();
   });
   await board.getByRole('button', { name: /已完成 2 项/ }).waitFor();
   await board.locator('.sb-task-history').getByRole('button', { name: /已完成任务.*1 项/ }).waitFor();

@@ -1,5 +1,54 @@
 # Verification
 
+## 会话阅读与 MCP 启动解耦（2026-11-14，本地）
+
+实现独立只读历史投影、桌面专用异步启动、实际执行就绪检查和受保护的整运行时重连。
+不是 Scrapling 特判，不修改原生 runtime pin；集成补丁完整重放及 79 份最终源码哈希核对通过。
+完整协议 257/257 文件成功，2703 项通过、15 项平台或文件链接权限跳过，零失败或取消。
+最终类型检查、生产构建、受控 70 秒 MCP 与 20 次旧协议阅读验收通过；后者 DOM 可读 P95 为 656.06 ms。
+宿主授权、权限审批和会话迁移另有 Electron 回归；不把本机夹具结果等同于真实账号、安装器或云端验收。
+实施、独立复核、指标含义、末轮文案修正的验收顺序和产物清单见
+[Session Reading And Runtime Startup](SESSION_STARTUP_DECOUPLING.md)。
+本地验收后获准提交 PR；未打包、发布或替换日常 profile/快捷方式。
+
+同日增量修复切换会话时的旧模型/思考强度标签：导航立即卸载真实选择器，
+改为固定尺寸禁用占位；权威状态恢复后再展示，失败保留目标正文与未知模型占位。
+不更改实际模型恢复、默认偏好或下一轮预选规则。
+最终类型检查、生产构建、四文件 57 项定向测试及两组源码 Electron 验收通过；
+导航 38 次权威恢复校验、41 次跨重载观察中旧选择器残留为零，页面异常为零。
+已检查深浅色、700 像素窄窗口和减少动态效果。旧模型切换夹具改为先等待异步工具稳定，
+保留原快照相等断言；独立审查指出的重载后监测器丢失也已修复并重跑。
+完整 257 文件协议套件先于本增量，未把定向结果冒充为重跑全套。
+证据在上述实施文档的 `model-labels` 条目中。
+
+提交 PR 前已 rebase 到 `main 2d0777b`，保留 PR #245 的 Remote 等待与来源提示，
+并经独立只读合流审查。同步后类型检查、生产构建、21 文件 520 项定向协议测试全通过；
+根 CI 策略/清单/运行器/文档测试 39 通过、1 项平台跳过。
+源码 Electron 会话导航及 Remote 三模式验收通过，模型恢复仍为 38 次校验、
+41 次观察、零旧选择器残留和页面异常。再次运行实际 70 秒 MCP：
+正文约 599 ms 可读、权威状态约 2.05 秒恢复、工具约 72.02 秒连接；
+连接中拒绝执行、显式排除、清理拒绝、重连和冷草稿保留检查通过。
+五个 Electron runner 均返回 0，末次自有 Node/Electron 进程盘点为空。
+本轮未重跑完整 257 文件套件和 20 次阅读分布，证据在 `pr-main-sync`；
+不代表云端检查或正式发布成功，未生成安装器、改动日常 profile 或快捷方式。
+
+## PR #246 CI 兼容性修正（2026-11-14）
+
+首轮 Windows/macOS 夹具隐式依赖本机 StepPage，干净 runner 因工具不可用而正确拒绝发送；
+已在无关的本地模型夹具中显式关闭内置 StepPage，专用 StepPage 用例不变。
+首次启动仍使用真正的空档案，识别 onboarding 后才通过正式设置接口关闭无关 MCP。
+冷草稿夹具仅在确认未接受、未落盘且相同运行时工具已就绪时显式重试一次；
+已接受、其他错误、工具失败或清理不确定时不重试。新建会话使用有界正常退出并保证关闭 HTTP。
+摘要板保留故意失败的 `local-search`，通过真实应用内确认后才允许本地模型请求。
+
+后续验收还发现 Plan 冷启动恢复兼容性问题：只将 `/plan` 开关及 `on/off` 参数声明为初始化管理；
+`/plan <任务>`、`/plan approve` 仍在处理器执行前经过就绪门禁，嵌套执行也独立受限。
+原生 runtime pin、生产工具失败确认及验收超时均未放宽。
+原生三文件 185 项、Desktop 八文件 230 项及 staging 八项定向回归通过，类型检查与运行时重新暂存通过；
+本轮未在本地重跑完整 Desktop 协议清单。
+定向回归与逐项源码 Electron 证据位于实施文档的 `ci-fix` 条目；
+本地通过不等于当前 PR 云端 CI 通过，仍需核对推送后的 Windows/macOS 检查。
+
 ## PR #243 提问验收收尾修正（2026-11-14）
 
 首次 macOS sessions job 因 hosted ARM64 runner 容量不足而未启动；定向重跑后，
@@ -15262,3 +15311,50 @@ Windows interface 与 sessions 已通过；汇总任务失败是上述失败的�
 相关五个文件最终定向复验 116/116，CI 文档与协议 runner 自测 7/7；
 未改产品代码或运行时资产，不重建包、不动日用配置。
 本段记录为本地修复证据，新 head 的完整云端检查需独立通过。
+
+## Session Startup CI Follow-up (2026-11-14)
+
+PR #246 follow-up `d321fcc` passed Windows startup/new-session/Plan and the
+other session fixtures before failing first-run's missing clean-machine MCP
+command and session-move's immediate restored-history assertion. The fixtures
+now supply a valid disabled StepPage declaration after genuine fresh-profile
+detection and await selected history. Custom-provider successful submissions
+use authoritative tool readiness, awaited IPC polling and bounded orderly
+shutdown; no production admission gate or deadline was relaxed.
+
+Additional local Workflow acceptance found missing cloned interruption metadata.
+Clone/fork now read authoritative native messages before filtering Workflow
+bindings, independent of a discardable UI snapshot, and reread after copying
+them. The original immediate cloned-state assertion is
+retained; forced-crash coverage still terminates the owned fixture tree.
+
+Final local evidence under
+`D:\DFSC Builds\session-startup-decoupling\evidence-20261114\ci-fix`:
+four focused test files passed 92 tests; typecheck and production build passed;
+first-run, session-move, custom-providers, Workflow runtime and session-branching
+completed with exit code zero in their `r2`/`r4` logs. Earlier failing attempts
+are diagnostics, not passes. No installer, runtime pin upgrade, production
+profile change, shortcut change, merge or release is included.
+Current-head cloud CI remains a separate required check.
+
+The subsequent `e5ff3fd` cloud run reached the configured-plugin connection
+assertion and imported-session continuation. The former now waits for that
+MCP's real connection and still fails on service errors; the latter waits for
+tool readiness and committed continuation. The two composer IPC fixtures
+capture a settled native snapshot before replacing their handler, rather than
+freezing startup in progress. Final targeted `r4` logs cover capabilities,
+session import, composer menu, command dispatch, Workflow and branching.
+
+The complete local interface diagnostic batch attempted 62 runners, with
+56 passes and six failures. All six then passed scoped corrected reruns:
+capabilities, composer menu and command dispatch in `r4`; account settings,
+account routing and fulltext search in `r5`. This is not a claim that the
+original batch was green. Account success paths await real tool readiness
+without changing the intentional login-busy rejection or denied-Plan routing.
+Fulltext failure checks retain selected read-only history with execution
+disabled, then successfully reopen and locate the search result.
+
+The final four-file regression selection passed 94 tests; typecheck and the
+ordinary production build passed again (`focused-r5`, `typecheck-r5`,
+`build-r5`). The original failures remain diagnostic evidence. Only the
+latest pushed revision's cloud results can establish current-head CI success.

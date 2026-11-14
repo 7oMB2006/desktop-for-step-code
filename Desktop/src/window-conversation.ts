@@ -23,6 +23,9 @@ export const composerKey = (owner?: ComposerOwner) => owner
 
 export function composerErrorText(error: unknown, language: 'zh' | 'en') {
   const message = String(error instanceof Error ? error.message : error);
+  if (/\bSTARTUP_NOT_READY:/.test(message)) return language === 'zh'
+    ? '消息未发送。请等待工具就绪后重试；如果连接失败，请重新连接此会话。'
+    : 'Message not sent. Retry when tools are ready, or reconnect this conversation if the connection failed.';
   if (message.includes('COMPOSER_CONFLICT')) return language === 'zh'
     ? '另一窗口也修改了草稿，请先选择保留哪一份内容。' : 'Both windows edited this draft. Choose which version to keep.';
   if (language === 'en') return message;

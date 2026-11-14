@@ -19,7 +19,11 @@ async function waitFor(condition: () => boolean | Promise<boolean>, label: strin
   assert.ok(await condition(), label);
 }
 
-test('real native discovery launches the bundled SDK, invokes the main broker and revokes on account change',
+for (const asyncStartup of [false, true]) {
+const startupEnv = asyncStartup ? { DFSC_ASYNC_STARTUP_V1: '1' } : {};
+const mode = asyncStartup ? 'asynchronous startup' : 'legacy startup';
+
+test(`real native discovery launches the bundled SDK, invokes the main broker and revokes on account change (${mode})`,
   { timeout: 90000 }, async t => {
     const f = await hostService(t, { packageDirectory: sdk, command: node,
       serverWrapper: resolve('tests/fixtures/host-sdk-proxy.mjs') });
@@ -55,11 +59,14 @@ test('real native discovery launches the bundled SDK, invokes the main broker an
           models: [{ id: 'fixture', name: 'Local fixture', input: ['text'], contextWindow: 32768, maxTokens: 1024 }] } } }));
       await launcher.start();
       const env = { ...isolatedEnvironment(f.root), HOME: f.root, USERPROFILE: f.root,
+        ...startupEnv,
         DFSC_RUNTIME_HOST_V1: '1', STEPCODE_DESKTOP_AUTH_DATA: JSON.stringify(f.state.auth),
         STEPCODE_DESKTOP_AUTH_PATH: join(f.root, 'auth.json'), STEPCODE_CONFIG_PATH: join(f.root, 'fixture-models.json') };
       const worker = await pool.open(node, join(runtime, 'step/dist/bundle/step.js'), f.root, env);
       const nativeState = await worker.rpc.request('get_state');
       assert.equal(nativeState.model.provider, 'fixture');
+      if (asyncStartup) await waitFor(async () =>
+        (await worker.rpc.request('desktop_startup', { action: 'state' })).discovery === 'ready', 'host discovery');
       const pending = await worker.rpc.request('desktop_plugin_host', { action: 'list' });
       assert.equal(pending.records[0].phase, 'pending');
       settingsReady = true;
@@ -71,6 +78,12 @@ test('real native discovery launches the bundled SDK, invokes the main broker an
       const inventory = await worker.rpc.request('desktop_plugin_host', { action: 'list' });
       assert.equal(inventory.records.length, 1);
       assert.equal(inventory.records[0].phase, 'connected');
+      if (asyncStartup) {
+        const startup = await pool.readStartup(worker);
+        assert.equal(startup?.modelReady, true);
+        assert.ok(startup?.tools.some(tool => tool.name === 'dfsc-host-example__example' && tool.status === 'connected'));
+        await pool.assertExecutionReady(worker);
+      }
       const call = async (name: string) => {
         const data = join(f.root, 'desktop-plugins', 'data', f.receipt.instance);
         const current = ++sequence, file = join(data, `result-${current}.json`);
@@ -103,7 +116,7 @@ test('real native discovery launches the bundled SDK, invokes the main broker an
     }
   });
 
-test('real native unconfigured consumer stays deferred and a global override invalidates its request',
+test(`real native unconfigured consumer stays deferred and a global override invalidates its request (${mode})`,
   { timeout: 90000 }, async t => {
     const f = await hostService(t, { packageDirectory: sdk, command: node, configured: false });
     await f.broker.close();
@@ -117,10 +130,18 @@ test('real native unconfigured consumer stays deferred and a global override inv
       await mkdir(join(f.root, 'agent'), { recursive: true });
       await writeFile(join(f.root, 'plugins', '.stepcode-preinstalled'), '["steppage"]');
       await launcher.start();
-      const env = { ...isolatedEnvironment(f.root), HOME: f.root, USERPROFILE: f.root, DFSC_RUNTIME_HOST_V1: '1' };
+      const env = { ...isolatedEnvironment(f.root), HOME: f.root, USERPROFILE: f.root, DFSC_RUNTIME_HOST_V1: '1', ...startupEnv };
       const worker = await pool.open(node, join(runtime, 'step/dist/bundle/step.js'), f.root, env);
+      if (asyncStartup) await waitFor(async () =>
+        (await pool.readStartup(worker))?.tools.some(tool => tool.hosted && tool.status === 'failed') === true, 'unconfigured host settled');
       const inventory = await worker.rpc.request('desktop_plugin_host', { action: 'list' });
-      assert.equal(inventory.records[0].phase, 'pending');
+      assert.equal(inventory.records[0].phase, asyncStartup ? 'failed' : 'pending');
+      if (asyncStartup) {
+        const startup = await pool.readStartup(worker);
+        assert.equal(startup?.cleanupConfirmed, true);
+        assert.equal(startup?.tools.find(tool => tool.name === 'dfsc-host-example__example')?.status, 'failed');
+        await assert.rejects(pool.assertExecutionReady(worker), /STARTUP_NOT_READY/);
+      }
       const summary = await worker.rpc.request('get_desktop_summary');
       assert.equal(summary.mcp.find((item: { name: string }) => item.name === 'dfsc-host-example__example').status, 'disabled');
       assert.equal(f.calls.length, 0);
@@ -132,7 +153,7 @@ test('real native unconfigured consumer stays deferred and a global override inv
     } finally { await pool.stopAll(); await capabilities.stop(); await launcher.close(); }
   });
 
-test('hosted native initialization errors cannot echo a launch into notifications or history',
+test(`hosted native initialization errors cannot echo a launch into notifications or history (${mode})`,
   { timeout: 60000 }, async t => {
     const f = await hostService(t, { command: node, serverWrapper: resolve('tests/fixtures/host-failing-mcp.mjs') });
     await f.broker.close();
@@ -153,7 +174,10 @@ test('hosted native initialization errors cannot echo a launch into notification
       await launcher.start();
       const worker = await pool.open(node, join(runtime, 'step/dist/bundle/step.js'), f.root, {
         ...isolatedEnvironment(f.root), HOME: f.root, USERPROFILE: f.root, DFSC_RUNTIME_HOST_V1: '1',
+        ...startupEnv,
       });
+      if (asyncStartup) await waitFor(async () =>
+        (await pool.readStartup(worker))?.tools.some(tool => tool.hosted && tool.status === 'failed') === true, 'failed host settled');
       const inventory = await worker.rpc.request('desktop_plugin_host', { action: 'list' });
       assert.equal(inventory.records[0].phase, 'failed');
       const summary = await worker.rpc.request('get_desktop_summary'), history = await worker.rpc.request('get_messages');
@@ -162,6 +186,7 @@ test('hosted native initialization errors cannot echo a launch into notification
       assert.doesNotMatch(JSON.stringify([events, summary, history]), /dfsc-launch-v1|DFSC_LAUNCH_CONTEXT|"broker"|"token"/);
     } finally { await pool.stopAll(); await capabilities.stop(); await launcher.close(); }
   });
+}
 
 test('without the native opt-in, ordinary SDK MCP startup keeps its existing behavior',
   { timeout: 60000 }, async t => {

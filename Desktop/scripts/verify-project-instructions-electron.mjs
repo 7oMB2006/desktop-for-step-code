@@ -5,7 +5,7 @@ import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { mkdtemp } from './test-profile.mjs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { prepareSessionFixture, waitForSessionFixtureSnapshot } from './session-fixture.mjs';
+import { prepareSessionFixture, waitForSessionFixtureSnapshot, waitForSessionFixtureTools } from './session-fixture.mjs';
 import { closeDesktopFixtureAndWait } from './close-desktop-fixture.mjs';
 
 const profile = await mkdtemp(join(tmpdir(), 'desktop-init-electron-'));
@@ -28,7 +28,7 @@ const server = createServer(async (request, response) => {
 });
 await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
 await writeFile(join(profile, 'preferences.json'), JSON.stringify({ language: 'zh', theme: 'light', workspaces: [] }));
-await writeFile(join(root, 'config.toml'), 'defaultProvider = "fixture"\ndefaultModel = "fixture"\n[telemetry]\nenabled = false\n');
+await writeFile(join(root, 'config.toml'), 'defaultProvider = "fixture"\ndefaultModel = "fixture"\n[telemetry]\nenabled = false\n[mcp_servers.steppage__steppage]\nenabled = false\n');
 await writeFile(join(root, 'models.json'), JSON.stringify({ providers: { fixture: {
   api: 'openai-completions', baseUrl: `http://127.0.0.1:${server.address().port}/v1`, apiKey: 'isolated-fixture',
   models: [{ id: 'fixture', name: 'Init IPC fixture', contextWindow: 100000, maxTokens: 2048 }],
@@ -59,6 +59,7 @@ try {
   await page.getByRole('option', { name: /AI 工作规范.*请先选择项目文件夹/ }).waitFor();
   assert.equal(requests.length, 0, 'Draft command discovery starts no model turn');
   const snapshot = await prepareSessionFixture(page);
+  await waitForSessionFixtureTools(page, snapshot.runtimeId);
   const owner = { runtimeId: snapshot.runtimeId, sessionId: snapshot.state.sessionId };
   assert.deepEqual(await page.evaluate(owner => window.desktop.projectInstructions(owner), owner), { mode: 'create' });
   assert.equal(requests.length, 0, 'Inspecting command state never requests a model');

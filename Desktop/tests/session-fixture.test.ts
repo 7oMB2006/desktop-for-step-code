@@ -4,7 +4,8 @@ import { runInNewContext } from 'node:vm';
 import test from 'node:test';
 import ts from 'typescript';
 
-const { waitForNewSessionButton, waitForSessionFixtureSnapshot, restartIdleSessionFixture,
+const { waitForNewSessionButton, waitForSessionFixtureSnapshot, waitForSessionFixtureTools,
+  submitColdSessionFixture, submitSessionFixture, restartIdleSessionFixture,
   relocateIdleWorkspaceFixture } =
   await import(new URL('../scripts/session-fixture.mjs', import.meta.url).href);
 
@@ -197,29 +198,191 @@ test('file preview acceptance waits for real browser state and retains native re
   assert.ok(text.includes("error.code === 'ESRCH'"));
 });
 
-test('first-run acceptance never polls an async predicate through browser Promise truthiness', async () => {
-  const source = ts.createSourceFile('verify-first-run.mjs',
-    await readFile(new URL('../scripts/verify-first-run.mjs', import.meta.url), 'utf8'),
+for (const script of ['verify-first-run.mjs', 'verify-session-import.mjs']) {
+  test(`${script} never polls an async predicate through browser Promise truthiness`, async () => {
+    const source = ts.createSourceFile(script,
+      await readFile(new URL(`../scripts/${script}`, import.meta.url), 'utf8'),
+      ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
+    let snapshotPolls = 0;
+    const visit = (node: ts.Node) => {
+      if (ts.isCallExpression(node)) {
+        if (ts.isPropertyAccessExpression(node.expression) && node.expression.name.text === 'waitForFunction') {
+          const predicate = node.arguments[0];
+          assert.ok(predicate && (ts.isArrowFunction(predicate) || ts.isFunctionExpression(predicate)),
+            'browser polling must use an inspectable synchronous predicate');
+          assert.equal(predicate.modifiers?.some(modifier => modifier.kind === ts.SyntaxKind.AsyncKeyword) ?? false, false,
+            'async IPC predicates belong in the awaited Node-side snapshot poller');
+          assert.doesNotMatch(predicate.getText(source), /window\.desktop\.snapshot\(/,
+            'a browser-side Promise cannot establish native readiness');
+        }
+        if (ts.isIdentifier(node.expression) && node.expression.text === 'waitForSessionFixtureSnapshot') {
+          snapshotPolls++;
+          assert.ok(ts.isAwaitExpression(node.parent), 'snapshot polling must finish before persistence assertions');
+        }
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(source);
+    assert.ok(snapshotPolls >= 2, 'history and completion checks must both poll resolved IPC snapshots');
+  });
+}
+
+test('new-session acceptance awaits IPC draft persistence instead of browser Promise truthiness', async () => {
+  const source = ts.createSourceFile('verify-new-session.mjs',
+    await readFile(new URL('../scripts/verify-new-session.mjs', import.meta.url), 'utf8'),
     ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
-  let snapshotPolls = 0;
+  let draftPolls = 0;
   const visit = (node: ts.Node) => {
     if (ts.isCallExpression(node)) {
       if (ts.isPropertyAccessExpression(node.expression) && node.expression.name.text === 'waitForFunction') {
         const predicate = node.arguments[0];
-        assert.ok(predicate && (ts.isArrowFunction(predicate) || ts.isFunctionExpression(predicate)),
-          'browser polling must use an inspectable synchronous predicate');
-        assert.equal(predicate.modifiers?.some(modifier => modifier.kind === ts.SyntaxKind.AsyncKeyword) ?? false, false,
-          'async IPC predicates belong in the awaited Node-side snapshot poller');
+        assert.ok(predicate && (ts.isArrowFunction(predicate) || ts.isFunctionExpression(predicate)));
+        assert.equal(predicate.modifiers?.some(modifier => modifier.kind === ts.SyntaxKind.AsyncKeyword) ?? false, false);
       }
       if (ts.isIdentifier(node.expression) && node.expression.text === 'waitForSessionFixtureSnapshot') {
-        snapshotPolls++;
-        assert.ok(ts.isAwaitExpression(node.parent), 'snapshot polling must finish before persistence assertions');
+        assert.ok(ts.isAwaitExpression(node.parent));
+        assert.match(node.arguments[1].getText(source), /await page\.evaluate/);
+        assert.match(node.arguments[1].getText(source), /composerRead/);
+        draftPolls++;
       }
     }
     ts.forEachChild(node, visit);
   };
   visit(source);
-  assert.ok(snapshotPolls >= 2, 'reply completion and restored permissions both poll resolved IPC snapshots');
+  assert.equal(draftPolls, 1);
+});
+
+test('new-session cleanup always awaits orderly shutdown and releases its loopback server', async () => {
+  const source = ts.createSourceFile('verify-new-session.mjs',
+    await readFile(new URL('../scripts/verify-new-session.mjs', import.meta.url), 'utf8'),
+    ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
+  const body = source.statements.find(ts.isTryStatement)!;
+  const cleanup = runInNewContext(`(async (writeFile, closeDesktopFixtureAndWait, fixture) =>
+    ${body.finallyBlock!.getText(source)})`, {
+    app: {}, nativeHeightLimit: undefined, pickerLayouts: [], errors: [], JSON,
+  });
+  for (const failureAt of ['none', 'evidence', 'shutdown']) {
+    const order: string[] = [];
+    const failure = new Error(failureAt);
+    const run = cleanup(async () => {
+      order.push('evidence');
+      if (failureAt === 'evidence') throw failure;
+    }, async () => {
+      await new Promise(resolve => setImmediate(resolve));
+      order.push('shutdown');
+      if (failureAt === 'shutdown') throw failure;
+    }, { close: async () => {
+      await new Promise(resolve => setImmediate(resolve));
+      order.push('server');
+    } });
+    if (failureAt === 'none') await run;
+    else await assert.rejects(run, error => error === failure);
+    assert.deepEqual(order, ['evidence', 'shutdown', 'server']);
+  }
+  assert.ok(source.statements.find(statement => statement.getStart(source) > body.end
+    && statement.getText(source).includes('New session draft acceptance passed')));
+});
+
+test('first-run model fixture excludes unrelated MCP only after real fresh-profile detection', async () => {
+  const text = await readFile(new URL('../scripts/verify-first-run.mjs', import.meta.url), 'utf8');
+  const source = ts.createSourceFile('verify-first-run.mjs', text, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
+  let profile: ts.VariableDeclaration | undefined;
+  const visit = (node: ts.Node) => {
+    if (ts.isVariableDeclaration(node) && node.name.getText(source) === 'profile') profile = node;
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+  assert.ok(profile);
+  assert.equal(profile.initializer!.getText(source),
+    "async () => realpath(await mkdtemp(join(tmpdir(), 'desktop-first-run-native-')))",
+    'a fresh profile must not preseed settings or onboarding completion metadata');
+  const launch = text.indexOf('await launch(customRoot);');
+  const intro = text.indexOf('await stopIntro();', launch);
+  const disable = text.indexOf("await window.desktop.saveMcp('steppage__steppage'");
+  const provider = text.indexOf("await page.locator('.first-run-service').filter({ hasText: '其他供应商' })", intro);
+  assert.ok(launch >= 0 && intro > launch && disable > intro && provider > disable);
+  assert.match(text.slice(intro, provider), /enabled: false/);
+});
+
+test('first-run MCP isolation supplies a valid disabled server on clean profiles without a local StepPage install', async () => {
+  const source = ts.createSourceFile('verify-first-run.mjs',
+    await readFile(new URL('../scripts/verify-first-run.mjs', import.meta.url), 'utf8'),
+    ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
+  let configure: ts.Node | undefined;
+  const visit = (node: ts.Node) => {
+    if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)
+      && node.expression.getText(source) === 'page.evaluate'
+      && node.arguments[0]?.getText(source).includes("window.desktop.saveMcp('steppage__steppage'"))
+      configure = node.arguments[0];
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+  assert.ok(configure);
+  const profiles: Record<string, { command: string; args: string[] }>[] = [
+    {}, { steppage__steppage: { command: '/local/steppage', args: ['serve'] } },
+  ];
+  for (const mcp of profiles) {
+    let calls = 0;
+    await runInNewContext(`(${configure.getText(source)})()`, {
+      window: { desktop: {
+        settings: async () => ({ mcp }),
+        saveMcp: async (name: string, config: { command: string; args: string[]; enabled: boolean }) => {
+          assert.equal(name, 'steppage__steppage');
+          assert.equal(config.enabled, false);
+          assert.equal(typeof config.command, 'string');
+          assert.ok(config.command.length > 0);
+          assert.ok(Array.isArray(config.args));
+          assert.equal(config.command, mcp.steppage__steppage?.command ?? 'node');
+          calls++;
+        },
+      } },
+    });
+    assert.equal(calls, 1);
+  }
+});
+
+test('restored-session assertions wait for the selected history rather than the navigation response', async () => {
+  const cases = [
+    {
+      script: 'verify-session-move.mjs', variable: 'restored',
+      pending: { state: { sessionId: 'move-one' }, messages: [] },
+      ready: { state: { sessionId: 'move-one' }, messages: [{ content: 'Keep this brainstorm' }] },
+      context: {},
+    },
+    {
+      script: 'verify-workflow-runtime.mjs', variable: 'afterCrash',
+      pending: { state: { sessionId: 'original', isStreaming: false }, messages: [] },
+      ready: { state: { sessionId: 'original', isStreaming: false },
+        messages: [{ role: 'assistant', content: [{ type: 'toolCall', id: 'WORKFLOW-CRASH' }] }] },
+      context: { sessionId: 'original' },
+    },
+  ];
+  for (const entry of cases) {
+    const source = ts.createSourceFile(entry.script,
+      await readFile(new URL(`../scripts/${entry.script}`, import.meta.url), 'utf8'),
+      ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
+    let initializer: ts.Expression | undefined;
+    const visit = (node: ts.Node) => {
+      if (ts.isVariableDeclaration(node) && node.name.getText(source) === entry.variable)
+        initializer = node.initializer;
+      ts.forEachChild(node, visit);
+    };
+    visit(source);
+    assert.ok(initializer && ts.isAwaitExpression(initializer), entry.variable);
+    const result = await runInNewContext(`(async () => ${initializer.getText(source)})()`, {
+      ...entry.context,
+      page: {},
+      waitSnapshot: async (...args: unknown[]) => {
+        const predicate = args.at(-1) as (snapshot: unknown) => boolean;
+        assert.equal(predicate(entry.pending), false, `${entry.variable}: empty cold history cannot pass`);
+        assert.equal(predicate({ ...entry.ready, state: { sessionId: 'unrelated' } }), false,
+          `${entry.variable}: unrelated history cannot pass`);
+        assert.equal(predicate(entry.ready), true);
+        return entry.ready;
+      },
+    });
+    assert.equal(result, entry.ready);
+  }
 });
 
 test('update installer fixture awaits native startup before creating a separate harness window', async () => {
@@ -294,6 +457,32 @@ test('capability restart readiness rejects the old connected worker and the conn
   assert.equal(clicks, 1);
   assert.equal(reads, 4);
   assert.equal(buttonChecks, 1);
+});
+
+test('configured plugin acceptance awaits the real MCP connection and never masks a failed service', async () => {
+  const source = ts.createSourceFile('verify-capabilities.mjs',
+    await readFile(new URL('../scripts/verify-capabilities.mjs', import.meta.url), 'utf8'),
+    ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
+  let predicate: ts.Expression | undefined;
+  const visit = (node: ts.Node) => {
+    if (ts.isCallExpression(node) && node.expression.getText(source) === 'waitForSessionFixtureSnapshot'
+      && node.arguments[2]?.getText(source).includes('configured plugin MCP'))
+      predicate = node.arguments[1];
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+  assert.ok(predicate);
+  for (const status of [undefined, 'connecting', 'connected', 'failed']) {
+    const check = runInNewContext(`(() => { let connected; return ${predicate.getText(source)}; })()`, {
+      assert,
+      page: { evaluate: async (_callback: unknown, runtimeId: string) => {
+        assert.equal(runtimeId, 'new-worker');
+        return { mcp: status ? [{ name: 'dfsc-config-example__notes', status }] : [] };
+      } },
+    }) as (snapshot: { runtimeId: string }) => Promise<boolean>;
+    if (status === 'failed') await assert.rejects(check({ runtimeId: 'new-worker' }), /MCP must connect successfully/);
+    else assert.equal(await check({ runtimeId: 'new-worker' }), status === 'connected');
+  }
 });
 
 test('new-session readiness polls through missing and disabled buttons after reload', async () => {
@@ -380,3 +569,165 @@ test('fixture polling preserves IPC failures', async () => {
   await assert.rejects(waitForSessionFixtureSnapshot({ evaluate: async () => { throw failure; } },
     () => true, 'a connected session'), error => error === failure);
 });
+
+const startupRefusal = 'Message not sent. Retry when tools are ready, or reconnect this conversation if the connection failed.';
+const coldDraft = { draftId: 'draft', messages: [] };
+const coldReady = { runtimeId: 'worker', state: { sessionId: 'session', desktopStartup: {
+  targetBound: true, modelReady: true, cleanupConfirmed: true, discovery: 'ready', tools: [],
+} }, messages: [] };
+const coldAccepted = { ...coldReady, messages: [{ role: 'user', content: 'fixture input' }] };
+function coldSendPage(snapshots: unknown[], alert = startupRefusal) {
+  let reads = 0, restoredChecks = 0;
+  const page = {
+    evaluate: async () => snapshots[reads++],
+    locator: () => ({ evaluate: async () => 'fixture input' }),
+    getByRole: () => ({ allTextContents: async () => [alert] }),
+    waitForFunction: async (predicate: (text: string) => boolean, text: string) => {
+      assert.equal(text, 'fixture input');
+      assert.equal(runInNewContext(`(${predicate.toString()})(text)`, {
+        text, document: { querySelector: (selector: string) =>
+          selector === '.composer-action-button' ? { disabled: false } : { value: text } },
+      }), true);
+      restoredChecks++;
+    },
+  };
+  return { page, reads: () => reads, restoredChecks: () => restoredChecks };
+}
+
+test('cold-send fixture never retries an accepted submission', async () => {
+  for (const accepted of [
+    coldAccepted,
+    { ...coldReady, state: { ...coldReady.state, isStreaming: true } },
+    { ...coldReady, state: { ...coldReady.state, desktopStartup: {
+      ...coldReady.state.desktopStartup, firstPromptAcceptedAt: 123,
+    } } },
+  ]) {
+    const fixture = coldSendPage([coldDraft, accepted]);
+    let sends = 0;
+    assert.equal(await submitColdSessionFixture(fixture.page, async () => { sends++; }), accepted);
+    assert.equal(sends, 1);
+    assert.equal(fixture.reads(), 2);
+    assert.equal(fixture.restoredChecks(), 0);
+  }
+});
+
+test('cold-send fixture retries an unpersisted startup refusal once after authoritative readiness', async () => {
+  const waiting = { ...coldReady, state: { ...coldReady.state, desktopStartup: {
+    ...coldReady.state.desktopStartup, discovery: 'discovering',
+  } } };
+  const fixture = coldSendPage([coldDraft, waiting, waiting, coldReady, coldAccepted]);
+  let sends = 0;
+  assert.equal(await submitColdSessionFixture(fixture.page, async () => {
+    sends++;
+    if (sends === 2) assert.equal(fixture.restoredChecks(), 1, 'the original input must be restored before retry');
+  }), coldAccepted);
+  assert.equal(sends, 2);
+  assert.equal(fixture.reads(), 5);
+});
+
+test('a stale refusal alert cannot replay a later accepted cold send', async () => {
+  const fixture = coldSendPage([coldDraft, coldDraft, coldAccepted]);
+  let sends = 0;
+  assert.equal(await submitColdSessionFixture(fixture.page, async () => { sends++; }), coldAccepted);
+  assert.equal(sends, 1);
+});
+
+test('cold-send fixture cannot retry an unrelated error, changed runtime, failed tool or uncertain cleanup', async () => {
+  for (const kind of ['unrelated', 'runtime', 'session', 'failed', 'cleanup']) {
+    const changed = structuredClone(coldReady);
+    if (kind === 'runtime') changed.runtimeId = 'different';
+    if (kind === 'session') changed.state.sessionId = 'different';
+    if (kind === 'failed') changed.state.desktopStartup.discovery = 'failed';
+    if (kind === 'cleanup') changed.state.desktopStartup.cleanupConfirmed = false;
+    const fixture = coldSendPage([coldDraft, coldReady, changed], kind === 'unrelated' ? 'Model unavailable' : startupRefusal);
+    let sends = 0;
+    await assert.rejects(submitColdSessionFixture(fixture.page, async () => { sends++; }, 0));
+    assert.equal(sends, 1, kind);
+    assert.equal(fixture.restoredChecks(), 0, kind);
+  }
+});
+
+test('execution fixture readiness accepts disabled tools but waits for pending discovery', async () => {
+  const waiting = { ...coldReady, state: { ...coldReady.state, desktopStartup: {
+    ...coldReady.state.desktopStartup, discovery: 'discovering',
+  } } };
+  const ready = { ...coldReady, state: { ...coldReady.state, desktopStartup: {
+    ...coldReady.state.desktopStartup, tools: [{ name: 'unrelated', status: 'disabled' }],
+  } } };
+  const fixture = coldSendPage([waiting, ready]);
+  assert.equal(await waitForSessionFixtureTools(fixture.page, 'worker'), ready);
+  assert.equal(fixture.reads(), 2);
+});
+
+test('execution fixture readiness fails closed for failed tools and cleanup or identity uncertainty', async () => {
+  for (const snapshot of [
+    { ...coldReady, runtimeId: 'other' },
+    { ...coldReady, state: { ...coldReady.state, desktopStartup: {
+      ...coldReady.state.desktopStartup, cleanupConfirmed: false,
+    } } },
+    { ...coldReady, state: { ...coldReady.state, desktopStartup: {
+      ...coldReady.state.desktopStartup, tools: [{ name: 'required', status: 'failed' }],
+    } } },
+  ]) {
+    await assert.rejects(waitForSessionFixtureTools(coldSendPage([snapshot]).page, 'worker', 0));
+  }
+});
+
+test('existing-session sends await tools without replaying an execution failure', async () => {
+  const fixture = coldSendPage([coldReady, coldReady]);
+  const failure = new Error('Provider failed after acceptance');
+  let sends = 0;
+  await assert.rejects(submitSessionFixture(fixture.page, async () => {
+    sends++;
+    throw failure;
+  }), error => error === failure);
+  assert.equal(sends, 1);
+  assert.equal(fixture.reads(), 2);
+});
+
+for (const script of ['verify-composer-menu.mjs', 'verify-command-dispatch.mjs']) {
+  test(`${script} captures real settled readiness before replacing IPC with a presentation fixture`, async () => {
+    const text = await readFile(new URL(`../scripts/${script}`, import.meta.url), 'utf8');
+    const source = ts.createSourceFile(script, text, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
+    let snapshot: ts.VariableDeclaration | undefined;
+    const visit = (node: ts.Node) => {
+      if (ts.isVariableDeclaration(node) && node.name.getText(source) === 'snapshot') snapshot = node;
+      ts.forEachChild(node, visit);
+    };
+    visit(source);
+    assert.ok(snapshot);
+    assert.equal(snapshot.initializer!.getText(source), 'await waitForSessionFixtureTools(page, owner.runtimeId)');
+    const replace = text.indexOf("ipcMain.removeHandler('desktop')");
+    assert.ok(replace > snapshot.end, 'the real IPC must still own startup discovery while awaiting readiness');
+    assert.ok(text.includes('[mcp_servers.steppage__steppage]\\nenabled = false'),
+      'presentation-only tests cannot depend on a machine-installed StepPage service');
+  });
+}
+
+for (const script of ['verify-account-settings.mjs', 'verify-account-routing.mjs']) {
+  test(`${script} awaits native tool readiness before successful account requests`, async () => {
+    const text = await readFile(new URL(`../scripts/${script}`, import.meta.url), 'utf8');
+    const source = ts.createSourceFile(script, text, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
+    let waits = 0;
+    const visit = (node: ts.Node) => {
+      if (ts.isExpressionStatement(node) && ts.isAwaitExpression(node.expression) &&
+        ts.isCallExpression(node.expression.expression) &&
+        node.expression.expression.expression.getText(source) === 'waitForSessionFixtureTools') {
+        waits++;
+        const statements = (node.parent as ts.Block).statements;
+        const next = statements[statements.indexOf(node) + 1].getText(source);
+        assert.match(next, script === 'verify-account-settings.mjs'
+          ? /window\.desktop\.command\('prompt'/
+          : /console\.log\('Account routing: sending fixture prompt'\)/);
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(source);
+    assert.equal(waits, script === 'verify-account-settings.mjs' ? 2 : 1);
+    assert.ok(text.includes('[mcp_servers.steppage__steppage]\\nenabled = false'));
+    if (script === 'verify-account-routing.mjs') {
+      assert.match(text, /await assert\.rejects\(page\.evaluate\(\(\) => window\.desktop\.command\('prompt', \{ message: 'Must not run during login' \}\)\),\s*\/Shared settings operation in progress\//,
+        'the deliberately rejected login-busy request must not be delayed or retried');
+    }
+  });
+}

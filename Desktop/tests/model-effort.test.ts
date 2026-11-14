@@ -1,6 +1,24 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { draggedEffortIndex, effortColorForIndex, effortLabel, wheeledEffortIndex } from '../src/ModelEffortPicker';
+import { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { parseHTML } from 'linkedom';
+import { draggedEffortIndex, effortColorForIndex, effortLabel, ModelEffortPlaceholder, wheeledEffortIndex } from '../src/ModelEffortPicker';
+
+test('navigation placeholders are disabled, localized and contain no model or effort selection', () => {
+  for (const language of ['zh', 'en'] as const) {
+    for (const failed of [false, true]) {
+      const { document } = parseHTML(renderToStaticMarkup(createElement(ModelEffortPlaceholder, { language, failed })));
+      const root = document.querySelector('.model-effort-placeholder')!;
+      assert.equal(root.getAttribute('aria-hidden'), 'true', 'The shared navigation status announces restoration');
+      assert.ok(root.querySelector('button[disabled]'));
+      assert.equal(root.textContent, language === 'zh' ? failed ? '模型未就绪' : '正在恢复模型'
+        : failed ? 'Model unavailable' : 'Restoring model');
+      assert.equal(root.querySelector('.model-effort-loading-icon') !== null, !failed);
+      assert.equal(root.querySelector('.model-effort-level, .model-effort-popover'), null);
+    }
+  }
+});
 
 test('localized effort labels preserve every upstream level and unknown values', () => {
   const cases = {

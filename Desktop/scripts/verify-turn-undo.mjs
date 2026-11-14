@@ -1,5 +1,5 @@
 import { _electron as electron } from 'playwright';
-import { prepareSessionFixture, waitForSessionFixtureSnapshot } from './session-fixture.mjs';
+import { prepareSessionFixture, waitForSessionFixtureSnapshot, waitForSessionFixtureTools } from './session-fixture.mjs';
 import { closeDesktopFixture } from './close-desktop-fixture.mjs';
 import assert from 'node:assert/strict';
 import { mkdir, readFile, writeFile, realpath } from 'node:fs/promises';
@@ -56,7 +56,7 @@ await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
 const profile = await realpath(await mkdtemp(join(tmpdir(), 'step-undo-electron-')));
 await writeFile(join(profile, 'preferences.json'), JSON.stringify({ theme: 'light', language: 'zh', workspaces: [] }));
 await mkdir(join(profile, 'step-runtime', 'sessions'), { recursive: true });
-await writeFile(join(profile, 'step-runtime', 'config.toml'), 'defaultProvider = "fixture"\ndefaultModel = "fixture"\npermissionPreset = "approve-for-me"\n[telemetry]\nenabled = false\n');
+await writeFile(join(profile, 'step-runtime', 'config.toml'), 'defaultProvider = "fixture"\ndefaultModel = "fixture"\npermissionPreset = "approve-for-me"\n[telemetry]\nenabled = false\n[mcp_servers.steppage__steppage]\nenabled = false\n');
 await writeFile(join(profile, 'step-runtime', 'models.json'), JSON.stringify({
   providers: { fixture: { baseUrl: `http://127.0.0.1:${server.address().port}/v1`, api: 'openai-completions', apiKey: 'local-test-only',
     models: [{ id: 'fixture', name: 'Undo fixture', contextWindow: 32768, maxTokens: 1024 }] } },
@@ -82,6 +82,7 @@ try {
   const ready = () => page.waitForFunction(() => document.querySelector('.new-chat')?.disabled === false);
   // Real upstream edit emits its persisted patch and agent_end capture hook.
   const live = await prepareSessionFixture(page);
+  await waitForSessionFixtureTools(page, live.runtimeId);
   const livePath = join(live.preferences.workspace, 'live.ts');
   await writeFile(livePath, 'const value = 1;\n');
   await page.locator('.composer > .composer-input').fill('Update the live file.');
@@ -139,6 +140,7 @@ try {
   async function fixtureSession() {
     await ready();
     const next = await page.evaluate(() => window.desktop.newIndependentSession());
+    await waitForSessionFixtureTools(page, next.runtimeId);
     await mkdir(join(next.preferences.workspace, 'src'), { recursive: true });
     await writeFile(join(next.preferences.workspace, 'src/retry.ts'), 'export const retryLimit = 1;\n');
     await writeFile(join(next.preferences.workspace, 'src/status.ts'), "export function statusLabel() {\n  return 'idle';\n}\n");

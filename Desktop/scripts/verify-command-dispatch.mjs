@@ -1,5 +1,5 @@
 import { _electron as electron } from 'playwright';
-import { prepareSessionFixture } from './session-fixture.mjs';
+import { prepareSessionFixture, waitForSessionFixtureTools } from './session-fixture.mjs';
 import assert from 'node:assert/strict';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { mkdtemp } from './test-profile.mjs';
@@ -11,6 +11,8 @@ const profile = await mkdtemp(join(tmpdir(), 'step-command-dispatch-'));
 await writeFile(join(profile, 'preferences.json'), JSON.stringify({ language: 'zh', theme: 'dark', workspaces: [] }));
 const savedDirectory = join(profile, 'step-runtime', 'workflows', 'saved');
 await mkdir(savedDirectory, { recursive: true });
+await writeFile(join(profile, 'step-runtime', 'config.toml'),
+  '[telemetry]\nenabled = false\n[mcp_servers.steppage__steppage]\nenabled = false\n');
 await writeFile(join(savedDirectory, 'desktop-catalog-fixture.js'), 'throw new Error("Never execute catalog definitions");');
 const env = { ...process.env, DESKTOP_TEST_USER_DATA: profile, DESKTOP_TEST_NO_FOCUS: '1' };
 delete env.ELECTRON_RUN_AS_NODE;
@@ -41,7 +43,8 @@ try {
   assert.equal(draftAfter.runtimeId, undefined, 'The real draft shortcut does not create a native worker');
   assert.equal(draftAfter.sessions.length, draftBefore.sessions.length, 'Task inspection does not create a saved session');
   await page.locator('.summary-board').getByRole('button', { name: '关闭侧栏', exact: true }).click();
-  const snapshot = await prepareSessionFixture(page);
+  const owner = await prepareSessionFixture(page);
+  const snapshot = await waitForSessionFixtureTools(page, owner.runtimeId);
   const nativeCatalog = await page.evaluate(snapshot =>
     window.desktop.workflows(snapshot.runtimeId, snapshot.state.sessionId), snapshot);
   assert.ok(nativeCatalog.saved.some(item => item.name === 'desktop-catalog-fixture' && item.scope === 'desktop'),

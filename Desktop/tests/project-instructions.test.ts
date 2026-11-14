@@ -15,6 +15,7 @@ import { SessionRuntimes, type SessionRuntime } from '../electron/session-runtim
 import { reviewPayload, reserveReview } from '../electron/completion-review';
 import { externalSessionCommandAllowed } from '../electron/external-connector-policy';
 import { emptyLaunch } from '../src/launch-state';
+import { LaunchControls } from '../electron/launch-controls';
 
 async function fixture(run: (cwd: string) => Promise<void>) {
   const cwd = await mkdtemp(join(tmpdir(), 'desktop-project-rules-'));
@@ -160,21 +161,54 @@ async function submissionFixture(cwd: string) {
     publish() {}, publishLaunch() {}, preparePrompt: async () => {},
     isBusy: SessionRuntimes.prototype.isBusy,
     assertIdle: SessionRuntimes.prototype.assertIdle,
+    readStartup: SessionRuntimes.prototype.readStartup,
+    assertExecutionReady: SessionRuntimes.prototype.assertExecutionReady,
+    submitPrompt: SessionRuntimes.prototype.submitPrompt,
   };
+  const controls = new LaunchControls(runtimes as unknown as SessionRuntimes);
   const pendingMessages = new PendingMessages(() => {}, (_worker, error) => assert.fail(String(error)));
   const handle = runInNewContext(javascript + '\nhandle', {
+    Error,
+    readingSelections: new Map(),
     updateInstalling: false, transition: false, sessionNavigation: {}, sessionDraft: null, runtimes,
     selectedDraft: () => undefined, selectedRuntime: () => worker.id,
     text: (value: string) => value, isProjectInstructionsCommand, projectInstructionsMessage, promptNeedsQueue,
     isProjectTrustInput: () => false, preferences: { language: 'zh' }, pendingMessages, emptyLaunch, reviewPayload, reserveReview,
-    launchControls: { consume() {}, input: (_worker: unknown, payload: unknown) => payload },
+    launchControls: controls,
     externalTasks: { retains: (value: SessionRuntime) => externalWorkers.has(value) },
     externalSessionCommandAllowed,
   });
-  return { worker, sent, sentPayloads, pendingMessages, externalWorkers, hold: (read: typeof hold) => { hold = read; },
+  return { worker, runtimes, controls, sent, sentPayloads, pendingMessages, externalWorkers, hold: (read: typeof hold) => { hold = read; },
     edit: (id: string, message: string) => handle('command', ['queue_edit', { id, version: 0, message }, worker.id]),
     send: (message: string) => handle('command', ['prompt', { message }, worker.id]) };
 }
+
+for (const reason of ['wait for tools', 'submission was not accepted']) {
+  test(`actual IPC restores one-shot launch choices after definite startup rejection: ${reason}`, () => fixture(async cwd => {
+    const f = await submissionFixture(cwd);
+    f.worker.launch = { ...emptyLaunch(), ultracodeArmed: true, planArmed: true };
+    f.runtimes.submitPrompt = async () => { throw new Error(`STARTUP_NOT_READY: ${reason}`); };
+    await assert.rejects(f.send('ordinary task'), /STARTUP_NOT_READY/);
+    assert.equal(f.worker.launch.ultracodeArmed, true);
+    assert.equal(f.worker.launch.planArmed, true);
+    assert.equal(Boolean(f.worker.failed), false);
+    assert.equal(f.worker.submissions, 0);
+    assert.equal(f.worker.operations, 0);
+    assert.deepEqual(f.sent, []);
+  }));
+}
+test('actual IPC consumes accepted launch choices but never restores an unconfirmed transport timeout', () => fixture(async cwd => {
+  const f = await submissionFixture(cwd);
+  f.worker.launch = { ...emptyLaunch(), ultracodeArmed: true };
+  await f.send('accepted task');
+  assert.equal(f.worker.launch.ultracodeArmed, false);
+  assert.match(f.sent[0], /^ultracode:/);
+  f.worker.launch.ultracodeArmed = true;
+  f.runtimes.submitPrompt = async () => { throw new Error('RPC request timed out'); };
+  await assert.rejects(f.send('unknown acceptance'), /timed out/);
+  assert.equal(f.worker.launch.ultracodeArmed, false);
+  assert.equal(f.worker.failed, true);
+}));
 
 test('actual IPC init preserves a preselected completion review for the next ordinary task', () => fixture(async cwd => {
   const f = await submissionFixture(cwd);

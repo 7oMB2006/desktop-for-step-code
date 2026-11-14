@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { existsSync, statSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { RpcProcess } from './runtime';
@@ -24,6 +24,7 @@ import { backgroundLaneStates, backgroundState, hasBackgroundWork, type Backgrou
 import { taskOutcome } from './task-outcome';
 export { taskOutcome } from './task-outcome';
 import { completionReview, reviewActive } from '../src/completion-review';
+import { runtimeStartup, startupBlocked, startupMissing, type RuntimeStartup } from '../src/runtime-startup';
 
 export interface WorkerTransport {
   readonly pid?: number;
@@ -93,6 +94,8 @@ export interface SessionRuntime {
   cronScopeDirectory?: string;
   startupTiming?: RuntimeStartupTiming;
   remoteAttached?: boolean;
+  startup?: RuntimeStartup;
+  startupConfigurationRevision?: string;
 }
 export function firstUserText(messages: Message[]) {
   const message = messages.find(isUserMessage);
@@ -148,6 +151,8 @@ export class SessionRuntimes {
       messages?: (worker: SessionRuntime, messages: Message[]) => Promise<Message[]>;
       initializeModel?: (worker: SessionRuntime, restoring: boolean) => Promise<void>;
       pluginsReady?: (worker: SessionRuntime) => Promise<void>;
+      pluginsReset?: (worker: SessionRuntime) => void;
+      language?: () => 'zh' | 'en';
       startup?: (diagnostic: RuntimeStartupDiagnostic) => void;
       idleLimit?: () => number; backgroundAvailable?: () => boolean; retain?: (worker: SessionRuntime) => boolean;
       beforePrompt?: (worker: SessionRuntime, message: string) => Promise<void> } = {},
@@ -157,6 +162,60 @@ export class SessionRuntimes {
     || worker.status === 'connected' && (worker.launch?.goal?.status === 'active' || hasScheduledCron(worker.cron))); }
   isBusy(worker: SessionRuntime) { return worker.busy || worker.submissions > 0 || Boolean(worker.state?.isCompacting || worker.state?.pendingMessageCount) || worker.pendingUI.size > 0; }
   async preparePrompt(worker: SessionRuntime, message: string) { await this.hooks.beforePrompt?.(worker, message); }
+  async readStartup(worker: SessionRuntime) {
+    if (!worker.startup) return;
+    const rpc = worker.rpc, sessionId = worker.state?.sessionId;
+    const state = runtimeStartup(await rpc.request('desktop_startup', { action: 'state' }, 10000), worker.id, sessionId);
+    if (!state || this.workers.get(worker.id) !== worker || rpc !== worker.rpc
+      || state.configurationRevision !== worker.startupConfigurationRevision)
+      throw new Error('STARTUP_NOT_READY: startup identity changed');
+    worker.startup = state;
+    if (worker.state) worker.state = { ...worker.state, desktopStartup: state };
+    return state;
+  }
+  async waitForTools(worker: SessionRuntime, timeout = 190000) {
+    if (!worker.startup) return;
+    const deadline = Date.now() + timeout;
+    for (;;) {
+      const state = await this.readStartup(worker);
+      if (!state || !state.cleanupConfirmed || state.discovery === 'failed' || state.tools.some(tool => tool.cleanupConfirmed === false))
+        throw new Error('STARTUP_NOT_READY: runtime recovery requires reconnection');
+      if (state.discovery === 'ready' && state.tools.every(tool => !['pending', 'connecting'].includes(tool.status))) break;
+      if (Date.now() >= deadline) throw new Error('STARTUP_NOT_READY: tool initialization deadline exceeded');
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+    await this.assertExecutionReady(worker);
+  }
+  async assertExecutionReady(worker: SessionRuntime) {
+    const startup = await this.readStartup(worker);
+    if (startup && (startupBlocked(startup) || startupMissing(startup).length))
+      throw new Error('STARTUP_NOT_READY: wait for tools or reconnect this runtime');
+  }
+  async submitPrompt(worker: SessionRuntime, payload: Record<string, unknown>, interactive = false, timeout = 600000) {
+    const rpc = worker.rpc, sessionId = worker.state?.sessionId;
+    const state = await this.readStartup(worker);
+    if (worker.status !== 'connected' || rpc !== worker.rpc || sessionId !== worker.state?.sessionId
+      || this.workers.get(worker.id) !== worker) throw new Error('Session runtime is not connected');
+    let startupApproval: unknown;
+    if (state) {
+      if (startupBlocked(state)) throw new Error('STARTUP_NOT_READY: wait for tools or reconnect this runtime');
+      const missing = startupMissing(state);
+      if (missing.length) {
+        const zh = this.hooks.language?.() === 'zh';
+        if (!interactive || !await this.confirm(worker, zh ? '工具不可用' : 'Unavailable tools',
+          `${zh ? '仅本次任务排除以下不可用工具并继续？这不会启用工具或授予权限。'
+            : 'Exclude these unavailable tools for this submission only? This does not enable them or grant permission.'}\n\n${missing.join('\n')}`))
+          throw new Error('STARTUP_NOT_READY: submission was not accepted');
+        if (rpc !== worker.rpc || sessionId !== worker.state?.sessionId || this.workers.get(worker.id) !== worker)
+          throw new Error('STARTUP_NOT_READY: startup identity changed');
+        const digest = createHash('sha256').update(JSON.stringify(['prompt', payload])).digest('hex');
+        startupApproval = await rpc.request('desktop_startup', { action: 'authorize', sessionId,
+          startupEpoch: state.startupEpoch, catalogRevision: state.catalogRevision,
+          submissionId: randomUUID(), digest, missing }, 10000);
+      }
+    }
+    return rpc.request('prompt', { ...payload, ...(startupApproval ? { startupApproval } : {}) }, timeout);
+  }
   private invalidateBackground(worker: SessionRuntime) {
     this.backgroundVersions.set(worker, (this.backgroundVersions.get(worker) ?? 0) + 1);
     this.backgroundObservations.delete(worker);
@@ -285,6 +344,8 @@ export class SessionRuntimes {
     worker.cronScopeDirectory = env.DESKTOP_CRON_SCOPE_DIR ?? existing?.cronScopeDirectory;
     worker.status = 'connecting';
     worker.startupTiming = undefined;
+    worker.startup = undefined;
+    worker.startupConfigurationRevision = randomUUID();
     this.invalidateBackground(worker);
     this.backgroundReads.delete(worker);
     worker.cron = undefined;
@@ -299,6 +360,12 @@ export class SessionRuntimes {
     let recoveryPending = false;
     const transport = this.create(event => {
       if (this.workers.get(worker.id) !== worker || worker.rpc !== transport || worker.status === 'disconnected') return;
+      if (event.type === 'desktop_startup_changed') {
+        const state = runtimeStartup(event.startup, worker.id, worker.status === 'connected' ? worker.state?.sessionId : undefined);
+        if (!state || state.configurationRevision !== worker.startupConfigurationRevision) return;
+        worker.startup = state;
+        if (worker.state) worker.state = { ...worker.state, desktopStartup: state };
+      }
       // An incomplete turn keeps its provider stop reason. Only agent_settled
       // decides whether the native recovery produced a usable final answer.
       if (event.type === 'message_end' && event.message?.role === 'assistant' && event.message.incomplete)
@@ -502,11 +569,13 @@ export class SessionRuntimes {
       };
       this.assertStartupOwner(worker, transport);
       worker.rpc.start(node, entry, cwd, { ...env, ...launch?.env, DESKTOP_CRON_SCOPE_DIR: worker.cronScopeDirectory,
+        DFSC_RUNTIME_ID: worker.id, DFSC_CONFIGURATION_REVISION: worker.startupConfigurationRevision,
         STEPCODE_DESKTOP_BRANCH_SOURCE: branch && branch.kind !== 'open-copy' && sessionPath ? resolve(sessionPath) : undefined,
       }, ['--include-live-events', '--append-system-prompt', desktopSystemPolicy(cwd),
         ...(existing && !sessionPath && worker.state?.sessionId ? ['--session-id', worker.state.sessionId] : []), ...(launch?.args ?? [])]);
       progress('process');
-      await request('get_state', {}, 60000);
+      const core = await request('get_state', {}, 60000);
+      const asynchronous = runtimeStartup(core.desktopStartup, worker.id);
       const processReadyAt = performance.now();
       progress('session');
       const result = existing && !sessionPath ? { cancelled: false }
@@ -534,6 +603,9 @@ export class SessionRuntimes {
         }
         if (branch.name) await request('set_session_name', { name: branch.name });
       }
+      if (asynchronous) {
+        await this.bindStartup(worker);
+      }
       this.assertStartupOwner(worker, transport);
       const sessionRestoredAt = performance.now();
       progress('snapshot');
@@ -545,11 +617,14 @@ export class SessionRuntimes {
       progress('model');
       // Recovery is already explicitly confirmed with its own model, and refresh
       // below restores the captured live selection rather than a global default.
-      if (!existing && env.DESKTOP_CRON_RECOVERY !== '1')
+      const deferredModel = env.DESKTOP_CRON_RECOVERY === '1' || env.DESKTOP_DEFER_MODEL_READY === '1';
+      if (!existing && !deferredModel)
         await this.hooks.initializeModel?.(worker, Boolean(sessionPath || branch));
       this.assertStartupOwner(worker, transport);
-      if (!existing && env.DESKTOP_CRON_RECOVERY !== '1') {
-        await this.hooks.pluginsReady?.(worker);
+      if (!existing && !deferredModel) {
+        await this.modelReady(worker);
+        if (worker.startup) void this.hooks.pluginsReady?.(worker).catch(() => {});
+        else await this.hooks.pluginsReady?.(worker);
         this.assertStartupOwner(worker, transport);
       }
       const modelRestoredAt = performance.now();
@@ -576,6 +651,31 @@ export class SessionRuntimes {
       if (this.workers.get(worker.id) === worker && worker.rpc === transport) this.workers.delete(worker.id);
       throw error;
     }
+  }
+  private async bindStartup(worker: SessionRuntime) {
+    const rpc = worker.rpc;
+    const state = await rpc.request('get_state');
+    this.assertStartupOwner(worker, rpc);
+    const startup = runtimeStartup(state.desktopStartup, worker.id, state.sessionId);
+    if (!startup || startup.configurationRevision !== worker.startupConfigurationRevision)
+      throw new Error('Desktop startup protocol acknowledgment missing');
+    const bound = runtimeStartup(await rpc.request('desktop_startup', { action: 'bind',
+      sessionId: state.sessionId, startupEpoch: startup.startupEpoch }), worker.id, state.sessionId);
+    this.assertStartupOwner(worker, rpc);
+    if (!bound || bound.configurationRevision !== worker.startupConfigurationRevision)
+      throw new Error('Desktop startup target binding failed');
+    worker.startup = bound;
+  }
+  async modelReady(worker: SessionRuntime) {
+    if (!worker.startup) return;
+    const rpc = worker.rpc, sessionId = worker.state?.sessionId, epoch = worker.startup.startupEpoch;
+    const state = runtimeStartup(await rpc.request('desktop_startup', { action: 'model',
+      sessionId, startupEpoch: epoch }), worker.id, sessionId);
+    this.assertStartupOwner(worker, rpc);
+    if (!state || state.startupEpoch !== epoch || worker.state?.sessionId !== sessionId)
+      throw new Error('Desktop startup model restoration failed');
+    worker.startup = state;
+    if (worker.state) worker.state = { ...worker.state, desktopStartup: state };
   }
   hasNonSnapshotOperations(worker: SessionRuntime): boolean {
     return worker.operations > (this.reads.get(worker)?.size ?? 0);
@@ -729,6 +829,7 @@ export class SessionRuntimes {
     }
   }
   async retryLatest(worker: SessionRuntime, entryId: string, message: string) {
+    await this.assertExecutionReady(worker);
     await this.assertIdle(worker);
     await this.read(worker);
     const latest = [...worker.messages].reverse().find(item => item.role === 'user');
@@ -763,11 +864,16 @@ export class SessionRuntimes {
       // A rejected submission may not append anything. Restore the saved leaf
       // so the original question remains editable instead of stranding its draft.
       if ((current.leafId ?? null) === selected.parentId && sessionFile) {
+        this.hooks.pluginsReset?.(worker);
         const restored = await worker.rpc.request('switch_session', { sessionPath: sessionFile, cwdOverride: worker.cwd }, 60000);
         if (restored.cancelled) throw new Error('Submission failed and history restoration was cancelled');
         if (permissionPreset && permissionPreset !== 'full-access') await worker.rpc.request('prompt', { message: `/permissions ${permissionPreset}` });
+        if (worker.startup) await this.bindStartup(worker);
         await this.read(worker);
         if (worker.state?.sessionId !== sessionId || worker.leafId !== history.leafId) throw new Error('Submission failed and history could not be restored');
+        await this.modelReady(worker);
+        if (worker.startup) void this.hooks.pluginsReady?.(worker).catch(() => {});
+        else await this.hooks.pluginsReady?.(worker);
         this.emit({ type: 'desktop_history', runtimeId: worker.id, runtimeRevision: ++worker.revision, sessionId, messages: worker.messages });
       }
       throw error;
@@ -817,6 +923,7 @@ export class SessionRuntimes {
       }
       if (permissionPreset && permissionPreset !== 'full-access') await worker.rpc.request('prompt', { message: `/permissions ${permissionPreset}` });
       await this.read(worker);
+      await this.modelReady(worker);
     } catch (error) {
       worker.state = previousState;
       await this.suspend([worker]);
@@ -929,6 +1036,7 @@ export class SessionRuntimes {
       this.snapshotEpochs.set(worker, (this.snapshotEpochs.get(worker) ?? 0) + 1);
       await this.read(worker);
       await this.assertUpdateHistory(lease);
+      await this.modelReady(worker);
       if (this.workers.get(worker.id) !== worker || worker.state?.sessionId !== lease.sessionId
         || worker.messages.length !== lease.messages.length
         || lease.model && (worker.state.model?.provider !== lease.model.provider || worker.state.model.id !== lease.model.id)

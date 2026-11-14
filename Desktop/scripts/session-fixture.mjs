@@ -18,6 +18,76 @@ export async function waitForSessionFixtureSnapshot(page, predicate, label, time
   assert.fail(`Timed out waiting for ${label}`);
 }
 
+export async function waitForSessionFixtureTools(page, runtimeId, timeoutMs = 30000) {
+  return waitForSessionFixtureSnapshot(page, snapshot => {
+    assert.ok(snapshot.runtimeId);
+    if (runtimeId) assert.equal(snapshot.runtimeId, runtimeId, 'tool readiness cannot switch workers');
+    const startup = snapshot.state?.desktopStartup;
+    if (!startup) return snapshot.status === 'connected';
+    assert.equal(startup.cleanupConfirmed, true);
+    assert.notEqual(startup.discovery, 'failed');
+    assert.ok(startup.tools.every(tool => tool.status !== 'failed' && tool.cleanupConfirmed !== false),
+      'missing or uncertain tools cannot be ignored by this fixture');
+    return startup.targetBound && startup.modelReady && startup.discovery === 'ready'
+      && startup.tools.every(tool => ['connected', 'disabled'].includes(tool.status));
+  }, 'execution-ready fixture tools', timeoutMs);
+}
+
+// A cold draft can refuse its first send while discovery is still running.
+// Exercise that UI path, then retry once only after a proven, unpersisted refusal.
+export async function submitColdSessionFixture(page, send, timeoutMs = 30000) {
+  const before = await page.evaluate(() => window.desktop.snapshot());
+  assert.ok(before.draftId, 'cold-send acceptance must start from a real draft');
+  const input = page.locator('.composer > .composer-input');
+  const text = await input.evaluate(element => element.value);
+  const users = snapshot => snapshot.messages.filter(message => message.role === 'user');
+  const accepted = snapshot => users(snapshot).length > 0
+    || snapshot.state?.isStreaming || snapshot.state?.desktopStartup?.firstPromptAcceptedAt !== undefined;
+  assert.equal(users(before).length, 0);
+  const refusal = [
+    '消息未发送。请等待工具就绪后重试；如果连接失败，请重新连接此会话。',
+    'Message not sent. Retry when tools are ready, or reconnect this conversation if the connection failed.',
+  ];
+  let refused = false;
+  await send();
+  const result = await waitForSessionFixtureSnapshot(page, async snapshot => {
+    if (accepted(snapshot)) { refused = false; return true; }
+    const alerts = await page.getByRole('alert').allTextContents();
+    refused = Boolean(snapshot.runtimeId && snapshot.state?.sessionId)
+      && alerts.some(alert => refusal.includes(alert.trim()));
+    return refused;
+  }, 'an accepted cold send or an explicit startup refusal', timeoutMs);
+  if (!refused) return result;
+  assert.ok(result.runtimeId && result.state?.sessionId);
+  assert.deepEqual(users(result), users(before), 'a startup refusal cannot persist a user turn');
+  await waitForSessionFixtureSnapshot(page, snapshot => {
+    assert.equal(snapshot.runtimeId, result.runtimeId, 'refused-send readiness cannot change workers');
+    assert.equal(snapshot.state?.sessionId, result.state.sessionId);
+    assert.deepEqual(users(snapshot), users(before));
+    assert.equal(Boolean(accepted(snapshot)), false, 'another accepted submission cannot be retried');
+    const startup = snapshot.state?.desktopStartup;
+    assert.ok(startup, 'a startup refusal must expose authoritative readiness');
+    assert.equal(startup.cleanupConfirmed, true);
+    assert.notEqual(startup.discovery, 'failed');
+    assert.ok(startup.tools.every(tool => tool.status !== 'failed' && tool.cleanupConfirmed !== false),
+      'missing or uncertain tools cannot be retried by this fixture');
+    return startup.targetBound && startup.modelReady && startup.discovery === 'ready'
+      && startup.tools.every(tool => ['connected', 'disabled'].includes(tool.status));
+  }, 'the refused cold runtime to finish discovery', timeoutMs);
+  await page.waitForFunction(text => document.querySelector('.composer > .composer-input')?.value === text
+    && document.querySelector('.composer-action-button')?.disabled === false, text);
+  await send();
+  return waitForSessionFixtureSnapshot(page, accepted,
+    'the explicitly retried cold submission', timeoutMs);
+}
+
+export async function submitSessionFixture(page, send) {
+  const snapshot = await page.evaluate(() => window.desktop.snapshot());
+  if (snapshot.draftId) return submitColdSessionFixture(page, send);
+  await waitForSessionFixtureTools(page, snapshot.runtimeId);
+  return send();
+}
+
 // Startup queries can outlive the editable composer. Retry only a rejected
 // preflight, never a failed or partially completed restart.
 export async function restartIdleSessionFixture(page, runtimeId, timeoutMs = 30000) {

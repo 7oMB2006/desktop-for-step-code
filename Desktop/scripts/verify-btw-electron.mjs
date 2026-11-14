@@ -21,7 +21,7 @@ await writeFile(join(sessions, 'btw-fixture.jsonl'), [
     usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: { total: 0 } }, timestamp: Date.now() } },
   { type: 'session_info', id: 'name', parentId: 'a', timestamp, name: 'BTW acceptance' },
 ].map(value => JSON.stringify(value)).join('\n') + '\n');
-await writeFile(join(runtimeProfile, 'config.toml'), 'defaultProvider = "fixture"\ndefaultModel = "fixture"\n[telemetry]\nenabled = false\n');
+await writeFile(join(runtimeProfile, 'config.toml'), 'defaultProvider = "fixture"\ndefaultModel = "fixture"\n[telemetry]\nenabled = false\n[mcp_servers.steppage__steppage]\nenabled = false\n');
 const requests = [];
 let heldMain;
 let mainRequested;

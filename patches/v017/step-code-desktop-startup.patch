@@ -1,0 +1,1827 @@
+diff --git a/packages/coding-agent/src/core/agent-session.ts b/packages/coding-agent/src/core/agent-session.ts
+index c786077..9c189e4 100644
+--- a/packages/coding-agent/src/core/agent-session.ts
++++ b/packages/coding-agent/src/core/agent-session.ts
+@@ -91,6 +91,7 @@ import {
+ import { StableContextNotices } from "./compaction/live-context/stable-notices.ts";
+ import { formatRetryPolicy, formatSummaryDiagnostics, SummaryFailure } from "./compaction/summary-diagnostics.ts";
+ import { DEFAULT_THINKING_LEVEL, THINKING_LEVEL_OPTIONS } from "./defaults.ts";
++import { acquireExecutionAdmission, type ExecutionAdmission, ExecutionNotReadyError } from "./execution-admission.ts";
+ import { exportSessionToHtml, type ToolHtmlRenderer } from "./export-html/index.ts";
+ import { createToolHtmlRenderer } from "./export-html/tool-renderer.ts";
+ import {
+@@ -1232,6 +1233,8 @@ export class AgentSession {
+ 		if (name !== "clm" && name !== "clm-compact") return false;
+ 		const ctx = this._extensionRunner.createCommandContext();
+ 		const action = name === "clm-compact" ? "compact" : args.trim() || "status";
++		if (["on", "off", "reset", "compact"].includes(action))
++			acquireExecutionAdmission(this.sessionManager, false).verify();
+ 		if ((action === "on" || action === "off" || action === "reset" || action === "compact") && !this.isIdle) {
+ 			ctx.ui.notify("Wait for the current run to settle before changing working context.", "warning");
+ 			return true;
+@@ -2113,7 +2116,11 @@ export class AgentSession {
+ 	// Prompting
+ 	// =========================================================================
+ 
+-	private async _runAgentPrompt(messages: AgentMessage | AgentMessage[]): Promise<void> {
++	private async _runAgentPrompt(
++		messages: AgentMessage | AgentMessage[],
++		admission?: ExecutionAdmission,
++	): Promise<void> {
++		(admission ?? acquireExecutionAdmission(this.sessionManager)).verify();
+ 		const runAbortController = new AbortController();
+ 		this._agentRunAbortController = runAbortController;
+ 		this._isAgentRunActive = true;
+@@ -2365,6 +2372,7 @@ export class AgentSession {
+ 		const expandPromptTemplates = options?.expandPromptTemplates ?? true;
+ 		const preflightResult = options?.preflightResult;
+ 		let messages: AgentMessage[] | undefined;
++		let admission: ExecutionAdmission | undefined;
+ 
+ 		try {
+ 			// Handle extension commands first (execute immediately, even during streaming)
+@@ -2388,6 +2396,7 @@ export class AgentSession {
+ 					"Cannot submit a prompt while compaction is in progress. Wait for compaction to finish and retry.",
+ 				);
+ 			}
++			admission = acquireExecutionAdmission(this.sessionManager);
+ 
+ 			if (options?.customMessage && (this.isStreaming || options.source !== "extension")) {
+ 				throw new Error("System-origin prompts require an idle extension source.");
+@@ -2429,9 +2438,9 @@ export class AgentSession {
+ 					);
+ 				}
+ 				if (options.streamingBehavior === "followUp") {
+-					await this._queueFollowUp(expandedText, currentImages, options?.source, originalInput);
++					await this._queueFollowUp(expandedText, currentImages, options?.source, originalInput, admission);
+ 				} else {
+-					await this._queueSteer(expandedText, currentImages, options?.source, originalInput);
++					await this._queueSteer(expandedText, currentImages, options?.source, originalInput, admission);
+ 				}
+ 				preflightResult?.(true);
+ 				return;
+@@ -2441,7 +2450,7 @@ export class AgentSession {
+ 			// answered; the message waits for the turn that answers it. A user's own
+ 			// message always runs, because that is how the decision gets answered.
+ 			if (options?.source === "extension" && this.hasPendingUserDecision) {
+-				await this._queueFollowUp(expandedText, currentImages, options.source, originalInput);
++				await this._queueFollowUp(expandedText, currentImages, options.source, originalInput, admission);
+ 				preflightResult?.(true);
+ 				return;
+ 			}
+@@ -2553,8 +2562,9 @@ export class AgentSession {
+ 			return;
+ 		}
+ 
++		admission?.verify();
+ 		preflightResult?.(true);
+-		await this._runAgentPrompt(messages);
++		await this._runAgentPrompt(messages, admission);
+ 	}
+ 
+ 	/**
+@@ -2577,6 +2587,11 @@ export class AgentSession {
+ 
+ 		const command = this._extensionRunner.getCommand(commandName);
+ 		if (!command) return false;
++		const startupManagement =
++			typeof command.startupManagement === "function"
++				? command.startupManagement(args)
++				: command.startupManagement === true;
++		if (!startupManagement) acquireExecutionAdmission(this.sessionManager, false).verify();
+ 
+ 		// Get command context from extension runner (includes session control methods)
+ 		const ctx = this._extensionRunner.createCommandContext();
+@@ -2591,6 +2606,7 @@ export class AgentSession {
+ 		try {
+ 			await command.handler(args, ctx);
+ 		} catch (err) {
++			if (err instanceof ExecutionNotReadyError) throw err;
+ 			// Emit error via extension runner
+ 			this._extensionRunner.emitError({
+ 				extensionPath: `command:${commandName}`,
+@@ -2712,7 +2728,9 @@ export class AgentSession {
+ 		images?: ImageContent[],
+ 		source?: InputSource,
+ 		originalInput?: string,
++		admission?: ExecutionAdmission,
+ 	): Promise<void> {
++		(admission ?? acquireExecutionAdmission(this.sessionManager)).verify();
+ 		this._steeringMessages.push(text);
+ 		this._emitQueueUpdate();
+ 		const content: (TextContent | ImageContent)[] = [{ type: "text", text }];
+@@ -2737,7 +2755,9 @@ export class AgentSession {
+ 		images?: ImageContent[],
+ 		source?: InputSource,
+ 		originalInput?: string,
++		admission?: ExecutionAdmission,
+ 	): Promise<void> {
++		(admission ?? acquireExecutionAdmission(this.sessionManager)).verify();
+ 		this._followUpMessages.push(text);
+ 		this._emitQueueUpdate();
+ 		const content: (TextContent | ImageContent)[] = [{ type: "text", text }];
+@@ -2786,6 +2806,11 @@ export class AgentSession {
+ 		message: Pick<CustomMessage<T>, "customType" | "content" | "display" | "details">,
+ 		options?: { triggerTurn?: boolean; deliverAs?: "steer" | "followUp" | "nextTurn" },
+ 	): Promise<void> {
++		const admission =
++			options?.triggerTurn || (this.isStreaming && options?.triggerTurn !== false)
++				? acquireExecutionAdmission(this.sessionManager)
++				: undefined;
++		admission?.verify();
+ 		const appMessage = {
+ 			role: "custom" as const,
+ 			customType: message.customType,
+@@ -2811,7 +2836,7 @@ export class AgentSession {
+ 				// would bypass the queue ledger and vanish on abort.
+ 				this._pendingCustomMessages.push(appMessage);
+ 			} else {
+-				await this._runAgentPrompt(appMessage);
++				await this._runAgentPrompt(appMessage, admission);
+ 			}
+ 		} else if (this.isStreaming) {
+ 			// Appending now would put the message between an assistant tool call and its
+@@ -3278,6 +3303,8 @@ export class AgentSession {
+ 	 * @param customInstructions Optional instructions for the compaction summary
+ 	 */
+ 	async compact(customInstructions?: string): Promise<CompactionResult> {
++		const admission = acquireExecutionAdmission(this.sessionManager);
++		admission.verify();
+ 		await this.abort();
+ 		this._compactionAbortController = new AbortController();
+ 		this._emit({ type: "compaction_start", reason: "manual" });
+@@ -3347,6 +3374,7 @@ export class AgentSession {
+ 				details = extensionCompaction.details;
+ 			} else {
+ 				// Shared default summary generator, also used by automatic compaction.
++				admission.verify();
+ 				const result = await this._runDefaultCompaction(
+ 					preparation,
+ 					requestModel,
+@@ -3372,6 +3400,7 @@ export class AgentSession {
+ 				details = { ...(details && typeof details === "object" ? details : {}), liveContext: liveCompaction.tail };
+ 			}
+ 			this._liveContext?.invalidate();
++			admission.verify();
+ 			this.sessionManager.appendCompaction(summary, firstKeptEntryId, tokensBefore, details, fromExtension, usage);
+ 			this._thresholdCompactionFailures = 0;
+ 			const newEntries = this.sessionManager.getEntries();
+@@ -4442,6 +4471,7 @@ export class AgentSession {
+ 		onChunk?: (chunk: string) => void,
+ 		options?: { excludeFromContext?: boolean; id?: string; operations?: BashOperations },
+ 	): Promise<BashResult> {
++		acquireExecutionAdmission(this.sessionManager).verify();
+ 		const abortController = new AbortController();
+ 		this._bashAbortControllers.add(abortController);
+ 
+@@ -4572,6 +4602,8 @@ export class AgentSession {
+ 		targetId: string,
+ 		options: { summarize?: boolean; customInstructions?: string; replaceInstructions?: boolean; label?: string } = {},
+ 	): Promise<{ editorText?: string; cancelled: boolean; aborted?: boolean; summaryEntry?: BranchSummaryEntry }> {
++		const admission = options.summarize ? acquireExecutionAdmission(this.sessionManager) : undefined;
++		admission?.verify();
+ 		if (this.isStreaming) {
+ 			throw new Error("Wait for the current response to finish before navigating the session tree.");
+ 		}
+@@ -4660,6 +4692,7 @@ export class AgentSession {
+ 				const model = this.model!;
+ 				const { model: requestModel, apiKey, headers, env } = await this._getSummarizationRequestAuth(model);
+ 				const branchSummarySettings = this.settingsManager.getBranchSummarySettings();
++				admission?.verify();
+ 				const result = await generateBranchSummary(entriesToSummarize, {
+ 					model: requestModel,
+ 					apiKey,
+@@ -4711,6 +4744,7 @@ export class AgentSession {
+ 			// Switch leaf (with or without summary)
+ 			// Summary is attached at the navigation target position (newLeafId), not the old branch
+ 			let summaryEntry: BranchSummaryEntry | undefined;
++			admission?.verify();
+ 			if (summaryText) {
+ 				// Create summary at target position (can be null for root)
+ 				const summaryId = this.sessionManager.branchWithSummary(
+diff --git a/packages/coding-agent/src/core/execution-admission.ts b/packages/coding-agent/src/core/execution-admission.ts
+new file mode 100644
+index 0000000..e0e6861
+--- /dev/null
++++ b/packages/coding-agent/src/core/execution-admission.ts
+@@ -0,0 +1,24 @@
++export interface ExecutionAdmission {
++	verify(): void;
++}
++
++const checks = new WeakMap<object, (consume: boolean) => ExecutionAdmission>();
++
++/** Product policies can gate execution without changing storage or the Agent loop. */
++export function registerExecutionAdmission(owner: object, check: (consume: boolean) => ExecutionAdmission) {
++	checks.set(owner, check);
++	return () => {
++		if (checks.get(owner) === check) checks.delete(owner);
++	};
++}
++
++export function acquireExecutionAdmission(owner: object, consume = true): ExecutionAdmission {
++	return checks.get(owner)?.(consume) ?? { verify() {} };
++}
++
++export class ExecutionNotReadyError extends Error {
++	constructor() {
++		super("STARTUP_NOT_READY: session, model and tools must be ready before accepting execution");
++		this.name = "ExecutionNotReadyError";
++	}
++}
+diff --git a/packages/coding-agent/src/core/extensions/types.ts b/packages/coding-agent/src/core/extensions/types.ts
+index 3dad86d..045b0bc 100644
+--- a/packages/coding-agent/src/core/extensions/types.ts
++++ b/packages/coding-agent/src/core/extensions/types.ts
+@@ -1367,6 +1367,8 @@ export type EntryRenderer<T = unknown> = (
+ // ============================================================================
+ 
+ export interface RegisteredCommand {
++	/** Initialization-only handler. Any nested Agent execution still requires admission. */
++	startupManagement?: true | ((args: string) => boolean);
+ 	name: string;
+ 	sourceInfo: SourceInfo;
+ 	description?: string;
+diff --git a/packages/coding-agent/src/features/step-plan.ts b/packages/coding-agent/src/features/step-plan.ts
+index 3af7e49..74502dd 100644
+--- a/packages/coding-agent/src/features/step-plan.ts
++++ b/packages/coding-agent/src/features/step-plan.ts
+@@ -607,6 +607,7 @@ export const createStepPlanExtension =
+ 			default: false,
+ 		});
+ 		pi.registerCommand("plan", {
++			startupManagement: (args) => /^(?:on|off)?$/i.test(args.trim()),
+ 			description:
+ 				"Toggle plan mode with `/plan`, or `/plan on` and `/plan off` to state it outright. `/plan <task>` plans a task, `/plan approve [hash]` accepts a submitted proposal",
+ 			handler: async (args, ctx) => {
+diff --git a/packages/coding-agent/src/features/step.ts b/packages/coding-agent/src/features/step.ts
+index 84c0d13..ce25300 100644
+--- a/packages/coding-agent/src/features/step.ts
++++ b/packages/coding-agent/src/features/step.ts
+@@ -514,6 +514,7 @@ export function createStepExtension(options: StepExtensionOptions = {}): Extensi
+ 		// Keep only the plural product command. The old singular alias was never a
+ 		// separate approval engine and is intentionally no longer exposed.
+ 		pi.registerCommand("permissions", {
++			startupManagement: true,
+ 			description: "Choose Step tool approval mode",
+ 			handler: async (args, ctx) => {
+ 				recordStepSlashCommand(options.telemetry, "/permissions", true);
+diff --git a/packages/coding-agent/src/features/subagent/rpc-adapter.ts b/packages/coding-agent/src/features/subagent/rpc-adapter.ts
+index 0a9a167..f3536d1 100644
+--- a/packages/coding-agent/src/features/subagent/rpc-adapter.ts
++++ b/packages/coding-agent/src/features/subagent/rpc-adapter.ts
+@@ -238,6 +238,9 @@ export function buildSubagentChildEnv(input: StepSubagentRunInput): NodeJS.Proce
+ 	return {
+ 		...process.env,
+ 		...desktopAuthChildEnv(),
++		DFSC_ASYNC_STARTUP_V1: undefined,
++		DFSC_RUNTIME_ID: undefined,
++		DFSC_CONFIGURATION_REVISION: undefined,
+ 		[CHILD_MARKER]: "1",
+ 		STEPCODE_USAGE_PARENT_CWD: input.parentCwd ?? input.workflowAcl?.baseCwd,
+ 		STEPCODE_USAGE_PARENT_SESSION_ID: input.parentSessionId,
+diff --git a/packages/coding-agent/src/modes/rpc/rpc-mode.ts b/packages/coding-agent/src/modes/rpc/rpc-mode.ts
+index 45bc8f9..b230ce2 100644
+--- a/packages/coding-agent/src/modes/rpc/rpc-mode.ts
++++ b/packages/coding-agent/src/modes/rpc/rpc-mode.ts
+@@ -13,6 +13,7 @@
+ 
+ import * as crypto from "node:crypto";
+ import type { AgentSessionRuntimeHost } from "../../core/agent-session-runtime.ts";
++import { acquireExecutionAdmission } from "../../core/execution-admission.ts";
+ import type {
+ 	ExtensionUIContext,
+ 	ExtensionUIDialogOptions,
+@@ -30,6 +31,12 @@ import { resumeDesktopCronRecovery, updateDesktopCronJob } from "../../features/
+ import { getStepPlanMode, pendingProposalOf } from "../../features/step-plan.ts";
+ import { redactSensitiveText } from "../../features/subagent/projection.ts";
+ import { desktopPluginHostCommand } from "../../step/desktop-plugin-host.ts";
++import {
++	getDesktopStartup,
++	observeDesktopStartup,
++	prepareDesktopStartup,
++	withStartupSubmission,
++} from "../../step/desktop-startup.ts";
+ import { getStepMcpStatuses } from "../../step/mcp.ts";
+ import { STEPCODE_VERSION } from "../../step/version.ts";
+ import { type Theme, theme } from "../../theme/theme.ts";
+@@ -87,6 +94,7 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntimeHost, options:
+ 	let session = runtimeHost.session;
+ 	let unsubscribe: (() => void) | undefined;
+ 	let unsubscribeBackpressure: (() => void) | undefined;
++	let unsubscribeStartup: (() => void) | undefined;
+ 
+ 	const output = (obj: RpcResponse | RpcExtensionUIRequest | object) => {
+ 		writeRawStdout(serializeJsonLine(obj));
+@@ -388,7 +396,12 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntimeHost, options:
+ 		// keeps events emitted during replacement observable to RPC clients.
+ 		unsubscribe?.();
+ 		unsubscribeBackpressure?.();
++		unsubscribeStartup?.();
+ 		session = nextSession;
++		prepareDesktopStartup(session.sessionManager, "rpc");
++		unsubscribeStartup = observeDesktopStartup(session.sessionManager, (startup) => {
++			output({ type: "desktop_startup_changed", startup });
++		});
+ 		unsubscribe = session.subscribe((event) => {
+ 			// The projection owns the record policy (frames are opt-in); filtering
+ 			// here as well would let the two decisions drift.
+@@ -479,14 +492,27 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntimeHost, options:
+ 			return error(id, command.type, "Finish or cancel completion review before changing this task.");
+ 
+ 		switch (command.type) {
++			case "desktop_startup": {
++				const startup = getDesktopStartup(session.sessionManager);
++				if (!startup) return error(id, command.type, "Desktop startup protocol unavailable");
++				if (command.action === "state") return success(id, command.type, startup.snapshot());
++				if (session.isStreaming || session.isCompacting)
++					return error(id, command.type, "Cannot change startup policy during execution");
++				if (command.action === "bind") return success(id, command.type, startup.bind(command));
++				if (command.action === "model") return success(id, command.type, startup.modelReady(command));
++				if (command.action === "authorize") return success(id, command.type, startup.authorize(command));
++				return error(id, command.type, "Unknown startup operation");
++			}
+ 			case "desktop_plugin_host":
+ 				return success(id, command.type, await desktopPluginHostCommand(session.sessionManager, command));
+ 			case "desktop_completion_review_skip":
+ 				review.skip("input");
+ 				return success(id, command.type);
+ 			case "desktop_btw": {
+-				if (command.action === "ask") btw.start(command);
+-				else if (command.action === "cancel") await btw.cancel(command.requestId, command.scopeId);
++				if (command.action === "ask") {
++					acquireExecutionAdmission(session.sessionManager).verify();
++					btw.start(command);
++				} else if (command.action === "cancel") await btw.cancel(command.requestId, command.scopeId);
+ 				else if (command.action === "clear") btw.clear(command.scopeId);
+ 				else return error(id, "desktop_btw", "Unknown side question action");
+ 				return success(id, command.type);
+@@ -902,6 +928,7 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntimeHost, options:
+ 			}
+ 			case "get_state": {
+ 				const state: RpcSessionState = {
++					desktopStartup: getDesktopStartup(session.sessionManager)?.snapshot(),
+ 					desktopCompletionReview: 1,
+ 					model: session.model,
+ 					thinkingLevel: session.thinkingLevel,
+@@ -1015,6 +1042,7 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntimeHost, options:
+ 			// =================================================================
+ 
+ 			case "bash": {
++				acquireExecutionAdmission(session.sessionManager, false).verify();
+ 				const eventResult = await session.extensionRunner.emitUserBash({
+ 					type: "user_bash",
+ 					command: command.command,
+@@ -1023,6 +1051,7 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntimeHost, options:
+ 				});
+ 
+ 				if (eventResult?.result) {
++					acquireExecutionAdmission(session.sessionManager).verify();
+ 					session.recordBashResult(command.command, eventResult.result, {
+ 						excludeFromContext: command.excludeFromContext,
+ 					});
+@@ -1236,7 +1265,7 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntimeHost, options:
+ 
+ 		const command = parsed as RpcCommand;
+ 		try {
+-			const response = await handleCommand(command);
++			const response = await withStartupSubmission(command, () => handleCommand(command));
+ 			if (response) {
+ 				output(response);
+ 				await waitForRawStdoutBackpressure();
+diff --git a/packages/coding-agent/src/modes/rpc/rpc-types.ts b/packages/coding-agent/src/modes/rpc/rpc-types.ts
+index 3551a4f..a53c1c7 100644
+--- a/packages/coding-agent/src/modes/rpc/rpc-types.ts
++++ b/packages/coding-agent/src/modes/rpc/rpc-types.ts
+@@ -12,13 +12,32 @@ import type { BashResult } from "../../core/bash-executor.ts";
+ import type { CompactionResult } from "../../core/compaction/index.ts";
+ import type { SessionEntry, SessionTreeNode } from "../../core/session-manager.ts";
+ import type { SourceInfo } from "../../core/source-info.ts";
++import type { DesktopStartupState } from "../../step/desktop-startup.ts";
+ 
+ // ============================================================================
+ // RPC Commands (stdin)
+ // ============================================================================
+ 
+ export type RpcCommand =
+-	| { id?: string; type: "desktop_plugin_host"; action: string; requestId?: string; context?: string }
++	| {
++			id?: string;
++			type: "desktop_startup";
++			action: "state" | "bind" | "model" | "authorize";
++			sessionId?: string;
++			startupEpoch?: string;
++			catalogRevision?: number;
++			submissionId?: string;
++			digest?: string;
++			missing?: string[];
++	  }
++	| {
++			id?: string;
++			type: "desktop_plugin_host";
++			action: string;
++			requestId?: string;
++			context?: string;
++			cleanupConfirmed?: boolean;
++	  }
+ 	| {
+ 			id?: string;
+ 			type: "desktop_btw";
+@@ -38,6 +57,7 @@ export type RpcCommand =
+ 			images?: ImageContent[];
+ 			streamingBehavior?: "steer" | "followUp";
+ 			completionReview?: true;
++			startupApproval?: { submissionId: string; receipt: string };
+ 	  }
+ 	| { id?: string; type: "desktop_completion_review_skip" }
+ 	| { id?: string; type: "steer"; message: string; images?: ImageContent[] }
+@@ -137,6 +157,7 @@ export interface RpcSlashCommand {
+ // ============================================================================
+ 
+ export interface RpcSessionState {
++	desktopStartup?: DesktopStartupState;
+ 	desktopCompletionReview?: 1;
+ 	model?: Model<any>;
+ 	thinkingLevel: ThinkingLevel;
+diff --git a/packages/coding-agent/src/step/desktop-plugin-host.ts b/packages/coding-agent/src/step/desktop-plugin-host.ts
+index 82149ab..5d9da5d 100644
+--- a/packages/coding-agent/src/step/desktop-plugin-host.ts
++++ b/packages/coding-agent/src/step/desktop-plugin-host.ts
+@@ -31,9 +31,10 @@ interface RecordView {
+ interface LaunchRecord {
+ 	view: RecordView;
+ 	candidate: DesktopHostCandidate;
+-	start(context: string): Promise<boolean>;
++	start(context: string, signal: AbortSignal): Promise<boolean>;
+ 	connected(): boolean;
+ 	policy: string;
++	attempt?: AbortController;
+ }
+ const sessions = new WeakMap<object, DesktopPluginHost>();
+ const fail = (): never => {
+@@ -70,16 +71,19 @@ export class DesktopPluginHost {
+ 	private sessionId: () => string;
+ 	private discover: () => Promise<DesktopHostCandidate[]>;
+ 	private signal: AbortSignal;
++	private changed?: (name: string, phase: RecordView["phase"], cleanupConfirmed?: boolean) => void;
+ 	constructor(
+ 		owner: object,
+ 		sessionId: () => string,
+ 		discover: () => Promise<DesktopHostCandidate[]>,
+ 		signal: AbortSignal,
++		changed?: (name: string, phase: RecordView["phase"], cleanupConfirmed?: boolean) => void,
+ 	) {
+ 		this.owner = owner;
+ 		this.sessionId = sessionId;
+ 		this.discover = discover;
+ 		this.signal = signal;
++		this.changed = changed;
+ 		sessions.set(owner, this);
+ 		signal.addEventListener(
+ 			"abort",
+@@ -121,6 +125,10 @@ export class DesktopPluginHost {
+ 			connected,
+ 			policy: JSON.stringify(candidate.declaration),
+ 		});
++		if (view.conflict) {
++			view.phase = "failed";
++			this.changed?.(candidate.name, "failed");
++		}
+ 		return true;
+ 	}
+ 	private current(requestId: unknown) {
+@@ -166,6 +174,15 @@ export class DesktopPluginHost {
+ 	async settled() {
+ 		await Promise.allSettled([...this.starting]);
+ 	}
++	reject(requestId: unknown, confirmed?: boolean) {
++		const record = this.current(requestId);
++		if (!["pending", "starting", "connected", "failed"].includes(record.view.phase)) return fail();
++		const cleanupConfirmed = confirmed !== false && !["starting", "connected"].includes(record.view.phase);
++		record.view.phase = "failed";
++		record.attempt?.abort();
++		this.changed?.(record.candidate.name, "failed", cleanupConfirmed);
++		return { settled: true };
++	}
+ 	private async launch(requestId: unknown, context: unknown) {
+ 		const record = this.current(requestId);
+ 		await this.inspect(requestId);
+@@ -186,13 +203,21 @@ export class DesktopPluginHost {
+ 		)
+ 			return fail();
+ 		record.view.phase = "starting";
++		const attempt = new AbortController();
++		record.attempt = attempt;
++		const signal = AbortSignal.any([this.signal, attempt.signal]);
++		this.changed?.(record.candidate.name, "starting");
+ 		try {
+-			if (!(await record.start(context))) return fail();
++			if (!(await record.start(context, signal))) return fail();
++			signal.throwIfAborted();
+ 			this.current(requestId);
++			if (record.view.phase !== "starting") return fail();
+ 			record.view.phase = "connected";
++			this.changed?.(record.candidate.name, "connected");
+ 			return { started: true };
+ 		} catch {
+ 			record.view.phase = "failed";
++			this.changed?.(record.candidate.name, "failed");
+ 			return fail();
+ 		}
+ 	}
+@@ -204,6 +229,7 @@ export async function desktopPluginHostCommand(
+ 		action: string;
+ 		requestId?: string;
+ 		context?: string;
++		cleanupConfirmed?: boolean;
+ 	},
+ ) {
+ 	const host = sessions.get(owner);
+@@ -211,5 +237,6 @@ export async function desktopPluginHostCommand(
+ 	if (input.action === "list") return { records: host.list() };
+ 	if (input.action === "inspect") return host.inspect(input.requestId);
+ 	if (input.action === "start") return host.start(input.requestId, input.context);
++	if (input.action === "reject") return host.reject(input.requestId, input.cleanupConfirmed);
+ 	return fail();
+ }
+diff --git a/packages/coding-agent/src/step/desktop-startup.ts b/packages/coding-agent/src/step/desktop-startup.ts
+new file mode 100644
+index 0000000..82c85ac
+--- /dev/null
++++ b/packages/coding-agent/src/step/desktop-startup.ts
+@@ -0,0 +1,307 @@
++import { AsyncLocalStorage } from "node:async_hooks";
++import { createHash, randomUUID } from "node:crypto";
++import {
++	type ExecutionAdmission,
++	ExecutionNotReadyError,
++	registerExecutionAdmission,
++} from "../core/execution-admission.ts";
++
++export interface DesktopToolStartup {
++	name: string;
++	status: "connecting" | "pending" | "connected" | "failed" | "disabled";
++	toolCount: number;
++	hosted?: boolean;
++	cleanupConfirmed?: boolean;
++	startedAt: number;
++	settledAt?: number;
++}
++export interface DesktopStartupState {
++	protocol: 1;
++	runtimeId: string;
++	sessionId: string;
++	startupEpoch: string;
++	configurationRevision: string;
++	catalogRevision: number;
++	targetBound: boolean;
++	modelReady: boolean;
++	discovery: "waiting" | "discovering" | "ready" | "failed";
++	cleanupConfirmed: boolean;
++	tools: DesktopToolStartup[];
++	coreReadyAt: number;
++	sessionBoundAt?: number;
++	modelReadyAt?: number;
++	pluginHostsSettledAt?: number;
++	toolsSettledAt?: number;
++	firstPromptAcceptedAt?: number;
++}
++type Submission = { digest: string; approval?: { submissionId: string; receipt: string }; consumed: boolean };
++const submissions = new AsyncLocalStorage<Submission>();
++const states = new WeakMap<object, DesktopStartup>();
++const observers = new WeakMap<object, (state: DesktopStartupState) => void>();
++const unsafeRuntimes = new Set<string>();
++
++export function desktopStartupEnabled(mode: string) {
++	return (
++		mode === "rpc" &&
++		process.env.DFSC_ASYNC_STARTUP_V1 === "1" &&
++		Boolean(process.env.DFSC_RUNTIME_ID && process.env.DFSC_CONFIGURATION_REVISION)
++	);
++}
++export function startupSubmissionDigest(type: string, payload: object) {
++	const { startupApproval: _approval, id: _id, type: _type, ...rest } = payload as Record<string, unknown>;
++	return createHash("sha256")
++		.update(JSON.stringify([type, rest]))
++		.digest("hex");
++}
++export function withStartupSubmission<T>(
++	command: { type: string; startupApproval?: Submission["approval"] },
++	action: () => T,
++): T {
++	return submissions.run(
++		{ digest: startupSubmissionDigest(command.type, command), approval: command.startupApproval, consumed: false },
++		action,
++	);
++}
++export function observeDesktopStartup(owner: object, observer: (state: DesktopStartupState) => void) {
++	observers.set(owner, observer);
++	return () => {
++		if (observers.get(owner) === observer) observers.delete(owner);
++	};
++}
++export function getDesktopStartup(owner: object) {
++	return states.get(owner);
++}
++export function prepareDesktopStartup(owner: object, mode: string) {
++	if (!desktopStartupEnabled(mode)) return;
++	registerExecutionAdmission(owner, () => {
++		throw new ExecutionNotReadyError();
++	});
++}
++
++export class DesktopStartup {
++	private state: DesktopStartupState;
++	private launch?: () => void;
++	private release: () => void;
++	private disposed = false;
++	private owner: object;
++	private discoveryTimer?: ReturnType<typeof setTimeout>;
++	private cancel?: () => void;
++	private receipts = new Map<string, { submissionId: string; digest: string; revision: number; expires: number }>();
++	private submissionIds = new Map<string, { digest: string; receipt: string }>();
++	constructor(owner: object, sessionId: string, cancel?: () => void) {
++		this.owner = owner;
++		this.cancel = cancel;
++		states.get(owner)?.dispose();
++		this.state = {
++			protocol: 1,
++			runtimeId: process.env.DFSC_RUNTIME_ID!,
++			sessionId,
++			startupEpoch: randomUUID(),
++			configurationRevision: process.env.DFSC_CONFIGURATION_REVISION!,
++			catalogRevision: 0,
++			targetBound: false,
++			modelReady: false,
++			discovery: "waiting",
++			cleanupConfirmed: !unsafeRuntimes.has(process.env.DFSC_RUNTIME_ID!),
++			tools: [],
++			coreReadyAt: Date.now(),
++		};
++		states.set(owner, this);
++		this.release = registerExecutionAdmission(owner, (consume) => this.admit(consume));
++		this.publish();
++	}
++	snapshot(): DesktopStartupState {
++		return {
++			...this.state,
++			cleanupConfirmed: this.state.cleanupConfirmed && !unsafeRuntimes.has(this.state.runtimeId),
++			tools: this.state.tools.map((tool) => ({ ...tool })),
++		};
++	}
++	private publish(catalog = false) {
++		if (this.disposed) return;
++		if (catalog) {
++			this.state.catalogRevision++;
++			this.receipts.clear();
++		}
++		const discovered = this.state.discovery === "ready";
++		const settled = (tool: DesktopToolStartup) => !["connecting", "pending"].includes(tool.status);
++		this.state.pluginHostsSettledAt =
++			discovered && this.state.tools.filter((tool) => tool.hosted).every(settled)
++				? (this.state.pluginHostsSettledAt ?? Date.now())
++				: undefined;
++		this.state.toolsSettledAt =
++			discovered && this.state.tools.every(settled) ? (this.state.toolsSettledAt ?? Date.now()) : undefined;
++		try {
++			observers.get(this.owner)?.(this.snapshot());
++		} catch {}
++	}
++	defer(launch: () => void) {
++		this.launch = launch;
++	}
++	bind(input: { sessionId?: string; startupEpoch?: string }) {
++		if (this.disposed || input.sessionId !== this.state.sessionId || input.startupEpoch !== this.state.startupEpoch)
++			throw new ExecutionNotReadyError();
++		if (!this.state.targetBound) {
++			this.state.targetBound = true;
++			this.state.sessionBoundAt = Date.now();
++			this.state.discovery = "discovering";
++			this.discoveryTimer = setTimeout(() => {
++				this.discoveryFailed();
++				this.cancel?.();
++			}, 60000).unref();
++			this.publish();
++			const launch = this.launch;
++			this.launch = undefined;
++			if (!launch) this.discoveryFailed();
++			else launch();
++		}
++		return this.snapshot();
++	}
++	modelReady(input: { sessionId?: string; startupEpoch?: string }) {
++		if (
++			input.sessionId !== this.state.sessionId ||
++			input.startupEpoch !== this.state.startupEpoch ||
++			!this.state.targetBound ||
++			this.disposed
++		)
++			throw new ExecutionNotReadyError();
++		this.state.modelReady = true;
++		this.state.modelReadyAt ??= Date.now();
++		this.publish();
++		return this.snapshot();
++	}
++	discovered(tools: DesktopToolStartup[]) {
++		if (tools.some((tool) => tool.cleanupConfirmed === false)) this.markUnsafe();
++		if (this.disposed || this.state.discovery === "failed") return;
++		clearTimeout(this.discoveryTimer);
++		if (tools.length > 512 || new Set(tools.map((tool) => tool.name)).size !== tools.length) {
++			this.discoveryFailed();
++			return;
++		}
++		this.state.discovery = "ready";
++		this.state.tools = tools.map((tool) => ({ ...tool }));
++		this.publish(true);
++	}
++	discoveryFailed() {
++		clearTimeout(this.discoveryTimer);
++		this.state.discovery = "failed";
++		this.publish(true);
++	}
++	update(name: string, value: Partial<DesktopToolStartup>) {
++		if (value.cleanupConfirmed === false) this.markUnsafe();
++		const tool = this.state.tools.find((item) => item.name === name);
++		if (!tool || this.disposed) return;
++		const cleanupUnconfirmed = tool.cleanupConfirmed === false || value.cleanupConfirmed === false;
++		Object.assign(tool, value);
++		if (cleanupUnconfirmed) tool.cleanupConfirmed = false;
++		if (cleanupUnconfirmed) this.markUnsafe();
++		if (!["connecting", "pending"].includes(tool.status)) tool.settledAt = Date.now();
++		this.publish(true);
++	}
++	private markUnsafe() {
++		unsafeRuntimes.add(this.state.runtimeId);
++		this.state.cleanupConfirmed = false;
++	}
++	private available() {
++		return (
++			!this.disposed &&
++			states.get(this.owner) === this &&
++			this.state.targetBound &&
++			this.state.modelReady &&
++			this.state.discovery === "ready" &&
++			this.state.cleanupConfirmed &&
++			!unsafeRuntimes.has(this.state.runtimeId) &&
++			this.state.toolsSettledAt !== undefined &&
++			this.state.tools.every((tool) => tool.cleanupConfirmed !== false)
++		);
++	}
++	private missing() {
++		return this.state.tools
++			.filter((tool) => tool.status === "failed")
++			.map((tool) => tool.name)
++			.sort();
++	}
++	authorize(input: {
++		sessionId?: string;
++		startupEpoch?: string;
++		catalogRevision?: number;
++		submissionId?: string;
++		digest?: string;
++		missing?: string[];
++	}) {
++		if (
++			!this.available() ||
++			input.sessionId !== this.state.sessionId ||
++			input.startupEpoch !== this.state.startupEpoch ||
++			input.catalogRevision !== this.state.catalogRevision ||
++			!this.missing().length ||
++			JSON.stringify(input.missing) !== JSON.stringify(this.missing()) ||
++			!/^[a-f0-9-]{36}$/u.test(input.submissionId ?? "") ||
++			!/^[a-f0-9]{64}$/u.test(input.digest ?? "")
++		)
++			throw new ExecutionNotReadyError();
++		for (const [key, receipt] of this.receipts) if (receipt.expires <= Date.now()) this.receipts.delete(key);
++		const previous = this.submissionIds.get(input.submissionId!);
++		if (previous) {
++			const receipt = this.receipts.get(previous.receipt);
++			if (previous.digest !== input.digest || !receipt) throw new ExecutionNotReadyError();
++			return { submissionId: input.submissionId!, receipt: previous.receipt };
++		}
++		if (this.receipts.size >= 16) throw new ExecutionNotReadyError();
++		if (this.submissionIds.size >= 512) throw new ExecutionNotReadyError();
++		const receipt = randomUUID();
++		this.receipts.set(receipt, {
++			submissionId: input.submissionId!,
++			digest: input.digest!,
++			revision: this.state.catalogRevision,
++			expires: Date.now() + 120000,
++		});
++		this.submissionIds.set(input.submissionId!, { digest: input.digest!, receipt });
++		return { submissionId: input.submissionId!, receipt };
++	}
++	private admit(consume: boolean): ExecutionAdmission {
++		if (!this.available()) throw new ExecutionNotReadyError();
++		const revision = this.state.catalogRevision;
++		const request = submissions.getStore();
++		if (this.missing().length || request?.approval) {
++			const receipt = request?.approval && this.receipts.get(request.approval.receipt);
++			if (
++				!request ||
++				request.consumed ||
++				!receipt ||
++				receipt.expires <= Date.now() ||
++				receipt.submissionId !== request.approval!.submissionId ||
++				receipt.digest !== request.digest ||
++				receipt.revision !== revision
++			)
++				throw new ExecutionNotReadyError();
++			if (consume) {
++				this.receipts.delete(request.approval!.receipt);
++				request.consumed = true;
++			}
++		}
++		return {
++			verify: () => {
++				if (!this.available() || revision !== this.state.catalogRevision) throw new ExecutionNotReadyError();
++				if (consume && this.state.firstPromptAcceptedAt === undefined) {
++					this.state.firstPromptAcceptedAt = Date.now();
++					this.publish();
++				}
++			},
++		};
++	}
++	dispose() {
++		if (this.disposed) return;
++		this.disposed = true;
++		clearTimeout(this.discoveryTimer);
++		this.receipts.clear();
++		this.submissionIds.clear();
++		this.launch = undefined;
++		// Retain a rejecting gate until a new session installs its own policy.
++		registerExecutionAdmission(this.owner, () => {
++			throw new ExecutionNotReadyError();
++		});
++		if (states.get(this.owner) === this) states.delete(this.owner);
++		this.release();
++	}
++}
+diff --git a/packages/coding-agent/src/step/mcp-startup.test.ts b/packages/coding-agent/src/step/mcp-startup.test.ts
+index fb321ed..8b0f887 100644
+--- a/packages/coding-agent/src/step/mcp-startup.test.ts
++++ b/packages/coding-agent/src/step/mcp-startup.test.ts
+@@ -1,3 +1,4 @@
++import { randomUUID } from "node:crypto";
+ import { chmod, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
+ 
+ import { createServer } from "node:http";
+@@ -12,7 +13,8 @@ import { createEventBus } from "../core/event-bus.ts";
+ import { createExtensionRuntime, loadExtensionFromFactory } from "../core/extensions/loader.ts";
+ import type { ExtensionMode } from "../core/extensions/types.ts";
+ import type { StepConfigDocument } from "./config-toml.ts";
+-
++import { desktopPluginHostCommand } from "./desktop-plugin-host.ts";
++import { getDesktopStartup } from "./desktop-startup.ts";
+ import {
+ 	ambiguousPluginServerNames,
+ 	bareServerName,
+@@ -23,7 +25,6 @@ import {
+ 	getStepMcpStatuses,
+ 	resolveStepMcpServer,
+ } from "./mcp.ts";
+-
+ import type { StepPageReadiness } from "./steppage-provision.ts";
+ 
+ const config = vi.hoisted(() => ({ value: {} as StepConfigDocument }));
+@@ -133,11 +134,11 @@ function placeholder(name: string, fallback?: string): string {
+ 	return `${"$"}${"{"}${body}${"}"}`;
+ }
+ 
+-async function setup(mode: ExtensionMode) {
++async function setup(mode: ExtensionMode, sessionManager?: { getSessionId(): string }, projectTrusted = true) {
+ 	const runtime = createExtensionRuntime();
+ 	const extension = await loadExtensionFromFactory(createStepMcpExtension(), process.cwd(), createEventBus(), runtime);
+ 	const notify = vi.fn();
+-	const ctx = { cwd: process.cwd(), mode, isProjectTrusted: () => true, ui: { notify } };
++	const ctx = { cwd: process.cwd(), mode, isProjectTrusted: () => projectTrusted, ui: { notify }, sessionManager };
+ 	const start = () => extension.handlers.get("session_start")![0]({ type: "session_start" }, ctx);
+ 	const stop = async () => {
+ 		await extension.handlers.get("session_shutdown")![0]({ type: "session_shutdown" }, ctx);
+@@ -210,6 +211,68 @@ test("shutdown cancels a pending HTTP handshake and prevents late publication",
+ 	expect(getStepMcpStatuses()).toEqual([]);
+ 	expect(harness.notify).not.toHaveBeenCalled();
+ });
++test("Desktop hosted rejection cancels an actual stdio handshake without publishing late tools", async () => {
++	vi.stubEnv("DFSC_ASYNC_STARTUP_V1", "1");
++	vi.stubEnv("DFSC_RUNTIME_HOST_V1", "1");
++	vi.stubEnv("DFSC_RUNTIME_ID", randomUUID());
++	vi.stubEnv("DFSC_CONFIGURATION_REVISION", randomUUID());
++	const root = await mkdtemp(join(tmpdir(), "dfsc-hosted-startup-"));
++	cleanups.push(() => rm(root, { recursive: true, force: true }));
++	const marker = join(root, "listing");
++	await writeFile(join(root, "dfsc.host.json"), JSON.stringify({ consumer: { server: "example" } }));
++	const script = `
++const readline = require("node:readline");
++const send = (id, result) => process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id, result }) + "\\n");
++readline.createInterface({ input: process.stdin }).on("line", line => {
++  const request = JSON.parse(line);
++  if (request.id === undefined) return;
++  if (request.method === "initialize") send(request.id, {
++    protocolVersion: "2025-03-26", capabilities: { tools: {} }, serverInfo: { name: "fixture", version: "1" }
++  });
++  else {
++    require("node:fs").writeFileSync(${JSON.stringify(marker)}, "listing");
++    setTimeout(() => send(request.id, { tools: [{ name: "late", inputSchema: { type: "object" } }] }), 500);
++  }
++});
++`;
++	pluginMocks.dirs = [root];
++	pluginMocks.manifests.set(root, {
++		id: "hostfixture",
++		mcpServers: { example: { command: process.execPath, args: ["-e", script], startup_timeout_sec: 5 } },
++	});
++	const owner = { getSessionId: () => "target" };
++	const harness = await setup("rpc", owner, false);
++	await harness.start();
++	const startup = getDesktopStartup(owner)!;
++	const identity = { sessionId: "target", startupEpoch: startup.snapshot().startupEpoch };
++	startup.bind(identity);
++	startup.modelReady(identity);
++	await vi.waitFor(() => expect(startup.snapshot().discovery).toBe("ready"));
++	const inventory = (await desktopPluginHostCommand(owner, { action: "list" })) as {
++		records: Array<{ requestId: string }>;
++	};
++	const requestId = inventory.records[0].requestId;
++	const starting = expect(
++		desktopPluginHostCommand(owner, {
++			action: "start",
++			requestId,
++			context: JSON.stringify({
++				version: "dfsc-launch-v1",
++				mode: "follow",
++				pluginId: "hostfixture",
++				consumer: "example",
++				sessionId: "target",
++			}),
++		}),
++	).rejects.toThrow();
++	await vi.waitFor(async () => expect(await readFile(marker, "utf8")).toBe("listing"), { timeout: 5000 });
++	await desktopPluginHostCommand(owner, { action: "reject", requestId });
++	await starting;
++	await new Promise((resolve) => setTimeout(resolve, 600));
++	expect(harness.extension.tools.size).toBe(0);
++	expect(startup.snapshot().cleanupConfirmed).toBe(false);
++	expect(startup.snapshot().tools[0].status).toBe("failed");
++});
+ 
+ test("headless binding still waits for its initial MCP tools", async () => {
+ 	const server = await slowServer();
+@@ -357,7 +420,8 @@ test("expands header templates and reports a variable with no fallback", () => {
+ });
+ 
+ test("a plugin stdio server runs from the plugin root unless it names an absolute cwd", async () => {
+-	const dir = "/mock-plugins/local";
++	const dir = join(tmpdir(), "mock-plugin-local");
++	const absoluteCwd = join(tmpdir(), "elsewhere");
+ 	pluginMocks.dirs = [dir];
+ 	pluginMocks.manifests.set(dir, {
+ 		id: "local",
+@@ -366,7 +430,7 @@ test("a plugin stdio server runs from the plugin root unless it names an absolut
+ 			dot: { command: "node", cwd: "." },
+ 			nested: { command: "node", cwd: "server" },
+ 			escapes: { command: "node", cwd: ".." },
+-			absolute: { command: "node", cwd: "/opt/elsewhere" },
++			absolute: { command: "node", cwd: absoluteCwd },
+ 			remote: { url: "https://example.test/mcp" },
+ 		},
+ 	});
+@@ -376,7 +440,7 @@ test("a plugin stdio server runs from the plugin root unless it names an absolut
+ 	expect(cwdOf("dot")).toBe(dir);
+ 	expect(cwdOf("nested")).toBe(join(dir, "server"));
+ 	expect(cwdOf("escapes")).toBe(dir);
+-	expect(cwdOf("absolute")).toBe("/opt/elsewhere");
++	expect(cwdOf("absolute")).toBe(absoluteCwd);
+ 	// A remote server is never spawned, so it is given no working directory.
+ 	expect(cwdOf("remote")).toBeUndefined();
+ });
+diff --git a/packages/coding-agent/src/step/mcp.ts b/packages/coding-agent/src/step/mcp.ts
+index 350404d..1b047f5 100644
+--- a/packages/coding-agent/src/step/mcp.ts
++++ b/packages/coding-agent/src/step/mcp.ts
+@@ -11,6 +11,7 @@ import type { ExtensionAPI, ExtensionFactory } from "../core/extensions/types.ts
+ import { theme } from "../theme/theme.ts";
+ import { readGlobalStepConfig } from "./config-toml.ts";
+ import { DesktopPluginHost } from "./desktop-plugin-host.ts";
++import { DesktopStartup, type DesktopToolStartup, desktopStartupEnabled } from "./desktop-startup.ts";
+ import { createMcpToolCaller, listAllMcpTools } from "./mcp-client.ts";
+ import { resolveStepMcpEnvironment } from "./mcp-environment.ts";
+ import { createStoredMcpOAuthProvider, hasStoredMcpOAuthCredential } from "./mcp-oauth.ts";
+@@ -128,6 +129,8 @@ export function createStepMcpExtension(): ExtensionFactory {
+ 		let cancellation: AbortController | undefined;
+ 		let statuses: StepMcpStatus[] = [];
+ 		let desktopHost: DesktopPluginHost | undefined;
++		let desktopStartup: DesktopStartup | undefined;
++		const cleanupOperations = new Set<Promise<unknown>>();
+ 
+ 		pi.on("session_start", async (_event, ctx) => {
+ 			if (startup) return;
+@@ -138,179 +141,231 @@ export function createStepMcpExtension(): ExtensionFactory {
+ 			owners = new Map<string, string>();
+ 			if (ctx.sessionManager) currentMcpToolOwners.set(ctx.sessionManager, owners);
+ 			const sessionOwners = owners;
+-			startup = (async () => {
+-				// Finish mounting the interactive session before doing discovery or
+-				// spawning processes. Awaiting Promise.all in session_start kept the
+-				// entire initialization path behind the slowest server.
+-				await yieldToEventLoop();
+-				if (controller.signal.aborted) return;
+-				// The old marker records manifest/uninstall intent only. Executable
+-				// readiness is checked for each installed built-in before connecting.
+-				try {
+-					const preinstalled = await ensureBuiltinPluginsInstalled();
++			desktopStartup =
++				ctx.sessionManager && desktopStartupEnabled(ctx.mode)
++					? new DesktopStartup(ctx.sessionManager, ctx.sessionManager.getSessionId(), () => controller.abort())
++					: undefined;
++			const readiness = desktopStartup;
++			const launch = () => {
++				startup = (async () => {
++					// Finish mounting the interactive session before doing discovery or
++					// spawning processes. Awaiting Promise.all in session_start kept the
++					// entire initialization path behind the slowest server.
++					await yieldToEventLoop();
+ 					if (controller.signal.aborted) return;
+-					for (const warning of preinstalled.warnings) ctx.ui.notify(warning, "warning");
+-				} catch {
+-					// Best-effort: discovery still runs with whatever is already installed.
+-				}
+-				if (controller.signal.aborted) return;
+-				const discovered = await discoverStepMcpServers(ctx.cwd, ctx.isProjectTrusted());
+-				if (controller.signal.aborted) return;
+-				const disabled = Object.entries(readGlobalStepConfig(process.env).mcp_servers ?? {})
+-					.filter(
+-						([name, declaration]) =>
+-							isRecord(declaration) &&
+-							declaration.enabled === false &&
+-							!discovered.some((server) => server.name === name),
+-					)
+-					.map(([name]): StepMcpStatus => ({ name, status: "disabled", toolCount: 0 }));
+-				statuses.push(
+-					...discovered.map(
+-						(item): StepMcpStatus => ({
+-							name: item.name,
+-							status: "connecting",
+-							toolCount: 0,
+-						}),
+-					),
+-				);
+-				statuses.push(...disabled);
+-				desktopHost =
+-					ctx.mode === "rpc" && process.env.DFSC_RUNTIME_HOST_V1 === "1" && ctx.sessionManager
+-						? new DesktopPluginHost(
+-								ctx.sessionManager,
+-								() => ctx.sessionManager.getSessionId(),
+-								() => discoverStepMcpServers(ctx.cwd, ctx.isProjectTrusted()),
+-								controller.signal,
+-							)
+-						: undefined;
+-				const connect = async (item: DiscoveredServer, index: number, launchContext?: string) => {
+-					let connected: ConnectedServer | undefined;
+-					let published = false;
+-					let pending = false;
+-					let refreshing = false;
+-					const refreshCatalog = async () => {
+-						if (refreshing || !published || !connected || connected.signal.aborted) return;
+-						const server = connected;
+-						refreshing = true;
+-						try {
+-							while (pending && !server.signal.aborted) {
+-								// Coalesce a notification burst before listing, with at most one
+-								// more pass when notifications arrive during an in-flight list.
+-								await yieldToEventLoop();
+-								pending = false;
+-								try {
+-									const tools = selectDeclaredTools(
+-										await listAllMcpTools(server.client, server.signal, server.catalogTimeoutMs),
+-										item.declaration,
+-									);
+-									const remoteTools = tools.map((tool) => createRemoteTool(server, tool));
++					// The old marker records manifest/uninstall intent only. Executable
++					// readiness is checked for each installed built-in before connecting.
++					try {
++						const preinstalled = await ensureBuiltinPluginsInstalled();
++						if (controller.signal.aborted) return;
++						for (const warning of preinstalled.warnings) ctx.ui.notify(warning, "warning");
++					} catch {
++						// Best-effort: discovery still runs with whatever is already installed.
++					}
++					if (controller.signal.aborted) return;
++					const discovered = await discoverStepMcpServers(ctx.cwd, ctx.isProjectTrusted());
++					if (controller.signal.aborted) return;
++					const disabled = Object.entries(readGlobalStepConfig(process.env).mcp_servers ?? {})
++						.filter(
++							([name, declaration]) =>
++								isRecord(declaration) &&
++								declaration.enabled === false &&
++								!discovered.some((server) => server.name === name),
++						)
++						.map(([name]): StepMcpStatus => ({ name, status: "disabled", toolCount: 0 }));
++					statuses.push(
++						...discovered.map(
++							(item): StepMcpStatus => ({
++								name: item.name,
++								status: "connecting",
++								toolCount: 0,
++							}),
++						),
++					);
++					statuses.push(...disabled);
++					desktopHost =
++						ctx.mode === "rpc" && process.env.DFSC_RUNTIME_HOST_V1 === "1" && ctx.sessionManager
++							? new DesktopPluginHost(
++									ctx.sessionManager,
++									() => ctx.sessionManager.getSessionId(),
++									() => discoverStepMcpServers(ctx.cwd, ctx.isProjectTrusted()),
++									controller.signal,
++									(name, phase, cleanupConfirmed) =>
++										readiness?.update(name, {
++											status: phase === "starting" ? "connecting" : phase,
++											...(cleanupConfirmed === undefined ? {} : { cleanupConfirmed }),
++										}),
++								)
++							: undefined;
++					const connect = async (
++						item: DiscoveredServer,
++						index: number,
++						launchContext?: string,
++						attemptSignal = controller.signal,
++					) => {
++						let connected: ConnectedServer | undefined;
++						let published = false;
++						let pending = false;
++						let refreshing = false;
++						const refreshCatalog = async () => {
++							if (refreshing || !published || !connected || connected.signal.aborted) return;
++							const server = connected;
++							refreshing = true;
++							try {
++								while (pending && !server.signal.aborted) {
++									// Coalesce a notification burst before listing, with at most one
++									// more pass when notifications arrive during an in-flight list.
+ 									await yieldToEventLoop();
+-									if (server.signal.aborted || !published) return;
+-									pi.registerTools(remoteTools, {
+-										remove: server.tools.map((tool) => remoteToolName(server, tool)),
+-									});
+-									publishMcpToolOwners(sessionOwners, server, tools, server.tools);
+-									server.tools = tools;
+-									statuses[index] = { name: item.name, status: "connected", toolCount: tools.length };
+-								} catch (error) {
+-									if (server.signal.aborted || !published) return;
+-									ctx.ui.notify(
+-										`MCP server '${item.name}' catalog refresh failed; keeping the previous tools: ${launchContext !== undefined ? "Hosted MCP catalog unavailable" : error instanceof Error ? error.message : String(error)}`,
+-										"warning",
+-									);
++									pending = false;
++									try {
++										const tools = selectDeclaredTools(
++											await listAllMcpTools(server.client, server.signal, server.catalogTimeoutMs),
++											item.declaration,
++										);
++										const remoteTools = tools.map((tool) => createRemoteTool(server, tool));
++										await yieldToEventLoop();
++										if (server.signal.aborted || !published) return;
++										pi.registerTools(remoteTools, {
++											remove: server.tools.map((tool) => remoteToolName(server, tool)),
++										});
++										publishMcpToolOwners(sessionOwners, server, tools, server.tools);
++										server.tools = tools;
++										statuses[index] = { name: item.name, status: "connected", toolCount: tools.length };
++										readiness?.update(item.name, { status: "connected", toolCount: tools.length });
++									} catch (error) {
++										if (server.signal.aborted || !published) return;
++										ctx.ui.notify(
++											`MCP server '${item.name}' catalog refresh failed; keeping the previous tools: ${launchContext !== undefined ? "Hosted MCP catalog unavailable" : error instanceof Error ? error.message : String(error)}`,
++											"warning",
++										);
++									}
+ 								}
++							} finally {
++								refreshing = false;
+ 							}
+-						} finally {
+-							refreshing = false;
+-						}
+-					};
+-					const onToolsChanged = () => {
+-						pending = true;
+-						void refreshCatalog();
+-					};
+-					try {
+-						const server = await connectStepMcpServer(item, controller.signal, onToolsChanged, launchContext);
+-						server.pluginId = item.pluginId;
+-						connected = server;
+-						const remoteTools = server.tools.map((tool) => createRemoteTool(server, tool));
+-						// Publishing a server's catalog refreshes the registry and the
+-						// Step prompt once. Yield first so a server that finished while
+-						// the loop was busy cannot preempt input or rendering.
+-						await yieldToEventLoop();
+-						server.signal.throwIfAborted();
+-						pi.registerTools(remoteTools);
+-						publishMcpToolOwners(sessionOwners, server, server.tools);
+-						published = true;
+-						servers.push(server);
+-						server.signal.addEventListener(
+-							"abort",
+-							() => {
+-								published = false;
+-								publishMcpToolOwners(sessionOwners, server, [], server.tools);
+-								if (controller.signal.aborted) return;
+-								pi.registerTools([], { remove: server.tools.map((tool) => remoteToolName(server, tool)) });
+-								statuses[index] = { name: item.name, status: "failed", toolCount: 0 };
+-							},
+-							{ once: true },
+-						);
+-						statuses[index] = {
+-							name: item.name,
+-							status: "connected",
+-							toolCount: server.tools.length,
+ 						};
+-						void refreshCatalog();
+-						return true;
+-					} catch (error) {
+-						if (connected) await closeStepMcpServer(connected);
+-						if (controller.signal.aborted) return;
+-						statuses[index] = {
+-							name: item.name,
+-							status: "failed",
+-							toolCount: 0,
++						const onToolsChanged = () => {
++							pending = true;
++							void refreshCatalog();
+ 						};
+-						ctx.ui.notify(
+-							describeMcpStartFailure({
++						try {
++							const server = await connectStepMcpServer(item, attemptSignal, onToolsChanged, launchContext);
++							server.pluginId = item.pluginId;
++							connected = server;
++							const remoteTools = server.tools.map((tool) => createRemoteTool(server, tool));
++							// Publishing a server's catalog refreshes the registry and the
++							// Step prompt once. Yield first so a server that finished while
++							// the loop was busy cannot preempt input or rendering.
++							await yieldToEventLoop();
++							server.signal.throwIfAborted();
++							pi.registerTools(remoteTools);
++							publishMcpToolOwners(sessionOwners, server, server.tools);
++							published = true;
++							servers.push(server);
++							server.signal.addEventListener(
++								"abort",
++								() => {
++									published = false;
++									publishMcpToolOwners(sessionOwners, server, [], server.tools);
++									if (controller.signal.aborted) return;
++									pi.registerTools([], { remove: server.tools.map((tool) => remoteToolName(server, tool)) });
++									statuses[index] = { name: item.name, status: "failed", toolCount: 0 };
++									readiness?.update(item.name, { status: "failed", toolCount: 0, cleanupConfirmed: false });
++								},
++								{ once: true },
++							);
++							statuses[index] = {
+ 								name: item.name,
+-								command: item.declaration.command ?? item.declaration.url ?? "configured server",
+-								provision: item.provision,
+-								error: launchContext !== undefined ? new Error("Hosted MCP startup failed") : error,
+-							}),
+-							"warning",
+-						);
+-						return false;
+-					}
+-				};
+-				await Promise.all(
+-					discovered.map(async (item, index) => {
++								status: "connected",
++								toolCount: server.tools.length,
++							};
++							readiness?.update(item.name, { status: "connected", toolCount: server.tools.length });
++							void refreshCatalog();
++							return true;
++						} catch (error) {
++							if (error instanceof McpCleanupUnconfirmed) {
++								cleanupOperations.add(error.cleanup);
++								void error.cleanup.finally(() => cleanupOperations.delete(error.cleanup)).catch(() => {});
++							}
++							if (connected) await closeStepMcpServer(connected);
++							// Session shutdown joins startup and its cleanup before any replacement is exposed.
++							if (controller.signal.aborted) return;
++							statuses[index] = {
++								name: item.name,
++								status: "failed",
++								toolCount: 0,
++							};
++							readiness?.update(item.name, {
++								status: "failed",
++								toolCount: 0,
++								cleanupConfirmed: !(error instanceof McpCleanupUnconfirmed),
++							});
++							ctx.ui.notify(
++								describeMcpStartFailure({
++									name: item.name,
++									command: item.declaration.command ?? item.declaration.url ?? "configured server",
++									provision: item.provision,
++									error: launchContext !== undefined ? new Error("Hosted MCP startup failed") : error,
++								}),
++								"warning",
++							);
++							return false;
++						}
++					};
++					const initial: DesktopToolStartup[] = disabled.map((item) => ({ ...item, startedAt: Date.now() }));
++					const ordinary: Array<() => Promise<unknown>> = [];
++					for (const [index, item] of discovered.entries()) {
+ 						if (
+ 							await desktopHost?.defer(
+ 								item,
+-								(context) => connect(item, index, context).then(Boolean),
++								(context, signal) => connect(item, index, context, signal).then(Boolean),
+ 								() => statuses[index]?.status === "connected",
+ 							)
+ 						) {
+ 							statuses[index] = { name: item.name, status: "disabled", toolCount: 0 };
+-							return;
++							const record = desktopHost
++								?.list()
++								.find((record) => item.name === `${record.pluginId}__${record.consumer}`);
++							initial.push({
++								name: item.name,
++								toolCount: 0,
++								hosted: true,
++								startedAt: Date.now(),
++								status: record?.phase === "pending" ? "pending" : "failed",
++							});
++							continue;
+ 						}
+-						await connect(item, index);
+-					}),
+-				);
+-			})().catch((error: unknown) => {
+-				if (!controller.signal.aborted)
+-					ctx.ui.notify(
+-						`MCP discovery failed: ${error instanceof Error ? error.message : String(error)}`,
+-						"warning",
+-					);
+-			});
++						initial.push({ name: item.name, status: "connecting", toolCount: 0, startedAt: Date.now() });
++						ordinary.push(() => connect(item, index));
++					}
++					readiness?.discovered(initial);
++					await Promise.all(ordinary.map((connect) => connect()));
++				})().catch((error: unknown) => {
++					if (!controller.signal.aborted) readiness?.discoveryFailed();
++					if (!controller.signal.aborted)
++						ctx.ui.notify(
++							`MCP discovery failed: ${error instanceof Error ? error.message : String(error)}`,
++							"warning",
++						);
++				});
++			};
++			if (readiness) {
++				readiness.defer(launch);
++				return;
++			}
++			launch();
+ 			// Print/RPC callers expect the initial tool catalog before submitting
+ 			// work. Only the interactive TUI detaches startup from session binding.
+ 			if (ctx.mode !== "tui") await startup;
+ 		});
+ 
+ 		pi.on("session_shutdown", async () => {
++			desktopStartup?.dispose();
++			desktopStartup = undefined;
+ 			cancellation?.abort();
+ 			await startup;
+ 			await desktopHost?.settled();
++			await Promise.allSettled([...cleanupOperations]);
+ 			desktopHost = undefined;
+ 			const closing = servers;
+ 			for (const server of closing) publishMcpToolOwners(owners, server, [], server.tools);
+@@ -621,6 +676,49 @@ export async function connectStepMcpServer(
+ 	abortSignal?: AbortSignal,
+ 	onToolsChanged?: () => void,
+ 	launchContext?: string,
++): Promise<ConnectedServer> {
++	const deadline = AbortSignal.any([
++		AbortSignal.timeout(timeoutMs(input.declaration.startup_timeout_sec, MCP_STARTUP_TIMEOUT_SEC)),
++		...(abortSignal ? [abortSignal] : []),
++	]);
++	let abort!: () => void;
++	let abandoned = false;
++	const operation = connectStepMcpServerWithinBudget(input, abortSignal, onToolsChanged, launchContext, deadline);
++	const cleanup = operation.then(
++		async (server) => {
++			if (abandoned) await closeStepMcpServer(server);
++		},
++		() => {},
++	);
++	const interrupted = new Promise<never>((_resolve, reject) => {
++		abort = () => {
++			abandoned = true;
++			reject(new McpCleanupUnconfirmed(cleanup));
++		};
++		if (deadline.aborted) abort();
++		else deadline.addEventListener("abort", abort, { once: true });
++	});
++	try {
++		return await Promise.race([operation, interrupted]);
++	} finally {
++		deadline.removeEventListener("abort", abort);
++	}
++}
++
++class McpCleanupUnconfirmed extends Error {
++	cleanup: Promise<unknown>;
++	constructor(cleanup: Promise<unknown>) {
++		super("MCP startup timed out or was aborted; cleanup requires runtime reconnection");
++		this.cleanup = cleanup;
++	}
++}
++
++async function connectStepMcpServerWithinBudget(
++	input: DiscoveredServer,
++	abortSignal: AbortSignal | undefined,
++	onToolsChanged: (() => void) | undefined,
++	launchContext: string | undefined,
++	startupSignal: AbortSignal,
+ ): Promise<ConnectedServer> {
+ 	abortSignal?.throwIfAborted();
+ 	const timeout = timeoutMs(input.declaration.startup_timeout_sec, MCP_STARTUP_TIMEOUT_SEC);
+@@ -633,10 +731,11 @@ export async function connectStepMcpServer(
+ 		if (input.name === STEPPAGE_SERVER_NAME && isManagedStepPageCommand(input.declaration, input.provision)) {
+ 			// The trusted installer needs host setup variables (proxy/installer URL).
+ 			// The MCP transport still receives only the restricted server environment.
+-			const readiness = await ensureStepPageReady({ env: { ...process.env, ...env }, signal: abortSignal });
++			const readiness = await ensureStepPageReady({ env: { ...process.env, ...env }, signal: startupSignal });
+ 			if (readiness.error) throw new Error(readiness.error);
+ 			command = readiness.command ?? command;
+ 		}
++		startupSignal.throwIfAborted();
+ 		transport = new StdioClientTransport({
+ 			command,
+ 			args: input.declaration.args,
+@@ -663,7 +762,7 @@ export async function connectStepMcpServer(
+ 	client.onclose = () => closed.abort(new Error("MCP connection closed"));
+ 	const lifetime = AbortSignal.any([closed.signal, ...(abortSignal ? [abortSignal] : [])]);
+ 	if (onToolsChanged) client.setNotificationHandler(ToolListChangedNotificationSchema, onToolsChanged);
+-	const signal = AbortSignal.any([AbortSignal.timeout(timeout), lifetime]);
++	const signal = AbortSignal.any([startupSignal, lifetime]);
+ 	let closing: Promise<void> | undefined;
+ 	const close = () => {
+ 		closing ??= closeStepMcpServer({ client, transport });
+diff --git a/packages/coding-agent/test/desktop-plugin-host.test.ts b/packages/coding-agent/test/desktop-plugin-host.test.ts
+index dd61a80..deff576 100644
+--- a/packages/coding-agent/test/desktop-plugin-host.test.ts
++++ b/packages/coding-agent/test/desktop-plugin-host.test.ts
+@@ -6,7 +6,7 @@ import {
+ 	type DesktopHostCandidate,
+ 	DesktopPluginHost,
+ 	desktopPluginHostCommand,
+-} from "../src/step/desktop-plugin-host.js";
++} from "../src/step/desktop-plugin-host.ts";
+ 
+ const roots: string[] = [];
+ afterEach(async () => {
+@@ -198,3 +198,61 @@ test("failed startup consumes a record without echoing private launch context",
+ 	await expect(f.host.start(record.requestId, f.context())).rejects.toThrow();
+ 	expect(f.host.list()[0].phase).toBe("failed");
+ });
++test("reject aborts the attempt before a delayed catalog can be published", async () => {
++	const f = await fixture();
++	let release!: () => void;
++	let reached!: () => void;
++	const gate = new Promise<void>((resolve) => {
++		release = resolve;
++	});
++	const starting = new Promise<void>((resolve) => {
++		reached = resolve;
++	});
++	let attemptSignal: AbortSignal | undefined;
++	let publications = 0;
++	await f.host.defer(
++		f.candidate,
++		async (_context, signal) => {
++			attemptSignal = signal;
++			reached();
++			await gate;
++			signal.throwIfAborted();
++			publications++;
++			return true;
++		},
++		() => false,
++	);
++	const id = f.host.list()[0].requestId;
++	const operation = expect(f.host.start(id, f.context())).rejects.toThrow();
++	await starting;
++	expect(f.host.reject(id)).toEqual({ settled: true });
++	expect(attemptSignal?.aborted).toBe(true);
++	release();
++	await operation;
++	expect(publications).toBe(0);
++	expect(f.host.list()[0].phase).toBe("failed");
++});
++test("reject also cancels a connected attempt whose acknowledgment was lost", async () => {
++	const f = await fixture();
++	let available = false;
++	await f.host.defer(
++		f.candidate,
++		async (_context, signal) => {
++			available = true;
++			signal.addEventListener(
++				"abort",
++				() => {
++					available = false;
++				},
++				{ once: true },
++			);
++			return true;
++		},
++		() => available,
++	);
++	const id = f.host.list()[0].requestId;
++	await f.host.start(id, f.context());
++	f.host.reject(id);
++	expect(available).toBe(false);
++	expect(f.host.list()[0].phase).toBe("failed");
++});
+diff --git a/packages/coding-agent/test/desktop-startup.test.ts b/packages/coding-agent/test/desktop-startup.test.ts
+new file mode 100644
+index 0000000..b5837bf
+--- /dev/null
++++ b/packages/coding-agent/test/desktop-startup.test.ts
+@@ -0,0 +1,275 @@
++import { randomUUID } from "node:crypto";
++import { join } from "node:path";
++import { afterEach, expect, test, vi } from "vitest";
++import { acquireExecutionAdmission } from "../src/core/execution-admission.ts";
++import { createStepExtension } from "../src/features/step.ts";
++import { createStepPlanExtension, getStepPlanState } from "../src/features/step-plan.ts";
++import {
++	DesktopStartup,
++	desktopStartupEnabled,
++	prepareDesktopStartup,
++	startupSubmissionDigest,
++	withStartupSubmission,
++} from "../src/step/desktop-startup.ts";
++import { createHarness, type Harness } from "./suite/harness.ts";
++
++const harnesses: Harness[] = [];
++afterEach(() => {
++	for (const harness of harnesses.splice(0)) harness.cleanup();
++	vi.unstubAllEnvs();
++});
++function fixture(owner = {}) {
++	vi.stubEnv("DFSC_RUNTIME_ID", randomUUID());
++	vi.stubEnv("DFSC_CONFIGURATION_REVISION", randomUUID());
++	const startup = new DesktopStartup(owner, "target");
++	let launches = 0;
++	startup.defer(() => {
++		launches++;
++	});
++	const identity = () => ({ sessionId: "target", startupEpoch: startup.snapshot().startupEpoch });
++	return { startup, owner, identity, launches: () => launches };
++}
++
++test("the opt-in is RPC-only and requires explicit runtime identity", () => {
++	vi.stubEnv("DFSC_ASYNC_STARTUP_V1", "1");
++	vi.stubEnv("DFSC_RUNTIME_ID", "");
++	expect(desktopStartupEnabled("rpc")).toBe(false);
++	fixture();
++	expect(desktopStartupEnabled("rpc")).toBe(true);
++	expect(desktopStartupEnabled("print")).toBe(false);
++	expect(desktopStartupEnabled("tui")).toBe(false);
++});
++test("target binding is explicit and starts discovery once; model readiness is independent", () => {
++	const f = fixture();
++	expect(f.launches()).toBe(0);
++	expect(() => acquireExecutionAdmission(f.owner)).toThrow("STARTUP_NOT_READY");
++	expect(() => f.startup.bind({ ...f.identity(), sessionId: "other" })).toThrow("STARTUP_NOT_READY");
++	f.startup.bind(f.identity());
++	f.startup.bind(f.identity());
++	expect(f.launches()).toBe(1);
++	f.startup.discovered([]);
++	expect(() => acquireExecutionAdmission(f.owner)).toThrow("STARTUP_NOT_READY");
++	f.startup.modelReady(f.identity());
++	expect(() => acquireExecutionAdmission(f.owner).verify()).not.toThrow();
++	expect(f.startup.snapshot().toolsSettledAt).toBeTypeOf("number");
++});
++test("connecting, unknown discovery and unconfirmed cleanup are never bypassable", () => {
++	const f = fixture();
++	f.startup.bind(f.identity());
++	f.startup.modelReady(f.identity());
++	f.startup.discovered([{ name: "slow", status: "connecting", toolCount: 0, startedAt: Date.now() }]);
++	expect(() => acquireExecutionAdmission(f.owner)).toThrow("STARTUP_NOT_READY");
++	f.startup.update("slow", { status: "failed", cleanupConfirmed: false });
++	expect(() => f.startup.authorize({ ...f.identity() })).toThrow("STARTUP_NOT_READY");
++	f.startup.update("slow", { status: "failed", cleanupConfirmed: true });
++	expect(f.startup.snapshot().tools[0].cleanupConfirmed).toBe(false);
++	expect(() => acquireExecutionAdmission(f.owner)).toThrow("STARTUP_NOT_READY");
++	f.startup.discoveryFailed();
++	expect(() => acquireExecutionAdmission(f.owner)).toThrow("STARTUP_NOT_READY");
++});
++test("a failed optional capability needs one payload-bound, revision-bound, non-replayable submission receipt", () => {
++	const f = fixture();
++	f.startup.bind(f.identity());
++	f.startup.modelReady(f.identity());
++	f.startup.discovered([{ name: "missing", status: "failed", toolCount: 0, startedAt: Date.now() }]);
++	expect(() => acquireExecutionAdmission(f.owner)).toThrow("STARTUP_NOT_READY");
++	const command = { type: "prompt", message: "one task" };
++	const receipt = f.startup.authorize({
++		...f.identity(),
++		catalogRevision: f.startup.snapshot().catalogRevision,
++		submissionId: randomUUID(),
++		digest: startupSubmissionDigest(command.type, command),
++		missing: ["missing"],
++	});
++	const differentCommand = { ...command, message: "different", startupApproval: receipt };
++	expect(() => withStartupSubmission(differentCommand, () => acquireExecutionAdmission(f.owner))).toThrow(
++		"STARTUP_NOT_READY",
++	);
++	withStartupSubmission({ ...command, startupApproval: receipt }, () => {
++		acquireExecutionAdmission(f.owner, false).verify();
++		const admission = acquireExecutionAdmission(f.owner);
++		admission.verify();
++		admission.verify();
++		expect(() => acquireExecutionAdmission(f.owner)).toThrow("STARTUP_NOT_READY");
++	});
++	expect(() =>
++		withStartupSubmission({ ...command, startupApproval: receipt }, () => acquireExecutionAdmission(f.owner)),
++	).toThrow("STARTUP_NOT_READY");
++});
++test("catalog changes invalidate an in-flight admission and old epochs cannot authorize the replacement", () => {
++	const f = fixture();
++	f.startup.bind(f.identity());
++	f.startup.modelReady(f.identity());
++	f.startup.discovered([]);
++	const admission = acquireExecutionAdmission(f.owner);
++	f.startup.discovered([{ name: "late", status: "connecting", toolCount: 0, startedAt: Date.now() }]);
++	expect(() => admission.verify()).toThrow("STARTUP_NOT_READY");
++	const identity = f.identity();
++	f.startup.dispose();
++	expect(() => acquireExecutionAdmission(f.owner)).toThrow("STARTUP_NOT_READY");
++	const next = fixture(f.owner);
++	expect(() => next.startup.bind(identity)).toThrow("STARTUP_NOT_READY");
++});
++test("authorization is idempotent before consumption and a consumed submission cannot be reauthorized", () => {
++	const f = fixture();
++	f.startup.bind(f.identity());
++	f.startup.modelReady(f.identity());
++	f.startup.discovered([{ name: "optional", status: "failed", toolCount: 0, startedAt: Date.now() }]);
++	const command = { type: "prompt", message: "one task" };
++	const input = {
++		...f.identity(),
++		catalogRevision: f.startup.snapshot().catalogRevision,
++		submissionId: randomUUID(),
++		digest: startupSubmissionDigest(command.type, command),
++		missing: ["optional"],
++	};
++	const receipt = f.startup.authorize(input);
++	expect(f.startup.authorize(input)).toEqual(receipt);
++	withStartupSubmission({ ...command, startupApproval: receipt }, () => acquireExecutionAdmission(f.owner).verify());
++	expect(() => f.startup.authorize(input)).toThrow("STARTUP_NOT_READY");
++});
++test("unsafe cleanup survives rediscovery, a new owner/epoch, and late reports from a disposed epoch", () => {
++	const f = fixture();
++	f.startup.bind(f.identity());
++	f.startup.modelReady(f.identity());
++	f.startup.discovered([{ name: "old", status: "connected", toolCount: 1, startedAt: Date.now() }]);
++	f.startup.dispose();
++	const owner = {};
++	const next = new DesktopStartup(owner, "next");
++	next.defer(() => {});
++	const identity = { sessionId: "next", startupEpoch: next.snapshot().startupEpoch };
++	next.bind(identity);
++	next.modelReady(identity);
++	next.discovered([]);
++	expect(() => acquireExecutionAdmission(owner).verify()).not.toThrow();
++	f.startup.update("old", { status: "failed", cleanupConfirmed: false });
++	expect(next.snapshot().cleanupConfirmed).toBe(false);
++	next.discovered([]);
++	expect(() => acquireExecutionAdmission(owner)).toThrow("STARTUP_NOT_READY");
++	next.dispose();
++	const replacement = new DesktopStartup({}, "replacement");
++	expect(replacement.snapshot().cleanupConfirmed).toBe(false);
++	replacement.dispose();
++});
++test("late discovery cannot undo a failed discovery deadline", () => {
++	const f = fixture();
++	f.startup.bind(f.identity());
++	f.startup.modelReady(f.identity());
++	f.startup.discoveryFailed();
++	f.startup.discovered([]);
++	expect(f.startup.snapshot().discovery).toBe("failed");
++	expect(() => acquireExecutionAdmission(f.owner)).toThrow("STARTUP_NOT_READY");
++	f.startup.dispose();
++});
++test("the pre-bind gate blocks early extensions and nested Agent work without blocking real permissions restoration", async () => {
++	fixture().startup.dispose();
++	vi.stubEnv("DFSC_ASYNC_STARTUP_V1", "1");
++	const errors: string[] = [];
++	let unsafeCommandCalls = 0;
++	const harness = await createHarness({
++		extensionFactories: [
++			(pi) => {
++				pi.on("session_start", () => pi.sendUserMessage("early extension turn"));
++				pi.registerCommand("management", {
++					startupManagement: true,
++					handler: async () => pi.sendUserMessage("nested management turn"),
++				});
++				pi.registerCommand("not-management", {
++					handler: async () => {
++						unsafeCommandCalls++;
++					},
++				});
++			},
++			createStepExtension(),
++			createStepPlanExtension(),
++		],
++	});
++	harnesses.push(harness);
++	vi.stubEnv("STEP_CODING_AGENT_DIR", join(harness.tempDir, "agent"));
++	vi.stubEnv("STEPCODE_STORAGE_ROOT_DIR", harness.tempDir);
++	prepareDesktopStartup(harness.sessionManager, "rpc");
++	await harness.session.bindExtensions({ mode: "rpc", onError: (error) => errors.push(error.error) });
++	await vi.waitFor(() => expect(errors.some((error) => error.includes("STARTUP_NOT_READY"))).toBe(true));
++	const before = harness.sessionManager.getEntries().length;
++	await expect(harness.session.prompt("/permissions approve-for-me")).resolves.toBeUndefined();
++	await expect(harness.session.prompt("/plan on")).resolves.toBeUndefined();
++	expect(getStepPlanState(harness.sessionManager.getEntries())?.enabled).toBe(true);
++	await expect(harness.session.prompt("/plan unsafe task")).rejects.toThrow("STARTUP_NOT_READY");
++	await expect(harness.session.prompt("/plan approve")).rejects.toThrow("STARTUP_NOT_READY");
++	expect(getStepPlanState(harness.sessionManager.getEntries())?.enabled).toBe(true);
++	await expect(harness.session.prompt("/plan")).resolves.toBeUndefined();
++	expect(getStepPlanState(harness.sessionManager.getEntries())?.enabled).toBe(false);
++	await expect(harness.session.prompt("/management")).resolves.toBeUndefined();
++	await expect(harness.session.prompt("/not-management")).rejects.toThrow("STARTUP_NOT_READY");
++	await expect(harness.session.prompt("/clm on")).rejects.toThrow("STARTUP_NOT_READY");
++	await expect(harness.session.compact()).rejects.toThrow("STARTUP_NOT_READY");
++	await expect(harness.session.navigateTree("missing", { summarize: true })).rejects.toThrow("STARTUP_NOT_READY");
++	const execute = vi.fn();
++	await expect(harness.session.executeBash("unused", undefined, { operations: { exec: execute } })).rejects.toThrow(
++		"STARTUP_NOT_READY",
++	);
++	expect(execute).not.toHaveBeenCalled();
++	expect(unsafeCommandCalls).toBe(0);
++	expect(harness.session.messages.filter((message) => message.role === "user")).toEqual([]);
++	expect(harness.eventsOfType("agent_start")).toEqual([]);
++	expect(
++		harness.sessionManager
++			.getEntries()
++			.slice(before)
++			.some((entry) => entry.type === "message"),
++	).toBe(false);
++});
++test("actual AgentSession refuses first prompt, steer, follow-up and native custom turns without appending or queueing", async () => {
++	const harness = await createHarness();
++	harnesses.push(harness);
++	const f = fixture(harness.session.sessionManager);
++	const before = harness.session.sessionManager.getEntries().length;
++	await expect(harness.session.prompt("blocked")).rejects.toThrow("STARTUP_NOT_READY");
++	await expect(harness.session.sendUserMessage("auto resume")).rejects.toThrow("STARTUP_NOT_READY");
++	await expect(harness.session.steer("blocked")).rejects.toThrow("STARTUP_NOT_READY");
++	await expect(harness.session.followUp("blocked")).rejects.toThrow("STARTUP_NOT_READY");
++	await expect(harness.session.compact()).rejects.toThrow("STARTUP_NOT_READY");
++	await expect(harness.session.navigateTree("missing", { summarize: true })).rejects.toThrow("STARTUP_NOT_READY");
++	await expect(
++		harness.session.sendCustomMessage({ customType: "automatic", content: [], display: true }, { triggerTurn: true }),
++	).rejects.toThrow("STARTUP_NOT_READY");
++	expect(harness.session.pendingMessageCount).toBe(0);
++	expect(harness.session.messages).toEqual([]);
++	expect(harness.session.sessionManager.getEntries().length).toBe(before);
++	f.startup.dispose();
++});
++test.each(["compact", "summarize", "bash"] as const)(
++	"%s consumes its authorization at the real execution entrypoint",
++	async (operation) => {
++		const harness = await createHarness();
++		harnesses.push(harness);
++		const f = fixture(harness.sessionManager);
++		f.startup.bind(f.identity());
++		f.startup.modelReady(f.identity());
++		f.startup.discovered([{ name: "optional", status: "failed", toolCount: 0, startedAt: Date.now() }]);
++		const command = { type: operation };
++		const input = {
++			...f.identity(),
++			catalogRevision: f.startup.snapshot().catalogRevision,
++			submissionId: randomUUID(),
++			digest: startupSubmissionDigest(command.type, command),
++			missing: ["optional"],
++		};
++		const receipt = f.startup.authorize(input);
++		const execute = vi.fn(async () => ({ exitCode: 0 }));
++		await withStartupSubmission({ ...command, startupApproval: receipt }, async () => {
++			acquireExecutionAdmission(f.owner, false).verify();
++			const result =
++				operation === "compact"
++					? harness.session.compact()
++					: operation === "summarize"
++						? harness.session.navigateTree("missing", { summarize: true })
++						: harness.session.executeBash("fixture", undefined, { operations: { exec: execute } });
++			await result.catch((error: unknown) => expect(String(error)).not.toContain("STARTUP_NOT_READY"));
++			expect(() => acquireExecutionAdmission(f.owner)).toThrow("STARTUP_NOT_READY");
++		});
++		expect(execute).toHaveBeenCalledTimes(operation === "bash" ? 1 : 0);
++		expect(() => f.startup.authorize(input)).toThrow("STARTUP_NOT_READY");
++		f.startup.dispose();
++	},
++);

@@ -5,6 +5,7 @@ import { createServer } from 'node:http';
 import { execFile } from 'node:child_process';
 import { access, mkdir, readFile, realpath, writeFile } from 'node:fs/promises';
 import { mkdtemp } from './test-profile.mjs';
+import { waitForSessionFixtureTools } from './session-fixture.mjs';
 import { join, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import { closeDesktopFixtureAndWait } from './close-desktop-fixture.mjs';
@@ -52,7 +53,7 @@ const server = createServer(async (req, res) => {
 });
 await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
 await writeFile(join(profile, 'preferences.json'), JSON.stringify({ language: 'zh', theme: 'dark', workspaces: [workspace], workspace }));
-await writeFile(join(root, 'config.toml'), `shellPath = ${JSON.stringify(shellPath)}\ndefaultProvider = "fixture"\ndefaultModel = "fixture"\npermissionPreset = "ask"\n[telemetry]\nenabled = false\n`);
+await writeFile(join(root, 'config.toml'), `shellPath = ${JSON.stringify(shellPath)}\ndefaultProvider = "fixture"\ndefaultModel = "fixture"\npermissionPreset = "ask"\n[telemetry]\nenabled = false\n[mcp_servers.steppage__steppage]\nenabled = false\n`);
 await writeFile(join(root, 'models.json'), JSON.stringify({ providers: { fixture: {
   baseUrl: `http://127.0.0.1:${server.address().port}/v1`, api: 'openai-completions', apiKey: 'isolated-then-run',
   models: [{ id: 'fixture', name: 'Then run fixture', contextWindow: 32768, maxTokens: 2048 }],
@@ -96,6 +97,7 @@ try {
     const draft = await window.desktop.beginSession(workspace);
     await window.desktop.createDraftSession(draft.draftId);
   }, workspace);
+  await waitForSessionFixtureTools(page);
   assert.equal((await page.evaluate(() => window.desktop.snapshot())).preferences.workspace, workspace);
   await page.reload();
   await page.waitForFunction(() => document.querySelector('.composer > .composer-input')

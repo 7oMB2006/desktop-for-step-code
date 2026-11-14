@@ -438,6 +438,42 @@ async function persistent(saved?: unknown) {
   const list = (taskId: string) => f.call('approval.list', { taskId }, boundGrant) as Promise<any>;
   return { ...f, create, list, answers, restricted };
 }
+test('risk confirmation cancellation before policy commit preserves the existing policy', async () => {
+  const f = await persistent();
+  await f.core.configurePolicy(policyAction, boundGrant);
+  const existing = f.core.localApprovals().policies![0];
+  await assert.rejects(f.core.configurePolicy({ ...policyAction, days: 7 }, boundGrant, () => false), /connector:revoked/);
+  assert.deepEqual(f.core.localApprovals().policies, [existing]);
+});
+test('risk confirmation invalidation during either policy persistence phase cannot leave automatic authority', async () => {
+  for (const outcome of ['prepared', 'applied']) {
+    const f = await persistent(), save = f.store.save;
+    let valid = true;
+    f.store.save = async value => {
+      await save(value);
+      if (value.approvalAudit?.at(-1)?.outcome === outcome) valid = false;
+    };
+    await assert.rejects(f.core.configurePolicy({ ...policyAction, permissionPreset: 'approve-for-me' }, boundGrant,
+      () => valid), /connector:revoked/);
+    assert.deepEqual(f.core.localApprovals().policies, []);
+    await f.create();
+    assert.equal(f.workers[0].permissionPreset, 'ask');
+  }
+});
+test('risk confirmation invalidation during either task grant persistence phase removes the lease', async () => {
+  for (const outcome of ['prepared', 'applied']) {
+    const f = await delegated(), save = f.store.save;
+    let valid = true;
+    f.store.save = async value => {
+      await save(value);
+      if (value.approvalAudit?.at(-1)?.outcome === outcome) valid = false;
+    };
+    await assert.rejects(f.core.delegate({ type: 'delegate', taskId: f.task.id, minutes: 30,
+      categories: ['command'] }, () => valid), /connector:revoked/);
+    assert.equal((await f.list()).delegation, null);
+    assert.deepEqual((await f.list()).requests, []);
+  }
+});
 test('persistent policy survives restart for new tasks, never reattaches or replays the previous process', async () => {
   const f = await persistent();
   await f.core.configurePolicy({ ...policyAction, days: 7, permissionPreset: 'approve-for-me' }, boundGrant);

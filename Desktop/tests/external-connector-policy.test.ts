@@ -16,6 +16,15 @@ test('external connector management parses only narrow explicit actions', () => 
   assert.deepEqual(parseExternalConnectorAction(action), action);
   assert.deepEqual(parseExternalConnectorAction({ type: 'undelegate', taskId }), { type: 'undelegate', taskId });
   assert.deepEqual(parseExternalConnectorAction({ ...action, minutes: 0 }), { ...action, minutes: 0 });
+  const pluginRef = '12345678-1234-1234-1234-123456789abc';
+  const pair = { type: 'pair', displayName: 'Bridge', roots: ['C:\\project'], pluginRef };
+  assert.deepEqual(parseExternalConnectorAction(pair), pair);
+  assert.deepEqual(parseExternalConnectorAction({ type: 'bind-plugin', agentId: 'test', pluginRef }),
+    { type: 'bind-plugin', agentId: 'test', pluginRef });
+  for (const input of [{ ...pair, pluginRef: '../escape' }, { ...pair, installation: 'spoofed' },
+    { type: 'bind-plugin', agentId: 'test', pluginRef, confirmed: true },
+    { type: 'bind-plugin', agentId: 'test', pluginRef: null }])
+    assert.throws(() => parseExternalConnectorAction(input), /invalid-input/);
   for (const input of [{ ...action, minutes: -1 }, { ...action, minutes: 10080 }, { ...action, categories: [] },
     { ...action, categories: ['command', 'command'] }, { ...action, categories: ['trust'] },
     { ...action, agentId: 'spoofed' }, { ...action, taskId: '../escape' }])

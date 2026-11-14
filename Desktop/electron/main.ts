@@ -82,6 +82,7 @@ import { BackgroundAgents } from './background-agents';
 import { RemoteManager, parseRemoteAction } from './remote-manager';
 import { ExternalConnectorTasks } from './external-connector-tasks';
 import { ConnectorJsonStore, ExternalConnectorGateway } from './external-connector-gateway';
+import { PluginConfirmations } from './plugin-confirmations';
 import { externalSessionCommandAllowed, parseExternalConnectorAction } from './external-connector-policy';
 import { receiveRemoteImages, sendRemoteImage } from './remote-images';
 import { hydrateWorkflowHistory, WorkflowBindings } from './workflow-history';
@@ -318,7 +319,7 @@ async function refreshThemePacks() {
   }
 }
 const capabilityService: CapabilityService = new CapabilityService({ root: dataRoot, runtime: runtimeRoot, node: nodePath,
-  beforePluginMutation: () => pluginHosts.invalidate(),
+  beforePluginMutation: () => { pluginHosts.invalidate(); pluginConfirmations.invalidate(); },
   hostAvailable: () => runtimeManifest.patches?.includes('desktop-plugin-host-launch') === true,
   hostStatus: (descriptor, binding) => pluginHosts.status(descriptor, binding),
   guardRecovery: async id => {
@@ -740,6 +741,25 @@ const remote = new RemoteManager({
   return channel;
 }, state => emit({ type: 'desktop_remote', state }), Date.now, new RemoteStore(join(app.getPath('userData'), 'remote')));
 const externalRoot = join(app.getPath('userData'), 'external-connectors');
+const pluginConfirmations = new PluginConfirmations(externalRoot, {
+  resolve: binding => capabilityService.confirmationSource(binding),
+  confirm: async ({ source, notice, summary }) => {
+    if (!window || window.isDestroyed() || quitting || quitPending) throw new Error('connector:unavailable');
+    const zh = preferences.language === 'zh';
+    const identity = source.name.replace(/[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/gu, '').slice(0, 160);
+    const answer = await dialog.showMessageBox(window, {
+      type: 'warning', title: zh ? '插件风险确认' : 'Plugin risk confirmation',
+      message: `${identity} (${source.binding.id}) · ${notice.title}`,
+      detail: `${zh ? '插件声明的风险' : 'Plugin-declared risk'}\n${notice.message}\n\n${summary}\n\n${
+        zh ? '确认仅表示知晓风险，不会授予额外权限。撤销不能恢复已经修改或删除的数据。'
+          : 'Acknowledgement grants no extra permissions. Revocation cannot undo changes or deletions.'}`,
+      buttons: [zh ? '取消' : 'Cancel', notice.confirmLabel], defaultId: 0, cancelId: 0, noLink: true,
+      ...(notice.policy === 'remember' ? { checkboxLabel: zh ? '记住此插件版本及本次授权范围的风险确认'
+        : 'Remember for this package version and exact authorization scope', checkboxChecked: false } : {}),
+    });
+    return { confirmed: answer.response === 1, remember: answer.checkboxChecked === true };
+  },
+});
 const externalTasks: ExternalConnectorTasks = new ExternalConnectorTasks({
   validate: (cwd, roots) => externalConnectors.validate(cwd, roots),
   create: async (cwd, valid, preset = 'ask') => {
@@ -798,7 +818,10 @@ const externalTasks: ExternalConnectorTasks = new ExternalConnectorTasks({
 }, new ConnectorJsonStore(externalRoot, 'tasks.json'));
 const externalConnectors = new ExternalConnectorGateway(externalRoot, {
   dispatch: async (grant, method, params, valid) => { await startup; return externalTasks.call(grant, method, params, valid); },
-  invalidated: (agentId, shutdown) => externalTasks.invalidate(agentId, shutdown),
+  invalidated: (agentId, shutdown) => {
+    pluginConfirmations.invalidate(agentId);
+    return externalTasks.invalidate(agentId, shutdown);
+  },
 });
 function externallyOwned(worker: SessionRuntime) {
   return externalPreparing.has(worker) || externalTasks.retains(worker);
@@ -1344,27 +1367,82 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
       if (!['disable', 'revoke', 'undelegate', 'unpolicy'].includes(action.type)
         && (transition || settingsMutation || undoBusy || quitting || quitPending || updateInstalling || providerSettingsPending))
         throw new Error('connector:unavailable');
+      const validate = async () => {
+        if (transition || settingsMutation || undoBusy || quitting || quitPending || updateInstalling || providerSettingsPending)
+          throw new Error('connector:unavailable');
+      };
+      const guarded = async (agentId: string, cwd: string, execute: (valid: () => boolean) => Promise<unknown>) => {
+        const grant = await externalConnectors.authorization(agentId);
+        const zh = preferences.language === 'zh';
+        const scope = action.type === 'policy' ? { cwd, days: action.days, permissionPreset: action.permissionPreset,
+          categories: [...action.categories].sort() } : action.type === 'delegate'
+          ? { taskId: action.taskId, cwd, minutes: action.minutes, categories: [...action.categories].sort() } : {};
+        const tier = action.type === 'delegate'
+          ? zh ? '仅委托剩余审批，不更改 DFSC 权限档位；已有自动执行策略仍独立生效。' : 'Delegates remaining requests without changing the DFSC permission tier; any existing automatic policy remains independent.'
+          : action.type === 'policy' && action.permissionPreset === 'approve-for-me'
+          ? zh ? '代我批准：常规命令与文件写入由 DFSC 自动执行，并非逐次经外部 Agent 审阅。' : 'Approve for me: DFSC runs ordinary commands and writes automatically; the external agent does not review each operation.'
+          : zh ? 'Ask：所选类型的审批可交由 Agent 判断。' : 'Ask: selected request types may be reviewed by the agent.';
+        const duration = action.type === 'policy' ? action.days === null
+          ? zh ? '直到手动撤销，跨任务及重启保留。' : 'Until manually revoked, across tasks and restarts.'
+          : `${action.days} ${zh ? '天，跨任务及重启保留。' : 'days, across tasks and restarts.'}`
+          : action.type === 'delegate' ? action.minutes === 0 ? zh ? '本次任务有效。' : 'This task only.'
+            : `${action.minutes} ${zh ? '分钟。' : 'minutes.'}` : '';
+        const names = { command: zh ? '普通命令' : 'Ordinary commands', file: zh ? '文件修改' : 'File changes',
+          risk: zh ? '高风险工具操作' : 'High-risk tools', question: zh ? '代答问题' : 'Answer questions' };
+        const categories = action.type === 'policy' || action.type === 'delegate' ? action.categories.map(c => names[c]).join(', ') : '';
+        return pluginConfirmations.run({ binding: grant.plugin, authorization: grant.binding!, agentId,
+          action: action.type === 'policy' ? 'external.policy' : 'external.delegate', scope,
+          summary: `${zh ? '本次实际授权' : 'Actual authorization'}\n${agentId}\n${cwd}\n${tier}\n${duration}\n${categories}`,
+          validate: async () => {
+            await validate(); await grant.validate?.(); await validate();
+            if (action.type === 'delegate' && !externalTasks.localApprovals().tasks.some(task =>
+              task.taskId === action.taskId && task.agentId === agentId && task.cwd === cwd))
+              throw new Error('connector:task-unavailable');
+          }, execute });
+      };
+      if (action.type === 'undelegate') {
+        const task = externalTasks.localApprovals().tasks.find(task => task.taskId === action.taskId);
+        if (task) pluginConfirmations.invalidate(task.agentId);
+      } else if (action.type === 'unpolicy') pluginConfirmations.invalidate(action.agentId);
       if (action.type === 'enable') await externalConnectors.enable();
       else if (action.type === 'disable') await externalConnectors.disable();
       else if (action.type === 'revoke') await externalConnectors.revoke(action.agentId);
       else if (action.type === 'policy' || action.type === 'unpolicy') {
-        await externalTasks.configurePolicy(action, action.type === 'policy'
-          ? await externalConnectors.authorization(action.agentId) : undefined);
+        if (action.type === 'unpolicy') await externalTasks.configurePolicy(action);
+        else await guarded(action.agentId, action.cwd, async valid => externalTasks.configurePolicy(action,
+          await externalConnectors.authorization(action.agentId), valid));
       }
       else if (action.type === 'delegate' || action.type === 'undelegate') {
         if (action.type === 'delegate' && !externalConnectors.snapshot().listening) throw new Error('connector:disabled');
-        await externalTasks.delegate(action);
+        if (action.type === 'undelegate') await externalTasks.delegate(action);
+        else {
+          const task = externalTasks.localApprovals().tasks.find(task => task.taskId === action.taskId);
+          if (!task) throw new Error('connector:task-unavailable');
+          await guarded(task.agentId, task.cwd, valid => externalTasks.delegate(action, valid));
+        }
+      }
+      else if (action.type === 'bind-plugin') {
+        const approvals = externalTasks.localApprovals();
+        if (approvals.tasks.some(task => task.agentId === action.agentId)
+          || approvals.policies?.some(policy => policy.agentId === action.agentId)) throw new Error('connector:busy');
+        const source = await capabilityService.confirmationSource(action.pluginRef);
+        await validate();
+        await externalConnectors.bindPlugin(action.agentId, source.binding);
       }
       else if (action.type === 'pair') {
         await listSessions();
         if (action.roots.some(root => !remoteProjects().some(project => project.workspace === root)))
           throw new Error('connector:invalid-input');
-        await externalConnectors.pair(action.displayName, action.roots);
+        const plugin = action.pluginRef ? await capabilityService.confirmationSource(action.pluginRef) : undefined;
+        await validate();
+        await externalConnectors.pair(action.displayName, action.roots, plugin?.binding);
       }
     }
     await listSessions();
+    const plugins = await capabilityService.confirmationPlugins().catch(() => undefined);
     return { ...externalConnectors.snapshot(), ...(externalBootError ? { error: 'connector:storage' } : {}),
-      projects: remoteProjects(), approvals: externalTasks.localApprovals() };
+      projects: remoteProjects(), approvals: externalTasks.localApprovals(),
+      plugins: plugins ?? [], ...(!plugins ? { pluginDiscoveryUnavailable: true } : {}) };
   }
   if (method === 'remoteAction') {
     const action = parseRemoteAction(args[0]);

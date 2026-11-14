@@ -1,5 +1,14 @@
 # Design System
 
+## Plugin Risk Confirmation
+
+Plugin-declared risks use a host-owned native warning dialog before a supported
+authorization action. Cancel is the default and escape action; remember is
+unchecked. Display plugin identity and host-derived scope separately from
+plugin-authored prose. Acknowledgement grants no permissions. Never gate stop,
+revoke or unrelated work behind a risk prompt. Connection associations are
+explicit selects, not inferred names; preserve four-pixel form focus gutters.
+
 ## Form Focus Visibility
 
 Inputs, textareas and composite fields reuse the shared theme focus treatment.

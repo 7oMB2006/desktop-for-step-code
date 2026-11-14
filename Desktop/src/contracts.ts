@@ -216,7 +216,7 @@ export interface DesktopBridge extends SessionImportBridge, BtwBridge, Backgroun
   searchSessions(query: import('./fulltext-search').FulltextQuery): Promise<import('./fulltext-search').FulltextResult>;
   cancelSessionSearch(id: string): Promise<void>;
   switchSession(id: string): Promise<Snapshot>;
-  navigateSession(id: string): Promise<Snapshot | null>;
+  navigateSession(id: string, requestId?: number): Promise<Snapshot | null>;
   sessionReading(id: string): Promise<SessionReading | null>;
   branchSession(kind: 'clone' | 'fork', entryId: string, runtimeId: string): Promise<Snapshot>;
   cloneSession(id: string): Promise<Snapshot>;

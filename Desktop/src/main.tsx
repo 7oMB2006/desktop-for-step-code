@@ -1,7 +1,9 @@
 import { normalizedWorkspaceKey } from './workspace-key';
 import { UsageOverviewPanel } from './UsageOverviewPanel';
 import { RemoteAccessPanel } from './RemoteAccessPanel';
-import { BarChart3, MessageCircleQuestion, Plug, Smartphone } from 'lucide-react';
+import { RemoteNavigationEntry } from './RemoteNavigationEntry';
+import { remoteNavigationWait, type RemoteNavigationWait } from './remote-navigation';
+import { BarChart3, MessageCircleQuestion, Plug } from 'lucide-react';
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { flushSync } from 'react-dom';
@@ -291,6 +293,7 @@ function App() {
   const [loading, setLoading] = useState(true);
   useEffect(() => { window.dispatchEvent(new Event('desktop-shell-ready')); }, []);
   const [navigationTarget, setNavigationTarget] = useState<{ session: Session; reading?: SessionReading } | null>(null);
+  const [remoteWait, setRemoteWait] = useState<RemoteNavigationWait>();
   const [preparedMarkdown, setPreparedMarkdown] = useState<{ sessionId: string; trees?: PreparedMarkdown }>();
   const markdownPreparation = useRef<AbortController | undefined>(undefined);
   useEffect(() => () => markdownPreparation.current?.abort(), []);
@@ -909,6 +912,7 @@ function App() {
     let parsing: Promise<PreparedMarkdown | undefined> | undefined = reading ? Promise.resolve(undefined) : undefined;
     const prepare = (messages: Message[]) => parsing ??= prepareHistoryMarkdown(messages, preparation.signal);
     navigationPending.current = { sequence, session, reading };
+    if (cronRuntimeId) setRemoteWait(undefined);
     setNavigationDraft(composer.client.peek({ sessionId: session.id })?.text ?? '');
     previewPosition.current = composerBySession.current.get(session.id) ?? { follow: true, top: 0 };
     readingRestore.current = undefined;
@@ -927,7 +931,7 @@ function App() {
     }).catch(() => { /* Preview is optional; only the authoritative navigation reports errors. */ });
     let failed = false;
     try {
-      const result = cronRuntimeId ? await bridge.cronOpenHost(cronRuntimeId) : await bridge.navigateSession(session.id);
+      const result = cronRuntimeId ? await bridge.cronOpenHost(cronRuntimeId) : await bridge.navigateSession(session.id, sequence);
       if (navigationPending.current?.sequence !== sequence) return false;
       if (!result) throw new Error(t('会话切换已取消', 'Session navigation was cancelled'));
       const trees = await prepare(result.messages);
@@ -959,7 +963,7 @@ function App() {
       if (navigationPending.current?.sequence === sequence) {
         preparation.abort();
         navigationPending.current = null; previewPosition.current = undefined;
-        setNavigationTarget(null); switching.current = false; setLoading(false);
+        setNavigationTarget(null); setRemoteWait(undefined); switching.current = false; setLoading(false);
         if (!failed) void run(refresh);
       }
     }
@@ -982,6 +986,10 @@ function App() {
     if (!isMini) prepareCompletionSound();
     void bridge.miniChatState?.().then(value => { if (value?.open !== undefined) setMiniState(value); }).catch(() => {});
     const unsubscribe = bridge.onEvent(event => {
+      if (event.type === 'desktop_navigation_wait') {
+        if (navigationPending.current?.sequence === event.requestId) setRemoteWait(remoteNavigationWait(event.waiting));
+        return;
+      }
       if (event.type === 'desktop_capture_presentation') { saveWindowPresentation(); return; }
       if (event.type === 'desktop_mini_chat') { setMiniState(event.state); return; }
       if (event.type === 'desktop_preferences') {
@@ -2038,8 +2046,10 @@ function App() {
       <div className="sidebar-bottom"><div className="sidebar-remote-utilities">
         <button className="icon-button sidebar-settings" aria-label={updateAvailable ? t('设置，有更新', 'Settings, update available') : t('设置', 'Settings')}
           data-tooltip={t('设置', 'Settings')} onClick={() => { if (updateAvailable) setTab('updates'); void openSettings(); }} disabled={!bridge}><SettingsIcon size={17}/>{updateAvailable && <i className="update-dot update-indicator"/>}</button>
-        <button className="icon-button remote-entry" aria-label={t('远程访问', 'Remote access')} data-tooltip={t('远程访问', 'Remote access')} disabled={!bridge}
-          aria-pressed={remoteOpen} onClick={() => remoteOpen ? setRemoteOpen(false) : openRemote()}><Smartphone size={17}/></button>
+        <RemoteNavigationEntry waiting={navigationTarget ? remoteWait : undefined}
+          target={navigationTarget ? sessionTitle(navigationTarget.session, t('会话', 'Conversation')) : ''}
+          language={data.preferences.language} hidden={settingsOpen || Boolean(removeProject) || !sidebarVisible}
+          disabled={!bridge} open={remoteOpen} onClick={() => remoteOpen ? setRemoteOpen(false) : openRemote()}/>
       </div><div className="connection remote-footer-status"><span><i className={connected ? 'online' : ''}/>{connected ? t('Step Code 已连接', 'Step Code connected') : loading ? t('连接中', 'Connecting') : t('未连接', 'Disconnected')}</span>
         <small>{appUpdate?.currentVersion ? `v${appUpdate.currentVersion}` : ''}</small></div></div>
     </aside>}

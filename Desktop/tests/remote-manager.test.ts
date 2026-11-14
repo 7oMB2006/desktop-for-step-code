@@ -91,6 +91,22 @@ function fixture(store?: RemotePersistence) {
   return { manager, host, saved, snapshots, workers, channels, inputs, answers, stops, opened, receive, connect, bind,
     now: (value: number) => { now = value; }, operation: (value: typeof operation) => { operation = value; } };
 }
+test('saved Feishu recovery is distinguished from a later explicit session preparation', async t => {
+  const p = persistence({ version: 1, identity, access: {
+    actor: 'human', chat: 'chat', workspaces: ['workspace-a', 'workspace-b'], sessionId: 'session-a',
+  } });
+  const f = fixture(p.store), prepared: { id: string; recovering: boolean }[] = [];
+  t.after(() => f.manager.shutdown());
+  const prepare = f.host.prepare;
+  f.host.prepare = async (id, recovering) => {
+    prepared.push({ id, recovering: recovering === true });
+    return prepare(id, recovering);
+  };
+  await f.manager.resume(); f.receive('connected'); await tick(); await tick();
+  await f.manager.action({ type: 'select', sessionId: 'session-b' });
+  assert.deepEqual(prepared, [{ id: 'session-a', recovering: true }, { id: 'session-b', recovering: false }]);
+});
+
 function approval(worker: SessionRuntime, id = 'approval'): UIRequest {
   const callId = 'call-12345678';
   worker.messages.push({ role: 'assistant', content: [{ type: 'toolCall', id: callId, name: 'run_command', arguments: { command: 'echo fixture' } }] });

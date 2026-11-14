@@ -1,5 +1,72 @@
 # Verification
 
+## PR #243 提问验收收尾修正（2026-11-14）
+
+首次 macOS sessions job 因 hosted ARM64 runner 容量不足而未启动；定向重跑后，
+`verify-question-review.mjs` 的功能断言已结束，但旧式系统弹窗模拟无法处理应用内退出确认，
+脚本最终触发既有 300 秒外层超时。改用现有 `closeDesktopFixtureAndWait`，
+等待驱动、子进程及浏览器上下文关闭，并在 finally 中释放测试 HTTP 连接；
+成功提示移至清理完成之后，不放宽断言、门禁或超时。
+
+本机补验另捕获上下文用量提示被夹具误判为新用户轮次的问题：
+受控服务现在只以 ASK、PLAN、CANCEL、STOP、LEGACY 五个精确测试指令划分轮次，
+不改变产品的消息、上下文或审批行为。
+
+- 类型检查通过；退出清理与澄清问题两文件 27/27 通过。
+- macOS CI 策略及运行器共 21 项，20 通过、1 项平台跳过。
+- 修正后的 Windows 源码 Electron 完整提问验收通过，保留全部选择、拖拽、
+  草稿恢复、提交重试、Plan 审阅、取消和中止断言；外层运行器确认进程及管道关闭，
+  返回 0。诊断运行曾在 Plan 等待阶段失败并正确返回 1，不将其计作通过。
+- 日志位于本机 `Desktop/test-results/ci-question-shutdown/`。
+  未改运行时代码、依赖、CI 工作流或 runtime pin，未生成新安装包或改动日常 profile。
+
+本节仅记录本机定向结果，不代表 macOS 本机或发布验收；云端结果以 PR 当前提交的 Checks 为准。
+
+## 外部 Agent 长期审批委托与定向唤醒（2026-11-13）
+
+基于 `main 10c87f8`，补充临时任务授权和按身份、凭据及规范项目目录绑定的长期策略。
+保留 15/30/60 分钟，新增本次任务、1/7/30 天和直到手动撤销；长期策略正常重启后仅供新任务使用，
+不恢复旧进程、输入、回答或审批引用。新任务可显式选原生「代我批准」，
+普通命令、文件修改、高风险工具及提问分别选择。原生自动执行的常规操作
+不受 Agent 审批类型勾选限制，确认界面已明确区分两者。
+替换、到期、目录身份失效或撤销策略时，中止使用旧自动权限的外部任务并降回 Ask；
+原生降级失败则移除该 worker，不能只改界面状态。
+审查补验另覆盖终态权限回收：完成或停止后先降回 Ask，确认清理前仍阻止本地接管；
+不额外 abort 正常完成或已停止的工作，不改写完成结果，也不修改释放后的用户本地权限选择。
+
+- 完整 TypeScript 检查和生产构建通过，保留既有 Vite directive/chunk-size 警告。
+  未改依赖、CI 门禁或 runtime pin；只读复用的 `29eb460` runtime 与当前
+  manifest 的 75 份 patched source hash 一致，没有重新 staging 共享 runtime。
+- 协议逐文件 runner 完整结束，252/252 文件成功，summary 无失败文件。
+  全套后补跑权限展示、问题、能力管理与 Remote 八文件 313/313。
+  审查修正终态权限回收后，最终外部接入三文件 85/85；
+  加主进程 Remote 管理共四文件 173/173，零失败或取消。
+  不把分阶段全套描述为每个文件都在同一最终快照执行。
+- 浏览器夹具 15 组通过：深浅色、中英文、1360/390 宽度、减少动态效果、
+  四边焦点、错误恢复、独立类型选择、长期保存/撤销及收起后的焦点恢复。
+  截图在动画结束后保存，页面异常为零。
+- 最终源码生产构建的 Windows Electron 通过 16 组原生验收，
+  包括真实 main/preload、原生 Step 会话及真实 Python companion socket。
+  27 次受控模型请求覆盖常规自动写入、风险拒绝后不执行、结构化问题回答、
+  审批提醒不自动回答、完成及本地停止后的原生权限回收、撤销实际降回 Ask，
+  以及重启后仅新任务继承策略。
+  页面异常为零，退出码 0，窗口为零；一次性 profile 已由 runner 清理。
+- companion 完整 unittest 共 81 项，80 通过、1 项平台跳过。
+  包括可信会话绑定、拒绝旧 CLI 共享输入队列、拒绝跨会话改绑、
+  通知去重、注入拒绝、失效请求、旧宿主降级和卸载停止。
+
+本机证据位于 `Desktop/test-results/persistent-approvals-browser-final/verification.json`、
+`Desktop/test-results/persistent-approvals-native-reviewed/verification.json`、
+对应截图及 `Desktop/test-results/protocol/summary.json`。
+原生验收的 Hermes 消息注入端是隔离模拟 host，不是真实 Hermes 账号、CLI、飞书或过夜验收；
+真实定向唤醒仍要求 Hermes 提供可信 session key、支持定向注入并由用户开启插件注入许可。
+不支持这些能力的 CLI 保留手动查询，不使用最近会话或环境变量回退。
+
+本轮源码 dist 约 12.84 MiB，最终浏览器和原生证据合计约 0.93 MiB，
+完整协议证据约 1.02 MiB，没有安装器或新验收包；
+未改日常 DFSC/Hermes profile、配对、快捷方式或现用进程，未删除历史包或依赖。
+宿主及 companion 需分别更新；以上不是市场发布、macOS 本机、安装器升级或云端 CI 成功。
+
 ## PR #240 同步主线与本地补验（2026-11-13）
 
 合入 `main ec292a1`，唯一文本冲突在本文件顶部新增记录；保留双方全部内容。
@@ -15075,3 +15142,123 @@ runtime pin 保持 `29eb460780489801ce8afc8bffc1a2efae7cbded`；
 重启日用程序、接触真实账户或发布插件。历史包不作为当前提交验收。
 此记录写入时当前整合提交尚未推送，云端 CI 待重新运行；旧提交的
 Windows/macOS/SDK 绿灯不算本次整合通过，云端结果以 PR 当前 head 为准。
+
+## Windows RPC taskkill 截止与清理归属（2026-11-13）
+
+基于 `main 85a52e1398025b2f19c9232a16ee189f24bdfb1c`，仅收窄修复
+`RpcProcess` 等待 Windows `taskkill.exe` 无截止的问题。辅助进程超过
+10 秒即拒绝本次 stop，并尝试结束该辅助进程；不把超时或 `kill()`
+返回值当作目标进程树已释放。辅助进程尚未确认 exit/close 时保留归属，
+阻止替换 runtime 或继续累积 helper。迟到事件按 helper 对象身份处理。
+保留原有退出码、准确目标退出确认、Job 验证、管理 ACK 停机及 POSIX 分支。
+
+本轮在独立工作树与 D 盘测试临时目录中验证，未改旧脏工作树或 Step-Code：
+
+- 先在未修改产品代码时运行新增夹具：12 项中 5 项因 helper 无限挂起而失败，
+  7 项既有边界通过；修复后 12/12 通过。独立审查无阻塞项，随后补充
+  旧 helper exit → 重试产生新 helper → 旧 helper close 的归属回归，
+  最终新增夹具 13/13 通过。夹具执行实际生产类，仅替换 OS 边界与时钟。
+- 真实 Windows 管理停机、Job 原子启动及后代释放、会话更新与 pool 回归
+  共 154/154 通过（含初版新增 12 项）；额外 RPC 边界 6/6、退出与插件更新
+  调用方及终端清理 48/48 通过。补测后新增文件单独重跑 13/13，
+  合计覆盖 209 个不同测试，未将重跑次数叠加为测试数。
+- Node 24.16.0、pnpm 9.15.9；冻结 lockfile 离线安装依赖，未改依赖版本。
+  完整类型检查、生产构建通过，保留既有 Vite directive/chunk-size 警告。
+  默认系统临时目录出现 EPERM 后，仅为本轮测试指定独立 D 盘临时目录，
+  未修改产品路径或全局临时目录设置。
+- 独立 Electron 44.4.5 验收加载本次生产 `runtime.ts` 的 bundle，使用真实
+  Windows 子进程及本地编译的永久等待 helper，普通 stop 与 Job update
+  分别在 10021/10020 ms 拒绝；确认 helper PID 已退出、目标仍存活且归属保留、
+  RPC 已断开，恢复系统 taskkill 后重试确认退出，随后可重启并再次清理。
+  使用独立 userData、隐藏窗口、默认开启的 renderer sandbox；验收结束时
+  无本轮 Electron、helper 或 worker 残留。不修改产品 sandbox 或日用程序。
+
+证据位于 `D:/dev/taskkill-verification-temp/`：`baseline.tap`、
+`taskkill-red.tap`、`taskkill-green.tap`、`taskkill-final.tap`、`regression.tap`、
+`runtime-boundaries.tap`、`caller-regression.tap`、`typecheck.log`、`typecheck-final.log`、`build.log`、
+`electron-acceptance.json`；独立原生验收源码同目录留存。
+
+实现期间再次核对远端：main 及 owner 的 #239/#240/#241 head 未变化，
+三者均未修改 runtime 关闭实现。本节追加在文件末尾，减少与其验收记录
+的文本重叠；其他贡献者 Linux 草稿 #106 仍涉及同一 runtime 文件，未来
+合并需要复核，不承诺尚未公开的 owner 工作没有冲突。
+
+提交前补验：
+
+- 同一最终产品代码的定向回归合并重跑 203/203，额外 RPC 边界 6/6；
+  CI 策略/清单 66 通过、1 项平台跳过。类型检查和生产构建再次通过。
+  原生 Electron 普通/Job update 截止分别为 10008/10017 ms，退出、
+  归属保留、清理重试和重启断言再次通过。
+- 在新建的隔离 Step Code checkout 应用当前 manifest 全部补丁并校验源码，
+  完成离线构建与正式 staging 配方；runtime pin 未变，未修改旧 checkout。
+- 尝试完整 251 文件串行协议套件，在 `capabilities.test.ts` 的 Git
+  marketplace 用例失败：`capability:marketplace-source-unavailable`。
+  未修改的同版 main 对照树重现相同失败；独立 Node 本地 file Git clone
+  探针捕获 `sh.exe` 的 `NtCreateDirectoryObject(msys-2.0S5)` 权限拒绝
+  `0xC0000022`。本机全量不计通过，不修改产品、断言或安全设置绕过。
+  其余文件继续按原 CI 单文件执行器收集结果，后续完整云端状态以 PR head 为准。
+- owner #239/#240 的共享验收文档按真实共同祖先进行三方合并检查，
+  均无文本冲突；#241 未修改本次三个目标文件。
+
+这不是完整 Step Code 模型/UI 验收、全量协议通过、安装包、macOS 本机
+或云端 CI 结果；本次不升级 runtime pin 或打包发布。
+
+## 插件授权动作风险确认接口（2026-11-14）
+
+基于已包含 #243 的 `main a103bc8d3f051adce7cd071d149ea562bf53c788`，
+新增声明式 `confirmations`，首版仅覆盖 `external.delegate` 与
+`external.policy`。宿主原生警告框提供插件身份和实际授权范围，
+取消为默认，记住默认不选。确认不代替授权，不开放插件脚本、
+模型代答或任意动作拦截接口，不拦停止和撤销。
+
+新配对或无进行中任务及长期策略的旧连接可明确关联已安装插件。
+关联绑定可验证安装身份，不按连接名称猜测。相关插件失效、重装、
+风险变化、凭据或范围变化时拒绝授权或重新确认。
+确认期间撤销使迟到确认失效；异步授权提交阶段也检查失效状态，
+失败不遗留审批 lease。取消修改不删除已有策略。
+
+本轮本地验证：
+
+- 完整串行协议 runner：253/253 文件成功，保持原超时与测试清单。
+  运行期间调整了授权提交阶段的失效检查；最终源码上另行复验
+  相关定向测试 115/115，不把全量结果描述成不可变源码快照。
+- 最终类型检查、生产构建通过。文档检查及 CI 文档/协议 runner
+  自测通过；两仓库 `git diff --check` 通过。
+- 浏览器 20 组通过，包含中英文、明暗主题、1360/390 宽度、
+  插件关联、发现失败时仍可管理连接及四边 focus 检查。
+- 最终生产构建的 Windows Electron 18 组通过，使用隔离 profile、
+  真实 main/preload/Step 运行时与 Python socket；27 次受控模型请求，
+  零验收错误，正常退出码 0，退出后窗口为零。
+  覆盖直接 IPC 取消无授权、精确范围记住、范围变化重确认、
+  挂起期间撤销、坏 metadata 拒绝迟到确认及原有审批回归。
+- 桥 companion 全量 82 项：81 通过、1 项 Unix-only 平台跳过；
+  资源检查 10/10。使用 `python -X utf8 -B`，未修改无关编码测试。
+
+协议证据为 `Desktop/test-results/protocol/summary.json`；
+浏览器与原生证据分别在
+`Desktop/test-results/external-connectors-browser/` 和
+`Desktop/test-results/external-connectors-electron/`。
+原生风险对话框的响应由主进程测试夹具控制，Hermes 唤醒端为模拟 host；
+不代表真人点击、真实 Hermes/飞书、过夜、macOS 或安装包验收。
+
+本轮只重建源码 dist 并保留隔离验收证据，未生成安装包。
+未改 runtime pin、上游、日用 profile、配对、权限、快捷方式或市场，
+未删除历史包。此记录为本地结果，云端 CI 以提交后的 PR head 为准。
+
+### PR #244 CI 路径别名回归修复
+
+首个 head `685df58` 的 Windows runtime 与 macOS preparation 均在
+`plugin-confirmations.test.ts` 失败，11 项中 8 项报 `connector:storage`。
+Windows interface 与 sessions 已通过；汇总任务失败是上述失败的后果。
+
+风险确认测试夹具遗漏了同类测试使用的 `realpath`：临时目录经过路径
+别名时，私有存储的规范路径身份校验会拒绝它。本机默认临时路径没有
+别名，因此此前本地通过不能覆盖这一环境差异。
+
+先增加真实目录别名回归，在未修复夹具时本机复现相同的
+`connector:storage`；再仅将夹具创建的根目录规范化。
+回归同时验证记住记录可跨实例复用，以及生产存储仍拒绝未规范化的
+别名根目录，不放宽安全校验、断言、超时或测试清单。
+相关五个文件最终定向复验 116/116，CI 文档与协议 runner 自测 7/7；
+未改产品代码或运行时资产，不重建包、不动日用配置。
+本段记录为本地修复证据，新 head 的完整云端检查需独立通过。

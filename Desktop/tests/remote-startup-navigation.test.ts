@@ -52,6 +52,10 @@ function fixture() {
         initialized.resolve();
         await gate.promise;
         const worker = { id: 'remote-worker', state: { sessionId: 'remote' }, permissionPreset: 'ask' };
+        worker.rpc = { request: async (_type, args) => {
+          assert.equal(args.message, '/permissions approve-for-me');
+          worker.permissionPreset = 'approve-for-me';
+        } };
         workers.set(worker.id, worker);
         return worker;
       },
@@ -80,7 +84,7 @@ function fixture() {
       switch ('navigateSession') { ${navigate} }
     }
     return {
-      prepare: (source = 'feishu-recovery') => prepareRemoteSession('remote', undefined, source), invoke, active: () => active,
+      prepare: (source = 'feishu-recovery', preset = 'ask') => prepareRemoteSession('remote', undefined, source, preset), invoke, active: () => active,
       busy: () => transition, setTransition: value => { transition = value; },
       setDeleting: value => { deletingArchived = value; },
       setSettings: value => { settingsMutation = value; },
@@ -88,9 +92,10 @@ function fixture() {
       setStartup: value => { startup = value; }
     };
   `, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
-  const create = new Function('SessionNavigation', 'gate', 'initialized', 'calls', 'events', javascript);
-  const host = create(SessionNavigation, gate, initialized, calls, events) as {
-    prepare(source?: RemotePreparationSource): Promise<unknown>; invoke(id: string, surface?: string): Promise<string | null>;
+  const create = new Function('SessionNavigation', 'gate', 'initialized', 'calls', 'events', 'assert', javascript);
+  const host = create(SessionNavigation, gate, initialized, calls, events, assert) as {
+    prepare(source?: RemotePreparationSource, preset?: 'ask' | 'approve-for-me'): Promise<{ permissionPreset: string }>;
+    invoke(id: string, surface?: string): Promise<string | null>;
     active(): string; busy(): boolean; setTransition(value: boolean): void;
     setDeleting(value: boolean): void; setStartup(value: Promise<void>): void;
     setSettings(value: boolean): void; setUndo(value: boolean): void;
@@ -217,6 +222,20 @@ test('failed Remote preparation clears its explanation without leaking its error
   assert.equal(f.events.length, 2);
   assert.equal(f.events.at(-1).waiting, undefined);
   assert.ok(!JSON.stringify(f.events).includes('PRIVATE-FAILURE'));
+});
+
+test('external preparation retains the authorized permission tier alongside its wait source', async () => {
+  const f = fixture();
+  const preparing = f.host.prepare('external-agent', 'approve-for-me');
+  await f.initialized.promise;
+  const navigation = f.host.invoke('local-a');
+  await tick();
+  assert.equal(f.events[0].waiting.source, 'external-agent');
+  f.gate.resolve();
+  assert.equal((await preparing).permissionPreset, 'approve-for-me');
+  assert.equal(await navigation, 'local-a');
+  const create = find(node => ts.isVariableDeclaration(node) && node.name.getText(file) === 'externalTasks').getText(file);
+  assert.match(create, /prepareRemoteSession\(undefined, cwd, 'external-agent', preset\)/);
 });
 
 test('ordinary navigation never reports a Remote blocker', async () => {

@@ -2,12 +2,13 @@ import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { createServer } from 'node:http';
 import { createConnection } from 'node:net';
-import { mkdir, readFile, realpath, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, realpath, stat, writeFile } from 'node:fs/promises';
 import { mkdtemp } from './test-profile.mjs';
 import { join, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import { _electron as electron } from 'playwright';
 import { closeDesktopFixtureAndWait } from './close-desktop-fixture.mjs';
+import { installationReceipt, packageFingerprint, writeReceipts } from '../electron/plugin-files.mjs';
 
 const execute = promisify(execFile);
 const output = resolve(process.env.DESKTOP_VERIFY_OUTPUT || 'test-results/external-connectors-electron');
@@ -17,6 +18,21 @@ const profile = await realpath(await mkdtemp(join(output, 'profile-')));
 const root = join(profile, 'step-runtime'), workspace = join(profile, 'project');
 await mkdir(join(root, 'sessions'), { recursive: true });
 await mkdir(workspace);
+const pluginDirectory = join(root, 'plugins', 'risk-bridge');
+await mkdir(pluginDirectory, { recursive: true });
+const manifest = { id: 'hermes-engineering-bridge', name: 'Hermes risk fixture', version: '0.3.0' };
+await writeFile(join(pluginDirectory, 'step.plugin.json'), JSON.stringify(manifest));
+const riskMetadata = { schemaVersion: 1, confirmations: [
+  { id: 'policy-risk', version: '1', action: 'external.policy', policy: 'remember',
+    title: 'Persistent authorization', message: 'Files may be changed or deleted.', confirmLabel: 'Acknowledge policy' },
+  { id: 'delegate-risk', version: '1', action: 'external.delegate', policy: 'always',
+    title: 'Agent review', message: 'Agent judgment can be wrong.', confirmLabel: 'Acknowledge delegation' },
+] };
+await writeFile(join(pluginDirectory, 'dfsc.plugin.json'), JSON.stringify(riskMetadata));
+const receipt = installationReceipt({ name: 'risk-bridge' }, { name: 'local-fixture', kind: 'local', path: profile },
+  manifest, await packageFingerprint(pluginDirectory));
+receipt.state = 'installed';
+await writeReceipts(root, { version: 1, installations: [receipt] });
 await writeFile(join(profile, 'preferences.json'), JSON.stringify({
   language: 'zh', theme: 'light', workspace, workspaces: [workspace],
 }));
@@ -45,16 +61,24 @@ const model = createServer(async (request, response) => {
       held.add(response); response.on('close', () => held.delete(response)); return;
     }
     const delegated = /^CONNECTOR-DELEGATE-(ALLOW|DENY|ESCALATE|REVOKE)$/.test(input);
-    const asksApproval = delegated || input === 'CONNECTOR-APPROVAL' || input === 'CONNECTOR-DENY';
-    const callId = delegated ? `${input.toLowerCase()}-12345678`
+    const automatic = input === 'CONNECTOR-AUTO', risky = input === 'CONNECTOR-RISK', question = input === 'CONNECTOR-QUESTION';
+    const asksApproval = delegated || automatic || risky || question || input === 'CONNECTOR-APPROVAL' || input === 'CONNECTOR-DENY';
+    const callId = delegated || automatic || risky || question ? `${input.toLowerCase()}-12345678`
       : input === 'CONNECTOR-DENY' ? 'connector-deny-12345678' : 'connector-tool-12345678';
     const toolResult = body.messages.find(message => message.role === 'tool' && message.tool_call_id === callId);
     if (asksApproval && !toolResult) {
       const command = input === 'CONNECTOR-DENY'
         ? 'echo connector-denied > connector-denied.txt' : 'echo connector-approved';
       send({ tool_calls: [{ index: 0, id: callId, type: 'function',
-        function: { name: delegated ? 'write_file' : 'run_command', arguments: JSON.stringify(delegated
-          ? { path: `${input.toLowerCase()}.txt`, content: input } : { command }) } }] }, 'tool_calls');
+        function: { name: question ? 'clarify_user' : delegated || automatic ? 'write_file' : 'run_command',
+          arguments: JSON.stringify(question ? { questions: [{ id: 'target', label: 'Target', question: 'Which target?',
+            allow_freeform: false, options: [{ label: 'Tests', value: 'tests' }, { label: 'Docs', value: 'docs' }] }] }
+            : risky ? { command: 'rm -rf ./connector-risk-empty', timeout_ms: 10000 }
+              : delegated || automatic ? { path: `${input.toLowerCase()}.txt`, content: input } : { command }) } }] }, 'tool_calls');
+    } else if (risky || question || automatic) {
+      if (risky) assert.match(content(toolResult), /Tool call denied/u);
+      if (question) assert.match(content(toolResult), /tests/u);
+      send({ content: `${input}-COMPLETE` }, 'stop');
     } else if (delegated) {
       const denied = input.endsWith('-DENY') || input.endsWith('-REVOKE');
       if (denied) assert.match(content(toolResult), /Tool call denied: write_file/u);
@@ -121,6 +145,18 @@ const launch = async () => {
     const window = BrowserWindow.getAllWindows()[0];
     window.setOpacity(0); window.setIgnoreMouseEvents(true); window.showInactive(); window.setSize(1360, 900);
   });
+  await app.evaluate(({ dialog }) => {
+    globalThis.riskFixture = { prompts: [], answers: [] };
+    const original = dialog.showMessageBox.bind(dialog);
+    dialog.showMessageBox = async (...args) => {
+      const options = args.at(-1);
+      if (options.title !== '插件风险确认') return original(...args);
+      globalThis.riskFixture.prompts.push(options);
+      const answer = globalThis.riskFixture.answers.shift() ?? { response: 1, checkboxChecked: false };
+      if (answer.hold) return new Promise(resolve => { globalThis.riskFixture.release = resolve; });
+      return answer;
+    };
+  });
   await page.waitForFunction(() => document.querySelector('.new-chat')?.disabled === false, undefined, { timeout: 60000 });
   await page.evaluate(() => {
     window.connectorRequests = [];
@@ -157,6 +193,9 @@ try {
   await panel.getByRole('switch').click();
   await until(connectorState, value => value.listening, 'enabled listener');
   await panel.getByRole('textbox', { name: '连接名称' }).fill('Hermes 验收');
+  const plugin = (await connectorState()).plugins.find(plugin => plugin.id === 'hermes-engineering-bridge');
+  assert.ok(plugin);
+  await panel.locator('.external-connector-form select').selectOption(plugin.ref);
   await panel.getByRole('checkbox').check();
   await panel.getByRole('button', { name: '添加连接', exact: true }).click();
   await panel.getByRole('button', { name: '确认授权', exact: true }).click();
@@ -169,6 +208,53 @@ try {
   assert.equal(await app.evaluate(({ clipboard }) => clipboard.readText()), config);
   await page.screenshot({ path: join(output, 'paired-light.png') });
   checks.push('default off; real main/preload UI pairing, project scope and non-secret config export');
+  assert.equal(connection.plugin.id, 'hermes-engineering-bridge');
+  const policyAction = { type: 'policy', agentId: connection.agentId, cwd: workspace, days: 7,
+    categories: ['command', 'file'], permissionPreset: 'ask' };
+  const answerRisk = answer => app.evaluate((_, answer) => globalThis.riskFixture.answers.push(answer), answer);
+  const riskPrompts = () => app.evaluate(() => globalThis.riskFixture.prompts);
+  await answerRisk({ response: 0, checkboxChecked: true });
+  await assert.rejects(action(policyAction), /confirmation-cancelled/);
+  assert.equal((await connectorState()).approvals.policies.length, 0);
+  const firstRisk = (await riskPrompts())[0];
+  assert.equal(firstRisk.defaultId, 0); assert.equal(firstRisk.cancelId, 0);
+  assert.equal(firstRisk.checkboxChecked, false);
+  assert.match(firstRisk.detail, /本次实际授权/);
+  assert.match(firstRisk.message, /hermes-engineering-bridge/);
+  await answerRisk({ response: 1, checkboxChecked: true });
+  await action(policyAction);
+  const existingPolicy = (await connectorState()).approvals.policies[0];
+  const riskPromptCount = (await riskPrompts()).length;
+  await action(policyAction);
+  assert.equal((await riskPrompts()).length, riskPromptCount, 'exact scope may reuse explicit remembered risk, not permission');
+  await answerRisk({ response: 0, checkboxChecked: false });
+  await assert.rejects(action({ ...policyAction, days: null }), /confirmation-cancelled/);
+  assert.equal((await connectorState()).approvals.policies[0].expiresAt !== null, true);
+  assert.equal((await connectorState()).approvals.policies[0].permissionPreset, existingPolicy.permissionPreset);
+  await action({ type: 'unpolicy', agentId: connection.agentId, cwd: workspace });
+  checks.push('real main IPC cannot bypass native risk confirmation; cancel creates no policy, remembered exact scope and changed scope re-confirmation');
+  const holdRisk = async () => {
+    const before = (await riskPrompts()).length;
+    await answerRisk({ hold: true });
+    await page.evaluate(value => {
+      window.pendingRiskGrant = window.desktop.externalConnectorAction(value).then(() => 'unexpectedly-applied',
+        error => error.message);
+    }, { ...policyAction, days: null });
+    await until(riskPrompts, value => value.length === before + 1, 'held risk confirmation');
+  };
+  const releaseRisk = () => app.evaluate(() => globalThis.riskFixture.release({ response: 1, checkboxChecked: true }));
+  await holdRisk();
+  await action({ type: 'unpolicy', agentId: connection.agentId, cwd: workspace });
+  await releaseRisk();
+  assert.match(await page.evaluate(() => window.pendingRiskGrant), /connector:revoked/);
+  assert.equal((await connectorState()).approvals.policies.length, 0);
+  await holdRisk();
+  await writeFile(join(pluginDirectory, 'dfsc.plugin.json'), JSON.stringify({ ...riskMetadata, confirmations: [] }));
+  await releaseRisk();
+  assert.match(await page.evaluate(() => window.pendingRiskGrant), /capability:|confirmation-stale/);
+  assert.equal((await connectorState()).approvals.policies.length, 0);
+  await writeFile(join(pluginDirectory, 'dfsc.plugin.json'), JSON.stringify(riskMetadata));
+  checks.push('revocation and invalid plugin metadata during an open native prompt reject a late positive response without granting authority');
 
   const capabilities = await client('system.capabilities');
   assert.equal(capabilities.protocol, 'dfsc-external-v1');
@@ -320,6 +406,77 @@ try {
   await page.evaluate(({ runtimeId }) => window.desktop.command('prompt', { message: 'LOCAL-TAKEOVER' }, runtimeId), localStop);
   checks.push('local stop releases a waiting external task and permits a new local turn');
 
+  await action({ type: 'policy', agentId: connection.agentId, cwd: workspace, days: null,
+    permissionPreset: 'approve-for-me', categories: ['risk', 'question'] });
+  assert.equal((await connectorState()).approvals.policies[0].expiresAt, null);
+  const automatic = await create('connector-automatic');
+  await submit(automatic.id, 'auto-run', 'CONNECTOR-AUTO');
+  await until(() => task(automatic.id), value => value.phase === 'completed', 'native automatic write');
+  assert.equal(await readFile(join(workspace, 'connector-auto.txt'), 'utf8'), 'CONNECTOR-AUTO');
+  assert.equal(await page.evaluate(runtimeId => window.connectorRequests.some(r =>
+    r.runtimeId === runtimeId && r.title?.startsWith('Approve write_file')), automatic.runtimeId), false);
+  checks.push('explicit persistent approve-for-me policy runs ordinary native writes without another approval');
+  const nativeAsk = value => until(() => page.evaluate(sessionId => window.desktop.switchSession(sessionId), value.sessionId),
+    state => state.permissionPreset === 'ask', 'terminal automatic session resets native permissions');
+  await nativeAsk(automatic);
+  const automaticStop = await create('connector-automatic-local-stop');
+  await submit(automaticStop.id, 'auto-stop-run', 'CONNECTOR-HOLD');
+  await until(() => task(automaticStop.id), value => value.phase === 'running', 'automatic native work before local stop');
+  await page.evaluate(runtimeId => window.desktop.command('abort', {}, runtimeId), automaticStop.runtimeId);
+  assert.equal((await task(automaticStop.id)).phase, 'stopped');
+  await nativeAsk(automaticStop);
+  checks.push('completed and locally stopped automatic sessions reset to native Ask before local ownership is released');
+
+  await mkdir(join(workspace, 'connector-risk-empty'));
+  const risk = await create('connector-persistent-risk');
+  const wake = execute(process.env.PYTHON || 'python', ['-X', 'utf8', '-B',
+    resolve('scripts/fixtures/external-wake-client.py'), companion, config, risk.id],
+  { timeout: 45000, windowsHide: true, maxBuffer: 256 * 1024 });
+  // Keep rejection observed while the native request is being prepared.
+  void wake.catch(() => {});
+  await submit(risk.id, 'risk-run', 'CONNECTOR-RISK');
+  await until(() => task(risk.id), value => value.awaitingLocalApproval, 'delegated native risk');
+  const notification = JSON.parse((await wake).stdout);
+  assert.equal(notification.messages.length, 1);
+  assert.equal(notification.messages[0].sessionKey, 'isolated-origin-session');
+  assert.match(notification.messages[0].content, /approval.list/);
+  assert.equal((await task(risk.id)).awaitingLocalApproval, true, 'wake is never an unconditional approval');
+  const riskApproval = await client('approval.list', { taskId: risk.id });
+  assert.equal(riskApproval.requests[0].category, 'risk');
+  await client('approval.respond', { taskId: risk.id, requestId: riskApproval.requests[0].requestId,
+    decision: 'deny', reason: 'Controlled reviewer rejects destructive operation' });
+  await until(() => task(risk.id), value => value.phase === 'completed', 'risk denial');
+  assert.equal((await stat(join(workspace, 'connector-risk-empty'))).isDirectory(), true);
+  checks.push('real companion long polling wakes only simulated original Hermes host; no auto-answer; native risk denial keeps target');
+
+  const question = await create('connector-persistent-question');
+  await submit(question.id, 'question-run', 'CONNECTOR-QUESTION');
+  const listedQuestion = await until(() => client('approval.list', { taskId: question.id }),
+    value => value.requests.some(r => r.category === 'question'), 'delegated native clarification');
+  let questionRequest = listedQuestion.requests[0];
+  // Some runtimes first ask permission to pose the question.
+  if (!questionRequest.input.startsWith('[')) {
+    await client('approval.respond', { taskId: question.id, requestId: questionRequest.requestId, decision: 'allow', reason: 'Permit clarification' });
+    questionRequest = (await until(() => client('approval.list', { taskId: question.id }),
+      value => value.requests.some(r => r.category === 'question' && r.input.startsWith('[')), 'structured question')).requests[0];
+  }
+  await client('approval.respond', { taskId: question.id, requestId: questionRequest.requestId, decision: 'allow',
+    reason: 'Original fixture goal specifies tests', answers: [{ id: 'target', value: 'tests', wasCustom: false }] });
+  await until(() => task(question.id), value => value.phase === 'completed', 'native structured answer');
+  checks.push('real native clarification validates and receives explicitly delegated structured answers');
+
+  const policyRevoke = await create('connector-policy-revoke');
+  await submit(policyRevoke.id, 'hold-policy', 'CONNECTOR-HOLD');
+  await until(() => task(policyRevoke.id), value => value.phase === 'running', 'automatic task before revoke');
+  await action({ type: 'unpolicy', agentId: connection.agentId, cwd: workspace });
+  assert.equal((await task(policyRevoke.id)).phase, 'interrupted');
+  const restricted = await page.evaluate(sessionId => window.desktop.switchSession(sessionId), policyRevoke.sessionId);
+  assert.equal(restricted.permissionPreset, 'ask');
+  assert.equal((await connectorState()).approvals.policies.length, 0);
+  checks.push('revoking persistent policy aborts automatic task and restores native Ask, not just a UI badge');
+
+  await action({ type: 'policy', agentId: connection.agentId, cwd: workspace, days: 7,
+    permissionPreset: 'approve-for-me', categories: ['risk'] });
   const waiting = await create('connector-restart');
   await action({ type: 'delegate', taskId: waiting.id, minutes: 15, categories: ['file'] });
   assert.ok((await task(waiting.id)).approvalDelegation);
@@ -331,6 +488,7 @@ try {
   assert.equal((await task(waiting.id)).phase, 'interrupted');
   assert.equal((await task(waiting.id)).approvalDelegation, undefined);
   assert.equal((await connectorState()).approvals.tasks.length, 0);
+  assert.equal((await connectorState()).approvals.policies[0].permissionPreset, 'approve-for-me');
   assert.ok((await connectorState()).approvals.audit.some(entry => entry.taskId === waiting.id && entry.action === 'grant'));
   const restartedRuntimes = (await snapshot()).runtimes.map(value => value.runtimeId).sort();
   const afterRestart = await task(first.id);
@@ -346,6 +504,10 @@ try {
   assert.deepEqual((await snapshot()).runtimes.map(value => value.runtimeId).sort(), restartedRuntimes);
   assert.equal(requests.length, count);
   descriptor = JSON.parse(await readFile(join(profile, 'external-connectors', 'agents', connection.agentId, 'model.json'), 'utf8'));
+  const newAutomatic = await create('connector-automatic-after-restart');
+  await submit(newAutomatic.id, 'auto-restart', 'CONNECTOR-AUTO');
+  await until(() => task(newAutomatic.id), value => value.phase === 'completed', 'persistent native tier after restart');
+  checks.push('persistent policy survives restart only for fresh tasks; old process and request IDs never reattach');
   await action({ type: 'revoke', agentId: connection.agentId });
   assert.equal((await connectorState()).connections.length, 0);
   assert.equal((await client('system.capabilities', {}, true)).error.code, 'connector:unauthorized');

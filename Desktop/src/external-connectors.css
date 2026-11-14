@@ -26,7 +26,8 @@
 .external-connectors .icon-button { width: 30px; height: 30px; min-height: 30px; flex-shrink: 0; }
 .external-connectors input { scroll-margin: 8px; }
 .external-connector-announcement { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
-.external-approval-task > code, .external-approval-task p, .external-approval-audit li { overflow-wrap: anywhere; font-size: 12px; }
+.external-approval-task > code, .external-approval-task p, .external-approval-policy > code,
+.external-approval-policy p, .external-approval-audit li { overflow-wrap: anywhere; font-size: 12px; }
 .external-approval-owner { display: flex; gap: 8px; flex-wrap: wrap; }
 .external-approval-owner small, .external-approval-task > p { color: var(--muted); }
 .external-approval-form { padding: 8px; }
@@ -36,3 +37,7 @@
 .external-approval-audit { max-height: 320px; overflow: auto; padding: 4px 4px 4px 24px; scroll-padding: 4px; }
 .external-approval-audit li { padding: 10px 4px; border-bottom: 1px solid var(--border); }
 .external-approval-audit li > span, .external-approval-audit code { display: block; margin-top: 6px; }
+.external-connector-form select, .external-plugin-association select { width: 100%; min-width: 0; min-height: 38px; }
+.external-plugin-association { display: flex; flex-wrap: wrap; align-items: end; gap: 12px; padding: 4px; margin: 12px 0; }
+.external-plugin-association > label { flex: 1 1 200px; min-width: 0; }
+.external-plugin-identity { overflow-wrap: anywhere; font-size: 12px; }

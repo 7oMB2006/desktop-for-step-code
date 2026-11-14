@@ -25,11 +25,11 @@ function fixture(saved?: unknown) {
   };
   const host: ExternalTaskHost = {
     validate: async (cwd, roots) => { assert.ok(roots.includes(cwd)); },
-    create: async (_cwd, valid) => {
+    create: async (_cwd, valid, preset = 'ask') => {
       assert.equal(valid(), true);
       const persisted = state as ExternalTasksState;
       assert.equal(persisted.tasks.at(-1)?.phase, 'creating', 'intent is durable before native creation');
-      const value = worker(++creates); workers.push(value); return value;
+      const value = worker(++creates); value.permissionPreset = preset; workers.push(value); return value;
     },
     submit: async (_worker, _message, accepted, valid) => {
       assert.equal(valid(), true);
@@ -228,7 +228,7 @@ function permission(f: ReturnType<typeof fixture>, tool = 'run_command', reason?
 }
 async function delegated() {
   const f = fixture(), task = await f.create();
-  const answers: boolean[] = [];
+  const answers: (boolean | string)[] = [];
   f.host.respond = (w, request, confirmed) => { assert.equal(w.pendingUI.get(request.id), request); answers.push(confirmed); w.pendingUI.delete(request.id); };
   await f.submit(task.id);
   const request = permission(f);
@@ -423,6 +423,291 @@ test('moving the wall clock backward cannot extend the monotonic delegation dead
   assert.equal((await f.list()).delegation, null);
   await assert.rejects(f.respond(request.requestId), /connector:local-approval/u);
   assert.deepEqual(f.answers, []);
+});
+
+const boundGrant = { ...grant, binding: 'a'.repeat(64) };
+const policyAction = { type: 'policy' as const, agentId: grant.agentId, cwd: grant.roots[0],
+  days: null, categories: ['command', 'file'] as ('command' | 'file' | 'risk' | 'question')[], permissionPreset: 'ask' as const };
+async function persistent(saved?: unknown) {
+  const f = fixture(saved);
+  const answers: (boolean | string)[] = [], restricted: string[] = [];
+  f.host.respond = (worker, request, answer) => { answers.push(answer); worker.pendingUI.delete(request.id); };
+  f.host.restrict = async worker => { restricted.push(worker.id); worker.permissionPreset = 'ask'; };
+  const create = (key = 'persistent') => f.call('task.create',
+    { key, title: key, cwd: grant.roots[0] }, boundGrant) as Promise<any>;
+  const list = (taskId: string) => f.call('approval.list', { taskId }, boundGrant) as Promise<any>;
+  return { ...f, create, list, answers, restricted };
+}
+test('risk confirmation cancellation before policy commit preserves the existing policy', async () => {
+  const f = await persistent();
+  await f.core.configurePolicy(policyAction, boundGrant);
+  const existing = f.core.localApprovals().policies![0];
+  await assert.rejects(f.core.configurePolicy({ ...policyAction, days: 7 }, boundGrant, () => false), /connector:revoked/);
+  assert.deepEqual(f.core.localApprovals().policies, [existing]);
+});
+test('risk confirmation invalidation during either policy persistence phase cannot leave automatic authority', async () => {
+  for (const outcome of ['prepared', 'applied']) {
+    const f = await persistent(), save = f.store.save;
+    let valid = true;
+    f.store.save = async value => {
+      await save(value);
+      if (value.approvalAudit?.at(-1)?.outcome === outcome) valid = false;
+    };
+    await assert.rejects(f.core.configurePolicy({ ...policyAction, permissionPreset: 'approve-for-me' }, boundGrant,
+      () => valid), /connector:revoked/);
+    assert.deepEqual(f.core.localApprovals().policies, []);
+    await f.create();
+    assert.equal(f.workers[0].permissionPreset, 'ask');
+  }
+});
+test('risk confirmation invalidation during either task grant persistence phase removes the lease', async () => {
+  for (const outcome of ['prepared', 'applied']) {
+    const f = await delegated(), save = f.store.save;
+    let valid = true;
+    f.store.save = async value => {
+      await save(value);
+      if (value.approvalAudit?.at(-1)?.outcome === outcome) valid = false;
+    };
+    await assert.rejects(f.core.delegate({ type: 'delegate', taskId: f.task.id, minutes: 30,
+      categories: ['command'] }, () => valid), /connector:revoked/);
+    assert.equal((await f.list()).delegation, null);
+    assert.deepEqual((await f.list()).requests, []);
+  }
+});
+test('persistent policy survives restart for new tasks, never reattaches or replays the previous process', async () => {
+  const f = await persistent();
+  await f.core.configurePolicy({ ...policyAction, days: 7, permissionPreset: 'approve-for-me' }, boundGrant);
+  const original = await f.create();
+  permission(f); assert.equal((await f.list(original.id)).requests.length, 1);
+  const saved = structuredClone(f.state());
+  assert.equal(saved.policies?.length, 1);
+  assert.equal(JSON.stringify(f.core.localApprovals()).includes(boundGrant.binding), false);
+  const next = await persistent(saved); await next.core.initialize();
+  assert.deepEqual(next.core.localApprovals().tasks, []);
+  assert.equal((await next.create()).phase, 'interrupted');
+  assert.equal(next.workers.length, 0);
+  const task = await next.create('new-task');
+  assert.equal(next.workers[0].permissionPreset, 'approve-for-me');
+  assert.equal((await next.list(task.id)).delegation.policyId, saved.policies![0].id);
+  assert.equal(next.counts().submissions, 0);
+  await f.core.invalidate(); await next.core.invalidate();
+});
+test('until-revoked policies and task-only delegation use null expiry without extending categories', async () => {
+  const f = await persistent();
+  await f.core.configurePolicy({ ...policyAction, categories: ['file'] }, boundGrant);
+  const task = await f.create();
+  permission(f);
+  assert.equal((await f.list(task.id)).delegation.expiresAt, null);
+  assert.deepEqual((await f.list(task.id)).requests, []);
+  await f.core.delegate({ type: 'delegate', taskId: task.id, minutes: 0, categories: ['command'] });
+  assert.equal((await f.list(task.id)).requests.length, 1);
+  await f.core.delegate({ type: 'undelegate', taskId: task.id });
+  assert.equal((await f.list(task.id)).delegation, null, 'task opt-out does not fall through to policy');
+  await assert.rejects(f.call('approval.policy', policyAction, boundGrant), /unsupported-method/);
+});
+test('a persistent policy cannot transfer to another credential, agent or project', async () => {
+  const f = await persistent();
+  await f.core.configurePolicy({ ...policyAction, permissionPreset: 'approve-for-me' }, boundGrant);
+  for (const other of [{ ...boundGrant, binding: 'b'.repeat(64) }, { ...boundGrant, agentId: 'another-agent' }]) {
+    const task: any = await f.call('task.create', { key: other.agentId + other.binding[0], title: 'Foreign', cwd: grant.roots[0] }, other);
+    assert.equal((await f.call('approval.list', { taskId: task.id }, other) as any).delegation, null);
+  }
+  assert.ok(f.workers.every(worker => worker.permissionPreset === 'ask'));
+  await assert.rejects(f.core.configurePolicy({ ...policyAction, cwd: 'C:\\other' }, boundGrant), /connector:scope/);
+});
+test('policy revoke stops native automatic work, invalidates requests and remains revoked after restart', async () => {
+  const f = await persistent();
+  await f.core.configurePolicy({ ...policyAction, permissionPreset: 'approve-for-me' }, boundGrant);
+  const task = await f.create(); permission(f);
+  const [request] = (await f.list(task.id)).requests;
+  await f.core.configurePolicy({ type: 'unpolicy', agentId: grant.agentId, cwd: grant.roots[0] });
+  assert.deepEqual(f.restricted, [f.workers[0].id]);
+  assert.equal(f.workers[0].permissionPreset, 'ask');
+  await assert.rejects(f.call('approval.respond', { taskId: task.id, requestId: request.requestId,
+    decision: 'allow', reason: 'stale' }, boundGrant), /connector:local-approval/);
+  const next = await persistent(f.state()); await next.core.initialize();
+  assert.deepEqual(next.core.localApprovals().policies, []);
+  assert.deepEqual(f.answers, []);
+});
+for (const ending of ['completed', 'local-stop', 'remote-stop', 'queue-failed'] as const) {
+  test(`automatic ${ending} retains local ownership until native permission reset, without touching later local changes`, async () => {
+    const f = await persistent();
+    await f.core.configurePolicy({ ...policyAction, permissionPreset: 'approve-for-me' }, boundGrant);
+    const task = await f.create(), native = f.workers[0];
+    await f.call('run.submit', { taskId: task.id, key: 'run', message: 'Inspect project' }, boundGrant);
+    let release!: () => void, resets = 0;
+    const held = new Promise<void>(resolve => { release = resolve; });
+    f.host.restrict = async (worker, stop) => {
+      resets++;
+      assert.equal(stop, ending === 'queue-failed', 'settled native work must not be needlessly aborted');
+      await held; worker.permissionPreset = 'ask';
+    };
+    if (ending === 'completed') complete(f);
+    else if (ending === 'local-stop') f.core.locallyStopped(native);
+    else if (ending === 'remote-stop') await f.call('task.stop', { taskId: task.id }, boundGrant);
+    else f.core.queueFailed(native);
+    assert.equal(f.core.retains(native), true, 'terminal phase alone must not unlock local input');
+    assert.deepEqual(f.core.localApprovals().tasks, []);
+    const phase = ending === 'completed' ? 'completed' : ending === 'queue-failed' ? 'unknown' : 'stopped';
+    assert.equal((await f.call('task.get', { taskId: task.id }, boundGrant) as any).phase, phase);
+    release(); await f.core.flush();
+    assert.equal(resets, 1);
+    assert.equal(native.permissionPreset, 'ask');
+    assert.equal(f.core.retains(native), false);
+    native.permissionPreset = 'full-access';
+    await f.core.configurePolicy({ type: 'unpolicy', agentId: grant.agentId, cwd: grant.roots[0] });
+    assert.equal(native.permissionPreset, 'full-access', 'a later explicit local choice is not policy-owned');
+    assert.equal(resets, 1);
+  });
+}
+test('policy revoke waits for a completed worker reset without rewriting its completed result', async () => {
+  const f = await persistent();
+  await f.core.configurePolicy({ ...policyAction, permissionPreset: 'approve-for-me' }, boundGrant);
+  const task = await f.create();
+  await f.call('run.submit', { taskId: task.id, key: 'run', message: 'Inspect project' }, boundGrant);
+  let release!: () => void, settled = false;
+  const held = new Promise<void>(resolve => { release = resolve; });
+  f.host.restrict = async worker => { await held; worker.permissionPreset = 'ask'; };
+  complete(f, 'Frozen completion');
+  const revoke = f.core.configurePolicy({ type: 'unpolicy', agentId: grant.agentId, cwd: grant.roots[0] })
+    .then(() => { settled = true; });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(settled, false);
+  assert.equal(f.core.retains(f.workers[0]), true);
+  release(); await revoke; await f.core.flush();
+  const result: any = await f.call('task.get', { taskId: task.id }, boundGrant);
+  assert.equal(result.phase, 'completed');
+  assert.equal(result.summary, 'Frozen completion');
+  assert.equal(f.core.retains(f.workers[0]), false);
+});
+test('a failed automatic permission reset keeps local ownership fenced and reports cleanup failure', async () => {
+  const f = await persistent();
+  await f.core.configurePolicy({ ...policyAction, permissionPreset: 'approve-for-me' }, boundGrant);
+  const task = await f.create();
+  await f.call('run.submit', { taskId: task.id, key: 'run', message: 'Inspect project' }, boundGrant);
+  f.host.restrict = async () => { throw new Error('reset and disposal unconfirmed'); };
+  complete(f);
+  await assert.rejects(f.core.flush(), /connector:cleanup-unconfirmed/);
+  assert.equal(f.core.retains(f.workers[0]), true);
+  assert.equal(f.workers[0].permissionPreset, 'approve-for-me');
+  assert.equal((await f.call('task.get', { taskId: task.id }, boundGrant) as any).phase, 'completed');
+});
+test('shutdown preserves policies but disabling/revoking authorization removes them', async () => {
+  const f = await persistent();
+  await f.core.configurePolicy({ ...policyAction, permissionPreset: 'approve-for-me' }, boundGrant);
+  await f.create();
+  await f.core.invalidate(undefined, true); await f.core.flush();
+  assert.equal(f.state().policies?.length, 1);
+  assert.deepEqual(f.restricted, [], 'normal application shutdown owns process termination');
+  await f.core.invalidate(grant.agentId); await f.core.flush();
+  assert.equal(f.state().policies, undefined);
+});
+test('expired policies fail closed across clock changes and restart, including native automatic permission', async t => {
+  const f = await persistent();
+  await f.core.configurePolicy({ ...policyAction, days: 1, permissionPreset: 'approve-for-me' }, boundGrant);
+  const task = await f.create(); permission(f);
+  const before = Date.now();
+  const saved = structuredClone(f.state());
+  t.mock.method(Date, 'now', () => before + 86400001);
+  assert.equal((await f.list(task.id)).delegation, null);
+  t.mock.method(Date, 'now', () => before);
+  assert.equal((await f.list(task.id)).delegation, null, 'observed expiry cannot be undone by rollback');
+  await new Promise(resolve => setTimeout(resolve, 600));
+  assert.deepEqual(f.restricted, [f.workers[0].id]);
+  t.mock.method(Date, 'now', () => before - 60000);
+  const next = await persistent(saved); await next.core.initialize();
+  assert.deepEqual(next.core.localApprovals().policies, []);
+});
+test('directory/grant invalidation is monitored during automatic native work, not only on the next model request', async () => {
+  const f = await persistent();
+  let valid = true;
+  const scoped = { ...boundGrant, validate: async () => { if (!valid) throw new Error('connector:scope-changed'); } };
+  await f.core.configurePolicy({ ...policyAction, permissionPreset: 'approve-for-me' }, scoped);
+  const task: any = await f.call('task.create', { key: 'watched', cwd: grant.roots[0], title: 'Watched' }, scoped);
+  valid = false;
+  await new Promise(resolve => setTimeout(resolve, 600));
+  assert.deepEqual(f.restricted, [f.workers[0].id]);
+  assert.deepEqual(f.core.localApprovals().policies, []);
+  assert.equal((await f.call('task.get', { taskId: task.id }, boundGrant) as any).phase, 'interrupted');
+});
+test('persistent revoke wins over a prepared grant and a stale decision cannot use a replacement policy', async () => {
+  const f = await persistent(), save = f.store.save;
+  let release!: () => void, entered!: () => void, held = false;
+  const pending = new Promise<void>(resolve => { entered = resolve; });
+  f.store.save = async value => {
+    if (!held && value.policies?.length) {
+      held = true; entered(); await new Promise<void>(resolve => { release = resolve; });
+    }
+    await save(value);
+  };
+  const setting = f.core.configurePolicy(policyAction, boundGrant);
+  await pending;
+  const revoking = f.core.configurePolicy({ type: 'unpolicy', agentId: grant.agentId, cwd: grant.roots[0] });
+  await Promise.resolve(); release();
+  await assert.rejects(setting, /connector:revoked/);
+  await revoking;
+  assert.deepEqual(f.core.localApprovals().policies, []);
+  await f.core.configurePolicy(policyAction, boundGrant);
+  const task = await f.create(); permission(f);
+  const [old] = (await f.list(task.id)).requests;
+  await f.core.configurePolicy({ ...policyAction, categories: ['command'] }, boundGrant);
+  const [current] = (await f.list(task.id)).requests;
+  assert.notEqual(current.requestId, old.requestId);
+  await assert.rejects(f.call('approval.respond', { taskId: task.id, requestId: old.requestId, decision: 'allow',
+    reason: 'Stale policy' }, boundGrant), /connector:approval-expired/);
+  assert.deepEqual(f.answers, []);
+});
+test('risk and question delegation is explicit, bounded and cannot answer project trust or unknown UI', async () => {
+  const f = await persistent();
+  await f.core.configurePolicy({ ...policyAction, categories: ['risk', 'question'] }, boundGrant);
+  const task = await f.create();
+  const danger = permission(f, 'run_command', 'Dangerous command requires confirmation (destructive-git): test',
+    { command: 'git reset --hard' });
+  f.workers[0].pendingUI.set(danger.id, { ...danger, title: 'Dangerous run_command [12345678]' });
+  assert.equal((await f.list(task.id)).requests[0].category, 'risk');
+  f.workers[0].pendingUI.clear();
+  const questions = [{ id: 'scope', label: 'Scope', question: 'Which target?', allowFreeform: false,
+    options: [{ label: 'Tests', value: 'tests' }, { label: 'Docs', value: 'docs' }] }];
+  f.workers[0].messages = [{ role: 'assistant', content: [{ type: 'toolCall', id: 'question-full-id',
+    name: 'clarify_user', arguments: { questions } }] }] as any;
+  f.workers[0].pendingUI.set('question', { type: 'extension_ui_request', id: 'question', runtimeId: f.workers[0].id,
+    method: 'input', title: 'Desktop clarification\n' + JSON.stringify({ version: 1, callId: 'question-full-id', questions }) });
+  const [request] = (await f.list(task.id)).requests;
+  assert.equal(request.category, 'question');
+  const respond = (answers: unknown) => f.call('approval.respond', { taskId: task.id, requestId: request.requestId,
+    decision: 'allow', reason: 'Original goal specifies tests', answers }, boundGrant);
+  for (const answers of [undefined, [], [{ id: 'scope', value: 'forged', wasCustom: false }],
+    [{ id: 'scope', value: 'custom', wasCustom: true }]]) await assert.rejects(respond(answers), /connector:invalid-input/);
+  await respond([{ id: 'scope', value: 'tests', wasCustom: false }]);
+  assert.equal(f.answers[0], '[{"id":"scope","value":"tests","wasCustom":false}]');
+  await assert.rejects(respond([{ id: 'scope', value: 'tests', wasCustom: false }]), /connector:approval-expired/);
+});
+test('events reconcile only live request IDs, never block responses, and enforce one waiter per identity', async () => {
+  const f = await persistent(); const task = await f.create();
+  await f.core.delegate({ type: 'delegate', taskId: task.id, minutes: 0, categories: ['command'] });
+  const first: any = await f.call('events.wait', { taskIds: [task.id] }, boundGrant);
+  assert.deepEqual(first.tasks[0].requestIds, []);
+  const waiting = f.call('events.wait', { taskIds: [task.id], cursor: first.cursor }, boundGrant);
+  await new Promise(resolve => setTimeout(resolve, 20));
+  await assert.rejects(f.call('events.wait', { taskIds: [task.id] }, boundGrant), /connector:limit/);
+  permission(f);
+  const event: any = await waiting;
+  assert.equal(event.tasks[0].requestIds.length, 1);
+  assert.equal(JSON.stringify(event).includes('echo'), false);
+  await f.call('approval.respond', { taskId: task.id, requestId: event.tasks[0].requestIds[0], decision: 'deny',
+    reason: 'Not required' }, boundGrant);
+  const settled: any = await f.call('events.wait', { taskIds: [task.id], cursor: event.cursor }, boundGrant);
+  assert.deepEqual(settled.tasks[0].requestIds, []);
+  await assert.rejects(f.call('events.wait', { taskIds: [task.id] }, { ...boundGrant, agentId: 'foreign' }), /connector:task-unavailable/);
+  let valid = true;
+  const pending = f.call('events.wait', { taskIds: [task.id], cursor: settled.cursor }, boundGrant, () => valid);
+  await new Promise(resolve => setTimeout(resolve, 20));
+  valid = false;
+  await assert.rejects(pending, /connector:revoked/);
+  const next = await persistent(f.state());
+  const restarted: any = await next.call('events.wait', { taskIds: [task.id], cursor: settled.cursor }, boundGrant);
+  assert.notEqual(restarted.epoch, event.epoch);
+  assert.deepEqual(restarted.tasks[0].requestIds, []);
 });
 
 test('incomplete recovery does not prematurely complete an external run', async () => {

@@ -98,6 +98,31 @@ test('connector gateway requires exact protocol and independent credentials', as
   assert.equal((await exchange(second.descriptor, envelope(second.descriptor))).result.agentId, second.connection.agentId);
   assert.notEqual(first.descriptor.token, second.descriptor.token);
 });
+test('plugin association is explicit, durable, immutable and never supplied by the model protocol', async t => {
+  const f = await fixture(t);
+  await f.gateway.enable();
+  const { descriptor, connection } = await f.pair();
+  const before = await f.gateway.authorization(connection.agentId);
+  const plugin = { id: 'test-bridge', installation: 'a'.repeat(64) };
+  await assert.rejects(f.gateway.bindPlugin(connection.agentId, { ...plugin, installation: 'bad' }), /invalid-input/);
+  await f.gateway.bindPlugin(connection.agentId, plugin);
+  const after = await f.gateway.authorization(connection.agentId);
+  assert.notEqual(before.binding, after.binding);
+  await assert.rejects(before.validate!(), /unauthorized/);
+  assert.deepEqual(after.plugin, plugin);
+  assert.deepEqual(f.gateway.snapshot().connections[0].plugin, { id: 'test-bridge' });
+  assert.ok(!JSON.stringify(f.gateway.snapshot()).includes(plugin.installation));
+  await assert.rejects(f.gateway.bindPlugin(connection.agentId, plugin), /unauthorized/);
+  const caps = await exchange(descriptor, envelope(descriptor));
+  assert.deepEqual(caps.result.pluginConfirmations, { version: 1, pluginId: 'test-bridge' });
+  assert.equal((await exchange(descriptor, { ...envelope(descriptor), plugin })).ok, false);
+  await f.gateway.shutdown();
+  const restarted = new ExternalConnectorGateway(f.root, { dispatch: async () => ({}), invalidated() {} });
+  await restarted.initialize();
+  try {
+    assert.deepEqual((await restarted.authorization(connection.agentId)).plugin, plugin);
+  } finally { await restarted.shutdown(); }
+});
 
 test('connector gateway rejects malformed, unsupported, oversized and multi-frame requests', async t => {
   let calls = 0;
@@ -129,7 +154,8 @@ test('connector gateway bounds idle sockets, response size and raw errors', asyn
   const other = await pair('Other');
   assert.equal(await raw(descriptor.port, Buffer.from('{')), undefined);
   reply = { text: `${descriptor.token}:${other.descriptor.token}` };
-  assert.deepEqual((await exchange(descriptor, envelope(descriptor))).result, { text: '[redacted]:[redacted]' });
+  assert.deepEqual((await exchange(descriptor, envelope(descriptor))).result,
+    { text: '[redacted]:[redacted]', pluginConfirmations: { version: 1 } });
   reply = { text: 'x'.repeat(128 * 1024) };
   assert.deepEqual(await exchange(descriptor, envelope(descriptor)), { ok: false, error: 'connector:response-too-large' });
   reply = new Error(`Sensitive path ${descriptor.token}`);
@@ -304,6 +330,23 @@ test('connector gateway persists revocation and refreshes endpoints without repl
   assert.equal(descriptor.token, second.descriptor.token);
   assert.equal((await exchange(descriptor, envelope(descriptor))).ok, true);
   assert.equal((await exchange(descriptor, { ...envelope(descriptor), token: first.descriptor.token })).ok, false);
+});
+test('local and network grants share the same non-secret authorization binding across restart', async t => {
+  let network: ExternalGrant | undefined;
+  const f = await fixture(t, async grant => { network = grant; return {}; });
+  await f.gateway.enable();
+  const first = await f.pair(), second = await f.pair();
+  const local = await f.gateway.authorization(first.connection.agentId);
+  assert.match(local.binding!, /^[a-f0-9]{64}$/);
+  assert.notEqual(local.binding, (await f.gateway.authorization(second.connection.agentId)).binding);
+  await exchange(first.descriptor, envelope(first.descriptor));
+  assert.equal(network?.binding, local.binding);
+  await f.gateway.shutdown();
+  const restored = new ExternalConnectorGateway(f.root, { dispatch: async () => ({}), invalidated() {} });
+  t.after(() => restored.shutdown());
+  await restored.initialize();
+  assert.equal((await restored.authorization(first.connection.agentId)).binding, local.binding);
+  assert.equal(JSON.stringify(restored.snapshot()).includes(local.binding!), false);
 });
 
 test('connector gateway disable persists while shutdown preserves enable preference', async t => {

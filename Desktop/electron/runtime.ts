@@ -1,4 +1,4 @@
-import { execFile, spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
+import { execFile, spawn, type ChildProcess, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { dirname, join, resolve } from 'node:path';
 import { StringDecoder } from 'node:string_decoder';
 import { randomUUID } from 'node:crypto';
@@ -71,6 +71,7 @@ export class RpcProcess {
   private runtimePid?: number;
   get pid() { return this.job ? this.runtimePid : this.child?.pid; }
   private stopping?: Promise<void>;
+  private terminationHelper?: ChildProcess;
   private stoppingManagement = false;
   private managementStopError?: RpcManagementStopError;
   private managementShutdown?: {
@@ -84,7 +85,7 @@ export class RpcProcess {
   get hasPendingRequests() { return this.pending.size > 0; }
   constructor(private event: (value: any) => void, private maxRecordChars?: number, private containTree = false) {}
   start(node: string, entry: string, cwd: string, env: NodeJS.ProcessEnv, args: string[] = []) {
-    if (this.child || this.stopping || this.managementStopError) throw new Error('Runtime already started or still stopping');
+    if (this.child || this.stopping || this.terminationHelper || this.managementStopError) throw new Error('Runtime already started or still stopping');
     this.disconnected = false;
     this.exitedChild = undefined;
     this.stderr = '';
@@ -208,6 +209,9 @@ export class RpcProcess {
     return this.stopProcess(true, timeoutMs);
   }
   private async stopProcess(management: boolean, timeoutMs = 5000, requireTree = false) {
+    // A deadline rejects the caller, but kill() alone cannot confirm helper exit.
+    // Retain ownership even if the target has exited, until explicit OS evidence.
+    if (this.terminationHelper) throw new Error('Runtime process-tree termination failed: helper is still running');
     const child = this.child;
     if (!child) {
       if (!management && this.job && this.exitedChild) {
@@ -274,10 +278,30 @@ export class RpcProcess {
     if (process.platform === 'win32' && child.pid) {
       const code = await new Promise<number | null>((resolve, reject) => {
         const killer = spawn('taskkill.exe', ['/PID', String(child.pid), '/T', '/F'], { windowsHide: true, stdio: 'ignore' });
-        killer.on('error', () => reject(new Error('Runtime process-tree termination failed: helper unavailable')));
+        this.terminationHelper = killer;
+        let settled = false;
+        const finish = (error?: Error, code: number | null = null) => {
+          if (settled) return;
+          settled = true; clearTimeout(timer);
+          error ? reject(error) : resolve(code);
+        };
+        const release = () => {
+          if (this.terminationHelper === killer) this.terminationHelper = undefined;
+        };
+        // Match the terminal-session helper's budget: Windows tree enumeration
+        // can take several seconds. Never confuse its timeout with tree release.
+        const timer = setTimeout(() => {
+          finish(new Error('Runtime process-tree termination timed out'));
+          try { killer.kill(); } catch { /* Ownership remains until exit/close. */ }
+        }, 10000);
+        // Keep an error listener for late errors (including a failed kill request).
+        killer.on('error', () => finish(new Error('Runtime process-tree termination failed: helper unavailable')));
+        killer.once('close', release);
         killer.on('exit', (code, signal) => {
-          if (code === 0 || code === 128 && !requireTree || this.job) resolve(code);
-          else reject(new Error(`Runtime process-tree termination failed (${code ?? signal ?? 'unknown'})`));
+          release();
+          if (settled) return;
+          if (code === 0 || code === 128 && !requireTree || this.job) finish(undefined, code);
+          else finish(new Error(`Runtime process-tree termination failed (${code ?? signal ?? 'unknown'})`));
         });
       });
       // A broken pipe can end the child before taskkill finds it (128).

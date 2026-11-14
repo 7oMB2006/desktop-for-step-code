@@ -3,8 +3,10 @@
 Implementation record: 2026-11-14.
 
 Source changes and local acceptance are complete in the isolated
-`fix/session-startup-decoupling` worktree, based on
+`fix/session-startup-decoupling` worktree, originally based on
 `c1f8f01a7db84ef616dd9ac30cb1116945e590ec`.
+PR preparation rebased the implementation onto `main 2d0777b`; the additional
+acceptance for that integration is recorded separately below.
 Commit and PR delivery were authorized after local acceptance. No installer,
 release, production-profile migration or shortcut update is included.
 
@@ -241,6 +243,43 @@ These focused results overlap earlier tests and are not added to the full-suite
 total. No model persistence/restoration or native runtime source changed in
 this increment.
 
+### Main Integration Before PR
+
+The implementation was rebased onto `main 2d0777b`, retaining PR #245's Remote
+startup/navigation coordination and source-specific waiting hints. Selection
+revisions still serve as the Remote request ID. Every navigation clears its
+transient Remote wait; only successful navigation releases the selected reading.
+The Remote source-extraction test received the reader-owner fixture bindings
+needed by the integrated handler, without changing its original assertions.
+Independent read-only rebase review found no definite issues.
+
+On the rebased product sources (`c09c1b2`), the following passed:
+
+- Full Desktop TypeScript and production build, with existing Vite warnings.
+- Twenty-one focused protocol files: 520 passed, zero failed/skipped/cancelled.
+  These cover Remote management/navigation, runtime startup and reading,
+  execution boundaries, hosted tools, model selection and window handoff.
+- Root CI policy, inventory, runner and documentation tests: 39 passed, one
+  platform skip, zero failures.
+- Source Electron navigation: 38 authoritative model/effort checks and 41
+  monitored states, including two failures; zero stale pickers or page errors.
+  Light/wide and dark/narrow loading screenshots were inspected again.
+- Source Electron Remote startup/navigation in three modes: saved Feishu
+  recovery, external Agent preparation and disconnected control. Latest local
+  selection wins; independently owned sessions and correctly attributed hints
+  remain intact.
+- Source Electron actual 70-second MCP: readable at 599.00 ms, authoritative
+  at 2,053.52 ms and tools connected at 72,023.86 ms. Pending-tool refusal,
+  cleanup refusal, explicit optional exclusion, reconnect and retained cold
+  draft/mode checks passed; one explicitly accepted provider request and zero
+  renderer errors.
+
+The original 257-file full suite and 20-selection reading distribution were
+not rerun after this rebase. The measurements remain controlled fixture results,
+not real-provider, cross-platform, installer or cloud acceptance. All five
+Electron runners exited successfully; the final owned Node/Electron process
+audit was empty. No production profile, shortcut or package was changed.
+
 ### Evidence And Artifacts
 
 Primary local evidence:
@@ -260,6 +299,14 @@ D:\DFSC Builds\session-startup-decoupling\evidence-20261114\
   model-labels\verify-session-navigation.log
   model-labels\navigation\session-navigation-results.json
   model-labels\verify-model-switch-reviewed.log
+  pr-main-sync\build.log
+  pr-main-sync\typecheck.log
+  pr-main-sync\focused-protocol.log
+  pr-main-sync\navigation\session-navigation-results.json
+  pr-main-sync\remote-remote\results.json
+  pr-main-sync\remote-external\results.json
+  pr-main-sync\remote-disabled\results.json
+  pr-main-sync\startup\results.json
 ```
 
 Per-file protocol TAP/logs remain in `Desktop/test-results/protocol/`.
@@ -274,7 +321,7 @@ Owned artifact inventory, approximate logical sizes after acceptance:
 | `D:\DFSC Builds\session-startup-decoupling\patch-replay` | 17.36 MiB; fresh patch replay evidence checkout |
 | `D:\DFSC Builds\session-startup-decoupling\runtime` | 124.32 MiB; current staged acceptance runtime |
 | `D:\DFSC Builds\session-startup-decoupling\native-baseline.index` | 0.19 MiB; private baseline index, not the native Git index |
-| `D:\DFSC Builds\session-startup-decoupling\evidence-20261114` | 1.67 MiB; reports/logs/screenshots, including 0.29 MiB for the model-label increment |
+| `D:\DFSC Builds\session-startup-decoupling\evidence-20261114` | 2.54 MiB; reports/logs/screenshots, including 0.29 MiB for model labels and 0.87 MiB for main integration |
 | Worktree `Desktop/dist` | 13.06 MiB; current production source build |
 | Worktree `Desktop/test-results/protocol` | 1.05 MiB; complete per-file protocol evidence |
 

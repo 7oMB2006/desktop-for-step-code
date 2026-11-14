@@ -337,6 +337,47 @@ that shared installation was not modified or cleaned. Further removal of owned
 source/build directories requires separate authorization and an exact-path
 process/link/source recheck.
 
+## PR 246 CI Follow-up
+
+The first Windows and macOS runs at `3a96a7d` failed in first-run,
+new-session and Cron management acceptance. These local-model fixtures had
+implicitly depended on a machine-installed StepPage service. Clean runners
+correctly reached unavailable-tool consent instead of submitting their model
+request. The new-session runner then stalled in its old unbounded shutdown path.
+
+Unrelated loopback fixtures now explicitly disable only the built-in StepPage
+declaration. StepPage's own registration/preparation tests are unchanged.
+The first-run fixture still starts with an empty profile: it disables the
+unrelated MCP through the real settings API after onboarding detection.
+The summary fixture retains its intentionally failed `local-search` service
+and explicitly confirms its exclusion before the first provider request.
+
+Successful-execution fixtures wait for authoritative tool discovery. Cold-draft
+UI fixtures may make one explicit retry only after the exact startup refusal,
+no persisted user turn, unchanged worker/session and fully ready tools.
+Accepted execution, another error, failed tools or uncertain cleanup cannot
+trigger that retry. New-session persistence polling now awaits resolved IPC
+values, and its teardown awaits orderly shutdown while always closing HTTP.
+No acceptance deadline was increased and no production tool gate was bypassed.
+
+Further acceptance exposed a real Plan compatibility issue: replaying a draft's
+Plan selection used the native `/plan` command before discovery completed.
+The startup-management annotation now supports an argument predicate.
+Only `/plan`, `/plan on` and `/plan off` qualify; planning a task or approving
+a proposal still requires execution admission before the handler runs.
+Nested Agent work remains independently gated. The runtime pin is unchanged.
+
+Local evidence is under `evidence-20261114/ci-fix`: native management/Plan/prompt
+regressions, focused Desktop protocol tests, typecheck, runtime staging and
+individual zero-exit Electron runner logs. Earlier failed attempts in this
+directory are diagnostics, not successful acceptance receipts.
+The native regression selection passed 185 tests; the final eight-file Desktop
+selection passed 230 tests and runtime-staging contracts passed another eight.
+This follow-up did not rerun the entire Desktop protocol inventory locally.
+The fresh `patch-replay-ci-fix` checkout verifies the Windows patch sequence and
+macOS overlay source hashes; this is not a native macOS build or acceptance run.
+Cloud CI must be checked again on the pushed revision before calling the PR green.
+
 ## Remaining Boundaries
 
 This fixes startup coupling generically; it does not special-case Scrapling,

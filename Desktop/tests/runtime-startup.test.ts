@@ -107,6 +107,12 @@ test('real native core and management stay responsive while MCP connects; reject
     assert.ok(f.coreMs < 5000, `Core ${f.coreMs}ms must not wait for the 5s MCP handshake`);
     await until(f.state, state => state.discovery === 'ready');
     assert.ok((await f.state()).tools.some(tool => tool.status === 'connecting'));
+    await f.rpc.request('prompt', { message: '/plan on' });
+    const planning = await f.rpc.request('get_entries');
+    assert.equal(planning.entries.findLast((entry: { customType?: string }) => entry.customType === 'step-plan')?.data.enabled, true);
+    await assert.rejects(f.rpc.request('prompt', { message: '/plan MUST_NOT_APPEND' }), /STARTUP_NOT_READY/);
+    await assert.rejects(f.rpc.request('prompt', { message: '/plan approve' }), /STARTUP_NOT_READY/);
+    await f.rpc.request('prompt', { message: '/plan off' });
     const before = await f.rpc.request('get_entries');
     for (const [type, args] of [
       ['prompt', { message: 'MUST_NOT_APPEND' }], ['steer', { message: 'MUST_NOT_QUEUE' }],

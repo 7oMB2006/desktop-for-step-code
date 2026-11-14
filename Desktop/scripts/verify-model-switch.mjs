@@ -5,7 +5,7 @@ import { mkdir, readFile, realpath, writeFile } from 'node:fs/promises';
 import { mkdtemp } from './test-profile.mjs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { prepareSessionFixture, waitForSessionFixtureSnapshot } from './session-fixture.mjs';
+import { prepareSessionFixture, waitForSessionFixtureTools } from './session-fixture.mjs';
 import { closeDesktopFixture } from './close-desktop-fixture.mjs';
 
 const profile = await realpath(await mkdtemp(join(tmpdir(), 'step-model-switch-')));
@@ -33,7 +33,7 @@ const server = createServer(async (req, res) => {
 await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
 await writeFile(join(profile, 'preferences.json'), JSON.stringify({ language: 'zh', theme: 'dark', workspaces: [],
   recentModels: [{ provider: 'switch-fixture', id: 'model-a' }] }));
-await writeFile(join(root, 'config.toml'), 'defaultProvider = "switch-fixture"\ndefaultModel = "model-a"\npermissionPreset = "approve-for-me"\n[telemetry]\nenabled = false\n');
+await writeFile(join(root, 'config.toml'), 'defaultProvider = "switch-fixture"\ndefaultModel = "model-a"\npermissionPreset = "approve-for-me"\n[telemetry]\nenabled = false\n[mcp_servers.steppage__steppage]\nenabled = false\n');
 await writeFile(join(root, 'models.json'), JSON.stringify({ providers: { 'switch-fixture': {
   baseUrl: `http://127.0.0.1:${server.address().port}/v1`, api: 'openai-completions', apiKey: 'isolated-fixture',
   models: ['a', 'b'].map(id => ({ id: `model-${id}`, name: id === 'a' ? 'Step-3.5-Flash' : 'Step-3.5-Pro',
@@ -62,12 +62,7 @@ try {
   await page.getByText('Step Code 已连接', { exact: true }).waitFor({ timeout: 60000 });
   const fixture = await prepareSessionFixture(page), id = fixture.runtimeId;
   // Async startup may advance independently while a favorite is saved.
-  await waitForSessionFixtureSnapshot(page, snapshot => {
-    const startup = snapshot.state?.desktopStartup;
-    return !startup || startup.targetBound && startup.modelReady && startup.discovery === 'ready'
-      && startup.cleanupConfirmed && startup.toolsSettledAt
-      && startup.tools.every(tool => tool.status === 'connected');
-  }, 'settled model-switch fixture startup', 60000);
+  await waitForSessionFixtureTools(page, id, 60000);
   const command = (type, args) => page.evaluate(({ type, args, id }) => window.desktop.command(type, args, id), { type, args, id });
   const snapshot = () => page.evaluate(() => window.desktop.snapshot());
   const favorites = async () => (await snapshot()).preferences.favoriteModels;

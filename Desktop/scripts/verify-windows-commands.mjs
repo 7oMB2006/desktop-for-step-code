@@ -5,7 +5,7 @@ import { access, copyFile, mkdir, readFile, readdir, realpath, writeFile } from 
 import { mkdtemp } from './test-profile.mjs';
 import { tmpdir } from 'node:os';
 import { isAbsolute, join, relative, resolve } from 'node:path';
-import { prepareSessionFixture } from './session-fixture.mjs';
+import { prepareSessionFixture, waitForSessionFixtureTools } from './session-fixture.mjs';
 
 assert.equal(process.platform, 'win32', 'This acceptance requires real Windows');
 const scratch = await mkdtemp(join(tmpdir(), 'desktop-windows-commands-'));
@@ -103,7 +103,7 @@ for (const mode of ['default', 'path-install', 'explicit', 'missing-explicit', '
   await writeFile(join(profile, 'preferences.json'), JSON.stringify({ theme: 'dark', language: 'zh', workspace, workspaces: [workspace] }));
   const shellSetting = mode === 'explicit' || mode === 'missing-explicit'
     ? `shellPath = ${JSON.stringify(join(portable, mode === 'explicit' ? 'bin/bash.exe' : 'missing/bash.exe'))}\n` : '';
-  await writeFile(join(root, 'config.toml'), `${shellSetting}defaultProvider = "fixture"\ndefaultModel = "fixture"\npermissionPreset = "approve-for-me"\n[telemetry]\nenabled = false\n`);
+  await writeFile(join(root, 'config.toml'), `${shellSetting}defaultProvider = "fixture"\ndefaultModel = "fixture"\npermissionPreset = "approve-for-me"\n[telemetry]\nenabled = false\n[mcp_servers.steppage__steppage]\nenabled = false\n`);
   await writeFile(join(root, 'models.json'), JSON.stringify({ providers: { fixture: {
     api: 'openai-completions', baseUrl: `http://127.0.0.1:${server.address().port}/v1`, apiKey: 'local-fixture',
     models: [{ id: 'fixture', name: 'Windows command fixture', contextWindow: 32768, maxTokens: 2048 }],
@@ -146,6 +146,7 @@ for (const mode of ['default', 'path-install', 'explicit', 'missing-explicit', '
     });
     progress('session readiness');
     await prepareSessionFixture(page);
+    await waitForSessionFixtureTools(page);
     progress('prompt submission');
     const snap = await page.evaluate(() => window.desktop.snapshot());
     await page.evaluate(runtimeId => window.desktop.command('prompt', { message: 'WINDOWS_COMMAND_PROBE' }, runtimeId), snap.runtimeId);

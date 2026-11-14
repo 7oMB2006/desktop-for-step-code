@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { mkdtemp } from './test-profile.mjs';
+import { submitColdSessionFixture } from './session-fixture.mjs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { _electron as electron } from 'playwright';
@@ -37,7 +38,7 @@ const root = join(profile, 'step-runtime');
 await mkdir(root, { recursive: true });
 await mkdir('test-results', { recursive: true });
 await writeFile(join(profile, 'preferences.json'), JSON.stringify({ theme: 'dark', language: 'zh', workspaces: [], autoCheckUpdates: false }));
-await writeFile(join(root, 'config.toml'), 'defaultProvider = "fixture"\ndefaultModel = "fixture"\npermissionPreset = "ask"\n[telemetry]\nenabled = false\n');
+await writeFile(join(root, 'config.toml'), 'defaultProvider = "fixture"\ndefaultModel = "fixture"\npermissionPreset = "ask"\n[telemetry]\nenabled = false\n[mcp_servers.steppage__steppage]\nenabled = false\n');
 await writeFile(join(root, 'models.json'), JSON.stringify({ defaultProvider: 'fixture', defaultModel: 'fixture',
   providers: { fixture: { baseUrl: `http://127.0.0.1:${server.address().port}/v1`, api: 'openai-completions', apiKey: 'isolated-test',
     models: [{ id: 'fixture', name: 'Performance fixture', contextWindow: 32768, maxTokens: 2048 }] } } }));
@@ -61,7 +62,7 @@ try {
   assert.equal(await values.nth(0).innerText(), '—');
   assert.equal(await values.nth(1).innerText(), '—');
   await input.fill('回复一段测试文字，不调用任何工具。');
-  await input.press('Enter');
+  await submitColdSessionFixture(page, () => input.press('Enter'));
   await page.locator('.working .matrix-pulse').waitFor();
   await page.locator('.working-elapsed').waitFor();
   await page.waitForFunction(() => document.querySelector('.working .matrix-pulse')?.dataset.mode === 'responding');

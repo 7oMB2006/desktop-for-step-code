@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import { createServer } from 'node:http';
 import { mkdir, writeFile, readFile } from 'node:fs/promises';
 import { mkdtemp } from './test-profile.mjs';
+import { submitColdSessionFixture } from './session-fixture.mjs';
 import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
 import assert from 'node:assert/strict';
@@ -65,7 +66,7 @@ const profile = await mkdtemp(join(tmpdir(), 'desktop-plan-review-'));
 const root = join(profile, 'step-runtime'), workspace = join(profile, 'workspace');
 await mkdir(root); await mkdir(workspace); await mkdir('test-results', { recursive: true });
 await writeFile(join(profile, 'preferences.json'), JSON.stringify({ language: 'zh', theme: 'dark', workspaces: [workspace] }));
-await writeFile(join(root, 'config.toml'), 'defaultProvider = "fixture"\ndefaultModel = "fixture"\npermissionPreset = "approve-for-me"\n[telemetry]\nenabled = false\n');
+await writeFile(join(root, 'config.toml'), 'defaultProvider = "fixture"\ndefaultModel = "fixture"\npermissionPreset = "approve-for-me"\n[telemetry]\nenabled = false\n[mcp_servers.steppage__steppage]\nenabled = false\n');
 await writeFile(join(root, 'models.json'), JSON.stringify({ providers: { fixture: { baseUrl: `http://127.0.0.1:${server.address().port}/v1`, api: 'openai-completions', apiKey: 'isolated-test', models: [{ id: 'fixture', name: 'Plan fixture', contextWindow: 32768, maxTokens: 2048 }] } } }));
 const env = { ...process.env, DESKTOP_TEST_USER_DATA: profile, DESKTOP_TEST_NO_FOCUS: '1' }; delete env.ELECTRON_RUN_AS_NODE;
 const launchOptions = { ...(process.env.DESKTOP_VERIFY_EXE ? { executablePath: process.env.DESKTOP_VERIFY_EXE } : {}),
@@ -91,7 +92,9 @@ try {
   await page.getByRole('button', { name: '访问权限', exact: true }).click();
   await page.getByRole('menuitemcheckbox', { name: '计划模式', exact: true }).click();
   await page.getByRole('textbox', { name: '消息', exact: true }).fill('Plan a small file change.');
-  await page.getByRole('textbox', { name: '消息', exact: true }).press('Enter');
+  const sendPlan = () => page.getByRole('textbox', { name: '消息', exact: true }).press('Enter');
+  if (process.env.DESKTOP_VERIFY_FULL_ACCESS) await sendPlan();
+  else await submitColdSessionFixture(page, sendPlan);
   if (process.env.DESKTOP_VERIFY_FULL_ACCESS) {
     const risk = page.getByRole('dialog', { name: '启用完全访问？', exact: true });
     await risk.waitFor({ timeout: 60000 });

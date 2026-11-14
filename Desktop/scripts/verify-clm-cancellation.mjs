@@ -51,7 +51,7 @@ const profile = await mkdtemp(join(tmpdir(), 'desktop-clm-cancel-ui-'));
 const workspace = join(profile, 'workspace'), root = join(profile, 'step-runtime');
 await mkdir(workspace); await mkdir(join(root, 'sessions'), { recursive: true });
 await writeFile(join(profile, 'preferences.json'), JSON.stringify({ language: 'en', theme: 'dark', workspaces: [workspace] }));
-await writeFile(join(root, 'config.toml'), 'defaultProvider = "fixture"\ndefaultModel = "fixture"\n[telemetry]\nenabled = false\n[compaction]\nreserveTokens = 8192\nkeepRecentTokens = 20000\n[compaction.autoClm]\nsoftThresholdRatio = 0.6\n');
+await writeFile(join(root, 'config.toml'), 'defaultProvider = "fixture"\ndefaultModel = "fixture"\n[telemetry]\nenabled = false\n[compaction]\nreserveTokens = 8192\nkeepRecentTokens = 20000\n[compaction.autoClm]\nsoftThresholdRatio = 0.6\n[mcp_servers.steppage__steppage]\nenabled = false\n');
 await writeFile(join(root, 'models.json'), JSON.stringify({ providers: { fixture: {
   api: 'openai-completions', baseUrl: `http://127.0.0.1:${server.address().port}/v1`, apiKey: 'isolated-test',
   models: [{ id: 'fixture', name: 'CLM fixture', contextWindow: 64000, maxTokens: 8192 }],

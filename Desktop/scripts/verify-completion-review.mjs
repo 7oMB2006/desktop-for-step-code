@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { mkdtemp, removeTestProfile } from './test-profile.mjs';
+import { submitColdSessionFixture } from './session-fixture.mjs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { _electron as electron } from 'playwright';
@@ -50,7 +51,7 @@ export default pi => pi.on("input", async event => {
 });
 `);
 await writeFile(join(profile, 'preferences.json'), JSON.stringify({ language: 'zh', theme: 'dark' }));
-await writeFile(join(root, 'config.toml'), 'defaultProvider = "fixture"\ndefaultModel = "fixture"\npermissionPreset = "ask"\n[telemetry]\nenabled = false\n');
+await writeFile(join(root, 'config.toml'), 'defaultProvider = "fixture"\ndefaultModel = "fixture"\npermissionPreset = "ask"\n[telemetry]\nenabled = false\n[mcp_servers.steppage__steppage]\nenabled = false\n');
 await writeFile(join(root, 'models.json'), JSON.stringify({ providers: { fixture: {
   api: 'openai-completions', baseUrl: `http://127.0.0.1:${server.address().port}/v1`, apiKey: 'isolated-review-native',
   models: [{ id: 'fixture', name: 'Review fixture', contextWindow: 100000, maxTokens: 2048 }],
@@ -89,7 +90,7 @@ try {
   await page.keyboard.press('Escape');
   const input = page.getByRole('textbox', { name: '消息', exact: true });
   await input.fill('REVIEW-NATIVE-MAIN 核对最终修改后再结束。');
-  await input.press('Enter');
+  await submitColdSessionFixture(page, () => input.press('Enter'));
   const wait = async (predicate, label) => {
     const deadline = Date.now() + 30000;
     while (!await predicate() && Date.now() < deadline) await page.waitForTimeout(40);

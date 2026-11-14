@@ -8,7 +8,7 @@ import { createServer } from 'node:http';
 import { assertFocusVisible } from './assert-focus-visible.mjs';
 import { closeDesktopFixtureAndWait } from './close-desktop-fixture.mjs';
 import { settleLayout } from './settle-layout.mjs';
-import { waitForSessionFixtureSnapshot } from './session-fixture.mjs';
+import { submitColdSessionFixture, waitForSessionFixtureSnapshot } from './session-fixture.mjs';
 import { verifyFirstRunExit } from './first-run-exit-checks.mjs';
 import { installRuntimeFixturePreload } from './runtime-transport-fixture.mjs';
 
@@ -234,6 +234,11 @@ try {
   const customRoot = await profile();
   await launch(customRoot);
   await stopIntro();
+  // Use the real settings API only after fresh-profile detection has completed.
+  await page.evaluate(async () => {
+    const settings = await window.desktop.settings();
+    await window.desktop.saveMcp('steppage__steppage', { ...settings.mcp.steppage__steppage, enabled: false });
+  });
   await page.locator('.first-run-service').filter({ hasText: '其他供应商' }).click();
   await page.getByRole('heading', { name: '自定义供应商', exact: true }).waitFor();
   await page.getByRole('button', { name: '添加供应商', exact: true }).first().click();
@@ -306,7 +311,7 @@ try {
     });
   });
   await page.getByRole('textbox', { name: '消息', exact: true }).fill('Reply using the onboarding provider.');
-  await page.getByRole('button', { name: '发送', exact: true }).click();
+  await submitColdSessionFixture(page, () => page.getByRole('button', { name: '发送', exact: true }).click());
   await page.getByText('First-run loopback reply.', { exact: true }).waitFor({ timeout: 60000 });
   assert.equal(requests.length, 1, 'only the explicit first send invokes the configured model');
   await page.waitForFunction(() => window.firstRunCompletion?.settled);
@@ -445,7 +450,9 @@ try {
   }
   throw error;
 } finally {
-  await close();
-  server.closeAllConnections();
-  await new Promise(resolve => server.close(resolve));
+  try { await close(); }
+  finally {
+    server.closeAllConnections();
+    await new Promise(resolve => server.close(resolve));
+  }
 }

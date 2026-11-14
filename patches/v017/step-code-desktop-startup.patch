@@ -1,5 +1,5 @@
 diff --git a/packages/coding-agent/src/core/agent-session.ts b/packages/coding-agent/src/core/agent-session.ts
-index c786077..209e8e1 100644
+index c786077..9c189e4 100644
 --- a/packages/coding-agent/src/core/agent-session.ts
 +++ b/packages/coding-agent/src/core/agent-session.ts
 @@ -91,6 +91,7 @@ import {
@@ -80,15 +80,19 @@ index c786077..209e8e1 100644
  	}
  
  	/**
-@@ -2577,6 +2587,7 @@ export class AgentSession {
+@@ -2577,6 +2587,11 @@ export class AgentSession {
  
  		const command = this._extensionRunner.getCommand(commandName);
  		if (!command) return false;
-+		if (!command.startupManagement) acquireExecutionAdmission(this.sessionManager, false).verify();
++		const startupManagement =
++			typeof command.startupManagement === "function"
++				? command.startupManagement(args)
++				: command.startupManagement === true;
++		if (!startupManagement) acquireExecutionAdmission(this.sessionManager, false).verify();
  
  		// Get command context from extension runner (includes session control methods)
  		const ctx = this._extensionRunner.createCommandContext();
-@@ -2591,6 +2602,7 @@ export class AgentSession {
+@@ -2591,6 +2606,7 @@ export class AgentSession {
  		try {
  			await command.handler(args, ctx);
  		} catch (err) {
@@ -96,7 +100,7 @@ index c786077..209e8e1 100644
  			// Emit error via extension runner
  			this._extensionRunner.emitError({
  				extensionPath: `command:${commandName}`,
-@@ -2712,7 +2724,9 @@ export class AgentSession {
+@@ -2712,7 +2728,9 @@ export class AgentSession {
  		images?: ImageContent[],
  		source?: InputSource,
  		originalInput?: string,
@@ -106,7 +110,7 @@ index c786077..209e8e1 100644
  		this._steeringMessages.push(text);
  		this._emitQueueUpdate();
  		const content: (TextContent | ImageContent)[] = [{ type: "text", text }];
-@@ -2737,7 +2751,9 @@ export class AgentSession {
+@@ -2737,7 +2755,9 @@ export class AgentSession {
  		images?: ImageContent[],
  		source?: InputSource,
  		originalInput?: string,
@@ -116,7 +120,7 @@ index c786077..209e8e1 100644
  		this._followUpMessages.push(text);
  		this._emitQueueUpdate();
  		const content: (TextContent | ImageContent)[] = [{ type: "text", text }];
-@@ -2786,6 +2802,11 @@ export class AgentSession {
+@@ -2786,6 +2806,11 @@ export class AgentSession {
  		message: Pick<CustomMessage<T>, "customType" | "content" | "display" | "details">,
  		options?: { triggerTurn?: boolean; deliverAs?: "steer" | "followUp" | "nextTurn" },
  	): Promise<void> {
@@ -128,7 +132,7 @@ index c786077..209e8e1 100644
  		const appMessage = {
  			role: "custom" as const,
  			customType: message.customType,
-@@ -2811,7 +2832,7 @@ export class AgentSession {
+@@ -2811,7 +2836,7 @@ export class AgentSession {
  				// would bypass the queue ledger and vanish on abort.
  				this._pendingCustomMessages.push(appMessage);
  			} else {
@@ -137,7 +141,7 @@ index c786077..209e8e1 100644
  			}
  		} else if (this.isStreaming) {
  			// Appending now would put the message between an assistant tool call and its
-@@ -3278,6 +3299,8 @@ export class AgentSession {
+@@ -3278,6 +3303,8 @@ export class AgentSession {
  	 * @param customInstructions Optional instructions for the compaction summary
  	 */
  	async compact(customInstructions?: string): Promise<CompactionResult> {
@@ -146,7 +150,7 @@ index c786077..209e8e1 100644
  		await this.abort();
  		this._compactionAbortController = new AbortController();
  		this._emit({ type: "compaction_start", reason: "manual" });
-@@ -3347,6 +3370,7 @@ export class AgentSession {
+@@ -3347,6 +3374,7 @@ export class AgentSession {
  				details = extensionCompaction.details;
  			} else {
  				// Shared default summary generator, also used by automatic compaction.
@@ -154,7 +158,7 @@ index c786077..209e8e1 100644
  				const result = await this._runDefaultCompaction(
  					preparation,
  					requestModel,
-@@ -3372,6 +3396,7 @@ export class AgentSession {
+@@ -3372,6 +3400,7 @@ export class AgentSession {
  				details = { ...(details && typeof details === "object" ? details : {}), liveContext: liveCompaction.tail };
  			}
  			this._liveContext?.invalidate();
@@ -162,7 +166,7 @@ index c786077..209e8e1 100644
  			this.sessionManager.appendCompaction(summary, firstKeptEntryId, tokensBefore, details, fromExtension, usage);
  			this._thresholdCompactionFailures = 0;
  			const newEntries = this.sessionManager.getEntries();
-@@ -4442,6 +4467,7 @@ export class AgentSession {
+@@ -4442,6 +4471,7 @@ export class AgentSession {
  		onChunk?: (chunk: string) => void,
  		options?: { excludeFromContext?: boolean; id?: string; operations?: BashOperations },
  	): Promise<BashResult> {
@@ -170,7 +174,7 @@ index c786077..209e8e1 100644
  		const abortController = new AbortController();
  		this._bashAbortControllers.add(abortController);
  
-@@ -4572,6 +4598,8 @@ export class AgentSession {
+@@ -4572,6 +4602,8 @@ export class AgentSession {
  		targetId: string,
  		options: { summarize?: boolean; customInstructions?: string; replaceInstructions?: boolean; label?: string } = {},
  	): Promise<{ editorText?: string; cancelled: boolean; aborted?: boolean; summaryEntry?: BranchSummaryEntry }> {
@@ -179,7 +183,7 @@ index c786077..209e8e1 100644
  		if (this.isStreaming) {
  			throw new Error("Wait for the current response to finish before navigating the session tree.");
  		}
-@@ -4660,6 +4688,7 @@ export class AgentSession {
+@@ -4660,6 +4692,7 @@ export class AgentSession {
  				const model = this.model!;
  				const { model: requestModel, apiKey, headers, env } = await this._getSummarizationRequestAuth(model);
  				const branchSummarySettings = this.settingsManager.getBranchSummarySettings();
@@ -187,7 +191,7 @@ index c786077..209e8e1 100644
  				const result = await generateBranchSummary(entriesToSummarize, {
  					model: requestModel,
  					apiKey,
-@@ -4711,6 +4740,7 @@ export class AgentSession {
+@@ -4711,6 +4744,7 @@ export class AgentSession {
  			// Switch leaf (with or without summary)
  			// Summary is attached at the navigation target position (newLeafId), not the old branch
  			let summaryEntry: BranchSummaryEntry | undefined;
@@ -226,7 +230,7 @@ index 0000000..e0e6861
 +	}
 +}
 diff --git a/packages/coding-agent/src/core/extensions/types.ts b/packages/coding-agent/src/core/extensions/types.ts
-index 3dad86d..9b4e653 100644
+index 3dad86d..045b0bc 100644
 --- a/packages/coding-agent/src/core/extensions/types.ts
 +++ b/packages/coding-agent/src/core/extensions/types.ts
 @@ -1367,6 +1367,8 @@ export type EntryRenderer<T = unknown> = (
@@ -234,10 +238,22 @@ index 3dad86d..9b4e653 100644
  
  export interface RegisteredCommand {
 +	/** Initialization-only handler. Any nested Agent execution still requires admission. */
-+	startupManagement?: true;
++	startupManagement?: true | ((args: string) => boolean);
  	name: string;
  	sourceInfo: SourceInfo;
  	description?: string;
+diff --git a/packages/coding-agent/src/features/step-plan.ts b/packages/coding-agent/src/features/step-plan.ts
+index 3af7e49..74502dd 100644
+--- a/packages/coding-agent/src/features/step-plan.ts
++++ b/packages/coding-agent/src/features/step-plan.ts
+@@ -607,6 +607,7 @@ export const createStepPlanExtension =
+ 			default: false,
+ 		});
+ 		pi.registerCommand("plan", {
++			startupManagement: (args) => /^(?:on|off)?$/i.test(args.trim()),
+ 			description:
+ 				"Toggle plan mode with `/plan`, or `/plan on` and `/plan off` to state it outright. `/plan <task>` plans a task, `/plan approve [hash]` accepts a submitted proposal",
+ 			handler: async (args, ctx) => {
 diff --git a/packages/coding-agent/src/features/step.ts b/packages/coding-agent/src/features/step.ts
 index 84c0d13..ce25300 100644
 --- a/packages/coding-agent/src/features/step.ts
@@ -1530,15 +1546,16 @@ index dd61a80..deff576 100644
 +});
 diff --git a/packages/coding-agent/test/desktop-startup.test.ts b/packages/coding-agent/test/desktop-startup.test.ts
 new file mode 100644
-index 0000000..c19693d
+index 0000000..b5837bf
 --- /dev/null
 +++ b/packages/coding-agent/test/desktop-startup.test.ts
-@@ -0,0 +1,266 @@
+@@ -0,0 +1,275 @@
 +import { randomUUID } from "node:crypto";
 +import { join } from "node:path";
 +import { afterEach, expect, test, vi } from "vitest";
 +import { acquireExecutionAdmission } from "../src/core/execution-admission.ts";
 +import { createStepExtension } from "../src/features/step.ts";
++import { createStepPlanExtension, getStepPlanState } from "../src/features/step-plan.ts";
 +import {
 +	DesktopStartup,
 +	desktopStartupEnabled,
@@ -1716,6 +1733,7 @@ index 0000000..c19693d
 +				});
 +			},
 +			createStepExtension(),
++			createStepPlanExtension(),
 +		],
 +	});
 +	harnesses.push(harness);
@@ -1726,6 +1744,13 @@ index 0000000..c19693d
 +	await vi.waitFor(() => expect(errors.some((error) => error.includes("STARTUP_NOT_READY"))).toBe(true));
 +	const before = harness.sessionManager.getEntries().length;
 +	await expect(harness.session.prompt("/permissions approve-for-me")).resolves.toBeUndefined();
++	await expect(harness.session.prompt("/plan on")).resolves.toBeUndefined();
++	expect(getStepPlanState(harness.sessionManager.getEntries())?.enabled).toBe(true);
++	await expect(harness.session.prompt("/plan unsafe task")).rejects.toThrow("STARTUP_NOT_READY");
++	await expect(harness.session.prompt("/plan approve")).rejects.toThrow("STARTUP_NOT_READY");
++	expect(getStepPlanState(harness.sessionManager.getEntries())?.enabled).toBe(true);
++	await expect(harness.session.prompt("/plan")).resolves.toBeUndefined();
++	expect(getStepPlanState(harness.sessionManager.getEntries())?.enabled).toBe(false);
 +	await expect(harness.session.prompt("/management")).resolves.toBeUndefined();
 +	await expect(harness.session.prompt("/not-management")).rejects.toThrow("STARTUP_NOT_READY");
 +	await expect(harness.session.prompt("/clm on")).rejects.toThrow("STARTUP_NOT_READY");

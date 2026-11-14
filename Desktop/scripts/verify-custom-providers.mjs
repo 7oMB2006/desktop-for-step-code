@@ -248,6 +248,12 @@ try {
   assert.equal(invalidLevel, true, 'undeclared thinking level is rejected');
   assert.equal((await snapshot()).state.thinkingLevel, 'ultra', 'draft keeps Ultra before its first message');
   await page.getByRole('textbox', { name: '消息', exact: true }).fill('Test custom provider');
+  // Native fill can finish before the editor transaction and controlled draft agree.
+  await page.waitForFunction(text => {
+    const element = document.querySelector('.composer > .composer-input');
+    return element?.value === text && element.dataset.empty === 'false'
+      && element.ownerDocument.activeElement === element && !element.disabled;
+  }, 'Test custom provider', { timeout: 5000 });
   await submitSessionFixture(page, () => page.getByRole('textbox', { name: '消息', exact: true }).press('Enter'));
   state = await waitFor(s => s.messages.some(m => m.role === 'assistant' && m.stopReason === 'stop'));
   assert.equal(state.state.model.provider, provider.id);

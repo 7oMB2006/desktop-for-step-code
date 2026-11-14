@@ -887,3 +887,37 @@ test('native host settings acceptance disables unrelated StepPage even with macO
   assert.ok(text.includes('[mcp_servers.steppage__steppage]\\nenabled = false'),
     'this offline SDK fixture must not depend on a prepared or personal StepPage service');
 });
+
+test('custom provider cold send waits for the actual editor and controlled value before its single Enter', async () => {
+  const text = await readFile(new URL('../scripts/verify-custom-providers.mjs', import.meta.url), 'utf8');
+  const source = ts.createSourceFile('verify-custom-providers.mjs', text,
+    ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
+  const statements = source.statements.find(ts.isTryStatement)!.tryBlock.statements;
+  const fill = statements.findIndex(statement => statement.getText(source).includes(".fill('Test custom provider')"));
+  assert.ok(fill >= 0);
+  const next = statements[fill + 1];
+  assert.ok(ts.isExpressionStatement(next) && ts.isAwaitExpression(next.expression));
+  const wait = next.expression.expression;
+  assert.ok(ts.isCallExpression(wait) && wait.expression.getText(source) === 'page.waitForFunction',
+    'fill can finish before ProseMirror and React commit; Enter must wait for both');
+  assert.equal(wait.arguments[1].getText(source), "'Test custom provider'");
+  assert.equal(wait.arguments[2].getText(source), '{ timeout: 5000 }');
+  for (const state of ['ready', 'stale-editor', 'stale-react', 'blurred', 'disabled', 'missing']) {
+    const element = state === 'missing' ? undefined : {
+      value: state === 'stale-editor' ? '' : 'Test custom provider',
+      dataset: { empty: state === 'stale-react' ? 'true' : 'false' },
+      disabled: state === 'disabled',
+      ownerDocument: { activeElement: null as unknown },
+    };
+    if (element && state !== 'blurred') element.ownerDocument.activeElement = element;
+    const ready = runInNewContext(`(${wait.arguments[0].getText(source)})('Test custom provider')`, {
+      document: { querySelector: (selector: string) => {
+        assert.equal(selector, '.composer > .composer-input'); return element;
+      } },
+    });
+    assert.equal(Boolean(ready), state === 'ready', state);
+  }
+  assert.equal(statements[fill + 2].getText(source),
+    "await submitSessionFixture(page, () => page.getByRole('textbox', { name: '消息', exact: true }).press('Enter'));",
+    'readiness must precede the unchanged native single-send path');
+});

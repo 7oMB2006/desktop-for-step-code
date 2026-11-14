@@ -531,6 +531,29 @@ logs. The throttled runs used an external capture-only diagnostic wrapper.
 Product/build sources remain unchanged from `bb7eef7`; these Windows results
 do not establish corrected macOS source/package or newest-head cloud success.
 
+At `3f749d9`, all Windows groups/result and both SDK jobs passed. macOS
+preparation, source/packaged sessions and source interface passed, including
+the corrected host-settings fixture. Its runtime source group failed the
+custom-provider fixture's first cold Enter: no accepted send or explicit
+startup refusal appeared, and the failure screenshot retained the draft text.
+
+Four local CPU-rate-4 runs of the unchanged provider fixture passed, so the
+complete cloud failure has not been independently reproduced. Capture-only
+probes did observe the editor already holding the expected text while React
+still marked it empty and disabled Send. The first provider send now waits for
+the exact editor value, nonempty controlled state, focus and editability before
+its unchanged Enter. This closes an observed fixture synchronization gap; it
+does not establish the unique cause of the cloud failure. It does not wait out
+cold startup, add a send retry or alter production admission.
+
+The new contract failed before the wait was added and passes afterward,
+including stale editor/React, lost focus, disabled and missing editor cases.
+`focused-r10` passed 122 tests and `typecheck-r10` passed. Two corrected
+CPU-rate-4 provider runs and one ordinary source Electron run passed in
+`provider-fixed-cpu4-r10-{1..2}` and `verify-custom-providers-r10`.
+Product/build sources are still unchanged from `bb7eef7`; fresh cloud results
+remain required, and the partial `3f749d9` run is not a green macOS aggregate.
+
 ## Remaining Boundaries
 
 This fixes startup coupling generically; it does not special-case Scrapling,

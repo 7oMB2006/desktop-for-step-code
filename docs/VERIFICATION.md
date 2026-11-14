@@ -15452,3 +15452,26 @@ diagnostic wrapper. Ordinary `verify-command-dispatch-r9`,
 passed too. Product/build sources remain unchanged from `bb7eef7`. These are
 controlled Windows results, not corrected macOS package acceptance or
 newest-head cloud CI success. No local installer or product UI change was made.
+
+At `3f749d9`, all Windows groups/result and both SDK jobs passed. macOS
+preparation, source/packaged sessions and source interface passed, including
+host-settings. Runtime source acceptance failed the first custom-provider
+cold Enter, without an accepted submission or explicit startup refusal; its
+failure screenshot still showed the unsent draft.
+
+Four unchanged provider-fixture runs at CPU throttling rate 4 passed locally;
+the complete cloud failure was not reproduced. Capture-only event probes
+nevertheless observed the expected editor text before React's nonempty state
+and enabled Send had committed. The first provider send now awaits exact
+editor value, controlled nonempty state, focus and editability before the
+original single Enter. This addresses an observed synchronization gap, not a
+proven unique explanation of that cloud failure. Cold-start refusal coverage,
+production admission, deadlines and send replay rules are unchanged.
+
+The added contract failed before the wait and passes after it, checking stale
+editor/React state, lost focus, disabled and missing editors. `focused-r10`
+passed 122 tests and `typecheck-r10` passed. Both
+`provider-fixed-cpu4-r10-{1..2}` runs and the ordinary
+`verify-custom-providers-r10` source Electron run passed. Product/build sources
+remain unchanged from `bb7eef7`. Latest-head cloud success is still required;
+the partial `3f749d9` macOS run is not recorded as green.

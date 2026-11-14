@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import test from 'node:test';
 import { parsePluginConfirmations, validPluginConfirmationBinding } from '../electron/plugin-confirmation-contract.mjs';
 import { PluginConfirmations, type PluginConfirmationRequest } from '../electron/plugin-confirmations';
@@ -11,8 +11,8 @@ const binding = { id: 'test-bridge', installation: 'a'.repeat(64) };
 const notice = { id: 'automatic-execution', version: '1', action: 'external.policy' as const, policy: 'remember' as const,
   title: 'Automatic execution', message: 'Files may be changed or deleted. Scope is not a sandbox.', confirmLabel: 'Acknowledge' };
 const source = (): PluginConfirmationSource => ({ binding, name: 'Test bridge', revision: 'b'.repeat(64), confirmations: [notice] });
-async function fixture(t: test.TestContext) {
-  const root = await mkdtemp(join(tmpdir(), 'dfsc-plugin-confirmations-'));
+async function fixture(t: test.TestContext, temporary = tmpdir()) {
+  const root = await realpath(await mkdtemp(join(temporary, 'dfsc-plugin-confirmations-')));
   t.after(() => rm(root, { recursive: true, force: true }));
   let current = source(), allowed = true, remembered = true, calls = 0;
   const prompts: PluginConfirmationRequest[] = [];
@@ -63,6 +63,31 @@ test('remember persists across restart only for the exact package, risk, credent
   f.replace({ ...f.current(), confirmations: [{ ...notice, message: 'Changed without a version bump.' }] });
   await f.gate().run(f.input());
   assert.equal(f.prompts.length, 6);
+});
+test('fixtures canonicalize aliased temporary directories without weakening storage checks', async t => {
+  const temporary = await realpath(tmpdir());
+  const directory = await realpath(await mkdtemp(join(temporary, 'dfsc-confirmation-temp-alias-')));
+  t.after(async () => {
+    assert.equal(dirname(directory), temporary);
+    assert.ok(basename(directory).startsWith('dfsc-confirmation-temp-alias-'));
+    await rm(directory, { recursive: true, force: true });
+  });
+  const physical = join(directory, 'physical'), alias = join(directory, 'alias');
+  await mkdir(physical);
+  await symlink(physical, alias, process.platform === 'win32' ? 'junction' : 'dir');
+  assert.notEqual(alias, await realpath(alias));
+  const f = await fixture(t, alias);
+  await f.gate().run(f.input());
+  await f.gate().run(f.input());
+  assert.equal(f.root, await realpath(f.root));
+  assert.equal(f.prompts.length, 1);
+  assert.equal(f.calls(), 2);
+  const unsafe = new PluginConfirmations(join(alias, basename(f.root)), {
+    resolve: async () => source(),
+    confirm: async () => { throw new Error('An aliased storage root must not reach confirmation'); },
+  });
+  await assert.rejects(unsafe.run(f.input()), /connector:storage/u);
+  assert.equal(f.calls(), 2);
 });
 test('always and unchecked remember never persist acknowledgement', async t => {
   const f = await fixture(t), gate = f.gate();

@@ -15475,3 +15475,34 @@ passed 122 tests and `typecheck-r10` passed. Both
 `verify-custom-providers-r10` source Electron run passed. Product/build sources
 remain unchanged from `bb7eef7`. Latest-head cloud success is still required;
 the partial `3f749d9` macOS run is not recorded as green.
+
+At `826b494`, all Windows groups/result and both SDK jobs passed again.
+macOS preparation passed, but source acceptance failed in first-run cold send,
+question-review refused-send readiness and Cron management. The provider-only
+fixture change therefore has not yet completed macOS acceptance.
+
+An independently reproduced main-process race could overwrite newer startup
+events with older RPC responses when both arrive before the response's await
+continuation resumes. Eight actual `SessionRuntimes` cases failed before the
+observation fix (ready/failed catalogs and same-catalog binding/model/cleanup/
+first-acceptance progress); two further cases failed before adding epoch
+revalidation. A separate test covers the bind-response path. This establishes
+the product race, not a unique explanation of every cloud failure above.
+
+The main process now selects whole startup observations monotonically within
+one runtime/session/configuration/epoch. It retains newer catalogs and
+forward-only same-catalog progress, with epoch/session revalidation after RPC.
+It does not synthesize a merged tool directory or relax execution admission,
+missing-tool consent, cleanup safety or renderer isolation.
+
+`focused-r11` passed 209 tests; `typecheck-r11-final` and `build-r11` passed.
+Eight `r11` source Electron reruns passed: question review, first run, Cron
+management, custom providers, session startup, send queue, host settings and
+host authorization. Actual 70-second MCP startup recorded readable history
+about 576ms, authoritative identity about 2023ms, connection about 72.00s,
+exactly one provider request and no renderer errors.
+The full `protocol-r11` run completed 258 files with 2766 passed tests,
+15 platform skips and zero failures. A tested bounded fixture-timeout
+projection adds readiness diagnostics without serializing messages, paths,
+tool names/commands or credentials. Latest-head Windows/macOS cloud and
+macOS packaged acceptance remain required for this product revision.

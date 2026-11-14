@@ -162,16 +162,33 @@ export class SessionRuntimes {
     || worker.status === 'connected' && (worker.launch?.goal?.status === 'active' || hasScheduledCron(worker.cron))); }
   isBusy(worker: SessionRuntime) { return worker.busy || worker.submissions > 0 || Boolean(worker.state?.isCompacting || worker.state?.pendingMessageCount) || worker.pendingUI.size > 0; }
   async preparePrompt(worker: SessionRuntime, message: string) { await this.hooks.beforePrompt?.(worker, message); }
-  async readStartup(worker: SessionRuntime) {
-    if (!worker.startup) return;
-    const rpc = worker.rpc, sessionId = worker.state?.sessionId;
-    const state = runtimeStartup(await rpc.request('desktop_startup', { action: 'state' }, 10000), worker.id, sessionId);
-    if (!state || this.workers.get(worker.id) !== worker || rpc !== worker.rpc
-      || state.configurationRevision !== worker.startupConfigurationRevision)
-      throw new Error('STARTUP_NOT_READY: startup identity changed');
+  private observeStartup(worker: SessionRuntime, state: RuntimeStartup) {
+    const current = worker.startup;
+    // A newer event can arrive in the same stdout batch as an older RPC response.
+    // Within one epoch, catalogs advance and bind/model/acceptance only move forward.
+    if (current && current.runtimeId === state.runtimeId && current.sessionId === state.sessionId
+      && current.startupEpoch === state.startupEpoch && current.configurationRevision === state.configurationRevision
+      && (current.catalogRevision > state.catalogRevision
+        || current.catalogRevision === state.catalogRevision && (
+          current.targetBound && !state.targetBound || current.modelReady && !state.modelReady
+          || !current.cleanupConfirmed && state.cleanupConfirmed
+          || current.firstPromptAcceptedAt !== undefined && state.firstPromptAcceptedAt === undefined))) {
+      state = current;
+    }
     worker.startup = state;
     if (worker.state) worker.state = { ...worker.state, desktopStartup: state };
     return state;
+  }
+  async readStartup(worker: SessionRuntime) {
+    if (!worker.startup) return;
+    const rpc = worker.rpc, sessionId = worker.state?.sessionId, epoch = worker.startup.startupEpoch;
+    const state = runtimeStartup(await rpc.request('desktop_startup', { action: 'state' }, 10000), worker.id, sessionId);
+    if (!state || this.workers.get(worker.id) !== worker || rpc !== worker.rpc
+      || worker.state?.sessionId !== sessionId || state.startupEpoch !== epoch
+      || worker.startup?.startupEpoch !== epoch
+      || state.configurationRevision !== worker.startupConfigurationRevision)
+      throw new Error('STARTUP_NOT_READY: startup identity changed');
+    return this.observeStartup(worker, state);
   }
   async waitForTools(worker: SessionRuntime, timeout = 190000) {
     if (!worker.startup) return;
@@ -363,8 +380,7 @@ export class SessionRuntimes {
       if (event.type === 'desktop_startup_changed') {
         const state = runtimeStartup(event.startup, worker.id, worker.status === 'connected' ? worker.state?.sessionId : undefined);
         if (!state || state.configurationRevision !== worker.startupConfigurationRevision) return;
-        worker.startup = state;
-        if (worker.state) worker.state = { ...worker.state, desktopStartup: state };
+        event = { ...event, startup: this.observeStartup(worker, state) };
       }
       // An incomplete turn keeps its provider stop reason. Only agent_settled
       // decides whether the native recovery produced a usable final answer.
@@ -659,12 +675,15 @@ export class SessionRuntimes {
     const startup = runtimeStartup(state.desktopStartup, worker.id, state.sessionId);
     if (!startup || startup.configurationRevision !== worker.startupConfigurationRevision)
       throw new Error('Desktop startup protocol acknowledgment missing');
+    const previous = worker.startup;
     const bound = runtimeStartup(await rpc.request('desktop_startup', { action: 'bind',
       sessionId: state.sessionId, startupEpoch: startup.startupEpoch }), worker.id, state.sessionId);
     this.assertStartupOwner(worker, rpc);
-    if (!bound || bound.configurationRevision !== worker.startupConfigurationRevision)
+    if (!bound || bound.configurationRevision !== worker.startupConfigurationRevision
+      || bound.startupEpoch !== startup.startupEpoch
+      || worker.startup !== previous && worker.startup?.startupEpoch !== startup.startupEpoch)
       throw new Error('Desktop startup target binding failed');
-    worker.startup = bound;
+    this.observeStartup(worker, bound);
   }
   async modelReady(worker: SessionRuntime) {
     if (!worker.startup) return;
@@ -672,10 +691,10 @@ export class SessionRuntimes {
     const state = runtimeStartup(await rpc.request('desktop_startup', { action: 'model',
       sessionId, startupEpoch: epoch }), worker.id, sessionId);
     this.assertStartupOwner(worker, rpc);
-    if (!state || state.startupEpoch !== epoch || worker.state?.sessionId !== sessionId)
+    if (!state || state.startupEpoch !== epoch || worker.state?.sessionId !== sessionId
+      || worker.startup?.startupEpoch !== epoch || state.configurationRevision !== worker.startupConfigurationRevision)
       throw new Error('Desktop startup model restoration failed');
-    worker.startup = state;
-    if (worker.state) worker.state = { ...worker.state, desktopStartup: state };
+    this.observeStartup(worker, state);
   }
   hasNonSnapshotOperations(worker: SessionRuntime): boolean {
     return worker.operations > (this.reads.get(worker)?.size ?? 0);

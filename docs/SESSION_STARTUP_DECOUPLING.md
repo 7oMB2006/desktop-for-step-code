@@ -554,6 +554,43 @@ CPU-rate-4 provider runs and one ordinary source Electron run passed in
 Product/build sources are still unchanged from `bb7eef7`; fresh cloud results
 remain required, and the partial `3f749d9` run is not a green macOS aggregate.
 
+At `826b494`, all Windows groups/result and both SDK jobs passed again. macOS
+preparation passed, but source acceptance failed in first-run cold send,
+question-review refused-send readiness and Cron management. These earlier
+failures do not validate the provider-only synchronization change on macOS.
+
+Further inspection reproduced a separate main-process product race with the
+actual `SessionRuntimes` class: a newer startup event can arrive in the same
+stdout batch as a previously captured RPC response, before its awaiting
+continuation resumes. `bindStartup`, `modelReady` and `readStartup` could then
+replace the newer observation with that old response. Eight deterministic
+cases failed before the fix, covering ready/failed catalogs and same-catalog
+binding, model, cleanup and first-acceptance progress. Two additional cases
+proved that stale responses could overwrite a replacement startup epoch.
+This establishes the race independently; it does not prove that every cloud
+failure above has the same cause.
+
+All startup observations now pass through one main-process update method.
+Within the same runtime/session/configuration/epoch it retains the newer
+whole catalog, or forward-only same-catalog progress, rather than merging
+tool directories. Read/model responses also recheck the captured epoch and
+session; binding validates its acknowledged epoch. A newer failed catalog or
+unconfirmed cleanup cannot be replaced by an older ready observation.
+The binding-response ordering has its own regression test. Native admission,
+catalog consent and renderer isolation are unchanged.
+
+`focused-r11` passed 209 tests; final typecheck and build passed. All eight
+source Electron reruns passed: question review, first run, Cron management,
+custom providers, session startup, send queue, host settings and host
+authorization. The real 70-second MCP case recorded readable history about
+576ms, authoritative identity about 2023ms, connection about 72.00s, exactly
+one provider request and no renderer errors. The complete `protocol-r11`
+run finished all 258 files: 2766 passed tests, 15 platform skips, zero failures.
+Fixture timeouts now report only a bounded readiness projection, not message
+content, paths, tool names/commands or credentials; its redaction is tested.
+These are controlled Windows results for the new main-process code, not
+latest-head macOS source/package or cloud acceptance. No installer was made.
+
 ## Remaining Boundaries
 
 This fixes startup coupling generically; it does not special-case Scrapling,

@@ -921,3 +921,20 @@ test('custom provider cold send waits for the actual editor and controlled value
     "await submitSessionFixture(page, () => page.getByRole('textbox', { name: '消息', exact: true }).press('Enter'));",
     'readiness must precede the unchanged native single-send path');
 });
+
+test('fixture timeout reports readiness without serializing messages, paths, tools or credentials', async t => {
+  const log = t.mock.method(console, 'error', () => {});
+  const secret = 'fixture-private-content';
+  const page = { evaluate: async () => ({ status: 'connected', runtimeId: 'worker',
+    draftId: 'draft', messages: [{ content: secret }], path: secret, credentials: secret,
+    state: { sessionId: 'session', desktopStartup: { discovery: 'discovering', modelReady: true,
+      tools: [{ name: secret, command: secret, error: secret, status: 'pending', cleanupConfirmed: true }] } } }) };
+  await assert.rejects(waitForSessionFixtureSnapshot(page, () => false, 'fixture readiness', 0), /Timed out/);
+  assert.equal(log.mock.calls.length, 1);
+  const text = log.mock.calls[0].arguments[1];
+  assert.equal(text.includes(secret), false);
+  const state = JSON.parse(text);
+  assert.equal(state.runtimeId, 'worker');
+  assert.equal(state.startup.discovery, 'discovering');
+  assert.deepEqual(state.startup.tools, [{ status: 'pending', cleanupConfirmed: true }]);
+});

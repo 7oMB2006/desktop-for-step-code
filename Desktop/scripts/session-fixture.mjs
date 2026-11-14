@@ -9,12 +9,23 @@ export async function waitForNewSessionButton(page, theme) {
 // Poll IPC snapshots in Node so each resolved value is actually checked.
 export async function waitForSessionFixtureSnapshot(page, predicate, label, timeoutMs = 30000) {
   const deadline = Date.now() + timeoutMs;
+  let last;
   do {
     const snapshot = await page.evaluate(() => window.desktop.snapshot());
+    last = snapshot;
     if (await predicate(snapshot)) return snapshot;
     if (Date.now() >= deadline) break;
     await new Promise(resolve => setTimeout(resolve, 40));
   } while (Date.now() < deadline);
+  const startup = last?.state?.desktopStartup;
+  console.error('Session fixture readiness timeout:', JSON.stringify({
+    label, status: last?.status, runtimeId: last?.runtimeId, draftId: last?.draftId,
+    sessionId: last?.state?.sessionId, streaming: last?.state?.isStreaming,
+    startup: startup && { startupEpoch: startup.startupEpoch, configurationRevision: startup.configurationRevision,
+      catalogRevision: startup.catalogRevision, targetBound: startup.targetBound, modelReady: startup.modelReady,
+      discovery: startup.discovery, cleanupConfirmed: startup.cleanupConfirmed,
+      tools: startup.tools.map(tool => ({ status: tool.status, cleanupConfirmed: tool.cleanupConfirmed })) },
+  }));
   assert.fail(`Timed out waiting for ${label}`);
 }
 

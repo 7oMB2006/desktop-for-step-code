@@ -40,6 +40,127 @@ function fixture(hooks: ConstructorParameters<typeof SessionRuntimes>[2] = {}) {
   const open = (cwd = `workspace-${transports.length}`) => pool.open('node', 'step', cwd, {});
   return { pool, transports, events, open };
 }
+
+for (const action of ['model', 'state'] as const) {
+  for (const discovery of ['ready', 'failed'] as const) {
+    test(`${action} startup response cannot overwrite a newer ${discovery} catalog event`, async () => {
+      const { pool, open, transports } = fixture();
+      try {
+        const worker = await open();
+        const previous: RuntimeStartup = { protocol: 1, runtimeId: worker.id, sessionId: worker.state!.sessionId!,
+          startupEpoch: randomUUID(), configurationRevision: randomUUID(), catalogRevision: 0,
+          targetBound: true, modelReady: false, cleanupConfirmed: true, discovery: 'discovering',
+          tools: [], coreReadyAt: 1 };
+        worker.startup = previous;
+        worker.startupConfigurationRevision = previous.configurationRevision;
+        const response = { ...previous, modelReady: true, modelReadyAt: 2 };
+        const latest = { ...response, catalogRevision: 1, discovery };
+        transports[0].request = async type => {
+          assert.equal(type, 'desktop_startup');
+          // The response is captured before the event; both may arrive in one stdout batch.
+          transports[0].receive({ type: 'desktop_startup_changed', startup: latest });
+          return response;
+        };
+        const result = action === 'model' ? await pool.modelReady(worker) : await pool.readStartup(worker);
+        assert.equal(worker.startup?.catalogRevision, 1);
+        assert.equal(worker.startup?.discovery, discovery);
+        assert.equal(worker.state?.desktopStartup?.discovery, discovery);
+        if (action === 'state') assert.equal(result?.discovery, discovery);
+      } finally { await pool.stopAll(); }
+    });
+  }
+}
+
+for (const field of ['targetBound', 'modelReady', 'cleanupConfirmed', 'firstPromptAcceptedAt'] as const) {
+  test(`state responses cannot roll back same-catalog ${field} progress`, async () => {
+    const { pool, open, transports } = fixture();
+    try {
+      const worker = await open();
+      const response: RuntimeStartup = { protocol: 1, runtimeId: worker.id, sessionId: worker.state!.sessionId!,
+        startupEpoch: randomUUID(), configurationRevision: randomUUID(), catalogRevision: 0,
+        targetBound: field !== 'targetBound', modelReady: field !== 'modelReady',
+        cleanupConfirmed: true, discovery: 'ready', tools: [], coreReadyAt: 1 };
+      worker.startup = response;
+      worker.startupConfigurationRevision = response.configurationRevision;
+      const latest = { ...response, [field]: field === 'cleanupConfirmed' ? false
+        : field === 'firstPromptAcceptedAt' ? 3 : true };
+      transports[0].request = async () => {
+        transports[0].receive({ type: 'desktop_startup_changed', startup: latest });
+        return response;
+      };
+      const result = await pool.readStartup(worker);
+      assert.equal(result?.[field], latest[field]);
+      assert.equal(worker.startup?.[field], latest[field]);
+      assert.equal(worker.state?.desktopStartup?.[field], latest[field]);
+    } finally { await pool.stopAll(); }
+  });
+}
+
+for (const action of ['model', 'state'] as const) {
+  test(`${action} startup response cannot replace a newer startup epoch`, async () => {
+    const { pool, open, transports } = fixture();
+    try {
+      const worker = await open();
+      const response: RuntimeStartup = { protocol: 1, runtimeId: worker.id, sessionId: worker.state!.sessionId!,
+        startupEpoch: randomUUID(), configurationRevision: randomUUID(), catalogRevision: 2,
+        targetBound: true, modelReady: true, cleanupConfirmed: true, discovery: 'ready',
+        tools: [], coreReadyAt: 1 };
+      worker.startup = response;
+      worker.startupConfigurationRevision = response.configurationRevision;
+      const latest = { ...response, startupEpoch: randomUUID(), catalogRevision: 0,
+        targetBound: false, modelReady: false, discovery: 'waiting' as const };
+      transports[0].request = async () => {
+        transports[0].receive({ type: 'desktop_startup_changed', startup: latest });
+        return response;
+      };
+      await assert.rejects(action === 'model' ? pool.modelReady(worker) : pool.readStartup(worker),
+        /startup identity changed|startup model restoration failed/i);
+      assert.equal(worker.startup?.startupEpoch, latest.startupEpoch);
+      assert.equal(worker.startup?.modelReady, false);
+      assert.equal(worker.state?.desktopStartup?.startupEpoch, latest.startupEpoch);
+    } finally { await pool.stopAll(); }
+  });
+}
+
+test('startup binding retains a catalog event delivered before its bind response resumes', async () => {
+  let worker!: SessionRuntime;
+  let latest!: RuntimeStartup;
+  const pool = new SessionRuntimes(() => {}, receive => {
+    const transport = new Transport(receive, 'bound-session');
+    const request = transport.request.bind(transport);
+    transport.request = async (type, args) => {
+      if (type === 'get_state') {
+        latest ??= { protocol: 1, runtimeId: worker.id, sessionId: transport.sessionId,
+          startupEpoch: randomUUID(), configurationRevision: worker.startupConfigurationRevision!,
+          catalogRevision: 0, targetBound: false, modelReady: false,
+          cleanupConfirmed: true, discovery: 'waiting', tools: [], coreReadyAt: 1 };
+        return { ...await request(type, args), desktopStartup: latest };
+      }
+      if (type === 'desktop_startup') {
+        if (args?.action === 'bind') {
+          const response = { ...latest, targetBound: true, discovery: 'discovering' as const };
+          latest = { ...response, catalogRevision: 1, discovery: 'ready' };
+          receive({ type: 'desktop_startup_changed', startup: latest });
+          return response;
+        }
+        latest = { ...latest, modelReady: true };
+        return latest;
+      }
+      return request(type, args);
+    };
+    return transport;
+  }, {
+    launch: current => { worker = current; return { env: {}, args: [] }; },
+    initializeModel: async current => {
+      assert.equal(current.startup?.discovery, 'ready',
+        'binding must not leave main-process startup behind the native catalog');
+      assert.equal(current.startup?.catalogRevision, 1);
+    },
+  });
+  try { await pool.open('node', 'step', 'workspace', {}); }
+  finally { await pool.stopAll(); }
+});
+
 test('host plugins are attached only after model restore and never for gated Cron preparation', async () => {
   const steps: string[] = [];
   const f = fixture({ initializeModel: async worker => {

@@ -6,9 +6,12 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { _electron as electron } from 'playwright';
 import { installRuntimeFixturePreload } from './runtime-transport-fixture.mjs';
+import { waitForSessionFixtureTools } from './session-fixture.mjs';
 
 const profile = await mkdtemp(join(tmpdir(), 'desktop-account-routing-'));
 await mkdir(join(profile, 'step-runtime'), { recursive: true });
+await writeFile(join(profile, 'step-runtime', 'config.toml'),
+  '[telemetry]\nenabled = false\n[mcp_servers.steppage__steppage]\nenabled = false\n');
 await writeFile(join(profile, 'preferences.json'), JSON.stringify({
   language: 'zh', theme: 'light', workspaces: [], autoCheckUpdates: false,
 }));
@@ -160,6 +163,7 @@ try {
     await page.evaluate(({ model, id }) => window.desktop.command('set_model', { provider: model.provider, modelId: model.id }, id),
       { model, id: state.runtimeId });
     const replies = state.messages.filter(m => m.role === 'assistant').length;
+    await waitForSessionFixtureTools(page, state.runtimeId);
     console.log('Account routing: sending fixture prompt');
     let timer;
     let receipt;

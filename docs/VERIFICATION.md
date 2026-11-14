@@ -15344,3 +15344,17 @@ tool readiness and committed continuation. The two composer IPC fixtures
 capture a settled native snapshot before replacing their handler, rather than
 freezing startup in progress. Final targeted `r4` logs cover capabilities,
 session import, composer menu, command dispatch, Workflow and branching.
+
+The complete local interface diagnostic batch attempted 62 runners, with
+56 passes and six failures. All six then passed scoped corrected reruns:
+capabilities, composer menu and command dispatch in `r4`; account settings,
+account routing and fulltext search in `r5`. This is not a claim that the
+original batch was green. Account success paths await real tool readiness
+without changing the intentional login-busy rejection or denied-Plan routing.
+Fulltext failure checks retain selected read-only history with execution
+disabled, then successfully reopen and locate the search result.
+
+The final four-file regression selection passed 94 tests; typecheck and the
+ordinary production build passed again (`focused-r5`, `typecheck-r5`,
+`build-r5`). The original failures remain diagnostic evidence. Only the
+latest pushed revision's cloud results can establish current-head CI success.

@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { createServer } from 'node:http';
 import { installRuntimeFixturePreload } from './runtime-transport-fixture.mjs';
+import { waitForSessionFixtureSnapshot, waitForSessionFixtureTools } from './session-fixture.mjs';
 
 const profile = await realpath(await mkdtemp(join(tmpdir(), 'desktop-account-settings-')));
 const requests = [];
@@ -43,6 +44,8 @@ Object.defineProperty(globalThis, 'fetch', { configurable: true, get: () => rout
 `);
 await mkdir('test-results', { recursive: true });
 await mkdir(join(profile, 'step-runtime'), { recursive: true });
+await writeFile(join(profile, 'step-runtime', 'config.toml'),
+  '[telemetry]\nenabled = false\n[mcp_servers.steppage__steppage]\nenabled = false\n');
 await writeFile(join(profile, 'preferences.json'), JSON.stringify({ language: 'zh', theme: 'light', workspaces: [] }));
 const secret = 'isolated-account-fixture-only';
 await writeFile(join(profile, 'step-runtime/auth.json'), JSON.stringify({ step: {
@@ -123,7 +126,8 @@ try {
   assert.equal(await page.getByText('暂无可用档位', { exact: true }).count(), 0);
   await page.screenshot({ path: 'test-results/account-thinking-after-login.png' });
   await effort.press('End');
-  await page.waitForFunction(async () => (await window.desktop.snapshot()).state.thinkingLevel === 'high');
+  await waitForSessionFixtureSnapshot(page, snapshot => snapshot.state.thinkingLevel === 'high',
+    'the selected account thinking level');
   await page.keyboard.press('Escape');
   await page.evaluate(() => window.desktop.command('set_model', { provider: 'thinking-fixture', modelId: 'step-thinking-alternative' }));
   assert.equal((await page.evaluate(() => window.desktop.snapshot())).state.thinkingLevel, 'high', 'Fixture has a manually selected effort before it disappears');
@@ -145,6 +149,7 @@ try {
   const created = await page.evaluate(id => window.desktop.createDraftSession(id), refreshed.draftId);
   assert.equal(created.state.model.id, 'step-thinking-alternative');
   assert.equal(created.state.thinkingLevel, refreshed.state.thinkingLevel, 'Created runtime must use the effort displayed in the proposal, not its own model-switch fallback');
+  await waitForSessionFixtureTools(page, created.runtimeId);
   await page.evaluate(runtimeId => window.desktop.command('prompt', { message: 'Verify the displayed thinking fallback' }, runtimeId), created.runtimeId);
   let replied = false;
   const deadline = Date.now() + 60000;
@@ -163,6 +168,7 @@ try {
   assert.equal((await page.evaluate(() => window.desktop.snapshot())).estimate.groups.length, 0,
     'non-official providers never enter the official estimate ledger');
   await page.evaluate(runtimeId => window.desktop.command('set_model', { provider: 'step', modelId: 'step-5-preview' }, runtimeId), created.runtimeId);
+  await waitForSessionFixtureTools(page, created.runtimeId);
   await page.evaluate(runtimeId => window.desktop.command('prompt', { message: 'Verify the official profile usage estimate' }, runtimeId), created.runtimeId);
   let estimated;
   const estimateDeadline = Date.now() + 60000;

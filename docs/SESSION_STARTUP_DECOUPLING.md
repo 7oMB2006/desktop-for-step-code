@@ -408,6 +408,21 @@ imported tool-history isolation assertions are retained. The composer-menu and
 command-dispatch mocks now capture real settled startup readiness before
 replacing IPC, instead of freezing a pending native snapshot forever.
 
+The full local interface diagnostic batch attempted all 62 runners: 56 passed
+and six failed. Capabilities, composer-menu and command-dispatch passed their
+corrected `r4` reruns. Account-settings, account-routing and fulltext-search
+passed their corrected `r5` reruns. The original batch is not recorded as a
+single green run. Account success paths now await authoritative tool discovery;
+the intentional login-busy rejection and Plan-denial routing checks remain.
+Search navigation failure now verifies the intended selected read-only history,
+disabled execution controls and a successful subsequent open/location, rather
+than expecting the now-hidden search panel to show its old error notice.
+
+The final four-file regression selection passed 94 tests, including both account
+fixture ordering contracts. Typecheck and the ordinary production build passed
+again in `typecheck-r5`, `focused-r5` and `build-r5`. These results do not replace
+current-head Windows and macOS cloud acceptance.
+
 ## Remaining Boundaries
 
 This fixes startup coupling generically; it does not special-case Scrapling,

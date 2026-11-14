@@ -703,3 +703,31 @@ for (const script of ['verify-composer-menu.mjs', 'verify-command-dispatch.mjs']
       'presentation-only tests cannot depend on a machine-installed StepPage service');
   });
 }
+
+for (const script of ['verify-account-settings.mjs', 'verify-account-routing.mjs']) {
+  test(`${script} awaits native tool readiness before successful account requests`, async () => {
+    const text = await readFile(new URL(`../scripts/${script}`, import.meta.url), 'utf8');
+    const source = ts.createSourceFile(script, text, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
+    let waits = 0;
+    const visit = (node: ts.Node) => {
+      if (ts.isExpressionStatement(node) && ts.isAwaitExpression(node.expression) &&
+        ts.isCallExpression(node.expression.expression) &&
+        node.expression.expression.expression.getText(source) === 'waitForSessionFixtureTools') {
+        waits++;
+        const statements = (node.parent as ts.Block).statements;
+        const next = statements[statements.indexOf(node) + 1].getText(source);
+        assert.match(next, script === 'verify-account-settings.mjs'
+          ? /window\.desktop\.command\('prompt'/
+          : /console\.log\('Account routing: sending fixture prompt'\)/);
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(source);
+    assert.equal(waits, script === 'verify-account-settings.mjs' ? 2 : 1);
+    assert.ok(text.includes('[mcp_servers.steppage__steppage]\\nenabled = false'));
+    if (script === 'verify-account-routing.mjs') {
+      assert.match(text, /await assert\.rejects\(page\.evaluate\(\(\) => window\.desktop\.command\('prompt', \{ message: 'Must not run during login' \}\)\),\s*\/Shared settings operation in progress\//,
+        'the deliberately rejected login-busy request must not be delayed or retried');
+    }
+  });
+}

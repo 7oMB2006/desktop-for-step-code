@@ -794,3 +794,82 @@ for (const script of ['verify-account-settings.mjs', 'verify-account-routing.mjs
     }
   });
 }
+
+async function hostSettingsAcceptance() {
+  const text = await readFile(new URL('../scripts/verify-plugin-host-settings-electron.mjs', import.meta.url), 'utf8');
+  const source = ts.createSourceFile('verify-plugin-host-settings-electron.mjs', text,
+    ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
+  let poll: ts.CallExpression | undefined, launch: ts.CallExpression | undefined;
+  const visit = (node: ts.Node) => {
+    if (ts.isCallExpression(node)) {
+      if (node.expression.getText(source) === 'waitForSessionFixtureSnapshot') poll = node;
+      if (node.expression.getText(source) === 'electron.launch') launch = node;
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+  return { text, source, poll, launch };
+}
+
+test('native host settings acceptance waits for the actual configured consumer without replaying startup', async () => {
+  const { text, source, poll } = await hostSettingsAcceptance();
+  assert.ok(poll, 'host attachment is asynchronous even after the session identity is available');
+  const tools = text.indexOf('await waitForSessionFixtureTools(page, snapshot.runtimeId)');
+  assert.ok(tools >= 0 && tools < poll.pos);
+  const independent = { mode: 'independent', revision: 'configured-revision' };
+  const pending = { ...independent, runtime: { status: 'restart-required' } };
+  const connected = { ...independent, runtime: { status: 'connected' } };
+  let settingsReads = 0;
+  const page = { evaluate: async (_callback: unknown, ref?: string) => {
+    if (ref === 'pkg-ref') return ++settingsReads === 1 ? pending : connected;
+    return coldReady;
+  } };
+  const fixture = new Function('assert', 'page', 'first', 'snapshot', 'independent', `
+    let connected;
+    return { check: ${poll.arguments[1].getText(source)}, value: () => connected };
+  `)(assert, page, { ref: 'pkg-ref' }, coldReady, independent);
+  await waitForSessionFixtureSnapshot(page, fixture.check, 'configured native host', 500);
+  assert.equal(fixture.value(), connected);
+  assert.equal(settingsReads, 2, 'a pending observation must not be mistaken for a connected SDK');
+  assert.doesNotMatch(poll.arguments[1].getText(source), /newIndependentSession|pluginSaveHostSettings|restart|catch/);
+  assert.match(text, /assert\.equal\(switched\.runtime\.status, 'restart-required'\)/);
+  assert.match(text, /assert\.equal\(observed\.runtime\.status, 'restart-required'/);
+});
+
+test('native host readiness cannot accept a changed owner, mode, revision or failed read', async () => {
+  const { source, poll } = await hostSettingsAcceptance();
+  assert.ok(poll);
+  for (const kind of ['runtime', 'session', 'mode', 'revision', 'read', 'pending']) {
+    const independent = { mode: 'independent', revision: 'configured-revision' };
+    const current = structuredClone(coldReady);
+    if (kind === 'runtime') current.runtimeId = 'another-worker';
+    if (kind === 'session') current.state.sessionId = 'another-session';
+    const failure = new Error('native settings read failed');
+    const page = { evaluate: async (_callback: unknown, ref?: string) => {
+      if (ref !== 'pkg-ref') return current;
+      if (kind === 'read') throw failure;
+      return { ...independent, ...(kind === 'mode' ? { mode: 'follow' } : {}),
+        ...(kind === 'revision' ? { revision: 'changed' } : {}),
+        runtime: { status: kind === 'pending' ? 'restart-required' : 'connected' } };
+    } };
+    const check = new Function('assert', 'page', 'first', 'snapshot', 'independent',
+      `let connected; return ${poll.arguments[1].getText(source)};`)(
+      assert, page, { ref: 'pkg-ref' }, coldReady, independent);
+    await assert.rejects(waitForSessionFixtureSnapshot(page, check, 'configured native host', 0),
+      kind === 'read' ? error => error === failure : /./, kind);
+  }
+});
+
+test('native host settings acceptance launches the selected source or packaged target', async () => {
+  const { source, launch } = await hostSettingsAcceptance();
+  assert.ok(launch);
+  for (const executablePath of [undefined, 'verified-packaged-app']) {
+    const env = { DESKTOP_TEST_USER_DATA: 'isolated-profile' };
+    const options = runInNewContext(`(${launch.arguments[0].getText(source)})`, {
+      process: { env: { DESKTOP_VERIFY_EXE: executablePath } }, env, resolve: () => 'source-entry',
+    });
+    assert.deepEqual(JSON.parse(JSON.stringify(options)), {
+      ...(executablePath ? { executablePath } : { args: ['source-entry'] }), env, timeout: 60000,
+    });
+  }
+});

@@ -15406,3 +15406,20 @@ The complete `protocol-r7` run on the unchanged product/test sources completed
 all 258 files: 2747 tests passed, 15 platform skips and zero failures.
 Documentation contracts and seven documentation/protocol-runner self-tests
 also passed. No installer was created and no existing directory was deleted.
+
+At `bb7eef7`, all Windows groups/result, both SDK jobs and macOS candidate
+preparation passed. All macOS source groups and the sessions/runtime packaged
+groups passed too. The interface package stage failed an immediate native-host
+connection assertion. Its script also ignored `DESKTOP_VERIFY_EXE`, so that
+specific package-stage fixture was still running source Electron.
+
+The corrected fixture selects the requested executable, awaits real tool
+readiness and then polls host connection under unchanged runtime/session, mode
+and revision. Read failures remain fatal and the subsequent configuration
+revocation still must report `restart-required`; no launch replay, production
+gate relaxation or timeout increase is included. Three added contracts failed
+before the fix and pass afterward. `focused-r8` passed 108 tests,
+`typecheck-r8` passed, and both host-settings and host-authorization source
+Electron reruns passed. Product/build sources remain those of `bb7eef7`;
+the complete local `protocol-r7` result predates these fixture-only changes.
+Corrected packaged macOS acceptance remains pending on the next cloud head.

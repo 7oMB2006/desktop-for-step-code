@@ -482,6 +482,27 @@ completed all 258 files: 2747 tests passed, 15 platform skips and zero failures.
 Documentation contracts and seven documentation/protocol-runner self-tests
 also passed. No installer was created and no existing directory was deleted.
 
+At `bb7eef7`, all Windows groups/result and both SDK jobs passed. macOS
+candidate preparation, all source groups and the sessions/runtime packaged
+groups also passed. The interface package stage failed in host settings:
+the runner checked for a connected SDK immediately after session creation,
+while host attachment now runs asynchronously. That script also ignored
+`DESKTOP_VERIFY_EXE`, so its package-stage invocation was still launching
+source Electron, not the candidate.
+
+The runner now selects the actual configured executable, awaits native tools
+and polls the configured host connection under the same runtime/session, mode
+and revision. Read failures and identity changes remain fatal; it never retries
+startup or writes settings during that wait. The original subsequent
+`restart-required` revocation assertions are unchanged. Three new contracts
+failed before this fixture fix and pass afterward, covering delayed connection,
+invalidated ownership/configuration, read failure and source/package selection.
+The five-file `focused-r8` selection passed 108 tests, `typecheck-r8` passed,
+and host-settings/host-authorization source Electron reruns both passed.
+Product/build sources are unchanged from `bb7eef7`; the complete local
+`protocol-r7` result predates these fixture-only corrections. Actual corrected
+macOS candidate acceptance still requires a new current-head cloud run.
+
 ## Remaining Boundaries
 
 This fixes startup coupling generically; it does not special-case Scrapling,

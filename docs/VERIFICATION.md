@@ -15358,3 +15358,20 @@ The final four-file regression selection passed 94 tests; typecheck and the
 ordinary production build passed again (`focused-r5`, `typecheck-r5`,
 `build-r5`). The original failures remain diagnostic evidence. Only the
 latest pushed revision's cloud results can establish current-head CI success.
+
+At `da9c01d`, all three Windows cloud groups and their `CI result` passed.
+macOS candidate preparation passed, but source acceptance found a Windows-only
+View-menu selector in the new startup runner and a nested-scroll mouse position
+clipped by the hosted display. Startup now selects the existing macOS
+Application menu; scrolling captures settled native readiness and uses a
+visible, hit-tested nested-output point. The original scroll failure reproduced
+locally at 684px height; corrected short and default-window runs both passed
+without changing the scrolling assertions, deadlines or product layout.
+
+The full local `protocol-r5` run at `da9c01d` completed 258 files, with 2741
+passed tests, 15 platform skips and zero failures. After the fixture-only
+corrections, `focused-r6-final` passed 104 tests and `typecheck-r6` passed.
+`verify-session-startup-r6` passed the actual 70-second MCP scenario again:
+readable history about 776ms, authoritative identity about 2818ms, connection
+about 72.66s and exactly one confirmed provider request. These are controlled
+Windows results, not acceptance of the corrected macOS cloud run.

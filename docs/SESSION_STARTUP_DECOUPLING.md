@@ -423,6 +423,27 @@ fixture ordering contracts. Typecheck and the ordinary production build passed
 again in `typecheck-r5`, `focused-r5` and `build-r5`. These results do not replace
 current-head Windows and macOS cloud acceptance.
 
+At `da9c01d`, all three Windows cloud groups and `CI result` passed. macOS
+candidate preparation also passed, but source acceptance exposed two
+platform-specific fixture defects. The new startup runner now uses macOS's
+existing Application menu instead of looking for a Windows-only View button.
+The scroll runner captures settled native readiness before replacing IPC and
+targets the visible nested-output intersection with a real hit check, rather
+than a fixed offset clipped by the hosted display. The same failure was
+reproduced locally with the uncorrected runner at 684px height; corrected short
+and default-window runs both passed. Inner-scroll and outer-position assertions
+remain unchanged.
+
+The complete local protocol run at `da9c01d` passed all 258 files: 2741 tests
+passed and 15 platform skips, with no failures. After the two fixture fixes,
+104 focused tests and typecheck passed. The actual 70-second MCP runner passed
+again: readable history at about 776ms, authoritative identity at about 2818ms
+and tool connection at about 72.66s, with exactly one confirmed provider request.
+Logs are `protocol-r5`, `focused-r6-final`, `typecheck-r6`,
+`verify-conversation-scroll-{short,default}-r6` and `verify-session-startup-r6`.
+These are controlled Windows results; the corrected macOS source and packaged
+acceptance still requires a fresh cloud run.
+
 ## Remaining Boundaries
 
 This fixes startup coupling generically; it does not special-case Scrapling,

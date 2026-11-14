@@ -135,7 +135,7 @@ try {
   assert.ok((await readFile(file)).equals(boundHistory));
   phase = 'protected whole-worker reconnect; unconfirmed cleanup remains a hard gate';
   await writeFile(join(root, 'config.toml'), config('never'));
-  await page.getByRole('button', { name: 'View', exact: true }).click();
+  await page.getByRole('button', { name: process.platform === 'darwin' ? 'Application menu' : 'View', exact: true }).click();
   await page.getByRole('menuitem', { name: 'Restart runtime', exact: true }).click();
   await page.waitForFunction(() => document.querySelector('.runtime-startup-status')?.textContent.includes('cleanup unconfirmed'),
     undefined, { timeout: 15000 });
@@ -162,7 +162,7 @@ try {
   assert.equal(payloads.length, 0);
   phase = 'settled optional failure requires explicit confirmation and cancellation preserves the draft';
   await writeFile(join(root, 'config.toml'), config('missing'));
-  await page.getByRole('button', { name: 'View', exact: true }).click();
+  await page.getByRole('button', { name: process.platform === 'darwin' ? 'Application menu' : 'View', exact: true }).click();
   await page.getByRole('menuitem', { name: 'Restart runtime', exact: true }).click();
   await until(() => page.evaluate(async () => {
     const snapshot = await window.desktop.snapshot();

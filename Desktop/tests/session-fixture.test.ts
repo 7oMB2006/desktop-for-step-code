@@ -685,13 +685,14 @@ test('existing-session sends await tools without replaying an execution failure'
   assert.equal(fixture.reads(), 2);
 });
 
-for (const script of ['verify-composer-menu.mjs', 'verify-command-dispatch.mjs']) {
+for (const script of ['verify-composer-menu.mjs', 'verify-command-dispatch.mjs', 'verify-conversation-scroll.mjs']) {
   test(`${script} captures real settled readiness before replacing IPC with a presentation fixture`, async () => {
     const text = await readFile(new URL(`../scripts/${script}`, import.meta.url), 'utf8');
     const source = ts.createSourceFile(script, text, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
     let snapshot: ts.VariableDeclaration | undefined;
     const visit = (node: ts.Node) => {
-      if (ts.isVariableDeclaration(node) && node.name.getText(source) === 'snapshot') snapshot = node;
+      if (ts.isVariableDeclaration(node) && node.name.getText(source) ===
+        (script === 'verify-conversation-scroll.mjs' ? 'original' : 'snapshot')) snapshot = node;
       ts.forEachChild(node, visit);
     };
     visit(source);
@@ -703,6 +704,68 @@ for (const script of ['verify-composer-menu.mjs', 'verify-command-dispatch.mjs']
       'presentation-only tests cannot depend on a machine-installed StepPage service');
   });
 }
+
+test('nested output wheel targets the visible viewport intersection and fails on occlusion', async () => {
+  const source = ts.createSourceFile('verify-conversation-scroll.mjs',
+    await readFile(new URL('../scripts/verify-conversation-scroll.mjs', import.meta.url), 'utf8'),
+    ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
+  let callback: ts.Expression | undefined;
+  const visit = (node: ts.Node) => {
+    if (ts.isVariableDeclaration(node) && node.name.getText(source) === 'nestedTarget') {
+      const awaited = node.initializer as ts.AwaitExpression;
+      callback = (awaited.expression as ts.CallExpression).arguments[0];
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+  assert.ok(callback);
+  const point = (bounds: object, viewport: object, occluded = false) => {
+    const pre = { getBoundingClientRect: () => bounds, scrollTop: 300,
+      contains: (hit: unknown) => hit === pre };
+    return runInNewContext(`(${callback!.getText(source)})(pre)`, {
+      pre, innerWidth: 1200, innerHeight: 684,
+      document: {
+        querySelector: () => ({ getBoundingClientRect: () => viewport }),
+        elementFromPoint: (x: number, y: number) =>
+          !occluded && x >= 258 && x <= 1142 && y >= 93 && y <= 493 ? pre : null,
+      },
+    });
+  };
+  const viewport = { left: 258, right: 1142, top: 93, bottom: 493 };
+  const clipped = { left: 323, right: 1109, top: -16, bottom: 264 };
+  const actual = point(clipped, viewport);
+  assert.equal(actual.x, 716);
+  assert.equal(actual.y, 178.5);
+  assert.equal(actual.scrollTop, 300);
+  assert.throws(() => point(clipped, viewport, true), /occluded/);
+  assert.throws(() => point({ ...clipped, bottom: 90 }, viewport), /no visible wheel target/);
+});
+
+test('startup acceptance opens the real platform menu for both protected restarts', async () => {
+  const text = await readFile(new URL('../scripts/verify-session-startup.mjs', import.meta.url), 'utf8');
+  const source = ts.createSourceFile('verify-session-startup.mjs', text,
+    ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
+  let menus = 0, restarts = 0;
+  const visit = (node: ts.Node) => {
+    if (ts.isCallExpression(node) && node.expression.getText(source) === 'page.getByRole' &&
+      node.arguments[1]?.getText(source).includes("'View'")) {
+      menus++;
+      assert.equal(node.arguments[0].getText(source), "'button'");
+      for (const platform of ['darwin', 'win32', 'linux']) {
+        const options = runInNewContext(`(${node.arguments[1].getText(source)})`, { process: { platform } });
+        assert.equal(options.name, platform === 'darwin' ? 'Application menu' : 'View');
+        assert.equal(options.exact, true);
+      }
+    }
+    if (ts.isCallExpression(node) && node.expression.getText(source) === 'page.getByRole' &&
+      node.arguments[1]?.getText(source).includes("'Restart runtime'")) restarts++;
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+  assert.equal(menus, 2);
+  assert.equal(restarts, 2, 'both restarts must still use the production menu item');
+  assert.doesNotMatch(text, /window\.desktop\.restart\(/);
+});
 
 for (const script of ['verify-account-settings.mjs', 'verify-account-routing.mjs']) {
   test(`${script} awaits native tool readiness before successful account requests`, async () => {

@@ -208,6 +208,10 @@ export const localOnly = [
   // Isolated Remote UI only; this check starts its own Vite server and uses no real channels.
   'verify-remote-access-preview.mjs',
   'verify-remote-chat-preview.mjs',
+  // Source-bundle instrumentation for before/after comparison; not a packaged-app probe.
+  'verify-remote-startup-navigation.mjs',
+  // Requires the separately started Remote navigation Vite preview.
+  'verify-remote-startup-toast-preview.mjs',
   'verify-scheduled-tasks-preview.mjs',
   'verify-app-update-source.mjs',
   'verify-chat-quotes.mjs',

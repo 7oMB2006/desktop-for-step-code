@@ -80,6 +80,7 @@ import { submittedInputContent } from '../src/template-input';
 import { clmSnapshot } from './clm';
 import { BackgroundAgents } from './background-agents';
 import { RemoteManager, parseRemoteAction } from './remote-manager';
+import type { RemoteNavigationWait, RemotePreparationSource } from '../src/remote-navigation';
 import { ExternalConnectorTasks } from './external-connector-tasks';
 import { ConnectorJsonStore, ExternalConnectorGateway } from './external-connector-gateway';
 import { externalSessionCommandAllowed, parseExternalConnectorAction } from './external-connector-policy';
@@ -167,6 +168,8 @@ function publishUpdate() {
 }
 let status = 'disconnected';
 let transition = false;
+let remotePreparation: (RemoteNavigationWait & { done: Promise<void> }) | undefined;
+let remotePreparationSequence = 0;
 let settingsMutation = false;
 let speechSaving = false;
 const speech = new SpeechService((input, init) => net.fetch(input instanceof URL ? input.href : String(input), init));
@@ -698,8 +701,8 @@ const remote = new RemoteManager({
         throw new Error('Saved Remote project is no longer available');
     }
   },
-  prepare: sessionId => prepareRemoteSession(sessionId),
-  createSession: workspace => prepareRemoteSession(undefined, workspace),
+  prepare: (sessionId, recovering) => prepareRemoteSession(sessionId, undefined, recovering ? 'feishu-recovery' : 'feishu-session'),
+  createSession: workspace => prepareRemoteSession(undefined, workspace, 'feishu-session'),
   worker: (runtimeId, sessionId) => {
     const worker = runtimes.require(runtimeId);
     if (externallyOwned(worker)) throw new Error('This session belongs to an external task');
@@ -747,7 +750,7 @@ const externalTasks: ExternalConnectorTasks = new ExternalConnectorTasks({
     preparingExternal = true;
     let worker: SessionRuntime | undefined;
     try {
-      worker = await prepareRemoteSession(undefined, cwd);
+      worker = await prepareRemoteSession(undefined, cwd, 'external-agent');
       if (!valid()) { await runtimes.remove(worker); throw new Error('connector:revoked'); }
       return worker;
     } finally {
@@ -993,10 +996,13 @@ function remoteProjects() {
       || sessions.find(session => session.workspace === workspace)?.workspaceName || basename(workspace),
   }));
 }
-async function prepareRemoteSession(sessionId?: string, workspace?: string): Promise<SessionRuntime> {
+async function prepareRemoteSession(sessionId: string | undefined, workspace: string | undefined, source: RemotePreparationSource): Promise<SessionRuntime> {
   if (transition || sessionNavigation.busy || settingsMutation || undoBusy || deletingArchived || quitting || quitPending
     || updateInstalling || providerSettingsPending) throw new Error('Desktop operation in progress');
   transition = true;
+  let release!: () => void;
+  remotePreparation = { id: ++remotePreparationSequence, source,
+    done: new Promise<void>(resolve => { release = resolve; }) };
   try {
     const target = sessionId ? remoteSessions().find(session => session.sessionId === sessionId) : undefined;
     if (sessionId && !target) throw new Error('Session is unavailable');
@@ -1025,7 +1031,7 @@ async function prepareRemoteSession(sessionId?: string, workspace?: string): Pro
     }
     emit({ type: 'desktop_sessions_changed' });
     return worker;
-  } finally { transition = false; }
+  } finally { transition = false; remotePreparation = undefined; release(); }
 }
 async function snapshot(worker = runtimes.active, refresh = true, ignoreDraft = false, surface: Surface = 'main'): Promise<Snapshot> {
   const draft = ignoreDraft ? undefined : selectedDraft(surface);
@@ -3294,6 +3300,24 @@ else app.whenReady().then(async () => {
     const senderId = event.sender.id, generation = rendererGenerations.get(senderId);
     const execute = () => diagnoseCapabilityMutation(method, args[0], async markCapabilityPhase => {
       if (method === 'quitRespond' || method === 'windowControl') return handle(method, args, surface);
+      if (method === 'navigateSession') {
+        // Remote recovery prepares under the workspace lock without selecting a local view.
+        await startup;
+        const requestId = args[1];
+        const report = (wait?: RemoteNavigationWait) => {
+          if (!Number.isSafeInteger(requestId) || requestId < 1 || event.sender.isDestroyed()
+            || rendererGenerations.get(senderId) !== generation) return;
+          event.sender.send('runtime-event', { type: 'desktop_navigation_wait', requestId,
+            waiting: wait ? { id: wait.id, source: wait.source } : undefined });
+        };
+        try {
+          while (remotePreparation) {
+            const preparation = remotePreparation;
+            report(preparation);
+            await preparation.done;
+          }
+        } finally { report(); }
+      }
       // Reads must not observe the admin transport halfway through an idle reload.
       if (providerApplication) await providerApplication;
       const capabilityMutation = ['capabilityMutate', 'pluginUpdateApply', 'capabilityImportSkill', 'bvrSaveConfiguration', 'pluginSaveConfiguration', 'pluginSaveHostSettings', 'saveCompactionSettings'].includes(method);

@@ -1128,7 +1128,7 @@ function App() {
         return;
       }
       if (event.runtimeId && (event.runtimeId !== viewId.current || switching.current || navigationPending.current)) return;
-      if (['extension_ui_request', 'desktop_ui_expired', 'desktop_model_selection', 'desktop_queue', 'desktop_history', 'message_start', 'message_update', 'message_end', 'tool_execution_update', 'tool_execution_end'].includes(event.type)
+      if (['extension_ui_request', 'desktop_ui_expired', 'desktop_model_selection', 'desktop_queue', 'desktop_history', 'desktop_startup_changed', 'message_start', 'message_update', 'message_end', 'tool_execution_update', 'tool_execution_end'].includes(event.type)
         && !messageRevision.current.acceptEvent(event)) return;
       if (event.type === 'agent_end' || event.type === 'tool_execution_end'
         && ['enter_plan_mode', 'exit_plan_mode'].includes(event.toolName)) setStatusRevision(value => value + 1);
@@ -1137,8 +1137,9 @@ function App() {
       if (event.type === 'desktop_stats') setData(d => ({ ...d, stats: event.stats }));
       if (event.desktopEstimate) setData(d => ({ ...d, estimate: event.desktopEstimate }));
       if (event.type === 'desktop_history') setData(d => ({ ...d, messages: event.messages }));
-      if (event.type === 'desktop_startup_changed' && event.startup?.sessionId === view.current.sessionId)
-        setData(d => ({ ...d, state: d.state ? { ...d.state, desktopStartup: event.startup } : d.state }));
+      if (event.type === 'desktop_startup_changed')
+        setData(d => d.runtimeId === event.runtimeId && d.state && d.state.sessionId === event.startup?.sessionId
+          ? { ...d, state: { ...d.state, desktopStartup: event.startup } } : d);
       if (event.type === 'desktop_ui_expired') {
         questionDrafts.current.delete(event.id);
         setRequests(previous => previous.filter(request => request.id !== event.id));

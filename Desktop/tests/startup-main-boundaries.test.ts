@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import ts from 'typescript';
+import { MessageRevision } from '../src/message-revision';
 
 const main = ts.createSourceFile('main.ts', readFileSync(new URL('../electron/main.ts', import.meta.url), 'utf8'),
   ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
@@ -219,25 +220,58 @@ function rendererFixture() {
   const switching = { current: false }, viewId = { current: 'runtime-a' };
   const view = { current: { sessionId: 'session-a', draft: 'Selected B draft' } };
   const state = { requests: [] as Record<string, unknown>[], draft: view.current.draft,
-    ownerUpdates: [] as { identity: object; text: string }[], metrics: [] as unknown[], clocks: [] as number[] };
+    ownerUpdates: [] as { identity: object; text: string }[], metrics: [] as unknown[], clocks: [] as number[],
+    data: { runtimeId: 'runtime-a', state: { sessionId: 'session-a', desktopStartup: undefined as unknown } } };
+  const messageRevision = { current: new MessageRevision() };
+  messageRevision.current.acceptSnapshot({ runtimeId: 'runtime-a', runtimeRevision: 1 });
   const composer = { client: { update(identity: object, change: (value: object) => { text: string }) {
     state.ownerUpdates.push({ identity, text: change({}).text });
   } } };
-  const create = new Function('navigationPending', 'switching', 'viewId', 'view', 'state', 'composer', javascript(`
+  const create = new Function('navigationPending', 'switching', 'viewId', 'view', 'state', 'composer', 'messageRevision', javascript(`
     const isMini = false, metricsBySession = { current: new Map() };
-    const messageRevision = { current: { acceptEvent: () => true } };
     const updateRunMetrics = (_previous, event) => event;
     const setRunMetrics = value => state.metrics.push(value);
     const setClock = value => state.clocks.push(value);
     const setDraft = value => { state.draft = value; };
+    const setData = update => { state.data = update(state.data); };
     const setRequests = update => { state.requests = update(state.requests); };
     return ${registration.arguments[0].getText(renderer)};
   `));
-  const receive = create(navigationPending, switching, viewId, view, state, composer) as (
+  const receive = create(navigationPending, switching, viewId, view, state, composer, messageRevision) as (
     event: Record<string, unknown>,
   ) => void;
-  return { receive, state, navigationPending, switching, view };
+  return { receive, state, navigationPending, switching, view, messageRevision };
 }
+test('startup completion rejects a later stale snapshot and an older startup event', () => {
+  const f = rendererFixture();
+  f.navigationPending.current = null;
+  const ready = { sessionId: 'session-a', modelReady: true };
+  f.receive({ type: 'desktop_startup_changed', runtimeId: 'runtime-a', runtimeRevision: 3, startup: ready });
+  assert.equal(f.state.data.state.desktopStartup, ready);
+  assert.equal(f.messageRevision.current.acceptSnapshot({ runtimeId: 'runtime-a', runtimeRevision: 2 }), false,
+    'an older in-flight snapshot cannot restore pending tools after completion');
+  f.receive({ type: 'desktop_startup_changed', runtimeId: 'runtime-a', runtimeRevision: 2,
+    startup: { ...ready, modelReady: false } });
+  assert.equal(f.state.data.state.desktopStartup, ready);
+});
+test('startup completion follows queued snapshot ownership before the view ref has rendered', () => {
+  const f = rendererFixture();
+  f.navigationPending.current = null;
+  f.view.current.sessionId = 'previous-session';
+  const ready = { sessionId: 'session-a', modelReady: true };
+  f.receive({ type: 'desktop_startup_changed', runtimeId: 'runtime-a', runtimeRevision: 3, startup: ready });
+  assert.equal(f.state.data.state.desktopStartup, ready);
+});
+test('startup events cannot cross failed-reading, switching, runtime or session ownership', () => {
+  for (const kind of ['reading', 'switching', 'runtime', 'session']) {
+    const f = rendererFixture();
+    if (kind !== 'reading') f.navigationPending.current = null;
+    if (kind === 'switching') f.switching.current = true;
+    f.receive({ type: 'desktop_startup_changed', runtimeId: kind === 'runtime' ? 'runtime-b' : 'runtime-a',
+      runtimeRevision: 3, startup: { sessionId: kind === 'session' ? 'session-b' : 'session-a', modelReady: true } });
+    assert.equal(f.state.data.state.desktopStartup, undefined, kind);
+  }
+});
 test('failed reading suppresses old runtime approval events until authoritative navigation resumes', () => {
   const f = rendererFixture();
   assert.equal(f.switching.current, false, 'The failed navigation has already released its transient switch lock');

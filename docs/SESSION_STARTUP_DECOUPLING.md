@@ -444,6 +444,44 @@ Logs are `protocol-r5`, `focused-r6-final`, `typecheck-r6`,
 These are controlled Windows results; the corrected macOS source and packaged
 acceptance still requires a fresh cloud run.
 
+At `c2e2cd2`, all Windows groups and their result passed again, as did macOS
+candidate preparation and the source/packaged runtime group. The macOS
+70-second startup scenario passed with readable history at about 894ms,
+authoritative identity at about 1619ms and connection at about 71.38s, with
+exactly one confirmed provider request. Its sessions group subsequently failed
+the first send-queue submission: native tools were ready, but the renderer
+still displayed pending startup and retained the unsent input.
+
+Inspection confirmed a renderer race independently of the fixture: startup
+events did not advance the existing event/snapshot revision watermark, so a
+late older snapshot could restore pending status. A completion event could
+also be dropped between a queued snapshot update and the render that updates
+the view ref. Startup events now use the same revision guard as message events
+and update only matching runtime/session ownership in the queued state.
+Failed-reading and navigation guards remain unchanged. Tests execute the actual
+renderer callback with the real revision tracker; both race cases failed before
+the fix and pass afterward, alongside cross-owner rejection coverage.
+
+The send-queue fixture now awaits resolved selected-session IPC and authoritative
+tool readiness before successful sends. It retains real native RPC and its
+FIFO, steering, edit, withdrawal, interruption and IME assertions; saved-session
+sends are not automatically retried. The final six-file `focused-r7` selection
+passed 196 tests, and `typecheck-r7` and `build-r7` passed. Current-head cloud
+acceptance remains required after this product fix.
+
+All four `r7` source Electron reruns passed: send queue, message ordering,
+session startup and session navigation. The actual 70-second MCP case recorded
+readable history at about 699ms, authoritative identity at about 2438ms and
+connection at about 72.37s, with exactly one confirmed provider request and no
+renderer errors. These controlled Windows results do not establish macOS or
+packaged acceptance of the new renderer.
+The additional `verify-mini-chat-electron-r7` rerun passed its real-runtime
+navigation, shared composer, approval, streaming and restart checks.
+The complete `protocol-r7` run on the unchanged product/test sources then
+completed all 258 files: 2747 tests passed, 15 platform skips and zero failures.
+Documentation contracts and seven documentation/protocol-runner self-tests
+also passed. No installer was created and no existing directory was deleted.
+
 ## Remaining Boundaries
 
 This fixes startup coupling generically; it does not special-case Scrapling,

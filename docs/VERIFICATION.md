@@ -15375,3 +15375,34 @@ corrections, `focused-r6-final` passed 104 tests and `typecheck-r6` passed.
 readable history about 776ms, authoritative identity about 2818ms, connection
 about 72.66s and exactly one confirmed provider request. These are controlled
 Windows results, not acceptance of the corrected macOS cloud run.
+
+At `c2e2cd2`, all Windows groups and their result, macOS candidate preparation
+and the macOS source/packaged runtime group passed. The macOS startup runner
+also passed its real 70-second MCP case: readable history about 894ms,
+authoritative identity about 1619ms, connection about 71.38s and one confirmed
+provider request. The sessions group then failed its first send-queue request,
+with native readiness complete but pending startup still visible in the UI.
+
+Two independently reproduced renderer races are now fixed: startup completion
+advances the existing revision watermark so older snapshots cannot restore
+pending status, and the event updates matching queued runtime/session state
+instead of checking a potentially not-yet-rendered view ref. The actual renderer
+callback and real revision tracker reproduced both failures before the fix.
+Cross-runtime/session, failed-reading and switching rejection remain covered.
+The queue runner awaits resolved selected-session IPC and real tool readiness;
+it does not mock native RPC, retry accepted/saved-session sends, weaken queue
+assertions or relax admission gates.
+
+The six-file `focused-r7` selection passed 196 tests; `typecheck-r7` and
+`build-r7` passed. All four `r7` source Electron reruns passed: send queue,
+message ordering, session startup and session navigation. The actual 70-second
+MCP case recorded readable history about 699ms, authoritative identity about
+2438ms, connection about 72.37s, exactly one confirmed provider request and no
+renderer errors. These controlled Windows results are not current-head cloud
+CI, macOS or packaged acceptance of the new renderer.
+The additional `verify-mini-chat-electron-r7` rerun also passed its real-runtime
+navigation, shared composer, approval, streaming and restart checks.
+The complete `protocol-r7` run on the unchanged product/test sources completed
+all 258 files: 2747 tests passed, 15 platform skips and zero failures.
+Documentation contracts and seven documentation/protocol-runner self-tests
+also passed. No installer was created and no existing directory was deleted.

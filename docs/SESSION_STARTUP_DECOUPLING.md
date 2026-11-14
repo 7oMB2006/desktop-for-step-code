@@ -503,6 +503,34 @@ Product/build sources are unchanged from `bb7eef7`; the complete local
 `protocol-r7` result predates these fixture-only corrections. Actual corrected
 macOS candidate acceptance still requires a new current-head cloud run.
 
+At `cf0dea9`, Windows sessions/runtime, both SDK jobs and macOS preparation
+plus source/packaged sessions/runtime passed. Windows interface failed while
+dismissing command completion; macOS source interface failed host-settings
+tool readiness. These are separate fixture defects, not green aggregate runs.
+
+Host-settings now explicitly disables unrelated StepPage. The real macOS
+managed-server reconciler enables it by default even without a staged bundle;
+the preinstalled-plugin marker does not disable MCP registration. A regression
+test exercises that reconciler and verifies preservation of the explicit
+disabled declaration. Native SDK connection and revocation assertions remain.
+
+For command dispatch, capture-only event probes reproduced the cloud Escape
+failure twice under CDP CPU throttling rate 4: a hovered Running status tooltip
+consumed Escape at window capture before the editor received it. The model
+input remained correct; duplicated DOM text was command-reference decoration.
+The fixture now parks the pointer and waits for that tooltip to close before
+its original single Escape. Product tooltip priority, editor behavior and
+completion assertions are unchanged, with no submission replay or deadline
+increase. Regression tests cover ordering and fatal tooltip-dismissal failure.
+
+The six-file `focused-r9` selection passed 121 tests and `typecheck-r9` passed.
+Four consecutive throttled command-dispatch runs passed
+(`dispatch-fixed-cpu4-r9-{1..4}`), followed by ordinary command-dispatch,
+host-settings and host-authorization source Electron passes in their `r9`
+logs. The throttled runs used an external capture-only diagnostic wrapper.
+Product/build sources remain unchanged from `bb7eef7`; these Windows results
+do not establish corrected macOS source/package or newest-head cloud success.
+
 ## Remaining Boundaries
 
 This fixes startup coupling generically; it does not special-case Scrapling,

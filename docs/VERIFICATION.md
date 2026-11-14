@@ -15423,3 +15423,32 @@ before the fix and pass afterward. `focused-r8` passed 108 tests,
 Electron reruns passed. Product/build sources remain those of `bb7eef7`;
 the complete local `protocol-r7` result predates these fixture-only changes.
 Corrected packaged macOS acceptance remains pending on the next cloud head.
+
+At `cf0dea9`, Windows sessions/runtime, both SDK jobs, macOS preparation and
+source/packaged sessions/runtime passed. Windows interface failed command
+completion dismissal; macOS source interface failed host-settings readiness.
+The aggregate workflows were therefore red.
+
+Host-settings now explicitly disables unrelated StepPage. A regression using
+the real macOS managed-server reconciler confirms that the preinstalled-plugin
+marker alone does not disable its default MCP registration, while an explicit
+disabled entry is preserved. Actual SDK readiness/connection and subsequent
+revocation assertions are retained.
+
+Capture-only renderer probes reproduced the command-dispatch Escape failure
+twice at CDP CPU throttling rate 4: a hovered Running status tooltip consumed
+the key at window capture, before the editor's completion handler. The input
+model was correct; duplicated DOM text was reference decoration. The fixture
+now parks the pointer and awaits tooltip closure before its original single
+Escape. It does not change product Escape priority, retry submissions, weaken
+completion assertions or increase deadlines. Added tests cover that ordering
+and a fatal tooltip-dismissal error with handle disposal.
+
+`focused-r9` passed 121 tests and `typecheck-r9` passed. All four consecutive
+`dispatch-fixed-cpu4-r9-{1..4}` runs passed with the external capture-only
+diagnostic wrapper. Ordinary `verify-command-dispatch-r9`,
+`verify-plugin-host-settings-electron-r9` and
+`verify-plugin-host-authorization-electron-r9` source Electron runs then
+passed too. Product/build sources remain unchanged from `bb7eef7`. These are
+controlled Windows results, not corrected macOS package acceptance or
+newest-head cloud CI success. No local installer or product UI change was made.

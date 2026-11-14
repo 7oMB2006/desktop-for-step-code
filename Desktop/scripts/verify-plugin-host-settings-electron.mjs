@@ -27,7 +27,7 @@ const receipt = installationReceipt({ name: 'host-example' }, { name: 'local-fix
 receipt.state = 'installed';
 await writeReceipts(root, { version: 1, installations: [receipt] });
 await writeFile(join(root, 'plugins', '.stepcode-preinstalled'), '["steppage"]');
-await writeFile(join(root, 'config.toml'), 'defaultProvider = "fixture"\ndefaultModel = "fixture"\n[telemetry]\nenabled = false\n');
+await writeFile(join(root, 'config.toml'), 'defaultProvider = "fixture"\ndefaultModel = "fixture"\n[telemetry]\nenabled = false\n[mcp_servers.steppage__steppage]\nenabled = false\n');
 await writeFile(join(root, 'models.json'), JSON.stringify({ providers: { fixture: {
   api: 'openai-completions', baseUrl: 'http://127.0.0.1:1/v1', apiKey: 'fixture-unused',
   models: [{ id: 'fixture', name: 'Offline fixture', input: ['text'], contextWindow: 32768, maxTokens: 1024 }],

@@ -873,3 +873,17 @@ test('native host settings acceptance launches the selected source or packaged t
     });
   }
 });
+
+test('native host settings acceptance disables unrelated StepPage even with macOS managed discovery', async () => {
+  const { text } = await hostSettingsAcceptance();
+  const { reconcileStepPageServers } = await import(
+    new URL('../electron/steppage-config.mjs', import.meta.url).href);
+  const options = { nodePath: '/fixture/runtime/node/node', bundlePath: '/fixture/steppage/bin/steppage-mcp.mjs',
+    bundleExists: false, desktopOnly: true, platform: 'darwin' };
+  assert.equal(reconcileStepPageServers({}, options).steppage__steppage.enabled, true,
+    'the preinstalled-plugin marker cannot disable managed MCP registration on macOS');
+  const isolated = reconcileStepPageServers({ steppage__steppage: { enabled: false } }, options);
+  assert.equal(isolated.steppage__steppage.enabled, false);
+  assert.ok(text.includes('[mcp_servers.steppage__steppage]\\nenabled = false'),
+    'this offline SDK fixture must not depend on a prepared or personal StepPage service');
+});

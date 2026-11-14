@@ -2342,9 +2342,9 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
           copyPath, { kind: 'open-copy', sessionId: copy.id, permissionPreset: source?.permissionPreset, name });
         copyOpened = true;
         await modelSelections.copyHistory(sessionId, worker.state!.sessionId!);
-        // Startup may invalidate its initial history read; bindings need the copied calls.
-        await runtimes.read(worker);
-        await workflowBindings.copyHistory(sessionId, worker.state!.sessionId!, worker.messages);
+        // A startup event can invalidate the UI snapshot; copy from authoritative history.
+        const copiedHistory = await worker.rpc.request('get_messages');
+        await workflowBindings.copyHistory(sessionId, worker.state!.sessionId!, copiedHistory.messages);
         await runtimes.read(worker);
         preferences.workspace = worker.cwd;
         await savePreferences();
@@ -2380,8 +2380,8 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
           sessionPath, { kind, entryId, leafId: source.leafId, permissionPreset: source.permissionPreset,
             name });
         await modelSelections.copyHistory(source.state!.sessionId!, worker.state!.sessionId!);
-        await runtimes.read(worker);
-        await workflowBindings.copyHistory(source.state!.sessionId!, worker.state!.sessionId!, worker.messages);
+        const copiedHistory = await worker.rpc.request('get_messages');
+        await workflowBindings.copyHistory(source.state!.sessionId!, worker.state!.sessionId!, copiedHistory.messages);
         await runtimes.read(worker);
         selectRuntime(surface, worker);
         return await viewSnapshot(worker);

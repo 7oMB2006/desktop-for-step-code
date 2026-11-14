@@ -198,30 +198,34 @@ test('file preview acceptance waits for real browser state and retains native re
   assert.ok(text.includes("error.code === 'ESRCH'"));
 });
 
-test('first-run acceptance never polls an async predicate through browser Promise truthiness', async () => {
-  const source = ts.createSourceFile('verify-first-run.mjs',
-    await readFile(new URL('../scripts/verify-first-run.mjs', import.meta.url), 'utf8'),
-    ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
-  let snapshotPolls = 0;
-  const visit = (node: ts.Node) => {
-    if (ts.isCallExpression(node)) {
-      if (ts.isPropertyAccessExpression(node.expression) && node.expression.name.text === 'waitForFunction') {
-        const predicate = node.arguments[0];
-        assert.ok(predicate && (ts.isArrowFunction(predicate) || ts.isFunctionExpression(predicate)),
-          'browser polling must use an inspectable synchronous predicate');
-        assert.equal(predicate.modifiers?.some(modifier => modifier.kind === ts.SyntaxKind.AsyncKeyword) ?? false, false,
-          'async IPC predicates belong in the awaited Node-side snapshot poller');
+for (const script of ['verify-first-run.mjs', 'verify-session-import.mjs']) {
+  test(`${script} never polls an async predicate through browser Promise truthiness`, async () => {
+    const source = ts.createSourceFile(script,
+      await readFile(new URL(`../scripts/${script}`, import.meta.url), 'utf8'),
+      ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
+    let snapshotPolls = 0;
+    const visit = (node: ts.Node) => {
+      if (ts.isCallExpression(node)) {
+        if (ts.isPropertyAccessExpression(node.expression) && node.expression.name.text === 'waitForFunction') {
+          const predicate = node.arguments[0];
+          assert.ok(predicate && (ts.isArrowFunction(predicate) || ts.isFunctionExpression(predicate)),
+            'browser polling must use an inspectable synchronous predicate');
+          assert.equal(predicate.modifiers?.some(modifier => modifier.kind === ts.SyntaxKind.AsyncKeyword) ?? false, false,
+            'async IPC predicates belong in the awaited Node-side snapshot poller');
+          assert.doesNotMatch(predicate.getText(source), /window\.desktop\.snapshot\(/,
+            'a browser-side Promise cannot establish native readiness');
+        }
+        if (ts.isIdentifier(node.expression) && node.expression.text === 'waitForSessionFixtureSnapshot') {
+          snapshotPolls++;
+          assert.ok(ts.isAwaitExpression(node.parent), 'snapshot polling must finish before persistence assertions');
+        }
       }
-      if (ts.isIdentifier(node.expression) && node.expression.text === 'waitForSessionFixtureSnapshot') {
-        snapshotPolls++;
-        assert.ok(ts.isAwaitExpression(node.parent), 'snapshot polling must finish before persistence assertions');
-      }
-    }
-    ts.forEachChild(node, visit);
-  };
-  visit(source);
-  assert.ok(snapshotPolls >= 2, 'reply completion and restored permissions both poll resolved IPC snapshots');
-});
+      ts.forEachChild(node, visit);
+    };
+    visit(source);
+    assert.ok(snapshotPolls >= 2, 'history and completion checks must both poll resolved IPC snapshots');
+  });
+}
 
 test('new-session acceptance awaits IPC draft persistence instead of browser Promise truthiness', async () => {
   const source = ts.createSourceFile('verify-new-session.mjs',
@@ -455,6 +459,32 @@ test('capability restart readiness rejects the old connected worker and the conn
   assert.equal(buttonChecks, 1);
 });
 
+test('configured plugin acceptance awaits the real MCP connection and never masks a failed service', async () => {
+  const source = ts.createSourceFile('verify-capabilities.mjs',
+    await readFile(new URL('../scripts/verify-capabilities.mjs', import.meta.url), 'utf8'),
+    ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
+  let predicate: ts.Expression | undefined;
+  const visit = (node: ts.Node) => {
+    if (ts.isCallExpression(node) && node.expression.getText(source) === 'waitForSessionFixtureSnapshot'
+      && node.arguments[2]?.getText(source).includes('configured plugin MCP'))
+      predicate = node.arguments[1];
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+  assert.ok(predicate);
+  for (const status of [undefined, 'connecting', 'connected', 'failed']) {
+    const check = runInNewContext(`(() => { let connected; return ${predicate.getText(source)}; })()`, {
+      assert,
+      page: { evaluate: async (_callback: unknown, runtimeId: string) => {
+        assert.equal(runtimeId, 'new-worker');
+        return { mcp: status ? [{ name: 'dfsc-config-example__notes', status }] : [] };
+      } },
+    }) as (snapshot: { runtimeId: string }) => Promise<boolean>;
+    if (status === 'failed') await assert.rejects(check({ runtimeId: 'new-worker' }), /MCP must connect successfully/);
+    else assert.equal(await check({ runtimeId: 'new-worker' }), status === 'connected');
+  }
+});
+
 test('new-session readiness polls through missing and disabled buttons after reload', async () => {
   const buttons = [null, { disabled: true }, { disabled: false }];
   const results: boolean[] = [];
@@ -654,3 +684,22 @@ test('existing-session sends await tools without replaying an execution failure'
   assert.equal(sends, 1);
   assert.equal(fixture.reads(), 2);
 });
+
+for (const script of ['verify-composer-menu.mjs', 'verify-command-dispatch.mjs']) {
+  test(`${script} captures real settled readiness before replacing IPC with a presentation fixture`, async () => {
+    const text = await readFile(new URL(`../scripts/${script}`, import.meta.url), 'utf8');
+    const source = ts.createSourceFile(script, text, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
+    let snapshot: ts.VariableDeclaration | undefined;
+    const visit = (node: ts.Node) => {
+      if (ts.isVariableDeclaration(node) && node.name.getText(source) === 'snapshot') snapshot = node;
+      ts.forEachChild(node, visit);
+    };
+    visit(source);
+    assert.ok(snapshot);
+    assert.equal(snapshot.initializer!.getText(source), 'await waitForSessionFixtureTools(page, owner.runtimeId)');
+    const replace = text.indexOf("ipcMain.removeHandler('desktop')");
+    assert.ok(replace > snapshot.end, 'the real IPC must still own startup discovery while awaiting readiness');
+    assert.ok(text.includes('[mcp_servers.steppage__steppage]\\nenabled = false'),
+      'presentation-only tests cannot depend on a machine-installed StepPage service');
+  });
+}

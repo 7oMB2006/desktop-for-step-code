@@ -15323,15 +15323,24 @@ use authoritative tool readiness, awaited IPC polling and bounded orderly
 shutdown; no production admission gate or deadline was relaxed.
 
 Additional local Workflow acceptance found missing cloned interruption metadata.
-Clone/fork now read copied messages before filtering Workflow bindings and
-reread after copying them. The original immediate cloned-state assertion is
+Clone/fork now read authoritative native messages before filtering Workflow
+bindings, independent of a discardable UI snapshot, and reread after copying
+them. The original immediate cloned-state assertion is
 retained; forced-crash coverage still terminates the owned fixture tree.
 
 Final local evidence under
 `D:\DFSC Builds\session-startup-decoupling\evidence-20261114\ci-fix`:
-four focused test files passed 88 tests; typecheck and production build passed;
+four focused test files passed 92 tests; typecheck and production build passed;
 first-run, session-move, custom-providers, Workflow runtime and session-branching
-completed with exit code zero in their `r2`/`r3` logs. Earlier failing attempts
+completed with exit code zero in their `r2`/`r4` logs. Earlier failing attempts
 are diagnostics, not passes. No installer, runtime pin upgrade, production
 profile change, shortcut change, merge or release is included.
 Current-head cloud CI remains a separate required check.
+
+The subsequent `e5ff3fd` cloud run reached the configured-plugin connection
+assertion and imported-session continuation. The former now waits for that
+MCP's real connection and still fails on service errors; the latter waits for
+tool readiness and committed continuation. The two composer IPC fixtures
+capture a settled native snapshot before replacing their handler, rather than
+freezing startup in progress. Final targeted `r4` logs cover capabilities,
+session import, composer menu, command dispatch, Workflow and branching.

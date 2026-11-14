@@ -22,11 +22,13 @@ const javascript = (source: string) => ts.transpileModule(source, {
 }).outputText;
 
 for (const method of ['cloneSession', 'branchSession']) {
-  test(`actual main ${method} reads copied messages before copying Workflow bindings, then hydrates them`, async () => {
+  test(`actual main ${method} copies Workflow bindings from authoritative history even when the UI snapshot is empty`, async () => {
     const clause = find(main, node => ts.isCaseClause(node)
       && node.expression.getText(main) === `'${method}'`) as ts.CaseClause;
     const calls: string[] = [];
     const visit = (node: ts.Node) => {
+      if (ts.isVariableStatement(node) && node.declarationList.declarations.some(declaration =>
+        declaration.name.getText(main) === 'copiedHistory')) calls.push(node.getText(main));
       if (ts.isExpressionStatement(node) && ts.isAwaitExpression(node.expression)
         && ts.isCallExpression(node.expression.expression)
         && ['modelSelections.copyHistory', 'workflowBindings.copyHistory', 'runtimes.read']
@@ -37,9 +39,15 @@ for (const method of ['cloneSession', 'branchSession']) {
     const start = calls.findIndex(call => call.includes('modelSelections.copyHistory'));
     assert.ok(start >= 0);
     const statements = calls.slice(start);
-    const worker = { state: { sessionId: 'copy' }, messages: [] as object[] };
     const history = [{ role: 'assistant', content: [{ type: 'toolCall', id: 'interrupted', name: 'workflow' }] }];
     const order: string[] = [];
+    const worker = { state: { sessionId: 'copy' }, messages: [] as object[], rpc: {
+      request: async (method: string) => {
+        assert.equal(method, 'get_messages');
+        order.push('history');
+        return { messages: history };
+      },
+    } };
     let copied = false;
     const run = new Function('worker', 'source', 'sessionId', 'modelSelections', 'workflowBindings', 'runtimes',
       javascript(`return (async () => { ${statements.join('\n')} })();`));
@@ -48,6 +56,7 @@ for (const method of ['cloneSession', 'branchSession']) {
       { copyHistory: async (from: string, to: string, messages: object[]) => {
         assert.equal(from, 'original'); assert.equal(to, 'copy');
         assert.deepEqual(messages, history, 'an empty startup snapshot cannot filter out Workflow bindings');
+        assert.deepEqual(worker.messages, [], 'binding transfer cannot rely on a publishable UI snapshot');
         copied = true; order.push('bindings');
       } },
       { read: async (owner: typeof worker) => {

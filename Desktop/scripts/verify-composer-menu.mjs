@@ -1,5 +1,5 @@
 import { _electron as electron } from 'playwright';
-import { prepareSessionFixture } from './session-fixture.mjs';
+import { prepareSessionFixture, waitForSessionFixtureTools } from './session-fixture.mjs';
 import { settleLayout } from './settle-layout.mjs';
 import assert from 'node:assert/strict';
 import { mkdir, writeFile } from 'node:fs/promises';
@@ -9,6 +9,9 @@ import { join, resolve } from 'node:path';
 
 const profile = await mkdtemp(join(tmpdir(), 'step-composer-menu-'));
 await writeFile(join(profile, 'preferences.json'), JSON.stringify({ language: 'zh', theme: 'dark', workspaces: [] }));
+await mkdir(join(profile, 'step-runtime'), { recursive: true });
+await writeFile(join(profile, 'step-runtime', 'config.toml'),
+  '[telemetry]\nenabled = false\n[mcp_servers.steppage__steppage]\nenabled = false\n');
 await mkdir('test-results', { recursive: true });
 const env = { ...process.env, DESKTOP_TEST_USER_DATA: profile, DESKTOP_TEST_NO_FOCUS: '1' };
 delete env.ELECTRON_RUN_AS_NODE;
@@ -21,7 +24,8 @@ try {
     const win = BrowserWindow.getAllWindows()[0];
     win.setOpacity(0); win.setIgnoreMouseEvents(true); win.showInactive(); win.setSize(1300, 900);
   });
-  const snapshot = await prepareSessionFixture(page);
+  const owner = await prepareSessionFixture(page);
+  const snapshot = await waitForSessionFixtureTools(page, owner.runtimeId);
   await app.evaluate(({ ipcMain }, snapshot) => {
     const model = { provider: 'stepfun', id: 'step-3.5-flash', name: 'Step 3.5 Flash', contextWindow: 256000, thinkingLevels: ['low', 'medium', 'high'] };
     globalThis.menuFixture = { ...snapshot, stats: { ...snapshot.stats, contextUsage: { percent: 33, tokens: 84480, contextWindow: 256000 } }, state: { ...snapshot.state, model, thinkingLevel: 'medium' }, models: [model], messages: [

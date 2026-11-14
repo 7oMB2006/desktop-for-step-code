@@ -387,16 +387,26 @@ their IPC polls and orderly shutdown now use the same bounded fixture helpers.
 
 Workflow acceptance also caught a product regression: startup events can
 invalidate the first history read, leaving no calls when clone/fork filters
-Workflow bindings. Both paths now read copied calls before transferring bindings,
-then reread to hydrate their metadata. The immediate cloned-interruption assertion
+Workflow bindings. Both paths now read copied calls directly from native history,
+not the discardable UI snapshot, before transferring bindings, then reread to
+hydrate their metadata. The immediate cloned-interruption assertion
 remains unchanged. Crash acceptance positively waits for the saved assistant call
 before asserting that no final result was persisted.
 
-The additional local four-file regression selection passed 88 tests, typecheck
+The additional local four-file regression selection passed 92 tests, typecheck
 and production build passed, and final zero-exit Electron logs include
 `verify-first-run-r2`, `verify-session-move-r2`, `verify-custom-providers-r2`,
-`verify-workflow-runtime-r3` and `verify-session-branching-r3` under `ci-fix`.
+`verify-workflow-runtime-r4`, `verify-session-branching-r4`,
+`verify-capabilities-r4`, `verify-session-import-r4`, `verify-composer-menu-r4`
+and `verify-command-dispatch-r4` under `ci-fix`.
 The earlier failing runner attempts remain diagnostic evidence only.
+
+At `e5ff3fd`, Windows reached the configured-plugin connection assertion and
+imported-session continuation. These now wait for the relevant MCP result and
+execution readiness respectively. The service's failure remains fatal, and
+imported tool-history isolation assertions are retained. The composer-menu and
+command-dispatch mocks now capture real settled startup readiness before
+replacing IPC, instead of freezing a pending native snapshot forever.
 
 ## Remaining Boundaries
 

@@ -10,7 +10,7 @@ import { stagePluginRelease } from '../scripts/plugin-release.mjs';
 import { mkdtemp, removeTestProfile } from '../scripts/test-profile.mjs';
 
 async function fixture(action: (root: string) => Promise<void>) {
-  const root = await mkdtemp(join(tmpdir(), 'desktop-plugin-release-'));
+  const root = await realpath(await mkdtemp(join(tmpdir(), 'desktop-plugin-release-')));
   try { await action(root); }
   finally { await removeTestProfile(root); }
 }

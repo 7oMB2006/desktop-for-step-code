@@ -182,6 +182,45 @@ test('plugin MCP disable uses an override and enable removes only that override'
   assert.doesNotMatch(await readFile(join(root, 'config.toml'), 'utf8'), /example__tools/);
 });
 
+test('standalone MCP names and namespaced plugin consumers keep independent enable intent', async t => {
+  const { folder, root, service } = await fixture(t);
+  await service.mutate({ action: 'marketplace-add', source: await marketplace(folder) });
+  await service.mutate({ action: 'plugin-install', name: 'example', marketplace: 'fixture-community' });
+  await writeFile(join(root, 'config.toml'), `
+[mcp_servers.example_tools]
+command = "standalone-never-run"
+enabled = false
+`);
+  let catalog = await service.catalog();
+  assert.equal(catalog.mcp.find(server => server.name === 'example_tools')?.source, 'user');
+  assert.equal(catalog.mcp.find(server => server.name === 'example_tools')?.pluginId, undefined);
+  assert.equal(catalog.mcp.find(server => server.name === 'example_tools')?.enabled, false);
+  assert.equal(catalog.mcp.find(server => server.name === 'example__tools')?.enabled, true,
+    'Disabling a similarly named standalone service must not silently disable a distinct plugin consumer');
+  await service.mutate({ action: 'plugin-toggle', id: 'example', enabled: false });
+  catalog = await service.catalog();
+  assert.equal(catalog.mcp.find(server => server.name === 'example__tools')?.enabled, false);
+  assert.equal(catalog.mcp.find(server => server.name === 'example_tools')?.enabled, false);
+  await service.mutate({ action: 'mcp-toggle', name: 'example_tools', enabled: true });
+  catalog = await service.catalog();
+  assert.equal(catalog.mcp.find(server => server.name === 'example__tools')?.enabled, false);
+  assert.equal(catalog.mcp.find(server => server.name === 'example_tools')?.enabled, true);
+});
+
+test('resource-only plugins have no MCP consumers or service enable intent', async t => {
+  const { folder, service } = await fixture(t);
+  const source = await marketplace(folder);
+  const path = join(source, 'example', 'step.plugin.json');
+  const manifest = JSON.parse(await readFile(path, 'utf8'));
+  await writeFile(path, JSON.stringify({ ...manifest, mcpServers: {} }));
+  await service.mutate({ action: 'marketplace-add', source });
+  await service.mutate({ action: 'plugin-install', name: 'example', marketplace: 'fixture-community' });
+  const catalog = await service.catalog();
+  assert.deepEqual(catalog.plugins[0].mcpServers, []);
+  assert.deepEqual(catalog.mcp, []);
+  await assert.rejects(service.mutate({ action: 'plugin-toggle', id: 'example', enabled: true }), /not-found/);
+});
+
 test('plugin service switch toggles all exact-owned servers atomically and preserves private overrides', async t => {
   const { folder, root, service } = await fixture(t);
   const source = await marketplace(folder);

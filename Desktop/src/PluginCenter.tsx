@@ -70,11 +70,14 @@ export function PluginCenter({ bridge, language, busy, active, runtimeId, curren
   const [changed, setChanged] = useState(false);
   const [observationRevision, setObservationRevision] = useState(0);
   const [configurationRevision, setConfigurationRevision] = useState(0);
+  const [mcpRevision, setMcpRevision] = useState(0);
   const [repositoryPending, setRepositoryPending] = useState(false);
   const [repositoryRevision, setRepositoryRevision] = useState(0);
   const [bvrState, setBvrState] = useState({ dirty: false, pending: false, ready: false });
   const backgroundState = customBackgroundState;
-  const [confirmation, setConfirmation] = useState<{ title: string; action(): void }>();
+  const [confirmation, setConfirmation] = useState<{
+    title: string; description?: string; source?: string; confirmLabel?: string; install?: boolean; action(): void;
+  }>();
   const [live, setLive] = useState<{ runtimeId: string; servers: SessionSummary['mcp'] }>();
   const [updateStates, setUpdateStates] = useState<Record<string, PluginUpdateState>>({});
   const [checkingUpdates, setCheckingUpdates] = useState(false);
@@ -83,6 +86,8 @@ export function PluginCenter({ bridge, language, busy, active, runtimeId, curren
   const [updatePanelId, setUpdatePanelId] = useState<string>();
   const nativeUpdates = Boolean(bridge.pluginUpdatePreflight && bridge.pluginUpdateApply && bridge.pluginUpdateOperation);
   const operation = useRef(false);
+  const activationRefresh = useRef<Promise<void> | undefined>(undefined);
+  const observedMcp = useRef<{ active: boolean; bridge: PluginCenterBridge; key?: string } | undefined>(undefined);
   const updateOperation = useRef(false);
   const updateRequests = useRef(new Map<string, symbol>());
   const latestCatalog = useRef<CapabilityCatalog | undefined>(undefined);
@@ -96,6 +101,9 @@ export function PluginCenter({ bridge, language, busy, active, runtimeId, curren
   const repositorySnapshots = useRef(new Map<string, PluginStarSnapshot>());
   const id = useId();
   const formId = `${id}-bvr`;
+  const mcpKey = settings && JSON.stringify(Object.entries(settings.mcp).sort(([a], [b]) => a.localeCompare(b))
+    .map(([name, server]) => [name, server.command, server.args, server.url, server.cwd,
+      server.enabled !== false, [...server.configuredSecrets ?? []].sort()]));
   const installed: Entry[] = (catalog?.plugins ?? []).map(raw => {
     const plugin = pluginPresentation(raw, language);
     return { ...plugin, key: `i:${plugin.id}`, source: pluginSourceLabel(plugin, language), installed: plugin };
@@ -279,7 +287,14 @@ export function PluginCenter({ bridge, language, busy, active, runtimeId, curren
     catch (error) { if (alive.current) setError(capabilityErrorText(error, language === 'zh')); }
     finally { operation.current = false; if (alive.current) setLoading(false); }
   };
-  useEffect(() => { alive.current = true; void refresh(); return () => { alive.current = false; }; }, [bridge]);
+  useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, [bridge]);
+  useEffect(() => {
+    const previous = observedMcp.current;
+    observedMcp.current = { active, bridge, key: mcpKey };
+    // The first settings snapshot hydrates props; catalog reads already use current main-process settings.
+    if (active && previous?.active && previous.bridge === bridge && previous.key !== undefined
+      && mcpKey !== undefined && previous.key !== mcpKey) setMcpRevision(value => value + 1);
+  }, [active, bridge, mcpKey]);
   useEffect(() => {
     if (!nativeUpdates || !catalog) return;
     let valid = true;
@@ -308,8 +323,17 @@ export function PluginCenter({ bridge, language, busy, active, runtimeId, curren
   }, [bridge, nativeUpdates, Boolean(catalog)]);
   useEffect(() => {
     // MCP edits can happen in Settings while this view retains its local draft.
-    if (active && catalog) void refresh();
-  }, [active, settings]);
+    if (!active) return;
+    let valid = true;
+    const read = async () => { if (valid && alive.current) await refresh(); };
+    // Wait for the previous activation read; cancel queued work once hidden.
+    const previous = activationRefresh.current;
+    const request = previous ? previous.then(read, read) : read();
+    activationRefresh.current = request;
+    const settled = () => { if (activationRefresh.current === request) activationRefresh.current = undefined; };
+    void request.then(settled, settled);
+    return () => { valid = false; };
+  }, [active, bridge, mcpRevision]);
   useEffect(() => {
     if (!target || target.page !== 'plugins') return;
     if (target.pluginId && !catalog) return;
@@ -429,6 +453,7 @@ export function PluginCenter({ bridge, language, busy, active, runtimeId, curren
   const toggle = (plugin: CapabilityPlugin) => {
     if (plugin.package?.hostConfiguration === 'custom-background-v1') return null;
     const owned = servers(plugin);
+    if (!owned.length) return null;
     return <button type="button" role="switch" className={`cap-switch${owned.length && owned.every(server => server.enabled) ? ' on' : ''}`}
       aria-label={t(`启用 ${plugin.name} 服务`, `Enable ${plugin.name} services`)}
       aria-checked={owned.length > 0 && owned.every(server => server.enabled)}
@@ -443,6 +468,21 @@ export function PluginCenter({ bridge, language, busy, active, runtimeId, curren
     const owned = servers(plugin);
     return !owned.length ? t('无 MCP 服务', 'No MCP services') : owned.every(server => server.enabled) ? t('服务已启用', 'Services enabled')
       : owned.every(server => !server.enabled) ? t('服务已停用', 'Services disabled') : t('部分服务启用', 'Some services enabled');
+  };
+  const confirmInstall = (item: Entry) => {
+    if (!item.available || installLocked(item) || item.available.installed || item.available.blocked) return;
+    const available = item.available;
+    setConfirmation({
+      title: t(`安装 ${item.name}？`, `Install ${item.name}?`),
+      source: t(`市场：${available.marketplace} · 包：${available.name}${item.version ? ` · v${item.version}` : ''}`,
+        `Marketplace: ${available.marketplace} · Package: ${available.name}${item.version ? ` · v${item.version}` : ''}`),
+      description: t(
+        '第三方插件可能运行本机程序、访问文件与网络，并使用收费服务。市场收录和完整性校验不代表安全认证，DFSC 不提供恶意插件沙箱。仅安装你信任的插件。',
+        'Third-party plugins may run local programs, access files and networks, and use paid services. Marketplace listing and integrity checks are not security certification. DFSC does not sandbox malicious plugins. Install only plugins you trust.'),
+      confirmLabel: t('安装插件', 'Install plugin'), install: true,
+      action: () => void perform({ action: 'plugin-install', name: available.name,
+        marketplace: available.marketplace, ref: item.package?.ref }),
+    });
   };
   const matches = (item: Entry) => `${item.name} ${item.description ?? ''} ${item.installed?.id ?? item.available?.name ?? ''} ${item.source ?? ''} ${pluginClassificationText(item.package)} ${pluginMarketplaceSearchText(item.package)}`.toLocaleLowerCase().includes(query.toLocaleLowerCase());
   const shown = (tab === 'installed' ? installed : available).filter(matches);
@@ -600,7 +640,7 @@ export function PluginCenter({ bridge, language, busy, active, runtimeId, curren
               <span className="pc-card-meta"><span>{item.source}</span>
                 <PluginStars value={item.repository && item.package ? item.package.stars ?? { status: 'unknown' } : undefined} language={language}/></span>
               <footer className="pc-card-footer"><div className="pc-card-state">{item.installed ? <>{toggle(item.installed)}<span className="pc-status">{status(item.installed)}</span></>
-                : <button disabled={installLocked(item) || item.available?.installed || item.available?.blocked} onClick={() => item.available && void perform({ action: 'plugin-install', name: item.available.name, marketplace: item.available.marketplace, ref: item.package?.ref })}>
+                : <button disabled={installLocked(item) || item.available?.installed || item.available?.blocked} onClick={() => confirmInstall(item)}>
                   {item.available?.installed ? <Check size={14}/> : <ArrowDownToLine size={14}/>} {item.available?.installed ? t('已安装', 'Installed') : t('安装', 'Install')}</button>}</div>
                 <div className="pc-card-actions">
                   {item.installed && <PluginUpdateAction state={updates?.items[item.installed.id]} name={item.name}
@@ -638,7 +678,7 @@ export function PluginCenter({ bridge, language, busy, active, runtimeId, curren
             {toggle(entry.installed)}<button className="icon-button pc-danger-button" disabled={mutationLocked({ action: 'plugin-remove', id: entry.installed.id })} aria-label={t('卸载插件', 'Uninstall plugin')}
               onClick={() => navigate(() => setConfirmation({ title: t(`卸载 ${entry.name}？`, `Uninstall ${entry.name}?`),
                 action: () => void perform({ action: 'plugin-remove', id: entry.installed!.id }) }))}><Trash2 size={16}/></button></>
-            : <button className="primary" disabled={installLocked(entry) || entry.available?.installed || entry.available?.blocked} onClick={() => entry.available && void perform({ action: 'plugin-install', name: entry.available.name, marketplace: entry.available.marketplace, ref: entry.package?.ref })}>
+            : <button className="primary" disabled={installLocked(entry) || entry.available?.installed || entry.available?.blocked} onClick={() => confirmInstall(entry)}>
               <ArrowDownToLine size={15}/>{entry.available?.installed ? t('已安装', 'Installed') : t('安装', 'Install')}</button>}</div></header>
         {entry.installed && <PluginUpdateRow state={updates?.items[entry.installed.id]} name={entry.name} currentVersion={entry.installed.version}
           language={language} disabled={updateLocked(entry.installed)} onUpdate={() => updatePlugin(entry.installed!.id)}
@@ -674,8 +714,10 @@ export function PluginCenter({ bridge, language, busy, active, runtimeId, curren
                   language={language} busy={locked} formId={formId} visible={active && detailTab === 'config'}
                   onState={setBvrState} onSaved={async () => { setChanged(true); await onChanged(); }}/>
                 : <section className="pc-form-section"><h3>{t('服务配置', 'Service configuration')}</h3><p className="pc-body-copy">
-                  {entry.installed ? t('此插件暂未提供专用配置表单。MCP 启动参数与环境变量可在 MCP 设置中管理。', 'This plugin has no dedicated form. Manage MCP launch options and environment variables in MCP settings.')
-                    : t('安装后可查看服务配置。', 'Install to view service configuration.')}</p>{entry.installed && <button onClick={() => onManageMcp()}><Settings size={15}/>{t('MCP 设置', 'MCP settings')}</button>}</section>}
+                  {entry.installed ? servers(entry.installed).length
+                    ? t('此插件暂未提供专用配置表单。MCP 启动参数与环境变量可在 MCP 设置中管理。', 'This plugin has no dedicated form. Manage MCP launch options and environment variables in MCP settings.')
+                    : t('未声明可配置的 MCP 服务。', 'No configurable MCP services declared.')
+                    : t('安装后可查看服务配置。', 'Install to view service configuration.')}</p>{entry.installed && servers(entry.installed).length > 0 && <button onClick={() => onManageMcp()}><Settings size={15}/>{t('MCP 设置', 'MCP settings')}</button>}</section>}
           </div>
           <div id={`${id}-capabilities-panel`} role="tabpanel" aria-labelledby={`${id}-detail-capabilities`} hidden={detailTab !== 'capabilities'}>
             {entry.installed ? <>
@@ -722,8 +764,12 @@ export function PluginCenter({ bridge, language, busy, active, runtimeId, curren
         void onOpenSession(sessionId).catch(error => setError(capabilityErrorText(error, language === 'zh')));
       }) : undefined}/>
     <dialog ref={dialog} className="pc-dialog" aria-label={confirmation?.title} onCancel={event => { event.preventDefault(); setConfirmation(undefined); }}>
-      <header><h2>{confirmation?.title}</h2></header><footer><button autoFocus onClick={() => setConfirmation(undefined)}>{t('取消', 'Cancel')}</button>
-        <button className="pc-danger-button" onClick={() => { const action = confirmation?.action; setConfirmation(undefined); action?.(); }}>{t('确认', 'Confirm')}</button></footer>
+      <header><h2>{confirmation?.title}</h2></header>
+      {confirmation?.source && <p>{confirmation.source}</p>}
+      {confirmation?.description && <p>{confirmation.description}</p>}
+      <footer><button autoFocus onClick={() => setConfirmation(undefined)}>{t('取消', 'Cancel')}</button>
+        <button className={confirmation?.install ? 'primary' : 'pc-danger-button'} disabled={operationLocked}
+          onClick={() => { const action = confirmation?.action; setConfirmation(undefined); action?.(); }}>{confirmation?.confirmLabel ?? t('确认', 'Confirm')}</button></footer>
     </dialog>
   </section>;
 }

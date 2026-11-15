@@ -287,6 +287,10 @@ try {
   await main.evaluate(() => globalThis.freshInstallDisclosureController.abort());
   await capture('marketplace-card-light');
   await card.getByRole('button', { name: '安装', exact: true }).click();
+  const installConfirmation = main.getByRole('dialog', { name: `安装 ${manifest.name}？`, exact: true });
+  await installConfirmation.waitFor();
+  assert.match(await installConfirmation.innerText(), /不提供恶意插件沙箱/);
+  await installConfirmation.getByRole('button', { name: '安装插件', exact: true }).click();
   await center().getByRole('heading', { name: manifest.name, exact: true, level: 2 }).waitFor();
   const installed = (await catalog()).plugins.find(plugin => plugin.id === manifest.id);
   assert.ok(installed?.package?.ref);

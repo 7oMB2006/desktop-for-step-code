@@ -1,6 +1,6 @@
 # 插件宿主模型代理服务
 
-状态：2026-11-08，计划 [Ⅲ] 的代理服务与原生启动绑定候选，**尚未发布**。
+状态：2026-11-15，计划 [Ⅲ] 的代理服务与原生启动绑定候选，**尚未发布**。
 依赖 [宿主协议候选](PLUGIN_HOST_CONTRACT.md)，不升级 runtime pin。
 生产 `main.ts` 已按 runtime 能力标记创建服务，核验原生发现记录后才签发上下文。
 preload、renderer 没有新增私有 RPC 或签发接口。插件中心已有通用模式设置、
@@ -13,7 +13,7 @@ preload、renderer 没有新增私有 RPC 或签发接口。插件中心已有�
 | --- | --- | --- |
 | `PluginHostBindingStore` / 设置表单 | 安装 receipt、包指纹、模式及配置修订、实例数据目录；通用模式入口，同队列提交 | 完整实包模式切换和恢复验收 |
 | `PluginHostBroker` / `PluginHostLauncher` | 主进程签发、原生记录绑定、管理队列、逐能力确认、主动撤销、取消、资源预算及安全状态快照 | 完整 Electron/实包付费确认验收 |
-| `StepPluginHostProvider` | 实际会话模型、官方账户路由、窄提供商请求及结果规范化 | 真实账户权益验收、TTS、其他提供商 |
+| `StepPluginHostProvider` | 实际会话模型、官方账户路由、文本/视频/ASR/TTS 窄请求及结果规范化 | 真实账户权益验收、其他提供商 |
 | SDK 示例 | 自包含 stdio 服务通过真实 broker 调用及拒绝测试 | 正式市场发布及用户安装验收 |
 
 `step-model-account.ts` 从 BVR 原桥提取四条既有账户路由，BVR 继续使用原桥。
@@ -99,7 +99,24 @@ runtime 重启、插件配置/管理操作和全局 MCP 保存接入主动失效
 | `model.text` | 当前会话官方 Step 模型，`/chat/completions` |
 | `model.video` | 同一模型及渠道，仅已知视频模型或 runtime 明确声明 video 输入时开放 |
 | `model.asr` | 专用 `stepaudio-2.5-asr`，同渠道 `/audio/asr/sse`；本适配器仅接受 WAV |
-| `model.tts` | 明确返回 `CAPABILITY_UNAVAILABLE`，不猜测 OAuth 的 TTS 路由 |
+| `model.tts` | 专用模型，沿用同账户、同地区、同 Plan/API 渠道的 `/audio/speech`；MP3/WAV/PCM 内联结果 |
+
+TTS 默认使用 `stepaudio-2.5-tts`，也允许显式选择 `stepaudio-3-tts`；
+国内额外适配 `step-tts-2`、`step-tts-mini`，海外不开放这两个未列入当地文档的模型。
+设置页使用通用模型菜单保存到原 `models['model.tts']` 修订，不继承聊天模型或新增付费授权。
+单次最多 1000 个 Unicode 字符、音色 ID 最多 128 字符，拒绝空白及音色控制字符；
+不自动拆分长文本、转换格式、上传音频、复刻/管理音色或请求下载 URL。
+提供商返回音频流按 16 MiB 上限读取，核对响应 MIME 后转为规范 base64；
+错误、重定向、空结果、JSON/HTML MIME 或格式不匹配不会作为音频转交。
+客户端拿到结果后可自行写入自己的 `dataDirectory`，宿主不接受输出路径。
+
+路由及模型白名单依据 2026-11-15 查阅的官方语音合成接口：
+[国内](https://platform.stepfun.com/docs/zh/api-reference/audio/create-audio)、
+[海外](https://platform.stepfun.ai/docs/en/api-reference/audio/create-audio)。
+两份文档均明确给出各自 `/step_plan/v1/audio/speech`，但不据此承诺实际账户的
+模型权益、套餐包含范围或免费调用。上下文可用性只检查受支持的适配组合，
+不通过隐式付费请求探测权限；实际拒绝返回规范错误，不自动重试或改走 API。
+插件接入说明见 [TTS 接入与交付边界](PLUGIN_TTS_ADAPTER.md)。
 
 候选 wire contract 允许的音频 MIME 比当前 Step 适配器更多，不能据此承诺都能调用。
 `available` 表示存在受限适配路径，不是实时余额、套餐权益或成功调用保证。
@@ -114,8 +131,9 @@ runtime 重启、插件配置/管理操作和全局 MCP 保存接入主动失效
 - 每实例每会话并发 2、全局并发 8、队列 32；最多 64 个有效租约。
 - 单租约至多 1024 个不重复 requestId；取消只作用于本租约。
 - 排队 30 秒、确认 60 秒、provider 180 秒；租约到期独立生效。
-- 请求 JSON 32 MiB；Step 原始响应读取上限 2 MiB；通用结果另按候选协议校验。
+- 请求 JSON 32 MiB；Step 文本/ASR 原始响应上限 2 MiB，TTS 音频上限 16 MiB；通用结果另按候选协议校验。
 - 提供商错误与非预期异常规范化，不向插件转发原始响应体、账户资料或请求头。
+- 以上是资源预算，不是插件金额/Token 消费硬上限，也不是账单对账或剩余额度查询。
 
 ## 验证边界
 
@@ -131,5 +149,7 @@ runtime 重启、插件配置/管理操作和全局 MCP 保存接入主动失效
 初始化错误回显隔离及关闭 opt-in 的兼容行为；provider 为隔离 fixture。
 没有借此声称实际 Step 请求、真实权益或生产界面已验收。
 
-通用设置已接入候选源码；完整 Electron/实包付费确认、真实账户/权益、TTS、
+TTS 另有生产适配器及真实 broker/client/SDK 子进程的离线回归，提供商音频为合成 fixture；
+不证明真实音色、音质、账户权限或实际扣费。
+通用设置已接入候选源码；完整 Electron/实包付费确认、真实账户/权益、
 BVR 迁移和跨仓库发布仍是后续门槛，不能把计划 [Ⅲ] 标为完成。

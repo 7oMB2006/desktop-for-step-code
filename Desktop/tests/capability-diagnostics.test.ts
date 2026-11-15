@@ -12,6 +12,8 @@ test('capability failures preserve known codes without leaking raw system errors
     ['ENOTEMPTY', 'directory-not-empty'], ['ENOENT', 'not-found'],
   ]) assert.equal(capabilityFailureCode(Object.assign(new Error('private-file-name'), { code: system })), expected);
   assert.equal(capabilityFailureCode(new Error('capability:resource-in-use')), 'resource-in-use');
+  assert.equal(capabilityFailureCode(new Error('capability:settings-committed-unverified')), 'settings-committed-unverified');
+  assert.equal(capabilityFailureCode({ code: 'settings-committed-unverified' }), 'settings-committed-unverified');
   assert.equal(capabilityFailureCode({ code: 'stale-configuration' }), 'stale-configuration');
   assert.equal(capabilityFailureCode(new Error('token=private-token')), 'operation-failed');
   assert.equal(capabilityFailureCode(new Error('capability:private-token')), 'operation-failed');
@@ -158,6 +160,30 @@ test('Chinese and English error text is bounded and retains a validated diagnost
     assert.match(capabilityErrorText(error, false), /host|declaration|mode/);
     assert.match(capabilityErrorText(error, false), /Diagnostic ID: 012345abcdef/);
   }
+});
+
+test('invalid plugin releases show bounded author guidance without file paths or contents', () => {
+  const error = new Error('capability:invalid-release; C:\\private\\plugin\\.env SECRET_VALUE=private-token; diagnostic:012345abcdef');
+  assert.match(capabilityErrorText(error, true), /开发残留.*敏感文件.*未声明.*运行依赖/);
+  assert.match(capabilityErrorText(error, true), /作者.*发布目录.*未安装或替换/);
+  assert.match(capabilityErrorText(error, false), /development artifacts, sensitive files or undeclared runtime dependencies/);
+  for (const zh of [true, false]) {
+    const text = capabilityErrorText(error, zh);
+    assert.doesNotMatch(text, /private|\.env|SECRET_VALUE|private-token/);
+    assert.match(text, /012345abcdef/);
+  }
+});
+
+test('confirmed settings commits with a failed recheck tell users not to resubmit and reveal no raw details', () => {
+  const error = new Error('capability:settings-committed-unverified; C:\\private\\plugin SECRET_VALUE=private-token; diagnostic:012345abcdef');
+  const chinese = capabilityErrorText(error, true), english = capabilityErrorText(error, false);
+  assert.match(chinese, /配置已保存.*完整性复查失败.*勿重复提交.*刷新目录后核对/);
+  assert.match(english, /Settings were saved.*integrity recheck failed.*Do not submit again.*refresh the catalog and review/);
+  for (const text of [chinese, english]) {
+    assert.match(text, /012345abcdef/);
+    assert.doesNotMatch(text, /private|SECRET_VALUE|private-token|capability:/);
+  }
+  assert.equal(capabilityWarningText('capability:settings-committed-unverified; diagnostic:012345abcdef', false), english);
 });
 
 class Transport implements WorkerTransport {

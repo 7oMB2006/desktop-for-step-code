@@ -21,7 +21,7 @@ async function fixture(t: test.TestContext, settings = true, available = true) {
   // Stub only the native catalog subprocess; receipts, files, projections and
   // the production management queue remain real.
   const internals = service as unknown as { request(type: string): Promise<unknown>; hostBindings: PluginHostBindingStore };
-  internals.request = async type => { assert.equal(type, 'catalog'); return raw; };
+  internals.request = async type => { assert.ok(['catalog', 'target-catalog'].includes(type)); return raw; };
   const ref = (await service.catalog()).plugins[0].package!.ref;
   const save = (input: Omit<PluginHostSettingsInput, 'ref'>) => service.hostSettings({ ref }, { ref, ...input });
   return { ...f, service, raw, ref, save, internals, invalidations: () => invalidations };

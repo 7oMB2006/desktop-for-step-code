@@ -151,6 +151,7 @@ window.desktop = {
   summary: async () => ({ sessionId: snapshot.state?.sessionId, tasks: [], mcp: [], skillCount: 0 }),
   settings: async () => ({ account: { loggedIn: false, validity: 'missing' }, profiles: [], mcp: {}, skills: [] }),
   capabilityCatalog: async () => ({ plugins: [], available: [], marketplaces: [], mcp: [], skills: [], warnings: [] }),
+  pluginDesktopCatalog: async () => ({ plugins: [], available: [], marketplaces: [], mcp: [], skills: [], warnings: [] }),
   repositoryDiff: async () => ({ state: 'not-git', bases: [], files: [], added: 0, removed: 0, truncated: false }),
   copyText: async (text: string) => { copiedText = text; },
 } as unknown as DesktopBridge;

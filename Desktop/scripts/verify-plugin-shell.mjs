@@ -50,6 +50,7 @@ try {
     };
     const fixture = window.pluginShellFixture = {
       catalog, plugin, manual: false, failure: false, pending: [], reads: [], calls: [],
+      catalogReads: { desktop: 0, full: 0 },
       emit: type => listeners.forEach(listener => listener({ type })),
     };
     window.desktop = new Proxy({
@@ -58,7 +59,12 @@ try {
       onUpdateEvent: () => () => {},
       onTerminalData: () => () => {},
       snapshot: async () => snapshot,
-      capabilityCatalog: () => {
+      capabilityCatalog: async () => {
+        fixture.catalogReads.full++;
+        return structuredClone(fixture.catalog);
+      },
+      pluginDesktopCatalog: () => {
+        fixture.catalogReads.desktop++;
         if (fixture.manual) return new Promise((resolve, reject) => fixture.pending.push({ resolve, reject }));
         if (fixture.failure) return Promise.reject(new Error('PRIVATE_CATALOG_ERROR'));
         return Promise.resolve(structuredClone(fixture.catalog));
@@ -87,6 +93,8 @@ try {
   const composer = page.locator('main .composer-input');
   const conversation = page.locator('#conversation-scroll');
   await mainAction.waitFor();
+  assert.deepEqual(await page.evaluate(() => window.pluginShellFixture.catalogReads), { desktop: 1, full: 0 },
+    'main mount reads only the lightweight desktop catalog');
   await composer.fill('KEEP THE MAIN DRAFT');
   await conversation.hover();
   await page.mouse.wheel(0, -2400);
@@ -136,6 +144,8 @@ try {
   await page.getByRole('button', { name: 'Plugin marketplace', exact: true }).click();
   const center = page.getByRole('region', { name: 'Plugin center', exact: true });
   await center.getByRole('button', { name: 'Read Main Guide guide', exact: true }).click();
+  assert.ok(await page.evaluate(() => window.pluginShellFixture.catalogReads.full) > 0,
+    'opening the plugin center still uses the full catalog');
   await center.getByRole('button', { name: 'Open Main Guide', exact: true }).click();
   await main.getByRole('heading', { name: 'docs/setup.md', exact: true }).waitFor();
   assert.equal(await center.isVisible(), false, 'installed detail opens the plugin workspace instead of overlapping it');

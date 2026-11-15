@@ -1,7 +1,8 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { join, resolve } from 'node:path';
 import { PluginConfigurationStore } from './plugin-configuration.mjs';
-import { digest, optionalFile, packageFingerprint, plainFile, readReceipts, writePrivateData, PluginFileError } from './plugin-files.mjs';
+import { digest, optionalFile, plainFile, readReceipts, writePrivateData, PluginFileError } from './plugin-files.mjs';
+import { verifyPackage } from './plugin-read-scope.mjs';
 import { CAPABILITIES, parseHostDeclaration, parseLaunch, parseModelSelection, hash, id, keys } from '../../examples/plugins/host-client/protocol.mjs';
 
 export { parseHostDeclaration } from '../../examples/plugins/host-client/protocol.mjs';
@@ -15,22 +16,22 @@ export class PluginHostBindingStore {
     this.root = root;
     this.configurations = new PluginConfigurationStore(root);
   }
-  async identity(descriptor) {
+  async identity(descriptor, scope) {
     if (descriptor.kind !== 'installed' || descriptor.provenance !== 'recorded' || !descriptor.instance) fail();
     const receipts = await readReceipts(this.root);
     const receipt = receipts.installations.find(item => item.instance === descriptor.instance
       && item.id === descriptor.id && item.folder === descriptor.name && item.state === 'installed'
       && item.fingerprint === descriptor.fingerprint);
-    if (!receipt || resolve(descriptor.root) !== resolve(this.root, 'plugins', receipt.folder)
-      || await packageFingerprint(descriptor.root) !== receipt.fingerprint) fail();
+    if (!receipt || resolve(descriptor.root) !== resolve(this.root, 'plugins', receipt.folder)) fail();
+    await verifyPackage(descriptor, scope);
     const bytes = await plainFile(descriptor.root, 'dfsc.host.json', 65536);
     const manifest = JSON.parse((await plainFile(descriptor.root, 'step.plugin.json')).toString('utf8'));
     if (manifest.id !== receipt.id) fail();
     const declaration = parseHostDeclaration(JSON.parse(bytes.toString('utf8')), manifest);
     return { receipt, declaration, declarationHash: digest(bytes) };
   }
-  async current(descriptor) {
-    const identity = await this.identity(descriptor);
+  async current(descriptor, scope) {
+    const identity = await this.identity(descriptor, scope);
     const path = `desktop-plugins/host/bindings/${identity.receipt.instance}.json`;
     const pointer = await optionalFile(this.root, path);
     if (!pointer) return { ...identity, revision: 'unconfigured' };
@@ -62,7 +63,7 @@ export class PluginHostBindingStore {
     let configurationCurrent = snapshot.mode === 'follow';
     if (snapshot.mode === 'independent') {
       try {
-        const configuration = await this.configurations.context(descriptor);
+        const configuration = await this.configurations.context(descriptor, scope);
         configurationCurrent = configuration.schema.consumer.server === snapshot.consumer
           && configuration.committed && configuration.saved.revision === snapshot.configurationRevision;
       } catch { configurationCurrent = false; }

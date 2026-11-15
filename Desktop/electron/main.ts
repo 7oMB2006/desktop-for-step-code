@@ -2741,6 +2741,10 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
       const catalog = await capabilityService.catalog();
       return catalog;
     }
+    case 'pluginDesktopCatalog': {
+      if (settingsMutation || updateInstalling || quitting || quitPending) throw new Error('Shared settings operation in progress');
+      return capabilityService.desktopCatalog();
+    }
     case 'pluginUpdatePreflight': return pluginUpdates.preflight(args[0]);
     case 'pluginUpdateOperation': return pluginUpdates.latest(args[0]?.pluginId);
     case 'pluginUpdateApply': return pluginUpdates.apply(args[0]);
@@ -3319,7 +3323,7 @@ else app.whenReady().then(async () => {
       // Reads must not observe the admin transport halfway through an idle reload.
       if (providerApplication) await providerApplication;
       const capabilityMutation = ['capabilityMutate', 'pluginUpdateApply', 'capabilityImportSkill', 'bvrSaveConfiguration', 'pluginSaveConfiguration', 'pluginSaveHostSettings', 'saveCompactionSettings'].includes(method);
-      const capabilityRead = ['capabilityCatalog', 'pluginDocument', 'pluginRepositoryInfo', 'pluginConfiguration', 'pluginHostSettings', 'pluginWindowOpen',
+      const capabilityRead = ['capabilityCatalog', 'pluginDesktopCatalog', 'pluginDocument', 'pluginRepositoryInfo', 'pluginConfiguration', 'pluginHostSettings', 'pluginWindowOpen',
         'pluginUpdatePreflight', 'pluginUpdateOperation',
         'pluginConnectionState', 'pluginConnectionChooseProfile', 'pluginConnectionForgetProfile',
         'pluginChoosePath', 'themeScene', 'themePoster', 'themeImage', 'customBackgroundState', 'customBackgroundImage',

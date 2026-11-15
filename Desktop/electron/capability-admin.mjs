@@ -42,6 +42,9 @@ input.on('line', line => {
       if (shuttingDown) throw new CapabilityError('operation-denied');
       active = new AbortController();
       const data = request.type === 'catalog' ? await manager.catalog()
+        : request.type === 'desktop-catalog' ? await manager.desktopCatalog()
+        : request.type === 'host-descriptor' ? await manager.hostDescriptor(request.input)
+        : request.type === 'target-catalog' ? await manager.targetCatalog(request.input)
         : request.type === 'initialize' ? await manager.initialize()
         : request.type === 'mutate' ? await manager.mutate(request.input,
           AbortSignal.any([active.signal, AbortSignal.timeout(125000)]))

@@ -33,6 +33,76 @@ function focusClips(element) {
 }
 try {
   await verifyPluginMarketInfo({ browser, base, output: `${output}/market-info` });
+  const installation = await browser.newPage({ viewport: { width: 1440, height: 980 } });
+  const installationErrors = [];
+  installation.on('pageerror', error => installationErrors.push(error.message));
+  try {
+    await installation.goto(`${base}/tests/fixtures/plugin-center-live.html`);
+    await installation.emulateMedia({ reducedMotion: 'reduce' });
+    await installation.getByRole('tab', { name: /^已安装/ }).waitFor();
+    const resourceName = 'LongNamePluginWithoutALogoForLayoutVerification';
+    const resourceCard = installation.locator('.pc-plugin-row').filter({
+      has: installation.locator('.pc-card-heading strong', { hasText: resourceName }),
+    });
+    assert.equal(await resourceCard.getByRole('switch').count(), 0, 'Resource-only plugins do not expose an MCP service switch');
+    await installation.getByRole('button', { name: `配置 ${resourceName}`, exact: true }).click();
+    assert.equal(await installation.locator('.pc-plugin-header').getByRole('switch').count(), 0);
+    assert.match(await installation.locator('.pc-detail-content').innerText(), /未声明可配置的 MCP 服务/);
+    assert.equal(await installation.getByRole('button', { name: 'MCP 设置', exact: true }).count(), 0);
+    await installation.getByRole('button', { name: '全部插件', exact: true }).click();
+    await installation.getByRole('tab', { name: '发现', exact: true }).click();
+    const fixtureCard = installation.locator('.pc-plugin-row').filter({
+      has: installation.locator('.pc-card-heading strong', { hasText: /^Fixture plugin$/ }),
+    });
+    const dialog = installation.locator('dialog.pc-dialog');
+    const counts = () => installation.evaluate(() => window.pluginCenterTest.counts().installs);
+    for (const language of ['zh', 'en']) {
+      await installation.evaluate(value => window.pluginCenterTest.language(value), language);
+      const labels = language === 'zh'
+        ? { install: '安装', title: '安装 Fixture plugin？', cancel: '取消', confirm: '安装插件' }
+        : { install: 'Install', title: 'Install Fixture plugin?', cancel: 'Cancel', confirm: 'Install plugin' };
+      await fixtureCard.getByRole('button', { name: labels.install, exact: true }).waitFor();
+      for (const theme of ['light', 'dark']) {
+        await installation.evaluate(value => window.pluginCenterTest.theme(value), theme);
+        for (const width of [1440, 390]) {
+          await installation.setViewportSize({ width, height: 844 });
+          await fixtureCard.getByRole('button', { name: labels.install, exact: true }).click();
+          await installation.getByRole('dialog', { name: labels.title, exact: true }).waitFor();
+          assert.equal(await counts(), 0, 'Opening the trust confirmation does not install');
+          assert.match(await dialog.innerText(), /fixture-community.*fixture/s, 'The exact marketplace and package are shown');
+          assert.match(await dialog.innerText(), language === 'zh' ? /不代表安全认证.*不提供恶意插件沙箱/ : /not security certification.*does not sandbox malicious plugins/s);
+          assert.equal(await dialog.evaluate(element => element.scrollWidth > element.clientWidth + 1), false);
+          assert.equal(await installation.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+          for (const button of await dialog.getByRole('button').all()) {
+            await button.focus();
+            assert.deepEqual(await button.evaluate(focusClips), [], `${language}/${theme}/${width}: confirmation focus`);
+          }
+          await installation.screenshot({ path: `${output}/install-trust-${language}-${theme}-${width}.png` });
+          await dialog.getByRole('button', { name: labels.cancel, exact: true }).click();
+          await dialog.waitFor({ state: 'hidden' });
+          assert.equal(await counts(), 0, 'Cancel does not install');
+        }
+      }
+    }
+    await installation.evaluate(() => window.pluginCenterTest.language('zh'));
+    await installation.getByRole('button', { name: '查看 Fixture plugin 使用说明', exact: true }).click();
+    await installation.locator('.pc-plugin-header').getByRole('button', { name: '安装', exact: true }).click();
+    await installation.getByRole('dialog', { name: '安装 Fixture plugin？', exact: true }).waitFor();
+    await installation.keyboard.press('Escape');
+    await dialog.waitFor({ state: 'hidden' });
+    assert.equal(await counts(), 0, 'Escape from the detail install confirmation does not install');
+    await installation.locator('.pc-plugin-header').getByRole('button', { name: '安装', exact: true }).click();
+    await installation.getByRole('dialog', { name: '安装 Fixture plugin？', exact: true }).waitFor();
+    await dialog.getByRole('button', { name: '安装插件', exact: true }).click();
+    await installation.waitForFunction(() => window.pluginCenterTest.counts().installs === 1);
+    await dialog.waitFor({ state: 'hidden' });
+    assert.equal(await counts(), 1, 'One explicit confirmation issues one install');
+    await installation.getByRole('button', { name: '全部插件', exact: true }).click();
+    await installation.getByRole('tab', { name: /^已安装/ }).click();
+    assert.equal(await fixtureCard.getByRole('switch').count(), 0, 'New resource-only installations still have no MCP switch');
+    assert.deepEqual(installationErrors, []);
+    console.log('Plugin trust confirmation and resource-only service controls passed; installation is simulated.');
+  } finally { await installation.close(); }
   const updates = await browser.newPage({ viewport: { width: 1440, height: 980 } });
   const updateErrors = [];
   updates.on('pageerror', error => updateErrors.push(error.message));

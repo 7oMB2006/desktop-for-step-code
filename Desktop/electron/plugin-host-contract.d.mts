@@ -1,4 +1,5 @@
 import type { ConfigurationDescriptor } from './plugin-configuration.mjs';
+import type { PackageReadScope } from './plugin-read-scope.mjs';
 import type { HostDeclaration, LaunchContext, FollowLaunch, ModelSelection } from '../../examples/plugins/host-client/protocol.mjs';
 export { parseHostDeclaration } from '../../examples/plugins/host-client/protocol.mjs';
 export interface HostBinding {
@@ -9,7 +10,7 @@ export interface HostBinding {
 export interface UnconfiguredHostBinding { revision: 'unconfigured'; declaration: HostDeclaration }
 export class PluginHostBindingStore {
   constructor(root: string);
-  current(descriptor: ConfigurationDescriptor): Promise<HostBinding | UnconfiguredHostBinding>;
+  current(descriptor: ConfigurationDescriptor, scope?: PackageReadScope): Promise<HostBinding | UnconfiguredHostBinding>;
   select(descriptor: ConfigurationDescriptor, input: {
     revision: string; mode: 'follow' | 'independent'; configurationRevision?: string; models?: ModelSelection;
   }): Promise<HostBinding>;

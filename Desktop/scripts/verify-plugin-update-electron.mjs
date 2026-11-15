@@ -12,9 +12,12 @@ import { fixtureRuntimeChildren } from './fixture-runtime-children.mjs';
 import { settleLayout } from './settle-layout.mjs';
 
 const desktop = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const executionRoot = resolve(process.env.DESKTOP_VERIFY_ROOT ?? desktop);
+const executablePath = process.env.DESKTOP_VERIFY_EXE;
+if (executablePath) assert.ok(isAbsolute(executablePath), 'DESKTOP_VERIFY_EXE must be an absolute executable path');
+const executionRoot = resolve(process.env.DESKTOP_VERIFY_ROOT ?? (executablePath ? dirname(executablePath) : desktop));
 const entry = process.env.DESKTOP_VERIFY_ENTRY;
 if (entry) assert.ok(isAbsolute(entry), 'DESKTOP_VERIFY_ENTRY must be an absolute main.cjs path');
+assert.ok(!executablePath || !entry, 'Choose a packaged executable or a source main entry, not both');
 const output = resolve(process.env.DESKTOP_PLUGIN_UPDATE_OUTPUT ?? join(desktop, 'test-results/plugin-update-electron'));
 await mkdir(output, { recursive: true });
 const profile = await realpath(await mkdtemp(join(output, 'profile-')));
@@ -22,7 +25,8 @@ const root = join(profile, 'step-runtime');
 const market = join(profile, 'update-market');
 const id = 'dfsc-config-example', service = `${id}__notes`;
 const name = 'DFSC Configuration Example', secret = 'isolated-update-private-key';
-const node = join(executionRoot, 'runtime/node', process.platform === 'win32' ? 'node.exe' : 'node');
+const node = join(executablePath ? join(dirname(executablePath), 'resources') : executionRoot,
+  'runtime/node', process.platform === 'win32' ? 'node.exe' : 'node');
 await access(node);
 await cp(resolve(desktop, '../examples/plugins/config-starter'), market, { recursive: true, errorOnExist: true });
 const packageRoot = join(market, 'plugins', id);
@@ -156,7 +160,8 @@ const shot = async filename => {
 };
 const launch = async () => {
   app = await electron.launch({
-    args: [entry ?? executionRoot], cwd: executionRoot, env, timeout: 60000,
+    ...(executablePath ? { executablePath, args: [] } : { args: [entry ?? executionRoot] }),
+    cwd: executionRoot, env, timeout: 60000,
   });
   page = await app.firstWindow();
   page.on('pageerror', error => errors.push(error.message));
@@ -420,12 +425,12 @@ try {
   if (app) await closeDesktopFixtureAndWait(app);
   await new Promise(done => transport.close(done));
   await writeFile(join(output, 'acceptance.json'), JSON.stringify({
-    complete, phase, entry: entry ?? executionRoot, executionRoot, profile,
+    complete, phase, entry: executablePath ?? entry ?? executionRoot, executionRoot, profile,
     realMainAndPreload: true, realRenderer: true, realRuntime: true,
     providerRequests: providerRequests.length, checks, screenshots, pageErrors: errors,
     operations, runtimeTransition, historyTransitions,
     historyFixtures: historyFixtures.map(({ id, name }) => ({ id, name, kind: 'explicit-offline-jsonl-acceptance-fixture' })),
-    scope: 'Isolated local Git marketplace and offline model fixture. No personal profile, real provider, public market or packaged installer acceptance.',
+    scope: 'Isolated local Git marketplace and offline model fixture. No personal profile, real provider, public market or installer lifecycle acceptance.',
   }, null, 2) + '\n');
 }
 console.log(`Production Electron plugin update acceptance passed: ${checks.length} checks; zero provider requests.`);

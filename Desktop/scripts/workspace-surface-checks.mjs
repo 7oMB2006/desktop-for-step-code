@@ -156,6 +156,7 @@ export async function verifyWorkspaceSurfaces(browser, base, output) {
           onUpdateEvent: () => () => {}, onTerminalData: () => () => {},
           snapshot: async () => structuredClone(snapshot),
           capabilityCatalog: async () => ({ plugins: [], available: [], marketplaces: [], mcp: [], skills: [], warnings: [] }),
+          pluginDesktopCatalog: async () => ({ plugins: [], available: [], marketplaces: [], mcp: [], skills: [], warnings: [] }),
           settings: async () => ({ account: {}, profiles: [], mcp: {}, skills: [] }),
           systemTheme: async () => ({ systemDark: false }),
           miniChatState: async () => ({ open: surface === 'mini', pinned: false }),

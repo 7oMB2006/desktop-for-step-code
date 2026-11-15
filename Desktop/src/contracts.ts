@@ -20,6 +20,7 @@ export interface RuntimeStartupTiming {
   sessionRestoreMs: number;
   snapshotMs: number;
   modelRestoreMs: number;
+  pluginAttachMs: number;
   totalMs: number;
 }
 export interface Snapshot { runtimeStartupTiming?: RuntimeStartupTiming }
@@ -124,6 +125,7 @@ export interface DesktopBridge extends SessionImportBridge, BtwBridge, Backgroun
   projectInstructions(owner: import('./project-instructions').ProjectInstructionsOwner): Promise<import('./project-instructions').ProjectInstructionsStatus>;
   finishFirstRun(outcome: 'completed' | 'skipped'): Promise<Snapshot>;
   capabilityCatalog(): Promise<import('./capabilities').CapabilityCatalog>;
+  pluginDesktopCatalog(): Promise<import('./capabilities').CapabilityCatalog>;
   pluginDocument(input: { ref: string; path: string }): Promise<import('./capabilities').PluginDocument>;
   pluginConnectionState(input: { ref: string }): Promise<import('./capabilities').PluginConnection>;
   pluginConnectionChooseProfile(input: { ref: string }): Promise<import('./capabilities').PluginConnection | null>;

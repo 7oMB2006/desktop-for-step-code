@@ -144,7 +144,7 @@ function ipcFixture(handler: (method: string, args: unknown[], surface: 'main' |
 test('actual main passive capability reads never trigger pending provider application or recovery', async () => {
   const f = ipcFixture();
   for (const method of [
-    'capabilityCatalog', 'pluginDocument', 'pluginRepositoryInfo', 'pluginConfiguration', 'pluginHostSettings', 'pluginChoosePath', 'pluginWindowOpen',
+    'capabilityCatalog', 'pluginDesktopCatalog', 'pluginDocument', 'pluginRepositoryInfo', 'pluginConfiguration', 'pluginHostSettings', 'pluginChoosePath', 'pluginWindowOpen',
     'pluginConnectionState', 'pluginConnectionChooseProfile', 'pluginConnectionForgetProfile',
     'themeScene', 'themePoster', 'themeImage',
     'customBackgroundState', 'customBackgroundImage', 'customBackgroundImport', 'customBackgroundSave', 'customBackgroundRemove',
@@ -410,7 +410,7 @@ test('actual plugin-window IPC is scoped, revalidates stale refs and never dispa
   assert.deepEqual(snapshot.preferences, { language: 'en', theme: 'light', accentColor: 'green', appearance: { density: 'compact' } });
   assert.doesNotMatch(JSON.stringify(snapshot), /private-path|never-project/);
   assert.deepEqual(await read('pluginDocument', { ref: 'own-package', path: 'start.md' }), { text: 'start.md' });
-  for (const method of ['snapshot', 'command', 'preferences', 'pluginWindowOpen', 'capabilityMutate',
+  for (const method of ['snapshot', 'command', 'preferences', 'pluginDesktopCatalog', 'pluginWindowOpen', 'capabilityMutate',
     'pluginConnectionState', 'pluginConnectionChooseProfile', 'pluginConnectionForgetProfile',
     'themeScene', 'themePoster', 'themeImage', 'customBackgroundState', 'customBackgroundImage',
     'customBackgroundImport', 'customBackgroundSave', 'customBackgroundRemove'])

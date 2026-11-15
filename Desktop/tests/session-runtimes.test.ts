@@ -286,27 +286,27 @@ test('background notification handoff retains the host before the parent emits a
   } finally { await pool.stopAll(); }
 });
 
-test('startup diagnostics separate process, restoration, snapshot and model phases without session content', async () => {
+test('startup diagnostics separate process, restoration, snapshot, model and plugin phases without session content', async () => {
   const progress: RuntimeStartupDiagnostic[] = [];
   const { pool, open, events } = fixture({ startup: diagnostic => progress.push(diagnostic) });
   try {
     const worker = await open();
     const timing = worker.startupTiming!;
     assert.deepEqual(Object.keys(timing).sort(),
-      ['modelRestoreMs', 'processReadyMs', 'sessionRestoreMs', 'snapshotMs', 'totalMs']);
+      ['modelRestoreMs', 'pluginAttachMs', 'processReadyMs', 'sessionRestoreMs', 'snapshotMs', 'totalMs']);
     assert.ok(Object.values(timing).every(value => Number.isFinite(value) && value >= 0));
-    assert.ok(Math.abs(timing.totalMs - timing.processReadyMs - timing.sessionRestoreMs - timing.snapshotMs - timing.modelRestoreMs) < .001);
+    assert.ok(Math.abs(timing.totalMs - timing.processReadyMs - timing.sessionRestoreMs - timing.snapshotMs - timing.modelRestoreMs - timing.pluginAttachMs) < .001);
     assert.deepEqual(progress.map(({ phase, status }) => `${phase}:${status}`),
-      ['launch:starting', 'process:starting', 'session:starting', 'snapshot:starting', 'model:starting', 'model:ready']);
+      ['launch:starting', 'process:starting', 'session:starting', 'snapshot:starting', 'model:starting', 'plugins:starting', 'plugins:ready']);
     assert.ok(progress.every(sample => sample.runtimeId === worker.id && sample.elapsedMs >= sample.phaseMs && sample.phaseMs >= 0));
     assert.ok(!events.some(event => 'phaseMs' in event), 'Startup diagnostics stay in the main process');
     pool.activate(worker);
     assert.equal(worker.startupTiming, timing, 'Resident activation does not claim a new cold startup');
-    assert.equal(progress.length, 6);
+    assert.equal(progress.length, 7);
   } finally { await pool.stopAll(); }
 });
 
-for (const phase of ['launch', 'process', 'session', 'snapshot', 'model'] as const) {
+for (const phase of ['launch', 'process', 'session', 'snapshot', 'model', 'plugins'] as const) {
   test(`failed ${phase} startup preserves bounded diagnostics and clears its pending approvals`, async () => {
     const progress: RuntimeStartupDiagnostic[] = [];
     const original = new Error('private-error-content');
@@ -320,7 +320,7 @@ for (const phase of ['launch', 'process', 'session', 'snapshot', 'model'] as con
       transport = new Transport(receive, 'private-session');
       const request = transport.request.bind(transport);
       transport.request = async (type, args) => {
-        if (type === { launch: '', process: 'get_state', session: 'switch_session', snapshot: 'get_messages', model: '' }[phase])
+        if (type === { launch: '', process: 'get_state', session: 'switch_session', snapshot: 'get_messages', model: '', plugins: '' }[phase])
           fail();
         return request(type, args);
       };
@@ -328,6 +328,7 @@ for (const phase of ['launch', 'process', 'session', 'snapshot', 'model'] as con
     }, {
       launch: current => { worker = current; if (phase === 'launch') fail(); return { env: {}, args: [] }; },
       initializeModel: async () => { if (phase === 'model') fail(); },
+      pluginsReady: async () => { if (phase === 'plugins') fail(); },
       startup: diagnostic => {
         progress.push(diagnostic);
         if (diagnostic.status === 'failed') observedBeforeDisposal = pool.workers.has(diagnostic.runtimeId);
@@ -478,7 +479,7 @@ test('a failed diagnostic observer cannot fail or retain a healthy runtime', asy
   assert.equal(transports[0].stopped, true);
 });
 
-for (const phase of ['process', 'session', 'snapshot', 'model'] as const) {
+for (const phase of ['process', 'session', 'snapshot', 'model', 'plugins'] as const) {
   test(`stopping during ${phase} startup cannot activate a disposed worker`, async () => {
     let reached!: () => void, release!: () => void;
     const pending = new Promise<void>(resolve => { reached = resolve; });
@@ -490,13 +491,14 @@ for (const phase of ['process', 'session', 'snapshot', 'model'] as const) {
       const transport = new Transport(receive, 'startup-session');
       const request = transport.request.bind(transport);
       transport.request = async (type, args) => {
-        if (type === { process: 'get_state', session: 'new_session', snapshot: 'get_messages', model: '' }[phase])
+        if (type === { process: 'get_state', session: 'new_session', snapshot: 'get_messages', model: '', plugins: '' }[phase])
           await hold();
         return request(type, args);
       };
       transports.push(transport);
       return transport;
-    }, { initializeModel: phase === 'model' ? hold : undefined, dispose: () => { disposed++; } });
+    }, { initializeModel: phase === 'model' ? hold : undefined,
+      pluginsReady: phase === 'plugins' ? hold : undefined, dispose: () => { disposed++; } });
     const opening = pool.open('node', 'step', 'workspace', {});
     const rejected = assert.rejects(opening, /stopped during startup/);
     try {

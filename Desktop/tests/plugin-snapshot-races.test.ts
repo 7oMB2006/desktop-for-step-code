@@ -201,6 +201,8 @@ async function modules(fs) {
     settings: join(repository, 'Desktop/electron/capability-settings.mjs'),
     failure: join(repository, 'Desktop/electron/capability-failure.mjs'),
     files: join(repository, 'Desktop/electron/plugin-files.mjs'),
+    readScope: join(repository, 'Desktop/electron/plugin-read-scope.mjs'),
+    release: join(repository, 'Desktop/electron/plugin-release.mjs'),
     composition: join(repository, 'Desktop/electron/theme-composition.mjs'),
     update: join(repository, 'Desktop/electron/plugin-update.mjs'),
     configuration: join(repository, 'Desktop/electron/plugin-configuration.mjs'),
@@ -210,9 +212,10 @@ async function modules(fs) {
   const builtins = {
     'node:crypto': { createHash, randomUUID }, 'node:fs/promises': fs.api,
     'node:path': path, 'node:url': url,
+    'node:child_process': { execFile() { throw new Error('No Git subprocess in this virtual fixture'); } },
   };
   const cache = new Map();
-  async function load(key) {
+  function load(key) {
     if (cache.has(key)) return cache.get(key);
     let module;
     if (Object.hasOwn(builtins, key)) {
@@ -227,20 +230,22 @@ async function modules(fs) {
       module = new SourceTextModule(source, { context, identifier: key });
     }
     cache.set(key, module);
-    await module.link(specifier => {
+    return module;
+  }
+  return async key => {
+    const module = load(key);
+    if (module.status === 'unlinked') await module.link(specifier => {
       if (Object.hasOwn(builtins, specifier)) return load(specifier);
       if (specifier === './capability-failure.mjs') return load('failure');
       if (specifier === './plugin-files.mjs') return load('files');
+      if (specifier === './plugin-read-scope.mjs') return load('readScope');
+      if (specifier === './plugin-release.mjs') return load('release');
       if (specifier === './theme-composition.mjs') return load('composition');
       if (specifier === './plugin-update.mjs') return load('update');
       if (specifier === './plugin-configuration.mjs') return load('configuration');
       if (specifier === './plugin-schema-update.mjs') return load('schemaUpdate');
       throw new Error('Unexpected import: ' + specifier);
     });
-    return module;
-  }
-  return async key => {
-    const module = await load(key);
     await module.evaluate();
     return module.namespace;
   };

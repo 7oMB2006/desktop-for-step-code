@@ -42,9 +42,10 @@ const context = createContext({ Buffer, URL, process: { env: {
   HOME: root, STEPCODE_STORAGE_ROOT_DIR: root, STEP_CODING_AGENT_DIR: join(root, 'agent'),
 } } });
 const cache = new Map();
-async function load(key) {
+function load(key) {
   if (cache.has(key)) return cache.get(key);
-  const builtins = { 'node:crypto': { createHash, randomUUID }, 'node:fs/promises': filesystem, 'node:path': path };
+  const builtins = { 'node:crypto': { createHash, randomUUID }, 'node:fs/promises': filesystem, 'node:path': path,
+    'node:child_process': { execFile() { throw new Error('No Git subprocess in this virtual fixture'); } } };
   let module;
   if (Object.hasOwn(builtins, key)) {
     const values = builtins[key];
@@ -52,16 +53,17 @@ async function load(key) {
       for (const [name, value] of Object.entries(values)) this.setExport(name, value);
     }, { context, identifier: key });
   } else {
-    assert.ok(['capability-settings.mjs', 'capability-failure.mjs', 'plugin-files.mjs', 'theme-composition.mjs', 'plugin-update.mjs', 'plugin-configuration.mjs', 'plugin-schema-update.mjs'].includes(key));
+    assert.ok(['capability-settings.mjs', 'capability-failure.mjs', 'plugin-files.mjs', 'plugin-read-scope.mjs', 'plugin-release.mjs', 'theme-composition.mjs', 'plugin-update.mjs', 'plugin-configuration.mjs', 'plugin-schema-update.mjs'].includes(key));
     module = new SourceTextModule(readFileSync(join(repository, 'Desktop/electron', key), 'utf8'),
       { context, identifier: key });
   }
   cache.set(key, module);
-  await module.link(specifier => load(specifier.startsWith('./') ? specifier.slice(2) : specifier));
   return module;
 }
 async function namespace(key) {
-  const module = await load(key);
+  const module = load(key);
+  if (module.status === 'unlinked')
+    await module.link(specifier => load(specifier.startsWith('./') ? specifier.slice(2) : specifier));
   await module.evaluate();
   return module.namespace;
 }
@@ -346,6 +348,10 @@ async function workerUpdate() {
   f.journal.previous.source = sourceId;
   await json(join(root, 'desktop-plugins/installations.json'), { version: 1, installations: [f.journal.previous] });
   const entry = { name: 'example', marketplace: 'community', sourcePath: source };
+  if (scenario === 'worker-update-release-source') {
+    await fs.mkdir(join(source, 'node_modules'));
+    await json(join(source, 'node_modules/package.json'), { name: 'development-only' });
+  }
   let copied = 0, finalizedCandidate;
   const manager = createCapabilitySettings(upstream({
     async listMarketplaceSources() {
@@ -354,7 +360,12 @@ async function workerUpdate() {
     async listMarketplacePlugins() { return { entries: [entry], warnings: [] }; },
     async installMarketplacePlugin(_entry, directory, options) {
       assert.equal(options.provision, false); copied++;
-      await fs.cp(source, join(directory, 'example'), { recursive: true });
+      const snapshot = join(directory, 'example');
+      await fs.cp(source, snapshot, { recursive: true });
+      if (scenario === 'worker-update-release-snapshot') {
+        await fs.mkdir(join(snapshot, '.git'));
+        await fs.writeFile(join(snapshot, '.git/config'), 'not-for-distribution');
+      }
       return { warnings: [] };
     },
   }), { root });
@@ -365,6 +376,22 @@ async function workerUpdate() {
     marketplace: 'community', expectedInstance: f.journal.previous.instance, expectedSource: sourceId,
     expectedOldFingerprint: f.journal.previous.fingerprint, expectedFingerprint: f.journal.next.fingerprint,
     expectedOldVersion: '1.0.0', expectedVersion: '2.0.0' };
+  if (scenario.startsWith('worker-update-release-')) {
+    mutations.length = 0;
+    const before = await tree();
+    await assert.rejects(manager.mutate(input), code('invalid-release'));
+    assert.equal(copied, scenario === 'worker-update-release-source' ? 0 : 1);
+    assert.equal(finalizedCandidate, undefined);
+    assert.equal(await files.packageFingerprint(f.target), f.journal.previous.fingerprint);
+    assert.equal((await files.readReceipts(root)).installations[0].fingerprint, f.journal.previous.fingerprint);
+    assert.equal(await update.inspectPluginUpdate(root), undefined);
+    // Creating and removing the owned staging directory may change its parent's mtime.
+    const stable = entries => entries.map(entry => entry[0] === 'desktop-plugins'
+      && scenario === 'worker-update-release-snapshot' ? [entry[0], entry[1], 0, entry[3]] : entry);
+    assert.deepEqual(stable(await tree()), stable(before));
+    if (scenario === 'worker-update-release-source') assert.deepEqual(mutations, []);
+    return;
+  }
   const invalid = !['worker-update', 'worker-update-v2'].includes(scenario);
   if (invalid) await assert.rejects(manager.mutate(input), code('stale'));
   else await manager.mutate(input);
@@ -412,6 +439,126 @@ async function themeRemoval() {
     assert.equal((await files.readReceipts(root)).installations.length, 0);
   }
 }
+async function hostDescriptorScope() {
+  const manifest = { id: 'host-example', name: 'Host example', version: '1.0.0',
+    mcpServers: { example: { command: 'node', args: ['server.mjs'] } } };
+  const f = await fixture(manifest);
+  const other = join(root, 'plugins/unrelated');
+  await json(join(other, 'step.plugin.json'), { id: 'unrelated', mcpServers: {} });
+  await json(join(other, 'node_modules/dependency.json'), { large: 'must not be scanned' });
+  let marketReads = 0, dependencyReads = 0;
+  hooks.readdir = async directory => {
+    if (directory === join(root, 'marketplaces')) { marketReads++; assert.fail('host startup must not discover marketplaces'); }
+  };
+  hooks.open = async target => {
+    if (target === join(other, 'node_modules/dependency.json')) {
+      dependencyReads++; assert.fail('unrelated executable content must not be hashed');
+    }
+  };
+  const manager = createCapabilitySettings(upstream({
+    async listInstalledStepPlugins() {
+      return { plugins: [{ id: manifest.id, rootPath: f.target }, { id: 'unrelated', rootPath: other }], warnings: [] };
+    },
+  }), { root });
+  const input = { pluginId: manifest.id, root: f.target, consumer: 'example' };
+  const before = await tree();
+  const descriptor = await manager.hostDescriptor(input);
+  assert.equal(descriptor.id, manifest.id);
+  assert.equal(descriptor.root, f.target);
+  assert.equal(descriptor.instance, f.journal.previous.instance);
+  assert.equal(descriptor.fingerprint, f.journal.previous.fingerprint);
+  assert.equal(descriptor.provenance, 'recorded');
+  assert.deepEqual(await tree(), before);
+  assert.deepEqual(mutations, []);
+  assert.equal(marketReads, 0); assert.equal(dependencyReads, 0);
+  await assert.rejects(manager.hostDescriptor({ ...input, root: other }));
+  await assert.rejects(manager.hostDescriptor({ ...input, consumer: 'missing' }));
+  await assert.rejects(manager.hostDescriptor({ ...input, pluginId: '../host-example' }));
+  for (const configuration of [
+    { mcp_servers: { 'host-example__example': { enabled: false } } },
+    { mcp_servers: { 'host-example__example': { command: 'user-override' } } },
+  ]) {
+    await json(join(root, 'config.toml'), configuration);
+    await assert.rejects(manager.hostDescriptor(input));
+  }
+  await json(join(root, 'config.toml'), {});
+  await json(join(other, 'step.plugin.json'), { id: manifest.id, mcpServers: {} });
+  await assert.rejects(manager.hostDescriptor(input));
+  await json(join(other, 'step.plugin.json'), { id: 'unrelated', mcpServers: {} });
+  for (const receipt of [undefined, { ...f.journal.previous, state: 'pending' },
+    { ...f.journal.previous, fingerprint: '0'.repeat(64) }]) {
+    await json(join(root, 'desktop-plugins/installations.json'), { version: 1, installations: receipt ? [receipt] : [] });
+    await assert.rejects(manager.hostDescriptor(input));
+  }
+  await json(join(root, 'desktop-plugins/installations.json'), { version: 1, installations: [f.journal.previous] });
+  await json(join(f.target, 'changed.json'), { changed: true });
+  await assert.rejects(manager.hostDescriptor(input));
+  await fs.rm(join(f.target, 'changed.json'));
+  await fs.writeFile(journalPath, '{invalid journal');
+  await assert.rejects(manager.hostDescriptor(input));
+  assert.equal(marketReads, 0); assert.equal(dependencyReads, 0);
+  assert.deepEqual(mutations, []);
+}
+async function releaseGate() {
+  const market = join(root, 'marketplaces/community'), source = join(market, 'plugins/example');
+  await packageAt(source, themeManifest('1.0.0'));
+  await json(join(market, '.step-plugin/marketplace.json'), { plugins: [{ name: 'example' }] });
+  await fs.mkdir(join(root, 'desktop-plugins'), { recursive: true });
+  if (scenario === 'release-source') {
+    await fs.mkdir(join(source, 'node_modules'));
+    await json(join(source, 'node_modules/package.json'), { name: 'development-only' });
+  }
+  let copied = 0;
+  const manager = createCapabilitySettings(upstream({
+    async listMarketplaceSources() { return [{ name: 'community', kind: 'local', path: market }]; },
+    async listMarketplacePlugins() {
+      return { entries: [{ name: 'example', marketplace: 'community', sourcePath: source }], warnings: [] };
+    },
+    async installMarketplacePlugin(_entry, directory, options) {
+      assert.equal(options.provision, false);
+      copied++;
+      const snapshot = join(directory, 'example');
+      await fs.cp(source, snapshot, { recursive: true });
+      if (scenario === 'release-snapshot') {
+        await fs.mkdir(join(snapshot, '.git'));
+        await fs.writeFile(join(snapshot, '.git/config'), 'not-for-distribution');
+      }
+      return { warnings: [] };
+    },
+  }), { root });
+  mutations.length = 0;
+  if (scenario === 'release-clean') {
+    await manager.mutate({ action: 'plugin-install', name: 'example', marketplace: 'community' });
+    assert.equal(copied, 1);
+    assert.equal((await files.readReceipts(root)).installations[0].state, 'installed');
+    assert.equal((await fs.readdir(join(root, 'plugins'))).length, 1);
+  } else {
+    await assert.rejects(manager.mutate({ action: 'plugin-install', name: 'example', marketplace: 'community' }),
+      code('invalid-release'));
+    assert.equal(copied, scenario === 'release-source' ? 0 : 1);
+    assert.equal((await files.readReceipts(root)).installations.length, 0);
+    assert.deepEqual(await fs.readdir(join(root, 'desktop-plugins')), []);
+    await assert.rejects(fs.access(join(root, 'plugins/example')), error => error.code === 'ENOENT');
+    if (scenario === 'release-source') assert.deepEqual(mutations, []);
+  }
+}
+async function hostDescriptorCollision() {
+  const manifest = { id: 'alpha__beta', mcpServers: { tool: { command: 'node', args: ['server.mjs'] } } };
+  const f = await fixture(manifest), other = join(root, 'plugins/other');
+  await json(join(other, 'step.plugin.json'), {
+    id: 'alpha', mcpServers: { beta__tool: { command: 'node', args: ['other.mjs'] } },
+  });
+  const manager = createCapabilitySettings(upstream({
+    async listInstalledStepPlugins() {
+      return { plugins: [{ id: manifest.id, rootPath: f.target }, { id: 'alpha', rootPath: other }], warnings: [] };
+    },
+  }), { root });
+  const before = await tree();
+  await assert.rejects(manager.hostDescriptor({ pluginId: manifest.id, root: f.target, consumer: 'tool' }),
+    code('host-unavailable'));
+  assert.deepEqual(await tree(), before);
+  assert.deepEqual(mutations, []);
+}
 try {
   if (scenario === 'read-purity') await readPurity();
   else if (scenario === 'initialization') await initialization();
@@ -423,6 +570,9 @@ try {
   else if (scenario.startsWith('theme-update-')) await themeUpdate();
   else if (scenario.startsWith('worker-update')) await workerUpdate();
   else if (scenario.startsWith('theme-remove-')) await themeRemoval();
+  else if (scenario === 'host-descriptor') await hostDescriptorScope();
+  else if (scenario === 'host-descriptor-collision') await hostDescriptorCollision();
+  else if (scenario.startsWith('release-')) await releaseGate();
   else assert.fail('unknown scenario');
 } finally {
   assert.equal(dirname(root), temporary);
@@ -459,9 +609,16 @@ test('worker forwards theme preservation to replacement and disables provisionin
 test('worker preserves the runtime when upgrading a theme to version two composition', () => verify('worker-update-v2'));
 test('worker rejects a non-theme old package even when update hashes match', () => verify('worker-update-old'));
 test('worker rejects a non-theme staged candidate even when update hashes match', () => verify('worker-update-candidate'));
+test('publication checks reject dirty update sources before writing', () => verify('worker-update-release-source'));
+test('publication checks reject dirty frozen updates without changing the installed package', () => verify('worker-update-release-snapshot'));
 test('theme remove rejects executable declarations even with a matching ordinary hash', () => verify('theme-remove-invalid'));
 test('theme remove rechecks proof after a package changes during receipt preflight', () => verify('theme-remove-race'));
 test('theme remove accepts a proven data-only package', () => verify('theme-remove-valid'));
+test('host descriptor stays read-only and target-scoped while preserving receipt, override and conflict checks', () => verify('host-descriptor'));
+test('host descriptor rejects qualified consumer names shared by different plugin IDs', () => verify('host-descriptor-collision'));
+test('publication checks reject undeclared development dependencies before installation writes', () => verify('release-source'));
+test('publication checks revalidate the frozen installed snapshot and clean up rejected copies', () => verify('release-snapshot'));
+test('a clean release still installs with provisioning disabled', () => verify('release-clean'));
 
 test('worker fixtures canonicalize aliased temporary directories and clean up their owned profiles', async t => {
   const temporary = await realpath(tmpdir());

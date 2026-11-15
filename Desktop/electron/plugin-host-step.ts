@@ -3,6 +3,7 @@ import type { RuntimeState } from '../src/contracts';
 import type { SessionRuntime, SessionRuntimes } from './session-runtimes';
 import { stepModelAccount, type StepModelAccount } from './step-model-account';
 import { STEP_ASR_MODEL, StepAsrError, transcribeStepAudio } from './step-asr';
+import { STEP_TTS_MODEL, supportsStepTts, synthesizeStepSpeech } from './step-tts';
 import type { HostProvider, HostProviderSnapshot } from './plugin-host-broker';
 import { HostClientError, LIMITS } from '../../examples/plugins/host-client/protocol.mjs';
 import type { Capability, Invocation, ModelSelection, Results } from '../../examples/plugins/host-client/protocol.mjs';
@@ -26,7 +27,6 @@ async function body(response: Response) {
   } finally { await reader.cancel().catch(() => {}); }
   return Buffer.concat(chunks).toString('utf8');
 }
-// No TTS route is guessed from an OAuth profile; that adapter still needs separate verification.
 export class StepPluginHostProvider implements HostProvider {
   private salt = randomBytes(32);
   private accounts = new WeakMap<HostProviderSnapshot, StepModelAccount>();
@@ -44,6 +44,7 @@ export class StepPluginHostProvider implements HostProvider {
     try { account = stepModelAccount(this.auth(), { ...worker, state }, this.changing() || worker.mutating); }
     catch { return fail('CAPABILITY_UNAVAILABLE'); }
     const model = models['model.asr'] ?? STEP_ASR_MODEL;
+    const tts = models['model.tts'] ?? STEP_TTS_MODEL;
     const entry = (id: Capability, available: boolean, selected: string) => available
       ? { id, available: true, model: selected, channel: account.channel, region: account.region === 'global' ? 'oversea' as const : 'cn' as const }
       : { id, available: false, reason: 'CAPABILITY_UNAVAILABLE' as const };
@@ -52,7 +53,7 @@ export class StepPluginHostProvider implements HostProvider {
       expiresAt: account.expires,
       capabilities: [
         entry('model.text', true, account.model), entry('model.video', account.video, account.model),
-        entry('model.asr', model === STEP_ASR_MODEL, model), entry('model.tts', false, ''),
+        entry('model.asr', model === STEP_ASR_MODEL, model), entry('model.tts', supportsStepTts(account, tts), tts),
       ],
     };
     this.accounts.set(snapshot, account);
@@ -62,7 +63,9 @@ export class StepPluginHostProvider implements HostProvider {
     const account = this.accounts.get(snapshot);
     if (!account) return fail('STALE_CONTEXT');
     const supported = snapshot.capabilities.find(item => item.id === invocation.capability && item.available);
-    if (!supported || invocation.capability === 'model.tts') return fail('CAPABILITY_UNAVAILABLE');
+    if (!supported) return fail('CAPABILITY_UNAVAILABLE');
+    if (invocation.capability === 'model.tts')
+      return synthesizeStepSpeech(account, invocation.input, signal, this.request, supported.model);
     if (invocation.capability === 'model.asr') {
       try {
         return { type: 'text', text: await transcribeStepAudio(account, invocation.input.audio, signal, this.request, supported.model) };

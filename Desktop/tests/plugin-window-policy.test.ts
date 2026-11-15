@@ -10,7 +10,7 @@ test('plugin windows have only their own document, presentation and explicit con
     assert.equal(pluginWindowMethodAllowed('windowControl', [action], 'own'), true);
 });
 test('plugin windows cannot read other plugins, invoke tools, change configuration or close the app', () => {
-  for (const method of ['snapshot', 'capabilityCatalog', 'command', 'pluginSaveConfiguration', 'pluginChoosePath',
+  for (const method of ['snapshot', 'capabilityCatalog', 'pluginDesktopCatalog', 'command', 'pluginSaveConfiguration', 'pluginChoosePath',
     'copyText', 'miniChatOpen', 'browserOpenLink', 'preferences', 'capabilityMutate'])
     assert.equal(pluginWindowMethodAllowed(method, [], 'own'), false);
   assert.equal(pluginWindowMethodAllowed('pluginDocument', [{ ref: 'other', path: 'guide.md' }], 'own'), false);

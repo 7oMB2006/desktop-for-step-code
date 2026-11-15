@@ -52,7 +52,7 @@ export interface RuntimeUpdateLease {
 }
 export interface RuntimeStartupDiagnostic {
   runtimeId: string;
-  phase: 'launch' | 'process' | 'session' | 'snapshot' | 'model';
+  phase: 'launch' | 'process' | 'session' | 'snapshot' | 'model' | 'plugins';
   status: 'starting' | 'ready' | 'failed';
   pid?: number;
   elapsedMs: number;
@@ -548,19 +548,22 @@ export class SessionRuntimes {
       if (!existing && env.DESKTOP_CRON_RECOVERY !== '1')
         await this.hooks.initializeModel?.(worker, Boolean(sessionPath || branch));
       this.assertStartupOwner(worker, transport);
+      const modelRestoredAt = performance.now();
+      progress('plugins');
       if (!existing && env.DESKTOP_CRON_RECOVERY !== '1') {
         await this.hooks.pluginsReady?.(worker);
         this.assertStartupOwner(worker, transport);
       }
-      const modelRestoredAt = performance.now();
+      const pluginsReadyAt = performance.now();
       worker.startupTiming = {
         processReadyMs: processReadyAt - startedAt,
         sessionRestoreMs: sessionRestoredAt - processReadyAt,
         snapshotMs: snapshotAt - sessionRestoredAt,
         modelRestoreMs: modelRestoredAt - snapshotAt,
-        totalMs: modelRestoredAt - startedAt,
+        pluginAttachMs: pluginsReadyAt - modelRestoredAt,
+        totalMs: pluginsReadyAt - startedAt,
       };
-      progress('model', 'ready');
+      progress('plugins', 'ready');
       if (activate) this.activate(worker);
       else this.publish();
       return worker;

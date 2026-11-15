@@ -1,5 +1,341 @@
 # Verification
 
+当前最新本机验收包为 [TTS r8](#plugin-tts-r8)，继承 r7 的启动与目标读取修复。
+下述 r7 及更早内容是对应阶段的历史快照，不代表当前正在运行的包已自动切换。
+
+<a id="plugin-tts-r8"></a>
+
+## 插件宿主 TTS r8（2026-11-15）
+
+宿主新增受限 `model.tts` 生产适配及通用模型菜单。默认 `stepaudio-2.5-tts`，
+另允许 `stepaudio-3-tts`，国内额外适配 `step-tts-2` / `step-tts-mini`。
+沿用当前官方账户的国内/海外、Plan/API 路由，不沿用聊天模型、不自动回退、
+重试或拆单。单次最多 1000 个 Unicode 字符、音频 16 MiB，MP3/WAV/PCM 内联返回；
+保留逐能力确认、修订失效、并发预算、取消与超时。没有新增金额/Token 消费硬上限。
+StepAudio 源码与正式安装副本未改；作者接入见 [TTS 接入说明](PLUGIN_TTS_ADAPTER.md)。
+
+- 完整串行回归 2824 项：2809 通过、15 平台跳过、零失败/取消，614332.8599 ms。
+  另有定向宿主组合 64/64、受测 Node 24.16.0 的 SDK 组合 13/13；不累加为完整测试总数。
+- 类型检查、生产构建、差异空白检查通过；保留既有构建警告。
+  SDK 首轮因本工作树缺依赖而未启动；按原锁文件安装依赖后使用受测 Node 重跑通过。
+- 通用设置 UI 通过 TTS 选择/保存/草稿保留、四能力状态、中英文、浅深色、
+  1360/740/390 宽度菜单及完整焦点轮廓；截图已检查。
+- 源码 Electron 设置与通用授权通过；r8 包内通用授权通过拒绝/同意、
+  MCP 取消、同启动复用、账户替换与旧租约拒绝。
+- r8 包内 TTS 使用真实原生发现、官方 SDK 子进程和生产 broker/adapter：
+  发现/context 零合成请求、拒绝零请求；同意后 MP3/WAV/PCM MIME 和字节返回正确，
+  同能力不重复确认，进行中取消断开提供商连接。页面与传输错误均为零。
+  音频为合成 fixture 字节，不是编解码、音色或音质验收；所有提供商请求均被拦到本机。
+
+包：`D:\DFSC Builds\session-startup-plugin-gate-20261115-r8\package`。
+113 个构建文件、29 个 runtime helper 与包内一致，1250 个 Desktop 来源文件
+与打包凭据一致；runtime pin 保持 `29eb460780489801ce8afc8bffc1a2efae7cbded`。
+安装器 SHA256：`f7c7598511086a1601320e75e9d018c5f79893554cedfd500b9c0f04ee221aba`。
+主程序及安装器均为 `NotSigned`，未运行安装器、未公开发布、未提交或推送。
+
+主桌面快捷方式已精确备份、切换 r8 并回读目标/工作目录/图标，
+原参数、热键、窗口样式、描述保留。交付检查时正式进程 PID 77968 仍运行 r7，
+未关闭或重启；用户须完全退出后从桌面入口重开才能使用 r8。
+没有真实账户、付费请求、套餐权益或实际扣费验收，不宣称 StepAudio 已自行接通。
+
+证据：`D:\Desktop For Step Code\output\plugin-tts-20261115-r8`，含完整测试日志、
+SDK/设置 UI 日志、包内 TTS `acceptance.json`、通用授权、快捷方式凭据和产物盘点。
+新包自有约 542.96 MiB，构建目录约 12.97 MiB，SDK 可重建依赖约 25.23 MiB；
+盘点未跟随 junction，历史包和共享 runtime 未删除。
+
+## r7 阶段概览
+
+扩展性能修复状态见[目标读取与 r7 验收](#session-plugin-r7-target-reads)：
+r7 完整测试、包内目标读取、真实配置表单、冷启动及输入恢复已通过；单步 15 秒门槛
+通过不等于首次配置已足够快，设置入口至可编辑表单的两段计时合计仍为 24.836 秒。
+r6 的配置页性能失败保留，不交付。r7 主快捷方式已备份、切换并回读核验；
+正式 r5 进程 PID 6036 未关闭或重启，正式 profile/供应商及原 252 秒现场尚未完整复验。
+下方 r1、r3、r5 和首次失败测试保留为各自阶段的历史证据，不套用到当前快照。
+
+## 会话插件启动、发布卫生与信任边界（2026-11-14）
+
+独立工作树 `fix/session-startup-plugin-gate` 基于 `a103bc8`。已证实旧 Desktop
+在附加一个宿主消费者时读取整个插件中心并重复计算无关包指纹；窄只读
+`host-descriptor` RPC 保留安装凭据、目标完整指纹、原生发现、精确消费者、
+禁用/覆盖/冲突及更新事务检查，不再投影市场或为无关插件计算完整指纹。
+描述符与宿主发放仍在原管理队列内，30 秒请求预算及停机未确认的隔离规则保留。
+独立记录 `modelRestoreMs` 与 `pluginAttachMs`，不改变模型请求协议或上游 pin。
+
+同时完成以下有界改动：
+
+- 安装和更新在候选源、冻结副本两处运行发布卫生检查，拒绝 VCS、常见秘密文件、
+  缓存输出和未声明的 `node_modules`。不静默改写候选，不在旧包读取/卸载时套用新规。
+- 新增严格白名单 staging CLI、必要运行依赖声明和目录身份保护；源码可合理交付。
+  StepAudio 正式副本只读，未直接清理安装目录或改写其指纹。
+- 安装显示精确来源和风险确认；取消/Esc 无写入。无 MCP 的资源包不显示服务开关。
+  手工 MCP 与插件限定名称不静默互相映射。
+- 文档区分安装、服务启用、自动连接、工具调用和宿主授权；完整性不是安全认证，
+  不承诺恶意代码沙箱、任意前端插件框架、创造模式或全量代码审计。
+
+本机 Windows 验证：
+
+- 类型检查、生产构建、差异空白检查通过，保留既有 Vite directive 警告。
+- 完整串行运行 2667 项：2652 通过、15 项平台跳过、零失败。
+  此后 staging 目录别名修正的发布/生命周期组合 34/34、打包预检 33/33 通过，
+  不将定向重跑累加为新的独立测试总数。
+- 生产 PluginCenter 浏览器矩阵通过中英文、浅深色及 1440/390 宽度的安装确认、
+  取消、Esc、资源控制和既有完整界面回归，窄屏截图已检查。
+- 源码与包内 `verify-capabilities.mjs` 通过真实原生管理 API；
+  包内 `verify-new-session.mjs`、宿主授权真实 SDK/native 流程通过。
+- 包内更新验收七组通过，涵盖旧包首次配置、配置/Key/禁用服务保留、
+  空会话阻断、只读预检与取消、释放后原会话恢复及不兼容更新阻断；
+  provider 请求为零，页面异常为零。
+- 新会话专项在源码最终轮和包内均通过两次新建、重启恢复、纯主题/SDK MCP 共存、
+  1200 文件无关资源、禁用零启动、快速退出与声明超时后的首问。
+  包内普通插件附加 787--949 ms，runtime 总启动 2.31--2.56 秒；
+  新会话首答约 3 秒，但恢复点击到首答约 14.3 秒，双失败场景首答约 6.6 秒。
+  页面异常为零，退出期间存在异步 IPC 拒绝，未称原生日志全无错误。
+- 修复后 staging 工具生成的 StepAudio 干净副本 27 文件、758036 字节，
+  原生安装/合成配置、官方 SDK 握手、三个工具、39 项音色 fallback 和卸载通过；
+  只有一次本机 fixture HTTP，无真实模型、TTS 或付费请求。
+
+首轮会话专项因直接 preload 导航后 renderer 保留旧 draft 而超时，失败证据保留。
+中间轮采用既有 reload 方式通过后，最终夹具改用真实新建按钮和侧栏恢复，重新通过；
+没有修改产品行为、断言或超时。初轮广测曾因覆盖层 LF/CRLF 与源码不一致失败，
+按源文件原始字节同步后，最终完整串行运行通过。
+独立 fingerprint 插桩仅覆盖源码主进程 harness，不代表包内 main/管理 worker 的动态计数。
+
+验收包：`D:\DFSC Builds\session-startup-plugin-gate-20261114-r1\package`。
+113 个 Desktop 构建文件、28 个 runtime helper 与包内文件相符；
+安装器 SHA256 为 `e97a5a91f8a9de35180039db75f05dfbfa0757ae3341f40be5c3458ed94759e7`。
+原生 runtime 仍为 `29eb460780489801ce8afc8bffc1a2efae7cbded`，复用冻结资产和
+独立 helper 覆盖层，不宣称重新构建全部上游或验证所有原生资源文件。
+打包来源凭据记录打包时状态；其后仅调整独立发布/验收工具及文档，未改包内产品代码。
+
+证据根：`D:\Desktop For Step Code\output\session-startup-plugin-gate-20261114`，
+包含 `unit-tests-final.log`、`startup-acceptance/source-final`、`startup-acceptance/package`、
+`plugin-update-package/acceptance.json`、`release-check-native-staging-final/verification.json`、
+UI 截图、包内验收日志及 `shortcut-handoff.json`。
+主桌面 `.lnk` 已精确备份并回读验证新目标、工作目录和图标；原参数、热键、窗口样式、
+描述保留，旧日用进程未关闭/重启，安装器未运行，历史包未删除。
+产物盘点不跟随目录链接：当前包约 526.25 MiB，打包 staging 约 16.44 MiB，
+`Desktop/dist` 约 12.94 MiB，工作树验收截图约 1.15 MiB，外部证据约 10.10 MiB。
+仅新增这一套验收包；构建目录和证据暂留，没有授权删除历史产物。
+主程序和安装器的 Authenticode 状态均为 `NotSigned`，不是正式签名发布。
+
+未提交、推送、提 PR 或公开发布；无本次云端 CI、macOS、安装器生命周期、
+真实账户或原正式供应商 252 秒现场复测结论。恢复阶段额外等待和插件中心完整目录性能
+仍未全部解决。诊断与产品边界见
+[启动诊断](SESSION_STARTUP_PLUGIN_GATE_DIAGNOSIS.md)、
+[发布检查](PLUGIN_RELEASE_DIAGNOSIS.md)、
+[信任边界](PLUGIN_TRUST_BOUNDARY.md)。
+
+<a id="session-plugin-r3-correction"></a>
+
+## 会话插件启动后续更正：r1 漏检与 r3 阶段对照（2026-11-14）
+
+本节补充并更正前述初轮验收范围，不改写 r1 的通过数据。
+用户使用 r1 正式 profile 仍然很慢；已交付 r1 不等于此次现场问题已经解决。
+窄 `host-descriptor` 已避开整目录，但主窗口挂载时仍为桌面插件菜单自动调用
+`capabilityCatalog()`。完整目录占用同一 FIFO 管理队列，创建/恢复会话所等待的
+`capabilityService.recover()` 排在后面；即使不打开插件中心、不要求调用插件，也会发生。
+
+同一正式插件 profile 的独立只读完整 catalog 观测为 80.072 秒
+（当轮工具输出未单独落盘，不虚构日志路径）；
+本轮中间源码改用窄菜单后为 624 ms，返回 2 个已安装入口、0 个市场候选，
+源码主进程插桩 `fingerprintScans=[]`。这是不同读取范围的单次观测，
+不代表 r3 正式 profile 的完整启动，也不是全链路动态扫描统计。
+新主窗口使用 `pluginDesktopCatalog()` / `desktop-catalog`，仅投影安装凭证及有界导航
+元数据、页面和图标，不枚举市场或递归依赖。完整插件中心仍保留原读取；
+FIFO、事务和目标完整包校验仍保留，菜单展示引用不自动授权文档或动作。
+部分菜单投影不撤销完整目录已有引用，插件窗口也不获得新接口权限。
+
+后续审查发现 r3 的可选 `desktopCatalog` 仍与会话恢复共用 FIFO，慢菜单或管理进程
+停止失败仍可能阻塞会话。以下性能用例未复现这些路径，不证明故障隔离成立；
+r3 不作为最终用户交付，后续隔离修正与最终包验收见 r5 节。
+
+初轮启动夹具在首问秒表前先等待完整 catalog、保存配置并做诊断，已经排空昂贵队列；
+1200 文件无关资源也没有覆盖正式 StepAudio 这种自身带桌面元数据、双份依赖的大功能包。
+`runtimeStartupTiming` 不包含 runtime 建立之前的队列等待，不能仅凭 2--3 秒原生指标
+认定刚打开应用就能迅速交互。这是 r1 验收的真实盲点，不归因于用户操作。
+
+新增 `verify-session-plugin-cold-start.mjs` 在启动前持久化合成 SDK 独立绑定；
+已安装与市场各一份 3926 文件、约 32.11 MB 的功能包，含 `node_modules`，
+大包及 SDK 都有真实 `main-view` 元数据和三个页面。独立冷进程首次可操作时立即首问，
+或立即点小型合成历史再发问；harness 不预先等待 catalog 或诊断：
+
+| 包与操作 | 启动至首答 | 交互至首答 | runtime 总启动 | 插件附加 |
+| --- | ---: | ---: | ---: | ---: |
+| r1 确认对照：首问 | 85908 ms | 84287 ms | 2385.85 ms | 857.04 ms |
+| r3 阶段对照：首问 | 5729 ms | 3557 ms | 2805.09 ms | 1052.22 ms |
+| r3 阶段对照：历史后首问 | 5436 ms | 3505 ms | 2840.21 ms | 1058.41 ms |
+
+这里的首答是 bridge 快照停止流并含本轮响应，不等于首答 DOM 已渲染完成，
+也尚未证明输入框恢复可再次输入；该 renderer 交互收尾应另验。
+
+旧 r1 确认轮按原性能阈值失败，约 81901 ms 等待在 runtime 指标之外；
+这个差值不是某个函数的独立精确计时。首轮旧包对照的收尾 Playwright 对象失效
+另有保留记录，修正 harness 句柄生命周期后确认轮仍失败，未调阈值或产品预算。
+r3 两组均通过真实 SDK 连接、2 个工具、单次启动，SDK 与大包菜单入口保留；
+大包精确禁用服务零启动。两个 Electron 均 exit 0，loopback 服务关闭，
+临时 profile 删除后验证不存在，renderer pageerrors 为零。
+首问退出日志仍有一条异步 IPC `This session runtime is not connected`，不宣称日志全净。
+
+- r3 阶段定向测试 71/71；先前阶段 130/130，均为当轮工具执行记录，
+  尚无单独落盘日志，不虚构路径，重叠覆盖不累计，
+  不代替最终快照全量。r3 阶段类型检查及生产构建通过，但没有重新跑完整测试集；
+  前述 2667 项是 r1 阶段结果，不能套用到 r3 或后续 r4。
+- r3 阶段对照包为 `D:\DFSC Builds\session-startup-plugin-gate-20261114-r3\package`，
+  不作为最终用户交付。r2 是审查边界修正前的中间候选，已弃用、不交付。先前 `.lnk` 与
+  `shortcut-handoff.json` 只记录 r1；r3 阶段没有切换快捷方式。
+- fixture 写盘、预配置约 19--21 秒单列，用户启动计时从 `electron.launch` 开始。
+  ready 指标为自动化观测上界，未控制 OS 文件缓存、未插桩 renderer 自动调用计数。
+  历史夹具很小，未覆盖正式 profile 的百余 MB 历史和超大文件恢复。
+- 正式 profile 本轮只有独立只读诊断；r3 未完整复验正式应用，
+  未重跑 `deepseek-v4-flash` 新供应商请求或原 252 秒现场，没有真实付费模型调用。
+  不据此宣称完整插件中心、大历史、真实账户、云端 CI、macOS 或安装器生命周期已验收。
+  未关闭/重启日用进程、运行安装器或删除历史包。
+
+证据根不变：`D:\Desktop For Step Code\output\session-startup-plugin-gate-20261114`。
+窄菜单观测为 `startup-cold/production-profile-desktop-r2.log`；
+旧新确认对照为 `startup-cold/package-r1-baseline-confirmed/results.json`、
+`startup-cold/package-r3/results.json`，同目录保存截图及退出日志。
+详见[启动诊断后续更正](SESSION_STARTUP_PLUGIN_GATE_DIAGNOSIS.md#r3-cold-start-correction)。
+
+<a id="session-plugin-r5-final"></a>
+
+## 会话插件启动最终 r5（2026-11-14）
+
+可选 `desktopCatalog` 使用独立只读路径，不再占用会话恢复和宿主描述符的 FIFO。
+在途读取合并，reader 退出未确认时单独熔断并保留归属，不将可选菜单失败升级为全局
+会话隔离；原写事务未知状态的屏障仍保留。安装、更新、恢复前后递增菜单版本，
+跨版本的旧成功或失败自动顺序重读，退出未确认时不创建替代 reader。
+部分菜单投影不授权文档或页面，真实动作和配置仍完整校验目标包。
+
+最终针对性测试 **89/89**、类型检查、生产构建及差异空白检查通过；未重新运行整套测试，
+不将阶段性重跑次数累加。最终包通过隔离 `verify-capabilities.mjs` 原生管理验收。
+
+| 最终包冷启动操作 | 首次可操作 | 首答快照 | 可再次输入 | 交互至首答 |
+| --- | ---: | ---: | ---: | ---: |
+| 立即新建首问 | 2409 ms | 5650 ms | 5653 ms | 3241 ms |
+| 立即点击历史再发问 | 1762 ms | 4908 ms | 4920 ms | 3146 ms |
+
+与前表使用同规模双份 3926 文件合成功能包；旧 r1 确认首问为 85908 ms。
+新补验实际等待按钮和编辑器恢复，填入未提交草稿、等待发送可用，再全选并 Backspace
+清空。SDK 每组单次连接、提供 2 个工具；大包禁用服务零启动，两菜单入口均保留。
+两个 Electron 均 exit 0，服务关闭、临时 profile 删除后验证不存在，pageerrors 为零。
+首问退出仍有一条异步 `not connected` IPC 拒绝，不宣称日志完全干净。
+r4 的 `fill('')` 自动化清空失败及改用键盘后通过的证据均保留，不是最终用户交付。
+
+最终包为 `D:\DFSC Builds\session-startup-plugin-gate-20261114-r5\package`，
+113 个 Desktop 构建文件及 28 个 helper 与包内一致，runtime pin 未变。
+安装器 SHA256：`8ace6de7fc2625c16f7947876aac3a60c5283013b2e8a1f3f7c2fa79cd513ff5`；
+主程序、安装器均 `NotSigned`。主桌面快捷方式已精确备份并回读验证 r5 的目标、
+工作目录、图标，参数、热键、窗口样式和描述保留。交接时正式 r1 PID 47060 仍运行，
+未关闭或重启它，未运行安装器、修改正式插件或配置、提交、推送或公开发布。
+
+最终证据位于原证据根的 `startup-cold`：`focused-r5-final.log`、`typecheck-r5-final.log`、
+`build-r5-final.log`、`package-r5/results.json`、`capabilities-package-r5.log`；
+主快捷方式备份和回读另存原证据根的 `shortcut-handoff-r5.json`，未覆盖 r1 记录。
+`artifact-inventory-r5.json` 不跟随目录链接；本机预览的 node/step/remote 仍链接
+`main-20261113-54945d5` 冻结资产，不能删除该目标，未宣称独立迁移或安装器验收。
+
+所有模型请求均为 loopback。正式大历史、新供应商和原 252 秒现场仍待正式应用重开后复验；
+未控制 OS 文件缓存，不把合成历史、一次测量或最终定向测试当作所有场景及全量通过。
+详细阶段修正与边界见[最终启动诊断](SESSION_STARTUP_PLUGIN_GATE_DIAGNOSIS.md#r5-final-acceptance)。
+
+<a id="session-plugin-r7-target-reads"></a>
+
+## 目标读取与 r7 验收（2026-11-14）
+
+r5 修复了自动菜单对会话启动的阻塞，但插件文档、宿主设置和配置读取仍先获取完整
+插件中心目录。本轮以 `target-catalog` 仅核对所选包的安装、来源和消费者身份；
+全局 MCP 声明仍用于碰撞检查，不递归读取无关包内容。目标读取保留首尾完整包指纹、
+读操作末次身份复核、规范路径和事务屏障。单次作用域不跨操作复用，不是持久指纹缓存。
+保存已成功返回后不再创建管理 worker；末次完整性失败撤销引用并报告
+`settings-committed-unverified`，不声称已落盘的设置没有保存。
+
+r6 包内 API 读达到单步门槛后，真实配置页仍因第二次整目录读取排队而失败：
+`openPlugins()` 获取的新 settings 对象触发 PluginCenter 再次刷新。r7 改按实际 MCP
+设置内容观察，首次 hydration 和等价新对象不重复读取；隐藏视图不读取，激活和真实
+MCP 变化串行刷新，保留重新打开、失败重试和在途变更语义。没有放宽 15 秒门槛。
+
+目标读取夹具在安装目录和市场各放一份 3928 文件、32111434 字节的合成功能包，
+包含依赖、三个桌面页面、宿主与配置声明。应用冷进程启动后，harness 不先调用完整
+catalog 或诊断；各操作按既定顺序测量，不代表每个操作都独立冷启动，也未控制 OS 文件缓存。
+
+| 操作 | r5 基线 | r6 候选 | r7 |
+| --- | ---: | ---: | ---: |
+| 桌面菜单 | 291 ms | 348 ms | 508 ms |
+| 宿主设置 API | 62052 ms | 11076 ms | 12517 ms |
+| 配置 API | 47027 ms | 10799 ms | 12660 ms |
+| 文档 API | 52036 ms | 11319 ms | 12955 ms |
+| 真实桌面导航至文档可见 | 80045 ms | 12125 ms | 12692 ms |
+| 配置页至可编辑表单 | 91669 ms | 24365 ms | 13161 ms |
+
+r6 的 `functionalPassed=true`，但配置页 24365 ms 超过 15000 ms，故
+`performancePassed=false`、整轮 `passed=false`，不交付、不切换快捷方式。
+r7 上表各步都通过 15000 ms 门槛，真实表单可见、可编辑，独立配置草稿可打开；
+未保存配置。空秘密字段只验证未配置状态，不代表已有秘密脱敏已经由此用例覆盖。
+
+r7 从设置入口点击至详情标题为 11675 ms，不是完整 catalog API 耗时，也没有独立门槛；
+再至表单可编辑为 13161 ms，两段相加为 **24836 ms**，不能把单步通过写成首次配置很快。
+r6 对应合计为 35434 ms。r5 基线曾把设置导航命名为 `fullCatalogToPluginDetailMs`
+并测得 98 ms，但之前的桌面导航已触发完整目录预热，不能拿它作公平的整目录性能对照，
+也不能把该旧字段名解释为 catalog API 完成计时。基线 `passed=true` 表示按基线模式
+捕获旧行为，并不表示性能门槛通过。
+
+目标读取验收记录零模型请求、SDK 与大包服务均零启动；三个记录点
+（读取前、目标读取后、配置 UI 后）均无 active runtime，不冒充连续运行时监控。
+Electron exit 0、loopback server 关闭、临时 profile 删除后确认不存在，
+errors 与 cleanupErrors 均为空；截图已检查。
+
+本轮测试与构建记录：
+
+- r7 最终完整测试以并发度 4 重新运行，2813 项：2798 通过、15 跳过、
+  零失败、零取消，耗时 289539.6259 ms。类型检查和生产构建均 exit 0。
+- 此前首次完整运行 2788 项：2741 通过、32 失败、15 跳过，不计全绿。
+  32 项为旧 fixture：VM 链接 28 项（含快照竞态 3 项）、metadata 旧 RPC 1 项、
+  skeleton 旧引用 3 项。修正 fixture 后的定向组合 200/200、原生 18/18 独立保留，
+  不回写首次结果，也不与最终 2813 项累加。
+- r7 包内 `verify-capabilities.mjs` 与真实宿主设置验收均 exit 0，后者覆盖凭证支持的
+  IPC 投影、明确来源、并发门、独立 SDK 启动及撤销，无真实账户或模型调用。
+
+包内冷启动另用双份各 3926 文件的既有启动夹具，不与目标读取夹具混作同一文件清单。
+首次可操作时立即新建发问或点击小型合成历史，harness 不预读 catalog 或诊断：
+
+| r7 冷启动操作 | 首次可操作 | 启动至首答快照 | 启动至可再次输入 | 交互至首答 |
+| --- | ---: | ---: | ---: | ---: |
+| 立即新建首问 | 2037 ms | 5394 ms | 5407 ms | 3357 ms |
+| 立即点击历史再发问 | 2345 ms | 5818 ms | 5821 ms | 3473 ms |
+
+两组均实际填入并清空第二段未提交草稿，`followupDraftEditable=true`；
+SDK 连接后提供 2 个工具，大包精确禁用且零启动，两个菜单入口保留。
+插件附加分别为 819.2812 / 894.2597 ms。两组 exit 0、服务关闭、profile 删除核验通过，
+汇总 errors 为空，截图已检查。它不代替正式大历史、新供应商或原 252 秒现场复验。
+
+r7 本机验收包为 `D:\DFSC Builds\session-startup-plugin-gate-20261114-r7\package`，
+包外 `source-receipt.json` 的 1248 个 Desktop 源文件与最终快照一致；
+113 个 Desktop 构建文件和 29 个 helper 与包内一致，runtime pin 保持
+`29eb460780489801ce8afc8bffc1a2efae7cbded`。安装器 SHA256：
+`74c94d9b6959be39fe4cebcea0524107420dfe813970aec4ac4cc0a1dbee13eb`。
+主程序和安装器均 `NotSigned`。它仍为依赖本机冻结 runtime 链接资产的预览包，
+不宣称可独立迁移、安装器生命周期、macOS、云端 CI 或真实付费服务验收。
+
+本节证据根为
+`D:\Desktop For Step Code\output\session-startup-plugin-gate-20261114\target-reads-r6`：
+`full-tests-r7.log`、`typecheck-r7.log`、`build-r7.log`、
+`capabilities-package-r7.log`、`host-settings-package-r7.log`、
+`package-r5-baseline/results.json`、`package-r6/results.json`、`package-r7/results.json`、
+`cold-start-package-r7/results.json` 及对应截图、应用日志均保留。
+首次失败全量为 `full-tests.log`，补跑为 `focused-final2.log`、
+`native-update-rerun.log` 及单文件日志。签名状态见 `signatures-r7.json`；
+不跟随 reparse point 的盘点见 `artifact-inventory-r7.json`，未删除任何产物。
+r7 自身排除链接为 542.94 MiB，runtime 覆盖层为 0.58 MiB；r5 仍在运行，
+r7 被快捷方式引用，node/step/remote 链接依赖的 `main-20261113-54945d5` 不可删除。
+
+主快捷方式已备份并切换至 r7，目标、工作目录和图标读回一致；原参数、profile 选择、
+热键、窗口样式和描述保持。精确备份位于上一层证据根的
+`Desktop for Step Code.before-session-startup-plugin-gate-r7.lnk`，凭据为
+`shortcut-handoff-r7.json`，未覆盖 r5 记录。正式 r5 PID 6036 及其子进程仍在运行，
+未关闭或重启；快捷方式更新不替换已运行的单实例。
+未运行安装器、删除历史包、提交、推送或公开发布。
+
 ## PR #243 提问验收收尾修正（2026-11-14）
 
 首次 macOS sessions job 因 hosted ARM64 runner 容量不足而未启动；定向重跑后，

@@ -142,6 +142,7 @@ function finish(id: string, aborted = false) {
 }
 const bridge: Partial<DesktopBridge> = {
   platform: 'win32', snapshot: async () => clone(), navigateSession: open, switchSession: open,
+  pluginDesktopCatalog: async () => ({ plugins: [], available: [], marketplaces: [], mcp: [], skills: [], warnings: [] }),
   sessions: async () => structuredClone(sessions),
   sessionReading: async id => ({ sessionId: id, messages: structuredClone(histories.get(id) ?? []) }),
   beginSession: welcome, newIndependentSession: () => welcome(), createDraftSession: create,

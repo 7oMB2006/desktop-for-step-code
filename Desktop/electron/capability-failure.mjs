@@ -1,9 +1,9 @@
 const codes = new Set([
   'invalid-input', 'already-exists', 'not-found', 'stale', 'plugin-conflict',
-  'invalid-configuration', 'stale-configuration', 'configuration-schema-changed',
+  'invalid-configuration', 'stale-configuration', 'settings-committed-unverified', 'configuration-schema-changed',
   'configuration-consumer-conflict', 'invalid-path', 'read-only', 'too-large',
   'marketplace-failed', 'profile-isolation', 'resource-in-use', 'storage',
-  'invalid-presentation', 'update-capabilities-changed', 'update-recovery-required',
+  'invalid-presentation', 'invalid-release', 'update-capabilities-changed', 'update-recovery-required',
   'operation-failed', 'busy', 'workspace-busy', 'session-busy', 'remote-attached',
   'side-question-active', 'background-active', 'goal-active', 'messages-queued',
   'runtime-unavailable', 'access-denied', 'operation-denied', 'file-in-use',

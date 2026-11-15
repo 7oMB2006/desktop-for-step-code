@@ -7,8 +7,8 @@ import type { DesktopBridge } from './contracts';
 import type { PluginConfiguration, PluginConfigurationField, PluginConfigurationInput, PluginPackage } from './capabilities';
 
 type Bridge = Pick<DesktopBridge, 'pluginConfiguration' | 'pluginSaveConfiguration' | 'pluginChoosePath'>;
-function EnumField({ field, value, disabled, onChange }: {
-  field: PluginConfigurationField; value: string; disabled: boolean; onChange(value: string): void;
+export function PluginConfigurationEnumField({ field, value, disabled, onChange }: {
+  field: Pick<PluginConfigurationField, 'label' | 'options'>; value: string; disabled: boolean; onChange(value: string): void;
 }) {
   const anchor = useRef<HTMLButtonElement>(null), [open, setOpen] = useState(false);
   return <span className="scheduled-select"><button type="button" ref={anchor} disabled={disabled} aria-label={field.label}
@@ -36,7 +36,7 @@ export function PluginConfigurationFields({ saved, draft, setDraft, language, lo
       {field.type === 'boolean' ? <label className="pc-checkbox"><input type="checkbox" checked={value === true}
         onChange={event => update(field, event.target.checked)}/>{field.label}</label>
         : field.type === 'enum' ? <div><span className="pc-generic-label">{field.label}</span>
-          <EnumField field={field} value={String(value ?? '')} disabled={locked} onChange={value => update(field, value)}/></div>
+          <PluginConfigurationEnumField field={field} value={String(value ?? '')} disabled={locked} onChange={value => update(field, value)}/></div>
           : <label>{field.label}<span className={['secret', 'path'].includes(field.type) ? 'pc-path' : undefined}>
             <input type={field.type === 'secret' ? 'password' : field.type === 'number' ? 'number' : 'text'}
               value={field.type === 'secret' ? secret?.action === 'replace' ? secret.value ?? '' : '' : String(value ?? '')}

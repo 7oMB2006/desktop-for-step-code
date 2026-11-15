@@ -66,6 +66,7 @@ const bridge: DesktopBridge = {
   btwCancel: input => invoke('btwCancel', input),
   btwClear: input => invoke('btwClear', input),
   capabilityCatalog: () => invoke('capabilityCatalog'),
+  pluginDesktopCatalog: () => invoke('pluginDesktopCatalog'),
   pluginUpdatePreflight: input => invoke('pluginUpdatePreflight', input),
   pluginUpdateApply: input => invoke('pluginUpdateApply', input),
   pluginUpdateOperation: input => invoke('pluginUpdateOperation', input),

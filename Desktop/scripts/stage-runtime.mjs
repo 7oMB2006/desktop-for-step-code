@@ -93,6 +93,8 @@ await cp('electron/capability-failure.mjs', join(runtime, 'capability-failure.mj
 await cp('electron/marketplace-refresh.mjs', join(runtime, 'marketplace-refresh.mjs'));
 await cp('electron/capability-settings.mjs', join(runtime, 'capability-settings.mjs'));
 await cp('electron/plugin-files.mjs', join(runtime, 'plugin-files.mjs'));
+await cp('electron/plugin-read-scope.mjs', join(runtime, 'plugin-read-scope.mjs'));
+await cp('electron/plugin-release.mjs', join(runtime, 'plugin-release.mjs'));
 await cp('electron/theme-composition.mjs', join(runtime, 'theme-composition.mjs'));
 await cp('electron/plugin-update.mjs', join(runtime, 'plugin-update.mjs'));
 await cp('electron/plugin-schema-update.mjs', join(runtime, 'plugin-schema-update.mjs'));

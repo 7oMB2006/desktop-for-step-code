@@ -1,6 +1,8 @@
 import { join, resolve } from 'node:path';
+import { randomUUID } from 'node:crypto';
 import { RpcManagementStopError, RpcProcess } from './runtime';
-import { PluginLibrary } from './plugin-library.mjs';
+import { PluginLibrary, type PluginReferenceSnapshot } from './plugin-library.mjs';
+import { withVerifiedPackage, type PackageReadScope } from './plugin-read-scope.mjs';
 import { PluginRepositoryInfo } from './plugin-repository.mjs';
 import { PluginConfigurationStore } from './plugin-configuration.mjs';
 import type { ConfigurationDescriptor } from './plugin-configuration.mjs';
@@ -11,7 +13,7 @@ import { capabilityPolicy, type CapabilityGuard } from './capability-policy';
 import semver from 'semver';
 import type { PluginConfigurationInput, PluginHostRuntime, PluginHostSettings, PluginHostSettingsInput } from '../src/capabilities';
 import { parseModelSelection } from '../../examples/plugins/host-client/protocol.mjs';
-import type { CapabilityCatalog, CapabilityMutation, CapabilityResult } from '../src/capabilities';
+import type { CapabilityCatalog, CapabilityMutation, CapabilityPlugin, MarketplacePlugin, CapabilityResult } from '../src/capabilities';
 import type { PluginUpdateCompatibility, PluginUpdateRequest } from '../src/plugin-update';
 import type { PluginConfirmationBinding, PluginConfirmationSource } from '../src/plugin-confirmations';
 import { parsePluginConfirmations, validPluginConfirmationBinding } from './plugin-confirmation-contract.mjs';
@@ -41,6 +43,9 @@ export class CapabilityService {
   private mutation: Promise<unknown> = Promise.resolve();
   private quarantined = false;
   private runtimeQuarantined = false;
+  private desktopUnavailable = false;
+  private desktopRead?: Promise<CapabilityCatalog>;
+  private desktopRevision = 0;
   private initialized = false;
   get available() { return !this.quarantined; }
   get runtimeAvailable() { return !this.runtimeQuarantined; }
@@ -71,7 +76,7 @@ export class CapabilityService {
       worker.start(node, join(runtime, 'capability-admin.mjs'), root, {
         ...this.options.environment(), HOME: root, USERPROFILE: root,
       });
-      const result = await worker.request(type, args, type === 'catalog' ? 30000 : 150000);
+      const result = await worker.request(type, args, ['catalog', 'desktop-catalog', 'host-descriptor', 'target-catalog'].includes(type) ? 30000 : 150000);
       succeeded = true;
       return result;
     } finally {
@@ -79,11 +84,14 @@ export class CapabilityService {
         await worker.stopManagement();
         this.workers.delete(worker);
       } catch {
-        // Never release the serial writer to another management process when the
-        // previous one may still be writing, even if it sent its success response.
-        this.quarantined = true;
-        this.runtimeQuarantined ||= protectsRuntime;
-        throw new Error(type === 'catalog' ? 'capability:management-unavailable'
+        // Retain unknown worker ownership. Only the inert navigation reader can
+        // fail independently; possible writers keep the global safety barrier.
+        if (type === 'desktop-catalog') this.desktopUnavailable = true;
+        else {
+          this.quarantined = true;
+          this.runtimeQuarantined ||= protectsRuntime;
+        }
+        throw new Error(['catalog', 'desktop-catalog', 'host-descriptor', 'target-catalog'].includes(type) ? 'capability:management-unavailable'
           : succeeded ? 'capability:management-committed' : 'capability:management-uncertain');
       }
       if (protectsRuntime) {
@@ -140,30 +148,49 @@ export class CapabilityService {
     if (!pending) return;
     if (!this.options.guardRecovery) throw new Error('capability:update-recovery-required');
     const release = await this.options.guardRecovery(pending.id);
+    this.desktopRevision++;
     try {
       this.options.beforePluginMutation?.();
       await recoverPluginUpdate(this.options.root, { expectedJournal: pending.fingerprint });
     }
     catch (error) { this.runtimeQuarantined = true; throw error; }
-    finally { release?.(); }
+    finally { this.desktopRevision++; release?.(); }
   }); }
   catalog(): Promise<CapabilityCatalog> { return this.enqueue(() => this.readCatalog()); }
-  // Main-only. Native discovery supplies the root; the management catalog and
-  // receipt must independently identify the same installed stdio consumer.
+  desktopCatalog(): Promise<CapabilityCatalog> {
+    if (this.desktopUnavailable) return Promise.reject(new Error('capability:management-unavailable'));
+    if (this.desktopRead) return this.desktopRead;
+    // Navigation may observe a transient menu during a mutation, but cannot grant
+    // document or execution access. It must not hold the runtime's writer barrier.
+    const operation = (async () => {
+      for (;;) {
+        const revision = this.desktopRevision;
+        try {
+          const catalog = await this.library.project(await this.request('desktop-catalog'), { partial: true });
+          if (revision === this.desktopRevision) return catalog;
+        } catch (error) {
+          if (revision === this.desktopRevision || this.desktopUnavailable || this.quarantined) throw error;
+        }
+      }
+    })();
+    this.desktopRead = operation;
+    const finished = () => { if (this.desktopRead === operation) this.desktopRead = undefined; };
+    void operation.then(finished, finished);
+    return operation;
+  }
+  // Main-only. Native discovery and the read-only management worker independently
+  // identify the installed consumer without projecting the whole marketplace.
   withHostDescriptor<T>(pluginId: string, root: string, consumer: string,
     action: (descriptor: ConfigurationDescriptor) => Promise<T>): Promise<T> {
     return this.enqueue(async () => {
-      const catalog = await this.readCatalog();
-      const plugins = catalog.plugins.filter(plugin => plugin.id === pluginId);
-      const servers = catalog.mcp.filter(server => server.name === `${pluginId}__${consumer}`);
-      if (plugins.length !== 1 || plugins[0].package?.provenance !== 'recorded'
-        || servers.length !== 1 || servers[0].source !== 'plugin' || servers[0].pluginId !== pluginId
-        || !servers[0].enabled || servers[0].transport !== 'stdio') throw new Error('capability:host-unavailable');
-      const ref = plugins[0].package!.ref;
-      const { descriptor } = await this.library.reference(ref);
-      if (descriptor.kind !== 'installed' || resolve(descriptor.root) !== resolve(root))
+      const descriptor = await this.request('host-descriptor', { input: { pluginId, root, consumer } });
+      if (descriptor?.kind !== 'installed' || descriptor.provenance !== 'recorded' || descriptor.id !== pluginId
+        || typeof descriptor.root !== 'string' || resolve(descriptor.root) !== resolve(root)
+        || typeof descriptor.name !== 'string' || typeof descriptor.instance !== 'string'
+        || !/^[a-f0-9-]{36}$/u.test(descriptor.instance)
+        || typeof descriptor.fingerprint !== 'string' || !/^[a-f0-9]{64}$/u.test(descriptor.fingerprint))
         throw new Error('capability:host-unavailable');
-      return action({ ...descriptor, ref });
+      return action({ ...descriptor, ref: randomUUID() });
     });
   }
   private async readCatalog(): Promise<CapabilityCatalog> {
@@ -172,7 +199,7 @@ export class CapabilityService {
       if (plugin.package && plugin.repository) plugin.package.stars = await this.repositories.snapshot(plugin.repository);
       if (plugin.package) {
         try {
-          const { descriptor } = await this.library.reference(plugin.package.ref);
+          const { descriptor } = this.library.referenceSnapshot(plugin.package.ref);
           if (await optionalFile(descriptor.root, 'dfsc.theme.json', 32768) !== undefined
             && await dataOnlyThemeFingerprint(descriptor.root, descriptor.id) === descriptor.fingerprint)
             plugin.package.dataOnlyTheme = true;
@@ -182,11 +209,11 @@ export class CapabilityService {
     for (const plugin of catalog.plugins) {
       plugin.update = { status: 'unavailable', reason: 'source' };
       if (!plugin.package || plugin.package.provenance !== 'recorded') continue;
-      const installed = (await this.library.reference(plugin.package.ref)).descriptor;
+      const installed = this.library.referenceSnapshot(plugin.package.ref).descriptor;
       const matches = [];
       for (const candidate of catalog.available) {
         if (!candidate.package || candidate.name !== installed.name) continue;
-        const descriptor = (await this.library.reference(candidate.package.ref)).descriptor;
+        const descriptor = this.library.referenceSnapshot(candidate.package.ref).descriptor;
         if (descriptor.source === installed.source && descriptor.marketplace === installed.marketplace) matches.push(candidate);
       }
       if (matches.length !== 1) {
@@ -205,28 +232,71 @@ export class CapabilityService {
     }
     return { ...catalog, pluginUpdates: true };
   }
+  private async withTarget<T>(ref: string, mcp: boolean, action: (context: {
+    catalog: CapabilityCatalog; plugin: CapabilityPlugin | MarketplacePlugin;
+    descriptor: ConfigurationDescriptor; scope: PackageReadScope;
+  }) => Promise<T>, writes = false): Promise<T> {
+    if (typeof ref !== 'string' || ref.length > 80) throw new Error('capability:invalid-input');
+    const expected = this.library.referenceSnapshot(ref).descriptor;
+    const identity = (descriptor: PluginReferenceSnapshot['descriptor']) => JSON.stringify([
+      resolve(descriptor.root), descriptor.fingerprint, descriptor.kind, descriptor.provenance,
+      descriptor.id, descriptor.name, descriptor.instance, descriptor.source, descriptor.marketplace,
+    ]);
+    const key = identity(expected);
+    const read = async () => {
+      const raw = await this.request('target-catalog', { input: { descriptor: expected, mcp } }) as CapabilityCatalog;
+      const targets = [...raw.plugins, ...raw.available] as unknown as { packageDescriptor?: PluginReferenceSnapshot['descriptor'] }[];
+      if (targets.length !== 1 || !targets[0].packageDescriptor || identity(targets[0].packageDescriptor) !== key)
+        throw new Error('capability:stale');
+      return raw;
+    };
+    let readingIdentity = true, confirmedCommitted = false, actionThrew = false, actionError: unknown;
+    try {
+      const raw = await read();
+      return await withVerifiedPackage(expected, async scope => {
+        // Upgrade only this verified target; a navigation token itself grants no file access.
+        const catalog = await this.library.project(raw, { retain: true });
+        const plugin = [...catalog.plugins, ...catalog.available][0];
+        if (plugin?.package?.ref !== ref) throw new Error('capability:stale');
+        const descriptor = { ...this.library.referenceSnapshot(ref).descriptor, ref };
+        readingIdentity = false;
+        let result: T;
+        try { result = await action({ catalog, plugin, descriptor, scope }); }
+        catch (error) { actionThrew = true; actionError = error; throw error; }
+        if (writes) confirmedCommitted = true;
+        readingIdentity = true;
+        // Never add a management subprocess after a store's commit pointer changed.
+        if (!writes) await read();
+        return result;
+      });
+    } catch (error) {
+      if (confirmedCommitted || readingIdentity || actionThrew && error !== actionError
+        || String(error) === 'Error: capability:stale') this.library.revoke(ref);
+      if (confirmedCommitted) throw new Error('capability:settings-committed-unverified');
+      throw error;
+    }
+  }
   repositoryInfo(input: { ref: string; refresh: boolean }) { return this.enqueue(async () => {
     if (!input || typeof input.ref !== 'string' || typeof input.refresh !== 'boolean') throw new Error('capability:invalid-input');
-    await this.readCatalog();
-    const { descriptor } = await this.library.reference(input.ref);
-    if (!descriptor.repository) throw new Error('capability:not-found');
-    return input.refresh ? this.repositories.refresh(descriptor.repository) : this.repositories.snapshot(descriptor.repository);
+    return this.withTarget(input.ref, false, async ({ descriptor }) => {
+      const repository = this.library.referenceSnapshot(descriptor.ref).descriptor.repository;
+      if (!repository) throw new Error('capability:not-found');
+      return input.refresh ? this.repositories.refresh(repository) : this.repositories.snapshot(repository);
+    });
   }); }
   document(input: unknown) { return this.enqueue(async () => {
-    await this.readCatalog();
-    return this.library.document(input);
+    if (!input || typeof input !== 'object' || !('ref' in input) || typeof input.ref !== 'string')
+      throw new Error('capability:invalid-input');
+    return this.withTarget(input.ref, false, ({ scope }) => this.library.document(input, scope));
   }); }
-  private async readDesktop(ref: string) {
-    if (typeof ref !== 'string' || ref.length > 80) throw new Error('capability:invalid-input');
-    const catalog = await this.readCatalog();
-    const plugin = catalog.plugins.find(item => item.package?.ref === ref);
-    if (!plugin?.package?.desktop || plugin.package.provenance !== 'recorded')
+  private assertDesktop(plugin: CapabilityPlugin | MarketplacePlugin, descriptor: ConfigurationDescriptor): asserts plugin is CapabilityPlugin {
+    if (!plugin.package?.desktop || descriptor.kind !== 'installed' || descriptor.provenance !== 'recorded')
       throw new Error('capability:stale');
-    const { descriptor } = await this.library.reference(ref);
-    if (descriptor.kind !== 'installed' || descriptor.provenance !== 'recorded') throw new Error('capability:stale');
-    return plugin;
   }
-  desktop(ref: string) { return this.enqueue(() => this.readDesktop(ref)); }
+  desktop(ref: string) { return this.enqueue(() => this.withTarget(ref, false, async ({ plugin, descriptor }) => {
+    this.assertDesktop(plugin, descriptor);
+    return plugin;
+  })); }
   confirmationPlugins() { return this.enqueue(async () => {
     const catalog = await this.readCatalog();
     return catalog.plugins.filter(plugin => plugin.package?.provenance === 'recorded'
@@ -260,23 +330,22 @@ export class CapabilityService {
         revision: descriptor.fingerprint, confirmations };
     });
   }
-  connection(ref: string) { return this.enqueue(async () => {
-    const plugin = await this.readDesktop(ref);
+  connection(ref: string) { return this.enqueue(() => this.withTarget(ref, false, async ({ plugin, descriptor }) => {
+    this.assertDesktop(plugin, descriptor);
     if (plugin.package?.desktop?.connection?.protocol !== 'agent-bridge-v1'
       || plugin.package.desktop.surface !== 'main-view') throw new Error('capability:invalid-input');
-    const { descriptor } = await this.library.reference(ref);
     return digest(JSON.stringify([descriptor.root, descriptor.id, descriptor.instance, descriptor.fingerprint]));
-  }); }
+  })); }
   configuration(input: { ref: string }, save?: PluginConfigurationInput) { return this.enqueue(async () => {
     if (!input || typeof input.ref !== 'string') throw new Error('capability:invalid-input');
-    const catalog = await this.readCatalog();
-    const { descriptor } = await this.library.reference(input.ref);
-    const context = { ...descriptor, ref: input.ref };
-    const current = await this.configurations.read(context);
-    if (catalog.mcp.some(server => server.name === `${descriptor.id}__${current.schema.consumer.server}` && server.source !== 'plugin'))
-      throw new Error('capability:configuration-consumer-conflict');
-    if (save) this.options.beforePluginMutation?.();
-    return save ? this.configurations.save(context, save) : current;
+    return this.withTarget(input.ref, true, async ({ catalog, descriptor, scope }) => {
+      const current = await this.configurations.read(descriptor, scope);
+      const servers = catalog.mcp.filter(server => server.name === `${descriptor.id}__${current.schema.consumer.server}`);
+      if (servers.length !== 1 || servers[0].source !== 'plugin' || servers[0].pluginId !== descriptor.id
+        || servers[0].transport !== 'stdio') throw new Error('capability:configuration-consumer-conflict');
+      if (save) this.options.beforePluginMutation?.();
+      return save ? this.configurations.save(descriptor, save) : current;
+    }, Boolean(save));
   }); }
   customBackgroundContext(ref?: string): Promise<{ ref: string; instance: string } | undefined> {
     if (ref !== undefined && (typeof ref !== 'string' || !ref || ref.length > 128))
@@ -304,20 +373,17 @@ export class CapabilityService {
         || save && (save.ref !== input.ref || Object.keys(save).some(key =>
           !['ref', 'revision', 'mode', 'models', 'configuration'].includes(key))))
         throw new Error('capability:invalid-input');
-      const catalog = await this.readCatalog();
-      const matches = catalog.plugins.filter(plugin => plugin.package?.ref === input.ref);
-      if (matches.length !== 1 || matches[0].package?.provenance !== 'recorded')
+      return this.withTarget(input.ref, true, async ({ catalog, plugin, descriptor, scope }) => {
+      if (descriptor.kind !== 'installed' || descriptor.provenance !== 'recorded')
         throw new Error('capability:host-unavailable');
-      const { descriptor: installed } = await this.library.reference(input.ref);
-      const descriptor = { ...installed, ref: input.ref };
       let binding: HostBinding | UnconfiguredHostBinding;
-      try { binding = await this.hostBindings.current(descriptor); }
+      try { binding = await this.hostBindings.current(descriptor, scope); }
       catch (error) {
         if (String(error).includes('dfsc-host:')) throw new Error('capability:invalid-host-declaration');
         throw error;
       }
-      const servers = catalog.mcp.filter(server => server.name === `${installed.id}__${binding.declaration.consumer.server}`);
-      if (servers.length !== 1 || servers[0].source !== 'plugin' || servers[0].pluginId !== installed.id
+      const servers = catalog.mcp.filter(server => server.name === `${descriptor.id}__${binding.declaration.consumer.server}`);
+      if (servers.length !== 1 || servers[0].source !== 'plugin' || servers[0].pluginId !== descriptor.id
         || servers[0].transport !== 'stdio') throw new Error('capability:configuration-consumer-conflict');
       if (save) {
         this.assertHealthy();
@@ -333,7 +399,7 @@ export class CapabilityService {
         // Validate before revocation or committing the independent configuration.
         const models = save.mode === 'follow' ? parseModelSelection(save.models ?? {}, binding.declaration.capabilities) : undefined;
         if (save.mode === 'independent') {
-          const config = await this.configurations.read(descriptor);
+          const config = await this.configurations.read(descriptor, scope);
           if (config.schema.consumer.server !== binding.declaration.consumer.server)
             throw new Error('capability:configuration-consumer-conflict');
         }
@@ -351,9 +417,9 @@ export class CapabilityService {
       }
       const selected = 'mode' in binding ? binding : undefined;
       let independent, independentError;
-      if (matches[0].package?.configurationAvailable) {
+      if (plugin.package?.configurationAvailable) {
         try {
-          independent = await this.configurations.read(descriptor);
+          independent = await this.configurations.read(descriptor, scope);
           if (independent.schema.consumer.server !== binding.declaration.consumer.server)
             throw new Error('capability:configuration-consumer-conflict');
         } catch (error) {
@@ -371,6 +437,7 @@ export class CapabilityService {
         capabilities: [...binding.declaration.capabilities], mode: selected?.mode ?? null,
         models: selected ? { ...selected.models } : {}, configurationCurrent: selected?.configurationCurrent ?? false,
         independent, independentError, runtime };
+      }, Boolean(save));
     });
   }
   private async updateExpected(input: PluginUpdateRequest) {
@@ -437,6 +504,7 @@ export class CapabilityService {
         const report = await this.request('plugin-update-preflight', { input: { ...input, ...expected } });
         if (report.status !== 'compatible' || report.stamp !== checked.stamp) throw new Error('capability:stale-configuration');
       } : undefined);
+      let desktopInvalidated = false;
       try {
         // Recovery is a different operation, guarded by the actual journal owner.
         // Neither a mutation nor a follow-up catalog read may perform it implicitly.
@@ -451,11 +519,16 @@ export class CapabilityService {
           expected ??= { expectedFingerprint: descriptor.fingerprint, expectedSource: descriptor.source };
         }
         await this.initializeStorage();
-        if (input.action.startsWith('marketplace-') || ['plugin-install', 'plugin-remove', 'plugin-update', 'plugin-check-updates'].includes(input.action)) this.library.invalidate();
+        if (input.action.startsWith('marketplace-') || ['plugin-install', 'plugin-remove', 'plugin-update', 'plugin-check-updates'].includes(input.action)) {
+          this.library.invalidate();
+          this.desktopRevision++;
+          desktopInvalidated = true;
+        }
         if (policy.scope === 'runtime') this.options.beforePluginMutation?.();
         return await this.request('mutate', { input: { ...input, ...expected, preserveRuntime: policy.scope !== 'runtime' } },
           policy.scope === 'runtime');
       } finally {
+        if (desktopInvalidated) this.desktopRevision++;
         release?.();
       }
     });
@@ -465,12 +538,15 @@ export class CapabilityService {
     this.options.beforePluginMutation?.();
     return this.request('import', { path }, true);
   }); }
-  async stop() { await Promise.all([...this.workers].map(async worker => {
-    try { await worker.stopManagement(); }
-    catch (error) {
-      // Shutdown needs confirmed exit, not write-safety proof; quarantine stays intact.
-      if (!(error instanceof RpcManagementStopError) || !error.exitConfirmed) throw error;
-    }
-    this.workers.delete(worker);
-  })); }
+  async stop() {
+    await Promise.all([...this.workers].map(async worker => {
+      try { await worker.stopManagement(); }
+      catch (error) {
+        // Shutdown needs confirmed exit, not write-safety proof; quarantine stays intact.
+        if (!(error instanceof RpcManagementStopError) || !error.exitConfirmed) throw error;
+      }
+      this.workers.delete(worker);
+    }));
+    this.desktopUnavailable = false;
+  }
 }

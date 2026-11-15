@@ -6,6 +6,7 @@ import remarkParse from 'remark-parse';
 import semver from 'semver';
 import { parsePluginConfirmations } from './plugin-confirmation-contract.mjs';
 import { digest, object, optionalFile, packageFingerprint, packagePath, plainFile, PluginFileError, readReceipts, scanInstalled } from './plugin-files.mjs';
+import { verifyPackage } from './plugin-read-scope.mjs';
 
 const backgroundPluginId = 'custom-background';
 const backgroundProvider = 'custom-background-v1';
@@ -235,7 +236,8 @@ export class PluginLibrary {
   references = new Map();
   constructor(root, validateImage) { this.root = resolve(root); this.validateImage = validateImage; }
   invalidate() { this.references.clear(); }
-  async project(catalog) {
+  revoke(ref) { this.references.delete(ref); }
+  async project(catalog, { partial = false, retain = false } = {}) {
     const current = new Set();
     const uniqueBackground = catalog.plugins.filter(plugin => plugin.id === backgroundPluginId).length === 1;
     const project = async plugin => {
@@ -257,6 +259,7 @@ export class PluginLibrary {
           reference = { key, ref: randomUUID(), descriptor: { ...descriptor, repository: publicPlugin.repository }, allowed: new Set() };
           this.references.set(reference.ref, reference);
         }
+        if (!partial) reference.descriptor.repository = publicPlugin.repository;
         current.add(reference.ref);
         let metadata = { documentation: {}, tutorials: [], links: [] }, warnings = [];
         try {
@@ -280,10 +283,10 @@ export class PluginLibrary {
         for (const documentation of [metadata.documentation, ...Object.values(metadata.locales ?? {}).map(locale => locale.documentation ?? {})])
           for (const [kind, path] of Object.entries(documentation)) {
             if (!await fileExists(root, path)) delete documentation[kind];
-            else reference.allowed.add(path);
+            else if (!partial) reference.allowed.add(path);
           }
         let hostConfiguration;
-        if (uniqueBackground && descriptor.id === backgroundPluginId) {
+        if (!partial && uniqueBackground && descriptor.id === backgroundPluginId) {
           try {
             await this.customBackgroundContext(reference.ref);
             hostConfiguration = backgroundProvider;
@@ -307,7 +310,7 @@ export class PluginLibrary {
                 if (light) metadata.desktop.icon = { light, ...(dark ? { dark } : {}) };
                 if (!light || icon.dark && !dark) warnings.push('Invalid or unavailable Desktop workspace icon.');
               }
-              for (const page of metadata.desktop.pages) reference.allowed.add(page.document);
+              if (!partial) for (const page of metadata.desktop.pages) reference.allowed.add(page.document);
             } catch {
               delete metadata.desktop;
               warnings.push('Invalid or unavailable Desktop workspace document.');
@@ -326,16 +329,22 @@ export class PluginLibrary {
     for (const plugin of catalog.plugins) plugins.push(await project(plugin));
     const available = [];
     for (const plugin of catalog.available) available.push(await project(plugin));
-    for (const ref of this.references.keys()) if (!current.has(ref)) this.references.delete(ref);
+    if (!partial && !retain) for (const ref of this.references.keys()) if (!current.has(ref)) this.references.delete(ref);
     // Catalog size is bounded at the worker boundary; never retain an unbounded token registry.
     while (this.references.size > 1000) this.references.delete(this.references.keys().next().value);
     return { ...catalog, plugins, available };
   }
-  async reference(ref) {
+  // Presentation metadata only; package reads and actions must still use reference().
+  referenceSnapshot(ref) {
+    const value = typeof ref === 'string' && this.references.get(ref);
+    if (!value) throw new PluginFileError('stale');
+    return { descriptor: { ...value.descriptor } };
+  }
+  async reference(ref, scope) {
     const value = typeof ref === 'string' && this.references.get(ref);
     if (!value) throw new PluginFileError('stale');
     try {
-      if (await packageFingerprint(value.descriptor.root) !== value.descriptor.fingerprint) throw new PluginFileError('stale');
+      await verifyPackage(value.descriptor, scope);
     } catch { this.references.delete(ref); throw new PluginFileError('stale'); }
     return value;
   }
@@ -345,9 +354,9 @@ export class PluginLibrary {
       return await backgroundContext(this.root, descriptor, ref);
     } catch { throw new PluginFileError('stale'); }
   }
-  async document(input) {
+  async document(input, scope) {
     if (!object(input) || typeof input.path !== 'string') throw new PluginFileError('invalid-input');
-    const reference = await this.reference(input.ref), path = markdownPath(input.path);
+    const reference = await this.reference(input.ref, scope), path = markdownPath(input.path);
     if (!reference.allowed.has(path)) throw new PluginFileError('invalid-path');
     const text = (await plainFile(reference.descriptor.root, path, 256 * 1024)).toString('utf8');
     const tree = unified().use(remarkParse).parse(text);
@@ -382,7 +391,7 @@ export class PluginLibrary {
         images[resource.url] = `data:${mime};base64,${bytes.toString('base64')}`;
       } catch {}
     }
-    await this.reference(input.ref);
+    await this.reference(input.ref, scope);
     return { path, text, images, links };
   }
 }

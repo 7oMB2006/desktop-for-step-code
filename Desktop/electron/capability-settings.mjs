@@ -1,5 +1,6 @@
 // Desktop adapter for the upstream MVP's user-scope management operations.
 import { createHash, randomUUID } from 'node:crypto';
+import { execFile } from 'node:child_process';
 import { lstat, mkdir, mkdtemp, readFile, realpath, readdir, rename, rm, cp, writeFile, open } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { dataOnlyThemeFingerprint, installationReceipt, object, optionalFile, packageFingerprint, plainFile, readReceipts, scanInstalled,
@@ -9,6 +10,7 @@ import { PluginConfigurationStore } from './plugin-configuration.mjs';
 import { compareConfigurationSchemas, migrateConfigurationSnapshot, parseConfigurationJson, strictConfigurationSchema,
   validateConfigurationSnapshot } from './plugin-schema-update.mjs';
 import { capabilityFailureCode, capabilityFailureDetails, marketplaceFailureCode } from './capability-failure.mjs';
+import { auditPluginRelease } from './plugin-release.mjs';
 
 const NAME = /^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,79}$/;
 const SKILL_NAME = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
@@ -115,6 +117,9 @@ export function createCapabilitySettings(upstream, options) {
   async function assertNoPendingUpdate() {
     if (await optionalFile(root, 'desktop-plugins/update-transaction.json', 65536))
       throw new CapabilityError('update-recovery-required');
+  }
+  async function assertRelease(directory) {
+    if (!(await auditPluginRelease(directory)).ok) throw new CapabilityError('invalid-release');
   }
   async function initialize() {
     await assertNoPendingUpdate();
@@ -321,6 +326,177 @@ export function createCapabilitySettings(upstream, options) {
     }
     return result;
   }
+  async function hostDescriptor(input) {
+    if (!record(input) || typeof input.pluginId !== 'string' || !/^[a-z][a-z0-9_-]{0,127}$/u.test(input.pluginId)
+      || typeof input.consumer !== 'string' || !/^[a-z][a-z0-9_-]{0,47}$/u.test(input.consumer)
+      || typeof input.root !== 'string' || input.root.length > 32768)
+      throw new CapabilityError('invalid-input');
+    await assertNoPendingUpdate();
+    const raw = (await scanInstalled(root)).filter(item => item.id === input.pluginId);
+    if (raw.length !== 1) throw new CapabilityError('host-unavailable');
+    const directory = await plainPath(join(pluginsDir, raw[0].folder), pluginsDir);
+    if (resolve(input.root) !== directory) throw new CapabilityError('host-unavailable');
+    const list = await installed();
+    const plugins = list.plugins.filter(plugin => plugin.id === input.pluginId && resolve(plugin.rootPath) === directory);
+    if (plugins.length !== 1) throw new CapabilityError('host-unavailable');
+    // Qualified names can collide across IDs containing "__"; read declarations,
+    // but never fingerprint unrelated packages or discover marketplace copies.
+    const server = (await mcpEntries(list.plugins)).filter(item => item.name === `${input.pluginId}__${input.consumer}`);
+    if (server.length !== 1 || server[0].source !== 'plugin' || server[0].pluginId !== input.pluginId
+      || !server[0].enabled || server[0].transport !== 'stdio') throw new CapabilityError('host-unavailable');
+    const receipts = await readReceipts(root);
+    const receipt = receipts.installations.find(item => item.id === input.pluginId && item.folder === raw[0].folder
+      && item.state === 'installed');
+    if (!receipt || await packageFingerprint(directory) !== receipt.fingerprint)
+      throw new CapabilityError('host-unavailable');
+    // Startup validates only the native consumer, not marketplace presentation or updates.
+    return { root: directory, fingerprint: receipt.fingerprint, kind: 'installed', provenance: 'recorded',
+      id: receipt.id, name: receipt.folder, instance: receipt.instance, source: receipt.source, marketplace: receipt.marketplace };
+  }
+  async function selectedSource(directory) {
+    const sourceName = relative(marketplacesDir, directory).split(sep)[0];
+    if (!NAME.test(sourceName)) throw new CapabilityError('stale');
+    const checkout = await plainPath(join(marketplacesDir, sourceName), marketplacesDir);
+    if (!(await lstat(checkout)).isDirectory()) throw new CapabilityError('stale');
+    let git = false;
+    try {
+      await plainPath(join(checkout, '.git'), checkout);
+      await lstat(join(checkout, '.git'));
+      git = true;
+    } catch (error) { if (error.code !== 'ENOENT') throw error; }
+    const kind = sourceName === 'builtin' ? 'builtin' : git ? 'git' : 'local';
+    const origin = kind === 'git' ? await new Promise(resolveOrigin => {
+      execFile('git', ['-C', checkout, 'remote', 'get-url', 'origin'], { timeout: 10000 },
+        (error, stdout) => resolveOrigin(error ? null : stdout.trim() || null));
+    }) : null;
+    const source = { name: sourceName, path: checkout, kind, origin };
+    const stamp = await sourceStamp(source);
+    const saved = (await sourceRecords()).sources.find(item => item.name === sourceName && item.stamp === stamp);
+    return { ...source, desktopIdentity: saved?.generation ?? stamp };
+  }
+  async function targetCatalog(input) {
+    const descriptor = input?.descriptor;
+    if (!record(input) || !record(descriptor) || input.mcp !== undefined && typeof input.mcp !== 'boolean'
+      || !['installed', 'available'].includes(descriptor.kind)
+      || !['recorded', 'unknown', 'conflict'].includes(descriptor.provenance)
+      || typeof descriptor.root !== 'string' || !descriptor.root || descriptor.root.length > 32768
+      || typeof descriptor.fingerprint !== 'string' || !/^[a-f0-9]{64}$/u.test(descriptor.fingerprint)
+      || typeof descriptor.name !== 'string' || !NAME.test(descriptor.name)
+      || descriptor.id !== undefined && (typeof descriptor.id !== 'string' || !/^[a-z0-9][a-z0-9._-]*$/iu.test(descriptor.id)))
+      throw new CapabilityError('invalid-input');
+    await assertNoPendingUpdate();
+    try {
+      const directory = await plainPath(descriptor.root,
+        descriptor.kind === 'installed' ? pluginsDir : marketplacesDir);
+      if (!(await lstat(directory)).isDirectory()) throw new CapabilityError('stale');
+      const raw = await scanInstalled(root), receipts = await readReceipts(root);
+      const iconBudget = { remaining: 128 * 1024 };
+      const presentation = await pluginPresentation(directory, iconBudget);
+      const catalog = { plugins: [], available: [], marketplaces: [], mcp: [], skills: [], warnings: [] };
+      if (descriptor.kind === 'installed') {
+        if (directory !== join(pluginsDir, descriptor.name) || typeof descriptor.id !== 'string'
+          || presentation.id !== descriptor.id) throw new CapabilityError('stale');
+        const matches = raw.filter(item => item.id === descriptor.id);
+        if (!matches.some(item => item.folder === descriptor.name)
+          || (matches.length > 1) !== (descriptor.provenance === 'conflict')) throw new CapabilityError('stale');
+        const receipt = receipts.installations.find(item => item.folder === descriptor.name);
+        if (descriptor.provenance === 'recorded' && (!receipt || receipt.state !== 'installed'
+          || receipt.id !== descriptor.id || receipt.instance !== descriptor.instance
+          || receipt.fingerprint !== descriptor.fingerprint || receipt.source !== descriptor.source
+          || receipt.marketplace !== descriptor.marketplace)) throw new CapabilityError('stale');
+        if (descriptor.provenance === 'unknown' && receipt?.state === 'installed'
+          && receipt.id === descriptor.id && receipt.fingerprint === descriptor.fingerprint)
+          throw new CapabilityError('stale');
+        // Keep unrecorded/conflicting installations read-only. Their issued bytes
+        // are verified by the caller, never promoted by this metadata-only read.
+        if (descriptor.provenance !== 'recorded'
+          && (descriptor.instance !== undefined || descriptor.source !== undefined || descriptor.marketplace !== undefined))
+          throw new CapabilityError('stale');
+        await plainPath(join(directory, 'step.plugin.json'), directory);
+        const read = await upstream.readStepPluginManifest(directory);
+        if (!read.manifest || read.errors.length || read.manifest.id !== descriptor.id) throw new CapabilityError('stale');
+        const declarations = read.manifest.mcpServers;
+        const servers = typeof declarations === 'string' ? [declarations]
+          : record(declarations) ? Object.keys(declarations) : [];
+        if (servers.length > 1000) throw new CapabilityError('stale');
+        catalog.plugins.push({
+          id: descriptor.id, name: capabilityText(read.manifest.name ?? descriptor.id, 128),
+          version: capabilityText(read.manifest.version, 64) || undefined,
+          description: capabilityText(read.manifest.description, 2048),
+          mcpServers: servers.map(item => capabilityText(item, 160)),
+          warnings: [], icon: presentation.icon, repository: presentation.repository,
+          marketplace: descriptor.provenance === 'recorded' ? receipt.marketplace : undefined,
+          installationSource: { status: descriptor.provenance,
+            marketplaces: descriptor.provenance === 'recorded' ? [receipt.marketplace] : [] },
+          packageDescriptor: { root: directory, fingerprint: descriptor.fingerprint, kind: 'installed',
+            id: descriptor.id, name: descriptor.name, provenance: descriptor.provenance,
+            instance: descriptor.provenance === 'recorded' ? receipt.instance : undefined,
+            source: descriptor.provenance === 'recorded' ? receipt.source : undefined,
+            marketplace: descriptor.provenance === 'recorded' ? receipt.marketplace : undefined },
+        });
+      } else {
+        if (!['recorded', 'conflict'].includes(descriptor.provenance) || presentation.id !== descriptor.id
+          || descriptor.instance !== undefined) throw new CapabilityError('stale');
+        const source = await selectedSource(directory);
+        if (sourceIdentity(source) !== descriptor.source) throw new CapabilityError('stale');
+        const available = await marketEntries([source]);
+        const matches = available.entries.filter(entry => entry.name === descriptor.name
+          && entry.marketplace === descriptor.marketplace && resolve(entry.sourcePath) === directory);
+        if (matches.length !== 1) throw new CapabilityError('stale');
+        const entry = matches[0];
+        const receipt = receipts.installations.find(item => item.state === 'installed' && item.folder === entry.name
+          && item.source === sourceIdentity(source) && raw.some(plugin => plugin.folder === item.folder && plugin.id === item.id));
+        const blocked = available.conflicts.has(entry.name)
+          || raw.filter(item => item.id === presentation.id).length > 1
+          || raw.some(item => item.id === presentation.id || item.folder === entry.name) && !receipt;
+        if (descriptor.provenance === 'recorded' && blocked) throw new CapabilityError('stale');
+        catalog.available.push({ name: entry.name, marketplace: entry.marketplace,
+          description: capabilityText(entry.description, 2048), installed: Boolean(receipt),
+          blocked: descriptor.provenance === 'conflict', id: presentation.id,
+          displayName: presentation.displayName, version: presentation.version, installedId: receipt?.id,
+          packageDescriptor: { root: directory, fingerprint: descriptor.fingerprint, kind: 'available',
+            id: presentation.id, source: sourceIdentity(source), marketplace: entry.marketplace,
+            name: entry.name, provenance: descriptor.provenance },
+          repository: presentation.repository ?? (source.kind === 'builtin' && entry.name === 'playwright'
+            ? 'https://github.com/microsoft/playwright-mcp' : undefined),
+          icon: presentation.icon ?? (source.kind === 'builtin' ? { kind: 'step' } : undefined) });
+      }
+      // Collision checks need global declarations, not global package contents.
+      if (input.mcp) catalog.mcp = await mcpEntries((await installed()).plugins);
+      await assertNoPendingUpdate();
+      return catalog;
+    } catch (error) {
+      if (error.code === 'update-recovery-required') throw error;
+      throw new CapabilityError('stale');
+    }
+  }
+  async function desktopCatalog() {
+    await assertNoPendingUpdate();
+    const [raw, receipts] = await Promise.all([scanInstalled(root), readReceipts(root)]);
+    const plugins = [], iconBudget = { remaining: 2 * 1024 * 1024 };
+    for (const item of raw) {
+      if (raw.filter(other => other.id === item.id).length !== 1) continue;
+      const receipt = receipts.installations.find(value =>
+        value.folder === item.folder && value.id === item.id && value.state === 'installed');
+      if (!receipt) continue;
+      const directory = await plainPath(join(pluginsDir, item.folder), pluginsDir);
+      try {
+        const bytes = await optionalFile(directory, 'dfsc.plugin.json', 65536);
+        const metadata = bytes && JSON.parse(bytes.toString('utf8'));
+        if (!record(metadata) || !metadata.desktop) continue;
+        const presentation = await pluginPresentation(directory, iconBudget);
+        // Navigation is inert, bounded data. The receipt supplies the expected
+        // fingerprint; opening documents or performing an action still verifies it.
+        plugins.push({ id: item.id, name: presentation.displayName ?? capabilityText(item.id, 128),
+          version: presentation.version, description: '', mcpServers: [], warnings: [],
+          icon: presentation.icon, repository: presentation.repository, marketplace: receipt.marketplace,
+          packageDescriptor: { root: directory, fingerprint: receipt.fingerprint,
+            kind: 'installed', id: item.id, name: item.folder, provenance: 'recorded',
+            instance: receipt.instance, source: receipt.source, marketplace: receipt.marketplace } });
+      } catch { /* Malformed optional presentation must not block conversations. */ }
+    }
+    return { plugins, available: [], marketplaces: [], mcp: [], skills: [], warnings: [] };
+  }
   async function catalog() {
     let recovery;
     try {
@@ -474,6 +650,7 @@ export function createCapabilitySettings(upstream, options) {
         if (available.conflicts.has(requested)) throw new CapabilityError('plugin-conflict');
         await plainPath(entry.sourcePath, marketplacesDir);
         await rejectLinks(entry.sourcePath);
+        await assertRelease(entry.sourcePath);
         const stagingRoot = await plainPath(join(root, 'desktop-plugins'));
         const transaction = randomUUID(), transactionRoot = join(stagingRoot, `update-${transaction}`);
         await mkdir(transactionRoot);
@@ -481,6 +658,7 @@ export function createCapabilitySettings(upstream, options) {
         try {
           const result = await upstream.installMarketplacePlugin(entry, transactionRoot, { provision: false });
           const snapshot = join(transactionRoot, requested);
+          await assertRelease(snapshot);
           const checked = await upstream.readStepPluginManifest(snapshot);
           const old = await upstream.readStepPluginManifest(target);
           if (!checked.manifest || checked.errors.length || !old.manifest || checked.manifest.id !== id
@@ -593,6 +771,7 @@ export function createCapabilitySettings(upstream, options) {
         if (available.conflicts.has(requested)) throw new CapabilityError('plugin-conflict');
         await plainPath(entry.sourcePath, marketplacesDir);
         await rejectLinks(entry.sourcePath);
+        await assertRelease(entry.sourcePath);
         const stagingRoot = await plainPath(join(root, 'desktop-plugins'));
         await mkdir(stagingRoot, { recursive: true });
         await plainPath(stagingRoot);
@@ -603,6 +782,7 @@ export function createCapabilitySettings(upstream, options) {
           const result = await upstream.installMarketplacePlugin(entry, staging, { provision: false });
           const snapshot = join(staging, requested);
           await rejectLinks(snapshot);
+          await assertRelease(snapshot);
           const checked = await upstream.readStepPluginManifest(snapshot);
           if (!checked.manifest || checked.errors.length) throw new CapabilityError('invalid-input');
           const fingerprint = await packageFingerprint(snapshot);
@@ -794,7 +974,7 @@ export function createCapabilitySettings(upstream, options) {
     await cp(path, target, { recursive: true, force: false, errorOnExist: true });
     return { warnings: [] };
   }
-  return { catalog, initialize, mutate, importSkill,
+  return { catalog, desktopCatalog, hostDescriptor, targetCatalog, initialize, mutate, importSkill,
     preflightUpdate: (input, signal) => {
       if (input?.action !== 'plugin-update') throw new CapabilityError('invalid-input');
       return mutate(input, signal, true);

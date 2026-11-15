@@ -170,7 +170,7 @@ test('connection scope keys survive client restart but not package or installati
     createWorker: () => ({
       start() {}, async stopManagement() {},
       async request(type: string) {
-        assert.equal(type, 'catalog');
+        assert.ok(['catalog', 'target-catalog'].includes(type));
         const value = await f.catalog('installed', provenance) as any;
         value.plugins[0].packageDescriptor.instance = instance;
         return value;

@@ -237,7 +237,7 @@ if (updatePreview || nativeUpdates) {
 let configuration: BvrConfiguration = { revision: 'fixture-1', configured: true, mode: 'dfsc', runtimeDirectory: 'D:\\Tools\\BVR',
   apiBase: 'https://api.stepfun.com/v1', model: 'step-3.7-flash', hasApiKey: false, asrApiBase: 'https://api.stepfun.com/v1',
   asrModel: 'stepaudio-2.5-asr', hasAsrApiKey: false, cookieFile: '', proxy: '', downloadDirectory: '', preferCaptions: true };
-let saves = 0, restarts = 0, catalogReads = 0, preparationRefreshes = 0, repositoryReads = 0;
+let saves = 0, restarts = 0, catalogReads = 0, preparationRefreshes = 0, repositoryReads = 0, installs = 0;
 let updateAttempts = 0, updateChecks = 0, updateApplied = 0, updatePreflights = 0, updateOperationReads = 0, legacyUpdates = 0;
 let updateReferenceRevision = 0, staleUpdateRequests = 0;
 let updateFailure: 'unchanged' | 'reject' | 'restoration' | undefined, releaseUpdate: (() => void) | undefined;
@@ -283,12 +283,14 @@ if (hostPreview) {
 }
 const hostConnected = () => {
   hostConfiguration.runtime = hostConfiguration.mode === 'independent' ? { status: 'connected' }
-    : { status: 'connected', capabilities: hostConfiguration.capabilities.map(id => ({
-      id, available: id !== 'model.tts', ...(id !== 'model.tts' ? {
-        model: id === 'model.asr' ? hostConfiguration.models['model.asr'] ?? 'stepaudio-2.5-asr' : 'step-5-preview',
-        channel: 'plan' as const, region: 'cn' as const,
-      } : {}), authorization: id === 'model.tts' ? 'unavailable' as const : 'required' as const,
-    })) };
+    : { status: 'connected', capabilities: hostConfiguration.capabilities.map(id => {
+      const model = id === 'model.asr' ? hostConfiguration.models[id] ?? 'stepaudio-2.5-asr'
+        : id === 'model.tts' ? hostConfiguration.models[id] ?? 'stepaudio-2.5-tts' : 'step-5-preview';
+      const available = id === 'model.asr' ? model === 'stepaudio-2.5-asr'
+        : id === 'model.tts' ? ['stepaudio-2.5-tts', 'stepaudio-3-tts', 'step-tts-2', 'step-tts-mini'].includes(model) : true;
+      return { id, available, ...(available ? { model, channel: 'plan' as const, region: 'cn' as const } : {}),
+        authorization: available ? 'required' as const : 'unavailable' as const };
+    }) };
 };
 const retireUpdateReferences = () => {
   const plugin = catalog.plugins.find(item => item.id === 'bilibili-video-research')!;
@@ -440,6 +442,7 @@ const bridge: PluginCenterBridge = {
     if (input.action === 'plugin-remove') catalog.plugins = catalog.plugins.filter(plugin => plugin.id !== input.id);
     if (input.action === 'marketplace-add') catalog.marketplaces.push({ name: 'new-market', kind: 'git', origin: input.source });
     if (input.action === 'plugin-install') {
+      installs++;
       const available = catalog.available[0]; available.installed = true; available.installedId = 'fixture';
       catalog.plugins.push({ id: 'fixture', name: 'Fixture plugin', warnings: [], mcpServers: [] });
     }
@@ -466,7 +469,7 @@ const bridge: PluginCenterBridge = {
   },
 };
 Object.assign(window, { pluginCenterTest: { configuration: () => structuredClone(configuration),
-  counts: () => ({ saves, restarts, catalogReads, preparationRefreshes, repositoryReads }),
+  counts: () => ({ saves, restarts, catalogReads, preparationRefreshes, repositoryReads, installs }),
   updateCounts: () => ({ attempts: updateAttempts, checks: updateChecks, applied: updateApplied,
     preflights: updatePreflights, operationReads: updateOperationReads, legacy: legacyUpdates, consents: [...updateConsents],
     retiredReferences: updateReferenceRevision, staleRequests: staleUpdateRequests }),

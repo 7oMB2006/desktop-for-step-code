@@ -409,27 +409,82 @@ test('background notification handoff retains the host before the parent emits a
   } finally { await pool.stopAll(); }
 });
 
-test('startup diagnostics separate process, restoration, snapshot and model phases without session content', async () => {
+test('startup diagnostics separate process, restoration, snapshot, model and plugin phases without session content', async () => {
   const progress: RuntimeStartupDiagnostic[] = [];
   const { pool, open, events } = fixture({ startup: diagnostic => progress.push(diagnostic) });
   try {
     const worker = await open();
     const timing = worker.startupTiming!;
     assert.deepEqual(Object.keys(timing).sort(),
-      ['modelRestoreMs', 'processReadyMs', 'sessionRestoreMs', 'snapshotMs', 'totalMs']);
+      ['modelRestoreMs', 'pluginAttachMs', 'processReadyMs', 'sessionRestoreMs', 'snapshotMs', 'totalMs']);
     assert.ok(Object.values(timing).every(value => Number.isFinite(value) && value >= 0));
-    assert.ok(Math.abs(timing.totalMs - timing.processReadyMs - timing.sessionRestoreMs - timing.snapshotMs - timing.modelRestoreMs) < .001);
+    assert.equal(typeof timing.pluginAttachMs, 'number');
+    assert.ok(timing.pluginAttachMs !== undefined);
+    assert.ok(Math.abs(timing.totalMs - timing.processReadyMs - timing.sessionRestoreMs - timing.snapshotMs - timing.modelRestoreMs - timing.pluginAttachMs) < .001);
     assert.deepEqual(progress.map(({ phase, status }) => `${phase}:${status}`),
-      ['launch:starting', 'process:starting', 'session:starting', 'snapshot:starting', 'model:starting', 'model:ready']);
+      ['launch:starting', 'process:starting', 'session:starting', 'snapshot:starting', 'model:starting', 'plugins:starting', 'plugins:ready']);
     assert.ok(progress.every(sample => sample.runtimeId === worker.id && sample.elapsedMs >= sample.phaseMs && sample.phaseMs >= 0));
     assert.ok(!events.some(event => 'phaseMs' in event), 'Startup diagnostics stay in the main process');
     pool.activate(worker);
     assert.equal(worker.startupTiming, timing, 'Resident activation does not claim a new cold startup');
-    assert.equal(progress.length, 6);
+    assert.equal(progress.length, 7);
   } finally { await pool.stopAll(); }
 });
 
-for (const phase of ['launch', 'process', 'session', 'snapshot', 'model'] as const) {
+for (const outcome of ['resolved', 'rejected', 'replaced'] as const) {
+  test(`asynchronous plugin timing remains nonblocking and handles ${outcome} attachment`, { timeout: 5000 }, async () => {
+    let resolveAttachment!: () => void, rejectAttachment!: (error: Error) => void;
+    const attachment = new Promise<void>((resolve, reject) => {
+      resolveAttachment = resolve; rejectAttachment = reject;
+    });
+    const progress: RuntimeStartupDiagnostic[] = [];
+    const f = fixture({
+      initializeModel: async worker => {
+        const startup: RuntimeStartup = { protocol: 1, runtimeId: worker.id, sessionId: worker.state!.sessionId!,
+          startupEpoch: randomUUID(), configurationRevision: randomUUID(), catalogRevision: 1,
+          targetBound: true, modelReady: false, cleanupConfirmed: true, discovery: 'ready', tools: [], coreReadyAt: 1 };
+        worker.startup = startup;
+        worker.startupConfigurationRevision = startup.configurationRevision;
+        const transport = f.transports[0], request = transport.request.bind(transport);
+        transport.request = async (type, args) => type === 'desktop_startup'
+          ? { ...startup, modelReady: true } : request(type, args);
+      },
+      pluginsReady: () => attachment,
+      startup: diagnostic => progress.push(diagnostic),
+    });
+    try {
+      const worker = await f.open();
+      const pending = worker.startupTiming!;
+      assert.equal(worker.startup?.modelReady, true);
+      assert.equal(pending.pluginAttachMs, undefined, 'Pending attachment is not reported as zero or complete');
+      assert.equal(progress.at(-1)?.phase, 'model');
+      assert.equal(progress.at(-1)?.status, 'ready');
+      if (outcome === 'replaced') worker.startup = { ...worker.startup!, startupEpoch: randomUUID() };
+      if (outcome === 'rejected') rejectAttachment(new Error('private-attachment-error'));
+      else resolveAttachment();
+      await new Promise<void>(resolve => setImmediate(resolve));
+      assert.equal(worker.status, 'connected', 'Background attachment does not undo authoritative session readiness');
+      if (outcome === 'resolved') {
+        const timing = worker.startupTiming!;
+        assert.ok(timing.pluginAttachMs !== undefined && timing.pluginAttachMs >= 0);
+        assert.ok(Math.abs(timing.totalMs - timing.processReadyMs - timing.sessionRestoreMs
+          - timing.snapshotMs - timing.modelRestoreMs - timing.pluginAttachMs) < .001);
+        assert.equal(progress.at(-1)?.phase, 'plugins');
+        assert.equal(progress.at(-1)?.status, 'ready');
+      } else {
+        assert.equal(worker.startupTiming, pending, 'Failure or superseded epochs cannot publish completed timing');
+        assert.equal(progress.at(-1)?.status, outcome === 'rejected' ? 'failed' : 'ready');
+        assert.ok(!progress.some(item => item.phase === 'plugins' && item.status === 'ready'));
+      }
+      assert.doesNotMatch(JSON.stringify(progress), /private-attachment-error/);
+    } finally {
+      resolveAttachment();
+      await f.pool.stopAll();
+    }
+  });
+}
+
+for (const phase of ['launch', 'process', 'session', 'snapshot', 'model', 'plugins'] as const) {
   test(`failed ${phase} startup preserves bounded diagnostics and clears its pending approvals`, async () => {
     const progress: RuntimeStartupDiagnostic[] = [];
     const original = new Error('private-error-content');
@@ -443,7 +498,7 @@ for (const phase of ['launch', 'process', 'session', 'snapshot', 'model'] as con
       transport = new Transport(receive, 'private-session');
       const request = transport.request.bind(transport);
       transport.request = async (type, args) => {
-        if (type === { launch: '', process: 'get_state', session: 'switch_session', snapshot: 'get_messages', model: '' }[phase])
+        if (type === { launch: '', process: 'get_state', session: 'switch_session', snapshot: 'get_messages', model: '', plugins: '' }[phase])
           fail();
         return request(type, args);
       };
@@ -451,6 +506,7 @@ for (const phase of ['launch', 'process', 'session', 'snapshot', 'model'] as con
     }, {
       launch: current => { worker = current; if (phase === 'launch') fail(); return { env: {}, args: [] }; },
       initializeModel: async () => { if (phase === 'model') fail(); },
+      pluginsReady: async () => { if (phase === 'plugins') fail(); },
       startup: diagnostic => {
         progress.push(diagnostic);
         if (diagnostic.status === 'failed') observedBeforeDisposal = pool.workers.has(diagnostic.runtimeId);
@@ -601,7 +657,7 @@ test('a failed diagnostic observer cannot fail or retain a healthy runtime', asy
   assert.equal(transports[0].stopped, true);
 });
 
-for (const phase of ['process', 'session', 'snapshot', 'model'] as const) {
+for (const phase of ['process', 'session', 'snapshot', 'model', 'plugins'] as const) {
   test(`stopping during ${phase} startup cannot activate a disposed worker`, async () => {
     let reached!: () => void, release!: () => void;
     const pending = new Promise<void>(resolve => { reached = resolve; });
@@ -613,13 +669,14 @@ for (const phase of ['process', 'session', 'snapshot', 'model'] as const) {
       const transport = new Transport(receive, 'startup-session');
       const request = transport.request.bind(transport);
       transport.request = async (type, args) => {
-        if (type === { process: 'get_state', session: 'new_session', snapshot: 'get_messages', model: '' }[phase])
+        if (type === { process: 'get_state', session: 'new_session', snapshot: 'get_messages', model: '', plugins: '' }[phase])
           await hold();
         return request(type, args);
       };
       transports.push(transport);
       return transport;
-    }, { initializeModel: phase === 'model' ? hold : undefined, dispose: () => { disposed++; } });
+    }, { initializeModel: phase === 'model' ? hold : undefined,
+      pluginsReady: phase === 'plugins' ? hold : undefined, dispose: () => { disposed++; } });
     const opening = pool.open('node', 'step', 'workspace', {});
     const rejected = assert.rejects(opening, /stopped during startup/);
     try {

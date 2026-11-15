@@ -424,6 +424,10 @@ try {
     }
     if (plugin === hermes) await assertHermesIcon(row.locator('.cap-plugin-icon img:visible'), 'market-catalog', 72);
     await row.getByRole('button', { name: 'Install', exact: true }).click();
+    const confirmation = main.getByRole('dialog', { name: `Install ${plugin.name}?`, exact: true });
+    await confirmation.waitFor();
+    assert.match(await confirmation.innerText(), /does not sandbox malicious plugins/);
+    await confirmation.getByRole('button', { name: 'Install plugin', exact: true }).click();
     await center().getByRole('heading', { name: plugin.name, exact: true, level: 2 }).waitFor();
     const active = await installed(plugin.id);
     assert.equal(active.package.provenance, 'recorded');

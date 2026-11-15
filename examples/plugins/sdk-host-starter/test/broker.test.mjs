@@ -26,8 +26,13 @@ async function service(t, approved, options = {}) {
   await build({ entryPoints: [resolve('../../../Desktop/tests/fixtures/plugin-host-service.ts')],
     outfile: entry, bundle: true, platform: 'node', format: 'esm', target: 'node24' });
   const { hostService } = await import(pathToFileURL(entry).href);
+  const { serverEntry, ...configuration } = options;
+  const packageDirectory = serverEntry ? join(helper, 'speech-package') : resolve('plugins/dfsc-host-example');
+  if (serverEntry) await build({ entryPoints: [serverEntry], outfile: join(packageDirectory, 'dist/server.mjs'),
+    bundle: true, platform: 'node', format: 'esm', target: 'node24',
+    banner: { js: "import { createRequire } from 'node:module'; const require = createRequire(import.meta.url);" } });
   const fixture = await hostService({ after: cleanup => cleanups.push(cleanup) },
-    { ...options, packageDirectory: resolve('plugins/dfsc-host-example') });
+    { ...configuration, packageDirectory });
   fixture.state.approved = approved;
   const launch = await fixture.broker.issue(fixture.descriptor, fixture.worker);
   client = new Client({ name: 'dfsc-host-broker-acceptance', version: '1.0.0' });
@@ -66,6 +71,45 @@ test('declining the actual SDK tool confirmation makes no provider request and d
   const { fixture, client } = await service(t, false);
   for (let attempt = 0; attempt < 2; attempt++) {
     const result = await client.callTool({ name: 'summarize_text', arguments: { text: 'not uploaded' } });
+    assert.equal(result.isError, true);
+    assert.equal(result.content[0].text, 'dfsc-host:DENIED');
+  }
+  assert.equal(fixture.calls.length, 0);
+  assert.equal(fixture.state.confirmations.length, 1);
+});
+test('actual SDK speech tool receives audio through the production adapter only after TTS consent', async t => {
+  const bytes = Buffer.from('isolated audio fixture');
+  const { fixture, client, launch, stderr } = await service(t, true, { capabilities: ['model.tts'],
+    serverEntry: resolve('test/fixtures/speech-server.mjs'),
+    request: async () => new Response(bytes, { headers: { 'content-type': 'application/octet-stream' } }) });
+  assert.deepEqual((await client.listTools()).tools.map(tool => tool.name), ['synthesize_speech']);
+  assert.equal(fixture.calls.length, 0, 'MCP discovery is not a model request or a spending grant');
+  for (const format of ['mp3', 'wav', 'pcm']) {
+    const result = await client.callTool({ name: 'synthesize_speech',
+      arguments: { text: 'isolated fixture', voice: 'cixingnansheng', format } });
+    assert.notEqual(result.isError, true);
+    assert.deepEqual(result.content, [{ type: 'audio', data: bytes.toString('base64'),
+      mimeType: { mp3: 'audio/mpeg', wav: 'audio/wav', pcm: 'audio/pcm' }[format] }]);
+    assert.doesNotMatch(JSON.stringify(result), new RegExp(`${launch.broker.token}|fixture-main-private-key`));
+  }
+  assert.equal(fixture.state.confirmations.length, 1);
+  assert.match(fixture.state.confirmations[0], /model.tts.*stepaudio-2.5-tts/su);
+  assert.equal(fixture.calls.length, 3);
+  assert.ok(fixture.calls.every(call => call.url === 'https://api.stepfun.com/step_plan/v1/audio/speech'));
+  fixture.broker.invalidate();
+  const stale = await client.callTool({ name: 'synthesize_speech',
+    arguments: { text: 'not sent', voice: 'cixingnansheng', format: 'wav' } });
+  assert.equal(stale.isError, true);
+  assert.equal(stale.content[0].text, 'dfsc-host:STALE_CONTEXT');
+  assert.equal(fixture.calls.length, 3);
+  assert.equal(stderr(), '');
+});
+test('actual SDK speech tool cannot consume quota after declined authorization', async t => {
+  const { fixture, client } = await service(t, false, { capabilities: ['model.tts'],
+    serverEntry: resolve('test/fixtures/speech-server.mjs') });
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const result = await client.callTool({ name: 'synthesize_speech',
+      arguments: { text: 'not sent', voice: 'cixingnansheng', format: 'wav' } });
     assert.equal(result.isError, true);
     assert.equal(result.content[0].text, 'dfsc-host:DENIED');
   }

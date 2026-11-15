@@ -5,7 +5,7 @@ import { join, resolve } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { hostService } from './fixtures/plugin-host-service';
 import { SessionRuntimes } from '../electron/session-runtimes';
-import { isolatedEnvironment } from '../electron/runtime';
+import { isolatedEnvironment, RpcProcess } from '../electron/runtime';
 import { CapabilityService } from '../electron/capability-service';
 import { PluginHostLauncher } from '../electron/plugin-host-launcher';
 import type { RuntimeEvent } from '../src/contracts';
@@ -30,6 +30,7 @@ test(`real native discovery launches the bundled SDK, invokes the main broker an
     await f.broker.close();
     const events: RuntimeEvent[] = [];
     let brokerCalls = 0, sequence = 0, settingsReady = false;
+    const managementRequests: string[] = [];
     let launcher: PluginHostLauncher;
     const pool = new SessionRuntimes(event => {
       events.push(event);
@@ -39,7 +40,17 @@ test(`real native discovery launches the bundled SDK, invokes the main broker an
       });
     }, undefined, { pluginsReady: worker => launcher.attach(worker), dispose: worker => launcher.invalidate(worker) });
     const capabilities = new CapabilityService({ root: f.root, runtime, node,
-      environment: () => isolatedEnvironment(f.root), beforePluginMutation: () => launcher.invalidate() });
+      environment: () => isolatedEnvironment(f.root), beforePluginMutation: () => launcher.invalidate(),
+      createWorker: () => {
+        const rpc = new RpcProcess(() => {});
+        const request = rpc.request.bind(rpc);
+        rpc.request = (type, args, timeout) => {
+          managementRequests.push(type);
+          assert.equal(type, 'host-descriptor', 'Native startup must not read the presentation catalog');
+          return request(type, args, timeout);
+        };
+        return rpc;
+      } });
     launcher = new PluginHostLauncher({ root: f.root, pool, capabilities, language: () => 'zh', available: () => settingsReady,
       provider: {
         read: async worker => {
@@ -71,6 +82,7 @@ test(`real native discovery launches the bundled SDK, invokes the main broker an
       assert.equal(pending.records[0].phase, 'pending');
       settingsReady = true;
       await launcher.resumeDeferred();
+      assert.deepEqual(managementRequests, ['host-descriptor']);
       const summary = await worker.rpc.request('get_desktop_summary');
       assert.ok(summary.mcp.some((item: { name: string; status: string }) =>
         item.name === 'dfsc-host-example__example' && item.status === 'connected'));

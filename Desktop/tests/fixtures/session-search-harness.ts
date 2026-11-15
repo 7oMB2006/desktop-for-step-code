@@ -53,6 +53,7 @@ const open = async (id: string) => {
 window.desktop = {
   platform: 'win32',
   snapshot: async () => clone(),
+  pluginDesktopCatalog: async () => ({ plugins: [], available: [], marketplaces: [], mcp: [], skills: [], warnings: [] }),
   navigateSession: open,
   preferences: async (patch: Partial<Preferences>) => {
     snapshot.preferences = { ...snapshot.preferences, ...patch };

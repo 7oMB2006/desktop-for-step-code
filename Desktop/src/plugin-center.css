@@ -233,6 +233,8 @@
 .pc-generic-label { display: block; font-size: 12px; margin-bottom: 8px; }
 .pc-host-form { padding: 0 4px 8px; }
 .pc-host-speech { max-width: 420px; padding: 4px; margin: 12px -4px 0; }
+.pc-host-speech .scheduled-select { display: block; }
+.pc-host-speech .scheduled-select > button { width: 100%; justify-content: space-between; }
 .pc-host-observation { margin-top: 4px; padding-inline: 4px; }
 .pc-host-runtime { display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px 16px; font-size: 12px; line-height: 1.7; margin: 0 0 12px; }
 .pc-host-runtime > span { color: var(--muted); font-size: 10px; }
@@ -407,7 +409,7 @@
 .pc-dialog[open] { animation: pc-dialog-in .24s var(--pc-ease); }
 .pc-dialog > header { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 20px; }
 .pc-dialog h2 { margin: 0; font-size: 16px; line-height: 1.5; overflow-wrap: anywhere; }
-.pc-dialog > p { font-size: 12px; color: var(--muted); line-height: 1.8; }
+.pc-dialog > p { font-size: 12px; color: var(--muted); line-height: 1.8; overflow-wrap: anywhere; }
 .pc-dialog > footer { display: flex; gap: 8px; justify-content: flex-end; margin-top: 24px; flex-wrap: wrap; padding: 4px; }
 .pc-dialog > footer > button { font-size: 12px; }
 .pc-path-choice { display: flex; width: 100%; gap: 10px; padding: 13px 10px; text-align: left; font-size: 12px; }

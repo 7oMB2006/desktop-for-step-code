@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Check, FileKey2, RefreshCw, ShieldCheck } from 'lucide-react';
 import { capabilityErrorText } from './CapabilitySettings';
 import { StepPlatformIcon } from './ProviderBrand';
-import { editablePluginConfiguration, PluginConfigurationFields } from './PluginConfigurationForm';
+import { editablePluginConfiguration, PluginConfigurationEnumField, PluginConfigurationFields } from './PluginConfigurationForm';
 import type { DesktopBridge } from './contracts';
 import type { PluginConfigurationInput, PluginHostCapability, PluginHostModels, PluginHostRuntime, PluginHostSettings, PluginPackage } from './capabilities';
 
@@ -11,6 +11,7 @@ const labels: Record<PluginHostCapability, [string, string]> = {
   'model.text': ['文本', 'Text'], 'model.video': ['视频理解', 'Video understanding'],
   'model.asr': ['语音识别', 'Speech recognition'], 'model.tts': ['语音合成', 'Speech synthesis'],
 };
+const ttsModels = ['stepaudio-2.5-tts', 'stepaudio-3-tts', 'step-tts-2', 'step-tts-mini'];
 function runtimeLabel(status: PluginHostRuntime['status'], zh: boolean) {
   const values: Record<PluginHostRuntime['status'], [string, string]> = {
     unsupported: ['当前宿主版本不支持', 'Unsupported host version'],
@@ -132,6 +133,20 @@ export function PluginHostSettingsForm({ bridge, pkg, language, busy, visible, f
                   const next = { ...previous }; if (event.target.value) next['model.asr'] = event.target.value; else delete next['model.asr']; return next;
                 })}/></label><p className="pc-hint">{t('留空使用 stepaudio-2.5-asr。当前仅支持此模型及 WAV 音频；其他值会显示为不可用。',
                   'Leave blank for stepaudio-2.5-asr. Only this model and WAV audio are supported; other values are unavailable.')}</p></div>}
+            {saved.capabilities.includes('model.tts') && <div className="pc-field pc-host-speech">
+              <span className="pc-generic-label">{t('语音合成专用模型', 'Dedicated speech synthesis model')}</span>
+              <PluginConfigurationEnumField field={{
+                label: t('语音合成专用模型', 'Dedicated speech synthesis model'), options: [
+                  { value: '', label: t('默认：stepaudio-2.5-tts', 'Default: stepaudio-2.5-tts') },
+                  ...ttsModels.map(value => ({ value, label: value })),
+                  ...(models['model.tts'] && !ttsModels.includes(models['model.tts'])
+                    ? [{ value: models['model.tts'], label: models['model.tts'] }] : []),
+                ] }} value={models['model.tts'] ?? ''} disabled={locked || !supported} onChange={value => setModels(previous => {
+                  const next = { ...previous }; if (value) next['model.tts'] = value; else delete next['model.tts']; return next;
+                })}/>
+              <p className="pc-hint">{t('step-tts-2 / mini 仅适配国内渠道。单次最多 1000 字符，支持 MP3 / WAV / PCM；实际权益及费用由账户渠道决定。',
+                'step-tts-2 / mini require China routes. Up to 1,000 characters per request; MP3 / WAV / PCM. Entitlement and charges depend on the account channel.')}</p>
+            </div>}
             <div className="pc-permission-row"><ShieldCheck size={17}/><div><strong>{t('逐项调用前确认', 'Per-capability request confirmation')}</strong>
               <p>{t('保存不是付费授权。首次调用每项能力前仍需确认；授权只覆盖本次启动的会话、账户和模型。',
                 'Saving is not paid authorization. Each capability needs first-use confirmation for this launch, session, account and model.')}</p></div></div>
@@ -154,8 +169,8 @@ export function PluginHostSettingsForm({ bridge, pkg, language, busy, visible, f
         <ul className="pc-host-capabilities">{saved.capabilities.map(id => {
           const state = runtime?.capabilities?.find(item => item.id === id);
           return <li key={id}><div><strong>{labels[id][zh ? 0 : 1]}</strong>
-            <span>{state?.model ?? (id === 'model.tts' ? t('当前宿主暂未支持', 'Not supported by this host')
-              : saved.mode === 'independent' ? t('由插件独立配置', 'Configured independently')
+            <span>{state?.model ?? (saved.mode === 'independent' ? t('由插件独立配置', 'Configured independently')
+              : state && !state.available ? t('当前账户或模型不可用', 'Unavailable for this account or model')
                 : t('连接后按实际会话确认', 'Confirmed from the connected session'))}</span></div>
             <div>{state?.available && <span>{state.channel === 'plan' ? 'Step Plan' : 'API'} · {state.region === 'cn' ? t('中国大陆', 'China') : t('海外', 'Overseas')}</span>}
               <span className={state?.authorization === 'approved' ? 'pc-host-approved' : undefined}>

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { cp, mkdir, readFile, realpath, writeFile } from 'node:fs/promises';
 import { mkdtemp } from './test-profile.mjs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { _electron as electron } from 'playwright';
 import { installationReceipt, packageFingerprint, writeReceipts } from '../electron/plugin-files.mjs';
 import { closeDesktopFixtureAndWait } from './close-desktop-fixture.mjs';
@@ -10,10 +10,14 @@ import { waitForSessionFixtureSnapshot, waitForSessionFixtureTools } from './ses
 
 const profile = await realpath(await mkdtemp(join(tmpdir(), 'dfsc-host-settings-electron-')));
 const root = join(profile, 'step-runtime'), directory = join(root, 'plugins', 'host-example');
+const executablePath = process.env.DESKTOP_VERIFY_EXE && resolve(process.env.DESKTOP_VERIFY_EXE);
+const resources = executablePath ? (process.platform === 'darwin'
+  ? resolve(dirname(executablePath), '../Resources') : join(dirname(executablePath), 'resources')) : resolve('.');
+const runtime = join(resources, 'runtime');
 await mkdir(join(root, 'plugins'), { recursive: true });
 await cp(resolve('../examples/plugins/sdk-host-starter/plugins/dfsc-host-example'), directory, { recursive: true });
 const manifest = JSON.parse(await readFile(join(directory, 'step.plugin.json'), 'utf8'));
-manifest.mcpServers.example.command = resolve('runtime/node', process.platform === 'win32' ? 'node.exe' : 'node');
+manifest.mcpServers.example.command = join(runtime, 'node', process.platform === 'win32' ? 'node.exe' : 'node');
 manifest.mcpServers.example.env = { STEPFUN_API_KEY: 'DFSC_INDEPENDENT_PLUGIN' };
 await writeFile(join(directory, 'step.plugin.json'), JSON.stringify(manifest));
 await writeFile(join(directory, 'dfsc.settings.json'), JSON.stringify({
@@ -36,8 +40,7 @@ await writeFile(join(profile, 'preferences.json'), JSON.stringify({ language: 'z
 const env = { ...process.env, DESKTOP_TEST_USER_DATA: profile, DESKTOP_TEST_NO_FOCUS: '1' };
 delete env.ELECTRON_RUN_AS_NODE;
 const app = await electron.launch({
-  ...(process.env.DESKTOP_VERIFY_EXE ? { executablePath: process.env.DESKTOP_VERIFY_EXE } : { args: [resolve('.')] }),
-  env, timeout: 60000,
+  ...(executablePath ? { executablePath } : { args: [resolve('.')] }), env, timeout: 60000,
 });
 const errors = [];
 try {

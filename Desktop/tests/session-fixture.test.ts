@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
+import { posix, win32 } from 'node:path';
 import { runInNewContext } from 'node:vm';
 import test from 'node:test';
 import ts from 'typescript';
@@ -863,14 +864,43 @@ test('native host readiness cannot accept a changed owner, mode, revision or fai
 test('native host settings acceptance launches the selected source or packaged target', async () => {
   const { source, launch } = await hostSettingsAcceptance();
   assert.ok(launch);
-  for (const executablePath of [undefined, 'verified-packaged-app']) {
+  const executable = source.statements.filter(ts.isVariableStatement)
+    .flatMap(statement => [...statement.declarationList.declarations])
+    .find(declaration => declaration.name.getText(source) === 'executablePath')?.initializer;
+  assert.ok(executable, 'the selected executable must be normalized before resolving its runtime');
+  for (const selected of [undefined, 'verified-packaged-app']) {
     const env = { DESKTOP_TEST_USER_DATA: 'isolated-profile' };
-    const options = runInNewContext(`(${launch.arguments[0].getText(source)})`, {
-      process: { env: { DESKTOP_VERIFY_EXE: executablePath } }, env, resolve: () => 'source-entry',
+    const options = runInNewContext(`const executablePath = ${executable.getText(source)};
+      (${launch.arguments[0].getText(source)})`, {
+      process: { env: { DESKTOP_VERIFY_EXE: selected } }, env,
+      resolve: (path: string) => path === '.' ? 'source-entry' : `normalized/${path}`,
     });
     assert.deepEqual(JSON.parse(JSON.stringify(options)), {
-      ...(executablePath ? { executablePath } : { args: ['source-entry'] }), env, timeout: 60000,
+      ...(selected ? { executablePath: `normalized/${selected}` } : { args: ['source-entry'] }), env, timeout: 60000,
     });
+  }
+  for (const script of ['verify-plugin-host-settings-electron.mjs', 'verify-session-plugin-cold-start.mjs',
+    'verify-session-plugin-startup.mjs', 'verify-plugin-target-reads.mjs']) {
+    const text = await readFile(new URL(`../scripts/${script}`, import.meta.url), 'utf8');
+    const parsed = ts.createSourceFile(script, text, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
+    const resources = parsed.statements.filter(ts.isVariableStatement)
+      .flatMap(statement => [...statement.declarationList.declarations])
+      .find(declaration => declaration.name.getText(parsed) === 'resources')?.initializer;
+    assert.ok(resources, `${script} resolves the target's resources before selecting its runtime`);
+    for (const platform of ['win32', 'darwin']) {
+      const paths = platform === 'win32' ? win32 : posix;
+      const cwd = platform === 'win32' ? 'C:\\fixture\\Desktop' : '/fixture/Desktop';
+      const target = platform === 'win32' ? 'C:\\package\\App.exe' : '/package/App.app/Contents/MacOS/App';
+      for (const executablePath of [undefined, target]) {
+        const actual = runInNewContext(`(${resources.getText(parsed)})`, {
+          executablePath, process: { platform }, dirname: paths.dirname, join: paths.join,
+          resolve: (...parts: string[]) => paths.resolve(cwd, ...parts),
+        });
+        const expected = executablePath ? platform === 'win32'
+          ? 'C:\\package\\resources' : '/package/App.app/Contents/Resources' : cwd;
+        assert.equal(actual, expected, `${script}: ${platform} ${executablePath ? 'package' : 'source'}`);
+      }
+    }
   }
 });
 

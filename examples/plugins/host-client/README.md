@@ -37,3 +37,29 @@ client 启动时消耗并删除载荷，普通后代不会意外继承它；
 多进程插件由登记的 MCP 进程保留 client，以自身业务 IPC 传回结果。
 这不阻止作者主动转交 bearer 或同系统用户的恶意读取。
 媒体返回字节由作者保存在 `host.dataDirectory`，不能要求宿主写任意路径。
+
+## TTS
+
+宿主源码自 2026-11-15 已有受限 TTS adapter，r7 及更旧的包仍不可用；
+是否支持必须查询 context，不能仅检查声明或应用版本号。
+申请 `model.tts` 后，标准 client 的调用形状为：
+
+```js
+const context = await host.context({ signal });
+const tts = context.capabilities.find(item => item.id === 'model.tts');
+if (!tts?.available) throw new HostClientError(tts?.reason ?? 'CAPABILITY_UNAVAILABLE');
+const result = await host.invoke({
+  requestId: newRequestId(), revision: context.revision, capability: 'model.tts',
+  input: { text: 'Hello.', voice: 'cixingnansheng', format: 'mp3' },
+}, { signal });
+const audio = Buffer.from(result.data, 'base64');
+// result.mimeType identifies the audio; saving and playback belong to the plugin.
+```
+
+上述片段沿用前例的 client，并需从 `client.mjs` 导入 `HostClientError`。
+跟随只使用官方 Step 账户与所选渠道，默认专用模型 `stepaudio-2.5-tts`；
+不沿用聊天模型、不接收 Key/URL/输出路径、不自动拆单或重试。
+Step adapter 单次最多 1000 字符，音频最多 16 MiB，支持 MP3/WAV/PCM。
+可用性不保证套餐权益或免费，音色也必须适用于所选专用模型。
+完整模式分支、声明及接入验收见
+[TTS 接入说明](../../../docs/PLUGIN_TTS_ADAPTER.md)。

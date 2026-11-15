@@ -141,6 +141,13 @@ export const localOnly = [
   'verify-plugin-starter.mjs',
   'verify-plugin-center-package.mjs',
   'verify-plugin-center-manual.mjs',
+  // Large-package timing matrices require a controlled local filesystem baseline.
+  // Functional catalog isolation and target verification run in protocol tests.
+  'verify-plugin-target-reads.mjs',
+  'verify-session-plugin-cold-start.mjs',
+  // Cross-package SDK startup diagnostics and an explicitly supplied StepAudio release.
+  'verify-session-plugin-startup.mjs',
+  'verify-stepaudio-release.mjs',
   // Requires the actual companion source in an explicitly prepared separate checkout.
   'verify-external-connectors-electron.mjs',
   'verify-hermes-fresh-install-electron.mjs',

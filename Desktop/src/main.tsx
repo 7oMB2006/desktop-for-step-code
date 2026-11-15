@@ -383,7 +383,7 @@ function App() {
     let generation = 0;
     const refresh = () => {
       const request = ++generation;
-      void bridge.capabilityCatalog().then(catalog => {
+      void bridge.pluginDesktopCatalog().then(catalog => {
         if (!alive || request !== generation) return;
         const entries = getPluginDesktopEntries(catalog);
         setPluginEntries(entries);

@@ -54,25 +54,37 @@ export async function optionalFile(root, path, limit) {
 }
 export async function packageFingerprint(root) {
   const hash = createHash('sha256');
-  let files = 0, bytes = 0;
+  const files = [], limit = 128 * 1024 * 1024;
+  let entries = 0, bytes = 0;
   async function visit(path = '') {
     const directory = path ? join(root, path) : root;
     if ((await lstat(directory)).isSymbolicLink()) throw new PluginFileError('invalid-path');
     for (const entry of (await readdir(directory, { withFileTypes: true })).sort((a, b) => a.name.localeCompare(b.name))) {
-      if (++files > 10000) throw new PluginFileError('too-large');
+      if (++entries > 10000) throw new PluginFileError('too-large');
       const child = path ? `${path}/${entry.name}` : entry.name;
       packagePath(child);
       if (entry.isSymbolicLink()) throw new PluginFileError('invalid-path');
       if (entry.isDirectory()) await visit(child);
       else {
-        const content = await plainFile(root, child, 128 * 1024 * 1024);
-        bytes += content.length;
-        if (bytes > 128 * 1024 * 1024) throw new PluginFileError('too-large');
-        hash.update(JSON.stringify([child, content.length])).update(content);
+        const info = await lstat(join(root, child));
+        if (info.isSymbolicLink()) throw new PluginFileError('invalid-path');
+        if (!info.isFile() || info.size > limit || (bytes += info.size) > limit)
+          throw new PluginFileError('too-large');
+        files.push({ path: child, size: info.size });
       }
     }
   }
   await visit();
+  // Bound reads and retained buffers, but keep the original DFS hash order.
+  for (let index = 0; index < files.length; index += 8) {
+    const batch = files.slice(index, index + 8);
+    const results = await Promise.allSettled(batch.map(file => plainFile(root, file.path, file.size)));
+    for (let offset = 0; offset < results.length; offset++) {
+      const result = results[offset];
+      if (result.status === 'rejected') throw result.reason;
+      hash.update(JSON.stringify([batch[offset].path, result.value.length])).update(result.value);
+    }
+  }
   return hash.digest('hex');
 }
 export async function dataOnlyThemeFingerprint(root, id) {

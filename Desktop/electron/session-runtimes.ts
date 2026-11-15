@@ -53,7 +53,7 @@ export interface RuntimeUpdateLease {
 }
 export interface RuntimeStartupDiagnostic {
   runtimeId: string;
-  phase: 'launch' | 'process' | 'session' | 'snapshot' | 'model';
+  phase: 'launch' | 'process' | 'session' | 'snapshot' | 'model' | 'plugins';
   status: 'starting' | 'ready' | 'failed';
   pid?: number;
   elapsedMs: number;
@@ -637,21 +637,41 @@ export class SessionRuntimes {
       if (!existing && !deferredModel)
         await this.hooks.initializeModel?.(worker, Boolean(sessionPath || branch));
       this.assertStartupOwner(worker, transport);
+      if (!existing && !deferredModel) await this.modelReady(worker);
+      const modelRestoredAt = performance.now();
+      progress('plugins');
+      let attachment: Promise<void> | undefined;
       if (!existing && !deferredModel) {
-        await this.modelReady(worker);
-        if (worker.startup) void this.hooks.pluginsReady?.(worker).catch(() => {});
-        else await this.hooks.pluginsReady?.(worker);
+        attachment = this.hooks.pluginsReady?.(worker);
+        if (!worker.startup) await attachment;
         this.assertStartupOwner(worker, transport);
       }
-      const modelRestoredAt = performance.now();
-      worker.startupTiming = {
+      const pluginsReadyAt = performance.now();
+      const deferredAttachment = worker.startup ? attachment : undefined;
+      const timing: RuntimeStartupTiming = {
         processReadyMs: processReadyAt - startedAt,
         sessionRestoreMs: sessionRestoredAt - processReadyAt,
         snapshotMs: snapshotAt - sessionRestoredAt,
         modelRestoreMs: modelRestoredAt - snapshotAt,
-        totalMs: modelRestoredAt - startedAt,
+        ...(!deferredAttachment ? { pluginAttachMs: pluginsReadyAt - modelRestoredAt } : {}),
+        totalMs: pluginsReadyAt - startedAt,
       };
-      progress('model', 'ready');
+      worker.startupTiming = timing;
+      if (deferredAttachment) {
+        const epoch = worker.startup!.startupEpoch;
+        const ownsTiming = () => this.workers.get(worker.id) === worker && worker.rpc === transport
+          && worker.status === 'connected' && worker.startup?.startupEpoch === epoch && worker.startupTiming === timing;
+        progress('model', 'ready');
+        void deferredAttachment.then(() => {
+          if (!ownsTiming()) return;
+          const finishedAt = performance.now();
+          worker.startupTiming = { ...timing, pluginAttachMs: finishedAt - modelRestoredAt, totalMs: finishedAt - startedAt };
+          progress('plugins', 'ready');
+          this.publish();
+        }, () => {
+          if (ownsTiming()) progress('plugins', 'failed');
+        });
+      } else progress('plugins', 'ready');
       if (activate) this.activate(worker);
       else this.publish();
       return worker;

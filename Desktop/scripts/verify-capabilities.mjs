@@ -268,6 +268,11 @@ try {
   await page.getByRole('textbox', { name: '搜索插件' }).fill('example');
   await page.waitForFunction(() => document.querySelector('.pc-plugin-row .cap-plugin-icon img')?.naturalWidth === 1);
   await page.locator('.pc-plugin-row').filter({ hasText: 'Example plugin' }).getByRole('button', { name: '安装', exact: true }).click();
+  const installConfirmation = page.getByRole('dialog', { name: '安装 Example plugin？', exact: true });
+  await installConfirmation.waitFor();
+  assert.match(await installConfirmation.innerText(), /fixture-market.*example/s);
+  assert.match(await installConfirmation.innerText(), /不提供恶意插件沙箱/);
+  await installConfirmation.getByRole('button', { name: '安装插件', exact: true }).click();
   await page.getByRole('heading', { name: 'Example plugin', exact: true }).waitFor();
   await page.getByRole('button', { name: '全部插件', exact: true }).click();
   await page.getByRole('tab', { name: /^已安装/ }).click();

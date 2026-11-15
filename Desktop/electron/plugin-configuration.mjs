@@ -1,4 +1,5 @@
-import { digest, object, optionalFile, packageFingerprint, plainFile, readReceipts, writePrivateData, PluginFileError } from './plugin-files.mjs';
+import { digest, object, optionalFile, plainFile, readReceipts, writePrivateData, PluginFileError } from './plugin-files.mjs';
+import { verifyPackage } from './plugin-read-scope.mjs';
 
 const identifier = value => typeof value === 'string' && /^[a-z][a-z0-9_-]{0,47}$/u.test(value)
   && !['constructor', 'prototype', '__proto__'].includes(value);
@@ -60,14 +61,14 @@ export function validateValue(field, value) {
 export class PluginConfigurationStore {
   queue = Promise.resolve();
   constructor(root) { this.root = root; }
-  async context(descriptor) {
+  async context(descriptor, scope) {
     if (descriptor.kind !== 'installed' || descriptor.provenance !== 'recorded' || !descriptor.instance) fail();
     const receipts = await readReceipts(this.root);
     const receipt = receipts.installations.find(item => item.instance === descriptor.instance
       && item.id === descriptor.id && item.folder === descriptor.name
       && item.state === 'installed' && item.fingerprint === descriptor.fingerprint);
     if (!receipt) throw new PluginFileError('stale');
-    if (await packageFingerprint(descriptor.root) !== descriptor.fingerprint) throw new PluginFileError('stale');
+    await verifyPackage(descriptor, scope);
     const bytes = await plainFile(descriptor.root, 'dfsc.settings.json', 65536);
     const schema = parseConfigurationSchema(JSON.parse(bytes.toString('utf8')));
     const manifest = JSON.parse((await plainFile(descriptor.root, 'step.plugin.json', 512 * 1024)).toString('utf8'));
@@ -108,7 +109,7 @@ export class PluginConfigurationStore {
     }
     return { ref: descriptor.ref, revision: saved?.revision ?? 'unconfigured', configured: Boolean(context.committed), schema, values, hasSecret };
   }
-  async read(descriptor) { return this.project(await this.context(descriptor)); }
+  async read(descriptor, scope) { return this.project(await this.context(descriptor, scope)); }
   save(descriptor, input) {
     const operation = this.queue.then(() => this.write(descriptor, input));
     this.queue = operation.catch(() => {});

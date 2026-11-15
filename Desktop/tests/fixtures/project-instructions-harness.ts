@@ -126,6 +126,7 @@ const command: DesktopBridge['command'] = async (type, args) => {
 const bridge: Partial<DesktopBridge> = {
   platform: 'win32',
   snapshot: async () => clone(),
+  pluginDesktopCatalog: async () => ({ plugins: [], available: [], marketplaces: [], mcp: [], skills: [], warnings: [] }),
   projectInstructions: async () => {
     await pause(120);
     if (mode === 'unavailable') throw new Error('Preview read failure');

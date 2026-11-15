@@ -120,6 +120,12 @@ const mutate = input => page.evaluate(input => window.desktop.capabilityMutate(i
 const executableReceipt = async () => JSON.parse(await readFile(
   join(root, 'desktop-plugins/installations.json'), 'utf8')).installations.find(item => item.id === executableId);
 const confirm = () => page.getByRole('dialog').getByRole('button', { name: '确认', exact: true }).click();
+const confirmThemeInstall = async () => {
+  const dialog = page.getByRole('dialog', { name: '安装 星辰巡航？', exact: true });
+  await dialog.waitFor();
+  assert.match(await dialog.innerText(), /不提供恶意插件沙箱/);
+  await dialog.getByRole('button', { name: '安装插件', exact: true }).click();
+};
 // Backend completion can precede perform's catalog refresh, selection change, and pending reset.
 const waitForUiReady = (control, description) => poll(async () =>
   await control.isVisible() && await control.isEnabled()
@@ -424,6 +430,7 @@ try {
   await page.getByRole('button', { name: '查看 星辰巡航 使用说明', exact: true }).click();
   await page.locator('.pc-document-markdown').getByRole('heading', { name: guideHeading, exact: true }).waitFor();
   await page.getByRole('button', { name: '安装', exact: true }).click();
+  await confirmThemeInstall();
   await poll(catalog, value => value.plugins.some(item => item.id === 'stellar-cruise'), 'Remote-bound theme installed');
   await waitForUiReady(page.getByRole('button', { name: '卸载插件', exact: true }), 'installed theme UI settled');
   await page.getByRole('tab', { name: '使用说明', exact: true }).click();
@@ -655,6 +662,7 @@ try {
   await waitForUiReady(page.getByRole('button', { name: '安装', exact: true }),
     'pure theme installation enabled while peer streams');
   await page.getByRole('button', { name: '安装', exact: true }).click();
+  await confirmThemeInstall();
   await poll(catalog, value => value.plugins.some(item => item.id === 'stellar-cruise'), 'theme installed while peer streams');
   await waitForUiReady(page.getByRole('button', { name: '卸载插件', exact: true }),
     'theme installation UI settled while peer streams');

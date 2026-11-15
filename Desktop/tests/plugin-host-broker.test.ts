@@ -183,6 +183,111 @@ test('ASR keeps the dedicated model on each selected account channel, not the ch
     assert.equal(JSON.parse(String(fixture.calls[0].init?.body)).audio.input.transcription.model, 'stepaudio-2.5-asr');
   }
 });
+test('TTS crosses the real broker and client on all four account routes with a dedicated model and inline audio', async t => {
+  const bytes = Buffer.from('RIFF fixture WAVE audio');
+  for (const profile of ['step_plan', 'step_plan_oversea', 'platform_cn', 'platform_oversea']) {
+    const fixture = await hostService(t, { profile, capabilities: ['model.tts'], request: async () =>
+      new Response(bytes, { headers: { 'content-type': 'application/octet-stream' } }) });
+    const { client } = await clientFor(t, fixture);
+    const context = await client.context();
+    assert.equal(context.capabilities[0].model, 'stepaudio-2.5-tts');
+    assert.equal(context.capabilities[0].available, true);
+    assert.equal(fixture.calls.length, 0, 'Context lookup cannot spend quota');
+    for (const format of ['mp3', 'wav', 'pcm'] as const) {
+      const result = await client.invoke({ requestId: newRequestId(), revision: context.revision, capability: 'model.tts',
+        input: { text: 'fixture speech', voice: 'cixingnansheng', format } });
+      assert.deepEqual(result, { type: 'audio',
+        mimeType: { mp3: 'audio/mpeg', wav: 'audio/wav', pcm: 'audio/pcm' }[format], data: bytes.toString('base64') });
+    }
+    assert.equal(fixture.calls.length, 3);
+    assert.equal(fixture.state.confirmations.length, 1, 'One approval per capability and launch, not per audio format');
+    assert.match(fixture.state.confirmations[0], /model.tts.*stepaudio-2.5-tts/su);
+    for (const call of fixture.calls) {
+      const url = new URL(call.url);
+      assert.equal(url.hostname, profile.endsWith('oversea') ? 'api.stepfun.ai' : 'api.stepfun.com');
+      assert.equal(url.pathname, `${profile.startsWith('step_plan') ? '/step_plan' : ''}/v1/audio/speech`);
+      assert.equal(JSON.parse(String(call.init?.body)).model, 'stepaudio-2.5-tts');
+      assert.equal(call.init?.redirect, 'error');
+    }
+    assert.doesNotMatch(JSON.stringify([context, await fixture.broker.status((await fixture.broker.issue(
+      fixture.descriptor, fixture.worker)) as FollowLaunch)]), /fixture-main-private-key|Bearer/);
+  }
+});
+test('TTS model selection is region-bound, does not follow the chat model and revokes earlier grants', async t => {
+  for (const [profile, model, available] of [
+    ['step_plan', 'stepaudio-3-tts', true], ['platform_oversea', 'stepaudio-3-tts', true],
+    ['platform_cn', 'step-tts-2', true], ['step_plan', 'step-tts-mini', true],
+    ['step_plan_oversea', 'step-tts-2', false], ['platform_oversea', 'step-tts-mini', false],
+    ['platform_cn', 'step-5-preview', false],
+  ] as const) {
+    const fixture = await hostService(t, { profile, capabilities: ['model.tts'], request: async () =>
+      new Response('fixture bytes', { headers: { 'content-type': 'audio/wav' } }) });
+    const { client: old } = await clientFor(t, fixture);
+    const previous = await old.context(), binding = await fixture.store.current(fixture.descriptor);
+    await fixture.store.select(fixture.descriptor, { revision: binding.revision, mode: 'follow', models: { 'model.tts': model } });
+    await assert.rejects(old.invoke({ requestId: newRequestId(), revision: previous.revision, capability: 'model.tts',
+      input: { text: 'not sent', voice: 'fixture', format: 'wav' } }), /STALE_CONTEXT/);
+    const { client } = await clientFor(t, fixture);
+    const context = await client.context();
+    assert.equal(context.capabilities[0].available, available);
+    const pending = client.invoke({ requestId: newRequestId(), revision: context.revision, capability: 'model.tts',
+      input: { text: 'fixture', voice: 'fixture', format: 'wav' } });
+    if (available) {
+      await pending;
+      assert.equal(JSON.parse(String(fixture.calls[0].init?.body)).model, model);
+    } else await assert.rejects(pending, /CAPABILITY_UNAVAILABLE/);
+    assert.equal(fixture.calls.length, available ? 1 : 0);
+    assert.equal(fixture.state.confirmations.length, available ? 1 : 0);
+  }
+});
+test('TTS needs its own foreground consent and never falls back after a provider failure', async t => {
+  const fixture = await hostService(t, { capabilities: ['model.text', 'model.tts'], request: async url =>
+    String(url).endsWith('/audio/speech') ? new Response('private billing diagnostic', { status: 403 })
+      : Response.json({ choices: [{ message: { content: 'fixture' } }] }) });
+  const { client } = await clientFor(t, fixture);
+  const context = await client.context();
+  const speech = () => ({ requestId: newRequestId(), revision: context.revision, capability: 'model.tts' as const,
+    input: { text: 'fixture', voice: 'fixture', format: 'wav' as const } });
+  await client.invoke(input(context.revision));
+  fixture.pool.activeId = undefined;
+  await assert.rejects(client.invoke(speech()), /AUTHORIZATION_REQUIRED/);
+  assert.equal(fixture.calls.length, 1, 'A text grant cannot authorize TTS in the background');
+  fixture.pool.activeId = fixture.worker.id;
+  fixture.state.approved = false;
+  await assert.rejects(client.invoke(speech()), /DENIED/);
+  assert.equal(fixture.calls.length, 1);
+  const { client: fresh } = await clientFor(t, fixture);
+  fixture.state.approved = true;
+  const current = await fresh.context();
+  await assert.rejects(fresh.invoke({ ...speech(), revision: current.revision }), error =>
+    error instanceof Error && error.message === 'dfsc-host:PROVIDER_FAILED');
+  assert.equal(fixture.calls.length, 2, 'No retry, model switch, Key or Plan-to-API fallback');
+  assert.equal(fixture.calls[1].url, 'https://api.stepfun.com/step_plan/v1/audio/speech');
+  assert.equal(fixture.state.confirmations.length, 3);
+});
+test('TTS cancellation, revocation and provider deadlines abort synthesis without returning late audio', async t => {
+  for (const stop of ['cancel', 'revoke', 'timeout'] as const) {
+    const entered = deferred<void>(), stopped = deferred<void>();
+    const fixture = await hostService(t, { capabilities: ['model.tts'],
+      budgets: stop === 'timeout' ? { provider: 150 } : undefined,
+      request: async (_url, init) => {
+        entered.resolve();
+        return new Promise<Response>((_resolve, reject) => init!.signal!.addEventListener('abort', () => {
+          stopped.resolve(); reject(new Error('private-TTS-diagnostic'));
+        }, { once: true }));
+      } });
+    const { client } = await clientFor(t, fixture);
+    const context = await client.context(), requestId = newRequestId();
+    const pending = client.invoke({ requestId, revision: context.revision, capability: 'model.tts',
+      input: { text: 'fixture', voice: 'fixture', format: 'wav' } });
+    const rejected = assert.rejects(pending, stop === 'cancel' ? /CANCELLED/ : stop === 'revoke' ? /STALE_CONTEXT/ : /TIMEOUT/);
+    await entered.promise;
+    if (stop === 'cancel') assert.equal(await client.cancel(requestId), true);
+    if (stop === 'revoke') fixture.broker.invalidate();
+    await Promise.all([rejected, stopped.promise]);
+    assert.equal(fixture.calls.length, 1);
+  }
+});
 test('multi-megabyte media reaches the provider unchanged through client and broker validation', async t => {
   const fixture = await hostService(t, { capabilities: ['model.asr', 'model.video'], request: async url =>
     String(url).endsWith('/audio/asr/sse')

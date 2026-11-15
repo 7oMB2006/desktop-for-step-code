@@ -20,7 +20,7 @@ async function fixture(hostAvailable = false) {
   const runtime = join(folder, 'runtime'), cached = resolve(process.env.DESKTOP_TEST_RUNTIME ?? 'runtime');
   await mkdir(runtime);
   for (const name of ['step', 'node']) await symlink(join(cached, name), join(runtime, name), process.platform === 'win32' ? 'junction' : 'dir');
-  for (const name of ['capability-admin.mjs', 'capability-failure.mjs', 'marketplace-refresh.mjs', 'capability-settings.mjs', 'plugin-files.mjs', 'theme-composition.mjs', 'plugin-update.mjs', 'plugin-configuration.mjs', 'plugin-schema-update.mjs', 'windows-runtime-job.ps1'])
+  for (const name of ['capability-admin.mjs', 'capability-failure.mjs', 'marketplace-refresh.mjs', 'capability-settings.mjs', 'plugin-files.mjs', 'plugin-read-scope.mjs', 'plugin-release.mjs', 'theme-composition.mjs', 'plugin-update.mjs', 'plugin-configuration.mjs', 'plugin-schema-update.mjs', 'windows-runtime-job.ps1'])
     await copyFile(resolve('electron', name), join(runtime, name));
   const service = new CapabilityService({ root, runtime, node: join(runtime, 'node', process.platform === 'win32' ? 'node.exe' : 'node'),
     environment: () => isolatedEnvironment(root), hostAvailable: () => hostAvailable });
@@ -177,7 +177,8 @@ for (const host of ['none', 'added', 'existing'] as const) test(`first configura
     }
     assert.deepEqual(await readFile(hostBindingPath).catch(() => undefined), hostBindingBefore);
     await assert.rejects(readFile(join(root, 'desktop-plugins/bindings', `${current.folder}.json`)), { code: 'ENOENT' });
-    await assert.rejects(service.hostSettings({ ref: candidate.package!.ref }), /host-unavailable/);
+    assert.notEqual(after.package!.ref, input.ref);
+    await assert.rejects(service.hostSettings({ ref: input.ref }), { message: 'capability:stale' });
     assert.doesNotMatch(JSON.stringify(settings), /old-main-secret|old-asr-secret/);
   } finally { await service.stop(); await rm(folder, { recursive: true, force: true, maxRetries: 5 }); }
 });

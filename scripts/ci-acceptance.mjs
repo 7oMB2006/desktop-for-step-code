@@ -15,6 +15,7 @@ export const acceptanceGroups = {
     'verify-interface-preferences.mjs',
     'verify-question-tool-layout.mjs',
     'verify-disclosure-summary.mjs',
+    'verify-context-virtualization.mjs',
     'verify-conversation-scroll.mjs',
     'verify-selection-inheritance.mjs',
     'verify-import-performance.mjs',
@@ -192,6 +193,9 @@ export const localOnly = [
   'verify-stellar-reading.mjs',
   // Comparative startup timings need a quiet machine; navigation correctness runs in CI above.
   'verify-session-navigation-performance.mjs',
+  // Before/after renderer timing needs controlled builds and a quiet host.
+  // Continuous-list behavior runs in verify-context-virtualization above.
+  'verify-context-performance.mjs',
   // Local renderer stress/visual matrices; comparisons require an identical browser and quiet host.
   // Native scroll, sidebar order/search, navigation and shared rendering checks remain in CI.
   'verify-long-session-interaction.mjs',

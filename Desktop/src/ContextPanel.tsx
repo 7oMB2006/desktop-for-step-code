@@ -1,5 +1,6 @@
-import { memo, useEffect, useMemo, useState } from 'react';
-import type { CSSProperties, Dispatch, ReactNode, SetStateAction } from 'react';
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import type { CSSProperties, ReactNode, RefObject } from 'react';
+import { defaultRangeExtractor, useVirtualizer } from '@tanstack/react-virtual';
 import { ArrowUpRight, Check, ChevronRight, Copy, RefreshCw, X } from 'lucide-react';
 import type { Message, RuntimeState, SessionStats } from './contracts';
 import { contextCapacityColors, contextMessageCounts, contextMessageJson, contextMessagePreview, finiteAmount, type MessageFilter } from './context-inspector';
@@ -15,6 +16,8 @@ import { ClmPanel } from './ClmPanel';
 import { UsageUnitButton } from './UsageUnitButton';
 import { UsageTokenValue } from './UsageTokenValue';
 import type { UsageUnit } from './usage-unit';
+
+type ContextRow = { message: Message; index: number; key: string };
 
 function JsonCode({ json }: { json: string }) {
   const nodes: ReactNode[] = [];
@@ -59,19 +62,133 @@ function messageTime(stamp: number | undefined, format: Intl.DateTimeFormat) {
   return stamp && Number.isFinite(stamp) && !Number.isNaN(new Date(stamp).getTime()) ? format.format(stamp) : '--';
 }
 
-const ContextMessage = memo(function ContextMessage({ message, index, rowKey, expanded, language, timeFormat, setExpanded, onError }: {
+const ContextMessage = memo(function ContextMessage({ message, index, rowKey, expanded, language, timeFormat, onToggle, onError }: {
   message: Message; index: number; rowKey: string; expanded: boolean; language: 'zh' | 'en'; timeFormat: Intl.DateTimeFormat;
-  setExpanded: Dispatch<SetStateAction<string | null>>; onError: (error: string) => void;
+  onToggle: (key: string, open: boolean) => void; onError: (error: string) => void;
 }) {
   const role = isUserMessage(message) ? 'user' : message.role;
   return <details className={`context-message context-role-${role}`}
-    open={expanded} onToggle={event => { if (event.currentTarget.open) setExpanded(rowKey); else setExpanded(previous => previous === rowKey ? null : previous); }}>
+    open={expanded} onToggle={event => onToggle(rowKey, event.currentTarget.open)}>
     <summary><span className="context-message-number">{String(index + 1).padStart(2, '0')}</span>
       <span className="context-message-caption"><span><b>{messageRole(role, language)}</b><time>{messageTime(message.timestamp, timeFormat)}</time></span>
         <span className="context-message-preview">{contextMessagePreview(message)}</span></span><ChevronRight className="context-message-chevron" size={13}/></summary>
     {expanded && <MessageJson message={message} language={language} onError={onError}/>}
   </details>;
 });
+
+function ContextMessageList({ rows, scroll, expanded, filter, language, timeFormat, onToggle, onError }: {
+  rows: ContextRow[]; scroll: RefObject<HTMLDivElement | null>; expanded: string | null; filter: MessageFilter;
+  language: 'zh' | 'en'; timeFormat: Intl.DateTimeFormat;
+  onToggle: (key: string, open: boolean) => void; onError: (error: string) => void;
+}) {
+  const list = useRef<HTMLDivElement>(null);
+  const [margin, setMargin] = useState(0);
+  const [focused, setFocused] = useState<string | null>(null);
+  const [selection, setSelection] = useState<string[]>([]);
+  const [pendingFocus, setPendingFocus] = useState<{ key: string; copy: boolean } | null>(null);
+  const indices = useMemo(() => new Map(rows.map((row, index) => [row.key, index])), [rows]);
+  const getItemKey = useCallback((index: number) => rows[index].key, [rows]);
+  const rangeExtractor = useCallback((range: Parameters<typeof defaultRangeExtractor>[0]) => {
+    const result = new Set(defaultRangeExtractor(range));
+    // Keep active controls and selection endpoints alive outside the viewport.
+    for (const key of [expanded, focused, pendingFocus?.key, ...selection]) {
+      const index = key == null ? undefined : indices.get(key);
+      if (index !== undefined) result.add(index);
+    }
+    return [...result].sort((a, b) => a - b);
+  }, [expanded, focused, pendingFocus, selection, indices]);
+  const virtualizer = useVirtualizer({
+    count: rows.length, getScrollElement: () => scroll.current, getItemKey,
+    estimateSize: () => 62, overscan: 6, scrollMargin: margin, rangeExtractor,
+    // Newest-first data prepends at the top. Keep a reader's message in place,
+    // but let new records appear normally while the statistics are in view.
+    anchorTo: (scroll.current?.scrollTop ?? 0) > margin ? 'end' : 'start',
+  });
+  // The parent scroll ref attaches after child layout effects on first mount.
+  useEffect(() => {
+    const viewport = scroll.current;
+    const element = list.current;
+    if (!viewport || !element) return;
+    const measure = () => {
+      const top = element.getBoundingClientRect().top - viewport.getBoundingClientRect().top + viewport.scrollTop - viewport.clientTop;
+      setMargin(previous => Math.abs(previous - top) > .5 ? top : previous);
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(viewport);
+    observer.observe(element.closest('.context-content')!);
+    return () => observer.disconnect();
+  }, [scroll]);
+  useLayoutEffect(() => {
+    const viewport = scroll.current;
+    const element = list.current;
+    if (!viewport || !element) return;
+    const top = element.getBoundingClientRect().top - viewport.getBoundingClientRect().top + viewport.scrollTop - viewport.clientTop;
+    if (viewport.scrollTop > top) viewport.scrollTop = top;
+  }, [scroll]);
+  useEffect(() => {
+    const selectedRow = (node: Node | null) => {
+      const element = node instanceof Element ? node : node?.parentElement;
+      const row = element?.closest<HTMLElement>('[data-context-key]');
+      return row && list.current?.contains(row) ? row.dataset.contextKey : undefined;
+    };
+    const update = () => {
+      const value = document.getSelection();
+      const keys = value && !value.isCollapsed ? [selectedRow(value.anchorNode), selectedRow(value.focusNode)].filter((key): key is string => !!key) : [];
+      setSelection(previous => previous.length === keys.length && previous.every((key, index) => key === keys[index]) ? previous : keys);
+    };
+    document.addEventListener('selectionchange', update);
+    return () => document.removeEventListener('selectionchange', update);
+  }, []);
+  useLayoutEffect(() => {
+    if (focused && !indices.has(focused)) {
+      document.getElementById(`context-tab-${filter}`)?.focus({ preventScroll: true });
+      setFocused(null);
+    }
+    if (!pendingFocus) return;
+    const index = indices.get(pendingFocus.key);
+    if (index === undefined) { setPendingFocus(null); return; }
+    const row = list.current?.querySelector<HTMLElement>(`[data-context-key="${CSS.escape(pendingFocus.key)}"]`);
+    const target = row?.querySelector<HTMLElement>(pendingFocus.copy ? '.context-json-tools button' : 'summary');
+    const viewport = scroll.current;
+    if (!target || !viewport) return;
+    virtualizer.scrollToIndex(index, { align: 'auto' });
+    target.focus({ preventScroll: true });
+    const rect = target.getBoundingClientRect();
+    const bounds = viewport.getBoundingClientRect();
+    if (rect.top < bounds.top) viewport.scrollTop += rect.top - bounds.top;
+    else if (rect.bottom > bounds.bottom) viewport.scrollTop += rect.bottom - bounds.bottom;
+    setPendingFocus(null);
+  }, [focused, indices, filter, pendingFocus, scroll, virtualizer]);
+  return <div ref={list} id="context-message-list" role="tabpanel" aria-labelledby={`context-tab-${filter}`}
+    className="context-message-list" style={{ height: rows.length ? virtualizer.getTotalSize() : undefined }}
+    onFocusCapture={event => setFocused((event.target as HTMLElement).closest<HTMLElement>('[data-context-key]')?.dataset.contextKey ?? null)}
+    onBlurCapture={event => { if (!event.currentTarget.contains(event.relatedTarget)) setFocused(null); }}
+    onKeyDown={event => {
+      if (event.key !== 'Tab') return;
+      const target = event.target as HTMLElement;
+      const row = target.closest<HTMLElement>('[data-context-key]');
+      const index = row?.dataset.contextKey ? indices.get(row.dataset.contextKey) : undefined;
+      if (index === undefined) return;
+      const summary = target.tagName === 'SUMMARY';
+      if ((event.shiftKey && !summary) || (!event.shiftKey && summary && expanded === rows[index].key)) return;
+      const next = index + (event.shiftKey ? -1 : 1);
+      if (!rows[next]) return;
+      event.preventDefault();
+      setPendingFocus({ key: rows[next].key, copy: event.shiftKey && expanded === rows[next].key });
+    }}>
+    <div role="list">{virtualizer.getVirtualItems().map(item => {
+      const row = rows[item.index];
+      return <div key={row.key} ref={virtualizer.measureElement} data-index={item.index} data-context-key={row.key}
+        role="listitem" aria-posinset={item.index + 1} aria-setsize={rows.length}
+        className="context-message-row" style={{ transform: `translateY(${item.start - margin}px)` }}>
+        <ContextMessage message={row.message} index={row.index} rowKey={row.key} expanded={expanded === row.key}
+          onToggle={onToggle} language={language} timeFormat={timeFormat} onError={onError}/>
+      </div>;
+    })}</div>
+    {!rows.length && <p className="context-message-empty">{language === 'zh' ? '暂无消息' : 'No messages'}</p>}
+  </div>;
+}
 
 export function ContextPanel({ messages, stats, state, estimate, title, language, busy, connected, expanded: fullView, onToggleExpanded, onClose, onRefresh, onError, snapshot, view = 'context', onView, runtimeRevision = 0, width = 'standard', onWidthChange }: {
   snapshot?: Snapshot; view?: 'status' | 'context' | 'clm'; onView?: (view: 'status' | 'context' | 'clm') => void;
@@ -88,11 +205,16 @@ export function ContextPanel({ messages, stats, state, estimate, title, language
   const [statusRevision, setStatusRevision] = useState(0);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [unit, setUnit] = useState<UsageUnit>('default');
+  const scroll = useRef<HTMLDivElement>(null);
   const timeFormat = useMemo(() => new Intl.DateTimeFormat(language === 'zh' ? 'zh-CN' : 'en-GB',
     { hour: '2-digit', minute: '2-digit', hour12: false }), [language]);
   const counts = useMemo(() => contextMessageCounts(messages), [messages]);
   const rows = useMemo(() => messages.map((message, index) => ({ message, index, key: message.entryId ?? `${index}:${message.timestamp ?? ''}:${message.role}` }))
     .filter(({ message }) => filter === 'all' || (filter === 'user' ? isUserMessage(message) : message.role === filter)).reverse(), [messages, filter]);
+  const toggleMessage = useCallback((key: string, open: boolean) => {
+    if (open) setExpanded(key);
+    else setExpanded(previous => previous === key ? null : previous);
+  }, []);
   const last = [...messages].reverse().find(message => message.role === 'assistant' && message.usage);
   const number = (value: unknown) => {
     const amount = finiteAmount(value);
@@ -133,7 +255,7 @@ export function ContextPanel({ messages, stats, state, estimate, title, language
         aria-label={t('刷新上下文', 'Refresh context')} data-tooltip={t('刷新上下文', 'Refresh context')} onClick={() => void refresh()}><RefreshCw size={15}/></button>
       <button type="button" className="icon-button" aria-label={t('关闭上下文', 'Close context')} onClick={onClose}><X size={16}/></button>
     </header>
-    <div className="context-panel-scroll context-view-content" id="inspector-content"
+    <div ref={scroll} className="context-panel-scroll context-view-content" id="inspector-content"
       role={snapshot && onView ? 'tabpanel' : undefined} aria-labelledby={snapshot && onView ? `inspector-tab-${view}` : undefined}>
       {snapshot && <div hidden={view !== 'clm'}><ClmPanel key={snapshot.runtimeId + ':' + snapshot.state?.sessionId} snapshot={snapshot} busy={busy} visible={view === 'clm'} revision={statusRevision + runtimeRevision}/></div>}
       {view === 'clm' ? null :
@@ -183,11 +305,8 @@ export function ContextPanel({ messages, stats, state, estimate, title, language
               setFilter(target); document.getElementById(`context-tab-${target}`)?.focus();
             }}>{value === 'all' ? t('全部', 'All') : role(value)}<small>{counts[value]}</small></button>)}
         </div>
-        <div id="context-message-list" className={rows.length > 80 ? 'context-message-list-long' : undefined} role="tabpanel" aria-labelledby={`context-tab-${filter}`}>
-          {rows.map(({ message, index, key }) => <ContextMessage key={key} message={message} index={index} rowKey={key}
-            expanded={expanded === key} setExpanded={setExpanded} language={language} timeFormat={timeFormat} onError={onError}/>)}
-          {!rows.length && <p className="context-message-empty">{t('暂无消息', 'No messages')}</p>}
-        </div>
+        <ContextMessageList key={filter} rows={rows} scroll={scroll} expanded={expanded} filter={filter}
+          language={language} timeFormat={timeFormat} onToggle={toggleMessage} onError={onError}/>
       </section>
       </div>
       </>}

@@ -21,6 +21,7 @@
 .context-status::before { content: ''; display: inline-block; width: 4px; height: 4px; margin: 0 5px 2px 0; background: var(--muted); }
 .context-status.is-running::before { background: var(--green); }
 .context-panel-scroll { flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; padding: 0 20px 24px; }
+.context-panel-scroll:has(.context-message-list) { overflow-anchor: none; }
 .context-content { min-width: 0; }
 .context-panel.is-expanded .context-content { width: 100%; max-width: 1040px; margin-inline: auto; }
 @container (min-width: 760px) {
@@ -77,8 +78,9 @@
 .context-message-tabs > button { border: 0; border-radius: 0; background: transparent; min-height: 34px; padding: 7px 0; font-size: 11px; gap: 5px; color: var(--muted); box-shadow: inset 0 -2px transparent; }
 .context-message-tabs > button[aria-selected=true] { color: var(--ink); box-shadow: inset 0 -2px var(--context-input); }
 .context-message-tabs small { font-size: 9px; color: var(--muted); }
+.context-message-list { position: relative; }
+.context-message-row { position: absolute; top: 0; left: 0; width: 100%; }
 .context-message { border-bottom: 1px solid var(--border); }
-.context-message-list-long > .context-message:not([open]) { content-visibility: auto; contain-intrinsic-block-size: auto 64px; }
 .context-message summary { display: grid; grid-template-columns: 22px minmax(0, 1fr) 13px; gap: 8px; padding: 12px 0; cursor: pointer; list-style: none; align-items: center; }
 .context-message summary::-webkit-details-marker { display: none; }
 .context-message summary:hover { background: var(--surface); }

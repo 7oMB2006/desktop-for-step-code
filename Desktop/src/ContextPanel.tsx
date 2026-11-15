@@ -48,7 +48,7 @@ function MessageJson({ message, language, onError }: { message: Message; languag
         data-tooltip={language === 'zh' ? '复制消息 JSON' : 'Copy message JSON'} onClick={() => {
           void window.desktop?.copyText(json).then(() => setCopied(true)).catch(error => onError(String(error)));
         }}>{copied ? <Check size={13}/> : <Copy size={13}/>}</button>
-    </div><pre><JsonCode json={json}/></pre>
+    </div><pre tabIndex={0} role="region" aria-label={language === 'zh' ? '消息 JSON' : 'Message JSON'}><JsonCode json={json}/></pre>
   </div>;
 }
 
@@ -76,6 +76,11 @@ const ContextMessage = memo(function ContextMessage({ message, index, rowKey, ex
   </details>;
 });
 
+function contextRowFocusTargets(row: HTMLElement) {
+  return [...row.querySelectorAll<HTMLElement>('summary, button, [tabindex]')]
+    .filter(element => element.tabIndex >= 0 && !element.matches(':disabled') && element.getClientRects().length > 0);
+}
+
 function ContextMessageList({ rows, scroll, expanded, filter, language, timeFormat, onToggle, onError }: {
   rows: ContextRow[]; scroll: RefObject<HTMLDivElement | null>; expanded: string | null; filter: MessageFilter;
   language: 'zh' | 'en'; timeFormat: Intl.DateTimeFormat;
@@ -85,7 +90,7 @@ function ContextMessageList({ rows, scroll, expanded, filter, language, timeForm
   const [margin, setMargin] = useState(0);
   const [focused, setFocused] = useState<string | null>(null);
   const [selection, setSelection] = useState<string[]>([]);
-  const [pendingFocus, setPendingFocus] = useState<{ key: string; copy: boolean } | null>(null);
+  const [pendingFocus, setPendingFocus] = useState<{ key: string; edge: 'first' | 'last' } | null>(null);
   const indices = useMemo(() => new Map(rows.map((row, index) => [row.key, index])), [rows]);
   const getItemKey = useCallback((index: number) => rows[index].key, [rows]);
   const rangeExtractor = useCallback((range: Parameters<typeof defaultRangeExtractor>[0]) => {
@@ -149,7 +154,8 @@ function ContextMessageList({ rows, scroll, expanded, filter, language, timeForm
     const index = indices.get(pendingFocus.key);
     if (index === undefined) { setPendingFocus(null); return; }
     const row = list.current?.querySelector<HTMLElement>(`[data-context-key="${CSS.escape(pendingFocus.key)}"]`);
-    const target = row?.querySelector<HTMLElement>(pendingFocus.copy ? '.context-json-tools button' : 'summary');
+    const targets = row ? contextRowFocusTargets(row) : [];
+    const target = pendingFocus.edge === 'last' ? targets.at(-1) : targets[0];
     const viewport = scroll.current;
     if (!target || !viewport) return;
     virtualizer.scrollToIndex(index, { align: 'auto' });
@@ -165,17 +171,18 @@ function ContextMessageList({ rows, scroll, expanded, filter, language, timeForm
     onFocusCapture={event => setFocused((event.target as HTMLElement).closest<HTMLElement>('[data-context-key]')?.dataset.contextKey ?? null)}
     onBlurCapture={event => { if (!event.currentTarget.contains(event.relatedTarget)) setFocused(null); }}
     onKeyDown={event => {
-      if (event.key !== 'Tab') return;
+      if (event.key !== 'Tab' || event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey) return;
       const target = event.target as HTMLElement;
       const row = target.closest<HTMLElement>('[data-context-key]');
       const index = row?.dataset.contextKey ? indices.get(row.dataset.contextKey) : undefined;
-      if (index === undefined) return;
-      const summary = target.tagName === 'SUMMARY';
-      if ((event.shiftKey && !summary) || (!event.shiftKey && summary && expanded === rows[index].key)) return;
+      if (!row || index === undefined) return;
+      // Only bridge virtual rows; keep native traversal within each message.
+      const targets = contextRowFocusTargets(row);
+      if (target !== (event.shiftKey ? targets[0] : targets.at(-1))) return;
       const next = index + (event.shiftKey ? -1 : 1);
       if (!rows[next]) return;
       event.preventDefault();
-      setPendingFocus({ key: rows[next].key, copy: event.shiftKey && expanded === rows[next].key });
+      setPendingFocus({ key: rows[next].key, edge: event.shiftKey ? 'last' : 'first' });
     }}>
     <div role="list">{virtualizer.getVirtualItems().map(item => {
       const row = rows[item.index];

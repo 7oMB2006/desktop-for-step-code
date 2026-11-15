@@ -5,6 +5,7 @@ import { join, resolve } from 'node:path';
 import { _electron as electron } from 'playwright';
 import { mkdtemp } from './test-profile.mjs';
 import { settleLayout } from './settle-layout.mjs';
+import { assertFocusVisible } from './assert-focus-visible.mjs';
 
 const executablePath = process.env.DESKTOP_VERIFY_EXE;
 const renderer = process.env.DESKTOP_PERF_RENDERER;
@@ -245,6 +246,9 @@ try {
     assert.equal(await focusedNumber(), userNumbers[index], 'Shift+Tab follows the complete logical list');
     await focusIsVisible();
   }
+  await page.keyboard.press('Shift+Tab');
+  assert.equal(await panel.locator('#context-tab-user').evaluate(element => element === document.activeElement), true,
+    'Shift+Tab leaves the first logical row without trapping focus');
   checks.push({ check: 'keyboard-entire-virtual-list', messages: userNumbers.length });
 
   await filter('assistant');
@@ -262,14 +266,40 @@ try {
   await page.keyboard.press('Tab');
   assert.equal(await jsonRow.locator('.context-json-tools button').evaluate(element => element === document.activeElement), true);
   await page.keyboard.press('Tab');
+  const jsonBody = jsonRow.locator('.context-json pre');
+  assert.equal(await jsonBody.evaluate(element => element === document.activeElement), true,
+    'Tab from Copy reaches the JSON scroll container instead of skipping to another message');
+  await assertFocusVisible(page, jsonBody, 'JSON body', { focus: false });
+  assert.ok(await jsonBody.evaluate(element => element.scrollHeight > element.clientHeight),
+    'The keyboard fixture includes overflowing JSON');
+  const outerBefore = await panel.locator('.context-panel-scroll').evaluate(element => element.scrollTop);
+  await page.keyboard.press('PageDown');
+  await page.waitForFunction(() => document.querySelector('.context-json pre')?.scrollTop > 0);
+  assert.equal(await panel.locator('.context-panel-scroll').evaluate(element => element.scrollTop), outerBefore,
+    'PageDown scrolls the focused JSON body, not the inspector');
+  await page.keyboard.press('Shift+Tab');
+  assert.equal(await jsonRow.locator('.context-json-tools button').evaluate(element => element === document.activeElement), true,
+    'Reverse navigation within the row reaches Copy');
+  await page.keyboard.press('Tab');
+  assert.equal(await jsonBody.evaluate(element => element === document.activeElement), true);
+  await page.keyboard.press('Tab');
   await frame();
   assert.equal(await focusedNumber(), expectedNumbers(baseMessages, 'assistant')[1]);
+  await scrollTo(.8);
   await page.keyboard.press('Shift+Tab');
   await frame();
+  assert.equal(await jsonBody.evaluate(element => element === document.activeElement), true,
+    'Reverse navigation from another virtual row returns to the last control, not Copy');
+  await focusIsVisible();
+  await assertFocusVisible(page, jsonBody, 'Restored JSON body', { focus: false });
+  await page.keyboard.press('Shift+Tab');
   assert.equal(await jsonRow.locator('.context-json-tools button').evaluate(element => element === document.activeElement), true);
+  await page.keyboard.press('Shift+Tab');
+  assert.equal(await jsonRow.locator('summary').evaluate(element => element === document.activeElement), true);
   await jsonRow.locator('summary').click();
   await jsonRow.locator('.context-json').waitFor({ state: 'detached' });
   checks.push({ check: 'json-expand-copy-redaction-and-keyboard' });
+  checks.push({ check: 'json-keyboard-scroll-and-virtual-row-boundaries' });
 
   async function updateMessages(messages, mode = 'button') {
     const countBefore = await app.evaluate(() => globalThis.virtualizationCalls.filter(method => method === 'snapshot').length);
@@ -370,10 +400,20 @@ try {
   await newest.locator('.context-json').waitFor();
   await frame();
   const shortHeight = await newest.evaluate(element => element.getBoundingClientRect().height);
+  const shortBody = newest.locator('.context-json pre');
+  assert.equal(await shortBody.evaluate(element => element.scrollHeight > element.clientHeight), false,
+    'The short JSON fixture does not require scrolling');
+  await newest.locator('summary').focus();
+  await page.keyboard.press('Tab');
+  await page.keyboard.press('Tab');
+  assert.equal(await shortBody.evaluate(element => element === document.activeElement), true,
+    'Short JSON also has a predictable keyboard stop');
   await updateMessages(tallMessages, 'event');
   await frame();
   const tallHeight = await newest.evaluate(element => element.getBoundingClientRect().height);
   assert.ok(tallHeight > shortHeight + 100, 'An expanded streamed payload is remeasured');
+  assert.equal(await shortBody.evaluate(element => element === document.activeElement), true,
+    'A streamed JSON update preserves its body focus');
   await newest.locator('summary').click();
   await newest.locator('.context-json').waitFor({ state: 'detached' });
   await frame();
@@ -487,9 +527,15 @@ try {
     await settleLayout(page.locator('.app'));
     await scrollTo(.2);
     const item = (await visibleRows()).find(row => row.top >= 0);
-    await rowFor(item.key).locator('summary').focus();
+    const row = rowFor(item.key);
+    await row.locator('summary').click();
+    await row.locator('.context-json pre').waitFor();
+    await settleLayout(row);
+    await row.locator('summary').focus();
+    await page.keyboard.press('Tab');
     await page.keyboard.press('Tab');
     await frame();
+    await assertFocusVisible(page, row.locator('.context-json pre'), `${name}: JSON body`, { focus: false });
     const geometry = await panel.evaluate(element => {
       const bounds = element.getBoundingClientRect();
       const selectors = ['.context-panel-scroll', '.context-panel-header', '#context-message-list', '.context-message-tabs'];
@@ -509,6 +555,8 @@ try {
     await focusIsVisible();
     await page.screenshot({ path: join(output, `${name}.png`) });
     checks.push({ check: 'viewport-overflow-and-screenshot', name, geometry });
+    await row.locator('summary').click();
+    await row.locator('.context-json').waitFor({ state: 'detached' });
   }
   await capture('context-virtual-desktop', 1920, 1032);
   await capture('context-virtual-narrow', 640, 720);
@@ -536,10 +584,11 @@ try {
   const geometry = page && await page.evaluate(() => {
     const viewport = document.querySelector('.context-panel-scroll');
     return { scrollTop: viewport?.scrollTop, scrollHeight: viewport?.scrollHeight, height: viewport?.clientHeight,
-      nodes: [...document.querySelectorAll('.context-content, #context-message-list, .context-message-row')].slice(0, 60).map(element => {
+      nodes: [...document.querySelectorAll('.context-content, #context-message-list, .context-message-row, .context-message[open], .context-json, .context-json-tools, .context-json pre')].slice(0, 70).map(element => {
         const rect = element.getBoundingClientRect();
         return { class: element.className, key: element.dataset.contextKey, index: element.dataset.index,
-          top: rect.top, height: rect.height, style: element.getAttribute('style') };
+          top: rect.top, height: rect.height, left: rect.left, right: rect.right, width: rect.width,
+          clientWidth: element.clientWidth, scrollWidth: element.scrollWidth, style: element.getAttribute('style') };
       }) };
   }).catch(() => null);
   await writeFile(join(output, 'failure.json'), JSON.stringify({ message: String(error), stack: error.stack, checks, errors, geometry }, null, 2));

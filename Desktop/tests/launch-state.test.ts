@@ -189,6 +189,28 @@ test('one-shot Ultracode consumes only pending launch choices and preserves the 
   assert.equal(visibleInputBlocks({ role: 'user', content: 'ultracode: is a command example' })[0].text, 'ultracode: is a command example');
   await pool.stopAll();
 });
+test('a refused launch reservation restores only once and cannot overwrite newer choices or identity', async () => {
+  for (const change of ['none', 'choice', 'consume', 'transport', 'session', 'worker'] as const) {
+    const { pool, worker, controls } = await fixture();
+    try {
+      await controls.set(worker, 'ultracode', true);
+      const restore = controls.consume(worker)!;
+      assert.equal(worker.launch?.ultracodeArmed, false);
+      if (change === 'choice') await controls.set(worker, 'ultracode', false);
+      if (change === 'consume') controls.consume(worker);
+      if (change === 'transport') worker.rpc = { ...worker.rpc };
+      if (change === 'session') worker.state = { ...worker.state!, sessionId: 'different' };
+      if (change === 'worker') pool.workers.set(worker.id, { ...worker });
+      restore();
+      assert.equal(worker.launch?.ultracodeArmed, change === 'none', change);
+      if (change === 'none') {
+        worker.launch!.ultracodeArmed = false;
+        restore();
+        assert.equal(worker.launch?.ultracodeArmed, false, 'A consumed reservation cannot be restored twice');
+      }
+    } finally { await pool.stopAll(); }
+  }
+});
 test('Goal owns its optional orchestration intent without enabling session-standing Ultracode', async () => {
   const { pool, worker, controls, calls } = await fixture();
   await controls.set(worker, 'goal', true);

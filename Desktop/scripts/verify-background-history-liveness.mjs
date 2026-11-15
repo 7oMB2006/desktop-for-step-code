@@ -29,7 +29,7 @@ await writeFile(join(runtime, 'sessions', `${sessionId}.jsonl`), [
 ].map(value => JSON.stringify(value)).join('\n') + '\n');
 await writeFile(join(profile, 'preferences.json'), JSON.stringify({ theme: 'dark', language: 'en', workspace: origin,
   workspaces: [origin, destination] }));
-await writeFile(join(runtime, 'config.toml'), 'defaultProvider = "fixture"\ndefaultModel = "fixture"\npermissionPreset = "ask"\n[telemetry]\nenabled = false\n');
+await writeFile(join(runtime, 'config.toml'), 'defaultProvider = "fixture"\ndefaultModel = "fixture"\npermissionPreset = "ask"\n[telemetry]\nenabled = false\n[mcp_servers.steppage__steppage]\nenabled = false\n');
 let modelRequests = 0;
 let heldChild;
 const failures = [];

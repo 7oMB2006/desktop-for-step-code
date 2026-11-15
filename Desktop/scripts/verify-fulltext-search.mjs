@@ -278,9 +278,17 @@ try {
   await panel.locator('[data-search-match=true]').waitFor();
   await app.evaluate(() => { globalThis.fulltextNavigationFailure = true; });
   await panel.getByRole('button', { name: '打开并定位', exact: true }).click();
-  await panel.getByText('会话未能打开，请稍后重试。', { exact: true }).waitFor();
+  await page.locator('.session-reading-status').getByText('运行时未连接 · 模型未就绪', { exact: true }).waitFor();
+  assert.equal(await panel.isVisible(), false, 'failed startup retains the selected reading instead of returning to the previous runtime');
+  assert.equal(await page.locator('.composer-action-button').isDisabled(), true);
+  assert.equal(await page.locator('.composer-tools').evaluate(element => element.inert), true);
+  await page.waitForFunction(() => document.querySelector('#conversation-scroll')?.textContent.includes('locationneedle'));
   assert.equal((await snapshot()).draftId, before.draftId);
   await app.evaluate(() => { globalThis.fulltextNavigationFailure = false; });
+  await page.getByRole('button', { name: '搜索聊天记录', exact: true }).click();
+  await search('locationneedle');
+  await panel.locator('.fulltext-hit[data-search-key*="fulltext-main"]').first().click();
+  await panel.locator('[data-search-match=true]').waitFor();
   await panel.getByRole('button', { name: '打开并定位', exact: true }).click();
   await page.waitForFunction(() => document.querySelector('.window-session-title')?.textContent === 'Saved main' &&
     document.querySelector('.composer-wrap')?.getAttribute('aria-busy') === 'false', undefined, { timeout: 60000 });

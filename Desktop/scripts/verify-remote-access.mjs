@@ -160,7 +160,7 @@ await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
 const emptyWorkspace = join(profile, 'empty-project');
 await mkdir(emptyWorkspace, { recursive: true });
 await writeFile(join(profile, 'preferences.json'), JSON.stringify({ theme: 'dark', language: 'zh', workspaces: [emptyWorkspace] }));
-await writeFile(join(root, 'config.toml'), 'defaultProvider = "fixture"\ndefaultModel = "fixture"\npermissionPreset = "ask"\n[telemetry]\nenabled = false\n');
+await writeFile(join(root, 'config.toml'), 'defaultProvider = "fixture"\ndefaultModel = "fixture"\npermissionPreset = "ask"\n[telemetry]\nenabled = false\n[mcp_servers.steppage__steppage]\nenabled = false\n');
 await writeFile(join(root, 'models.json'), JSON.stringify({ providers: { fixture: {
   baseUrl: `http://127.0.0.1:${server.address().port}/v1`, api: 'openai-completions', apiKey: 'isolated-only',
   models: [{ id: 'fixture', name: 'Remote fixture', input: ['text', 'image'], contextWindow: 100000, maxTokens: 2048 }],

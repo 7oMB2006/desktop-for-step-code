@@ -6,6 +6,7 @@ import { join, resolve } from 'node:path';
 import { _electron as electron } from 'playwright';
 import { installationReceipt, packageFingerprint, writeReceipts } from '../electron/plugin-files.mjs';
 import { closeDesktopFixtureAndWait } from './close-desktop-fixture.mjs';
+import { waitForSessionFixtureSnapshot, waitForSessionFixtureTools } from './session-fixture.mjs';
 
 const profile = await realpath(await mkdtemp(join(tmpdir(), 'dfsc-host-settings-electron-')));
 const root = join(profile, 'step-runtime'), directory = join(root, 'plugins', 'host-example');
@@ -26,7 +27,7 @@ const receipt = installationReceipt({ name: 'host-example' }, { name: 'local-fix
 receipt.state = 'installed';
 await writeReceipts(root, { version: 1, installations: [receipt] });
 await writeFile(join(root, 'plugins', '.stepcode-preinstalled'), '["steppage"]');
-await writeFile(join(root, 'config.toml'), 'defaultProvider = "fixture"\ndefaultModel = "fixture"\n[telemetry]\nenabled = false\n');
+await writeFile(join(root, 'config.toml'), 'defaultProvider = "fixture"\ndefaultModel = "fixture"\n[telemetry]\nenabled = false\n[mcp_servers.steppage__steppage]\nenabled = false\n');
 await writeFile(join(root, 'models.json'), JSON.stringify({ providers: { fixture: {
   api: 'openai-completions', baseUrl: 'http://127.0.0.1:1/v1', apiKey: 'fixture-unused',
   models: [{ id: 'fixture', name: 'Offline fixture', input: ['text'], contextWindow: 32768, maxTokens: 1024 }],
@@ -34,7 +35,10 @@ await writeFile(join(root, 'models.json'), JSON.stringify({ providers: { fixture
 await writeFile(join(profile, 'preferences.json'), JSON.stringify({ language: 'zh', theme: 'light', workspaces: [] }));
 const env = { ...process.env, DESKTOP_TEST_USER_DATA: profile, DESKTOP_TEST_NO_FOCUS: '1' };
 delete env.ELECTRON_RUN_AS_NODE;
-const app = await electron.launch({ args: ['.'], env, timeout: 60000 });
+const app = await electron.launch({
+  ...(process.env.DESKTOP_VERIFY_EXE ? { executablePath: process.env.DESKTOP_VERIFY_EXE } : { args: [resolve('.')] }),
+  env, timeout: 60000,
+});
 const errors = [];
 try {
   const page = await app.firstWindow();
@@ -69,7 +73,16 @@ try {
   await page.evaluate(() => window.desktop.newIndependentSession());
   const snapshot = await page.evaluate(() => window.desktop.snapshot());
   assert.ok(snapshot.runtimeId);
-  const connected = await page.evaluate(ref => window.desktop.pluginHostSettings({ ref }), first.ref);
+  await waitForSessionFixtureTools(page, snapshot.runtimeId);
+  let connected;
+  await waitForSessionFixtureSnapshot(page, async value => {
+    assert.equal(value.runtimeId, snapshot.runtimeId);
+    assert.equal(value.state?.sessionId, snapshot.state?.sessionId);
+    connected = await page.evaluate(ref => window.desktop.pluginHostSettings({ ref }), first.ref);
+    assert.equal(connected.mode, independent.mode);
+    assert.equal(connected.revision, independent.revision);
+    return connected.runtime.status === 'connected';
+  }, 'the configured independent SDK consumer');
   assert.equal(connected.runtime.status, 'connected', 'Actual native SDK consumer starts in independent mode');
   assert.equal(connected.runtime.capabilities, undefined, 'Independent mode is not a host account grant');
   const switched = await page.evaluate(input => window.desktop.pluginSaveHostSettings(input),

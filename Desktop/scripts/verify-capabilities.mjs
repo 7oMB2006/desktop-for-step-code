@@ -555,10 +555,13 @@ try {
   ].map(value => JSON.stringify(value)).join('\n') + '\n', timeout: 15000 });
   assert.match(consumer, /Electron HELLO/); assert.doesNotMatch(consumer, /isolated-ui-secret/);
   await restartSession('.pc-detail-footer');
-  const connected = await page.evaluate(async () => {
-    const snapshot = await window.desktop.snapshot();
-    return window.desktop.summary(snapshot.runtimeId);
-  });
+  let connected;
+  await waitForSessionFixtureSnapshot(page, async snapshot => {
+    connected = await page.evaluate(runtimeId => window.desktop.summary(runtimeId), snapshot.runtimeId);
+    const service = connected.mcp.find(server => server.name === 'dfsc-config-example__notes');
+    assert.notEqual(service?.status, 'failed', 'the configured MCP must connect successfully');
+    return service?.status === 'connected';
+  }, 'the configured plugin MCP to connect after restart');
   assert.ok(connected.mcp.some(server => server.name === 'dfsc-config-example__notes' && server.status === 'connected'));
   assert.equal(await page.evaluate(() => typeof window.require), 'undefined');
   await page.screenshot({ path: 'test-results/plugin-skeleton-electron.png' });

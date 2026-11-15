@@ -5,7 +5,7 @@ import { mkdir, realpath, readFile, writeFile } from 'node:fs/promises';
 import { mkdtemp } from './test-profile.mjs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { waitForSessionFixtureSnapshot } from './session-fixture.mjs';
+import { waitForSessionFixtureSnapshot, waitForSessionFixtureTools } from './session-fixture.mjs';
 import { closeDesktopFixtureAndWait } from './close-desktop-fixture.mjs';
 import { assertFocusVisible } from './assert-focus-visible.mjs';
 
@@ -51,7 +51,7 @@ await writeFile(join(projectB, 'AGENTS.md'), 'PROJECT_RULE_B');
 await writeFile(join(profile, 'preferences.json'), JSON.stringify({
   language: 'zh', theme: 'light', workspaces: [projectA, projectB],
 }));
-await writeFile(join(root, 'config.toml'), 'defaultProvider = "fixture"\ndefaultModel = "fixture"\npermissionPreset = "ask"\n[telemetry]\nenabled = false\n');
+await writeFile(join(root, 'config.toml'), 'defaultProvider = "fixture"\ndefaultModel = "fixture"\npermissionPreset = "ask"\n[telemetry]\nenabled = false\n[mcp_servers.steppage__steppage]\nenabled = false\n');
 await writeFile(join(root, 'models.json'), JSON.stringify({ providers: { fixture: {
   baseUrl: `http://127.0.0.1:${server.address().port}/v1`, api: 'openai-completions', apiKey: 'local-fixture-only',
   models: [{ id: 'fixture', name: 'Instructions fixture', contextWindow: 65536, maxTokens: 2048 }],
@@ -124,6 +124,7 @@ const assertPrompt = (label, global, project) => {
 try {
   await launch();
   const oldEmpty = await page.evaluate(path => window.desktop.workspace(path), projectA);
+  await waitForSessionFixtureTools(page, oldEmpty.runtimeId);
   await page.reload();
   await openInstructions();
   assert.equal(await page.locator('.instructions-editor textarea').inputValue(), '');
@@ -166,6 +167,7 @@ try {
   await closeSettings();
 
   const a = await page.evaluate(runtimeId => window.desktop.command('new_session', {}, runtimeId), oldEmpty.runtimeId);
+  await waitForSessionFixtureTools(page, a.runtimeId);
   assert.notEqual(a.runtimeId, oldEmpty.runtimeId, 'New sessions must not reuse empty workers with old instructions');
   await send('OLD-EMPTY', oldEmpty.runtimeId); assertPrompt('OLD-EMPTY', undefined, 'a');
   await send('A-FIRST', a.runtimeId); assertPrompt('A-FIRST', 'alpha', 'a');
@@ -178,6 +180,7 @@ try {
   assert.equal(duringSave.state.isStreaming, true, 'Saving global instructions never interrupts a running turn');
   await closeSettings();
   const b = await page.evaluate(path => window.desktop.workspace(path), projectB);
+  await waitForSessionFixtureTools(page, b.runtimeId);
   await send('B-FIRST', b.runtimeId); assertPrompt('B-FIRST', 'beta', 'b');
   finishHeld();
   await waitForSessionFixtureSnapshot(page,
@@ -185,6 +188,7 @@ try {
   await send('A-UNCHANGED', a.runtimeId); assertPrompt('A-UNCHANGED', 'alpha', 'a');
   await page.evaluate(id => window.desktop.switchSession(id), a.state.sessionId);
   const restarted = await page.evaluate(() => window.desktop.restart());
+  await waitForSessionFixtureTools(page, restarted.runtimeId);
   assert.notEqual(restarted.runtimeId, a.runtimeId);
   assert.equal(restarted.state.sessionId, a.state.sessionId, 'Restart retains saved conversation identity');
   await send('A-RESTARTED', restarted.runtimeId); assertPrompt('A-RESTARTED', 'beta', 'a');
@@ -198,6 +202,7 @@ try {
   await page.locator('.instructions-meta').getByText('已保存到文件', { exact: true }).waitFor();
   await closeSettings();
   const independent = await page.evaluate(() => window.desktop.newIndependentSession());
+  await waitForSessionFixtureTools(page, independent.runtimeId);
   await send('INDEPENDENT-CLEARED', independent.runtimeId); assertPrompt('INDEPENDENT-CLEARED');
   assert.equal(await readFile(join(projectA, 'AGENTS.md'), 'utf8'), 'PROJECT_RULE_A');
   assert.equal(await readFile(join(projectB, 'AGENTS.md'), 'utf8'), 'PROJECT_RULE_B');

@@ -2,6 +2,7 @@ import { _electron as electron } from 'playwright';
 import { createServer } from 'node:http';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { mkdtemp } from './test-profile.mjs';
+import { submitSessionFixture } from './session-fixture.mjs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import assert from 'node:assert/strict';
@@ -56,7 +57,7 @@ const profile = await mkdtemp(join(tmpdir(), 'desktop-cross-session-'));
 const root = join(profile, 'step-runtime');
 await mkdir(join(root, 'sessions'), { recursive: true });
 await writeFile(join(profile, 'preferences.json'), JSON.stringify({ language: 'zh', theme: 'light', workspaces: [] }));
-await writeFile(join(root, 'config.toml'), 'defaultProvider = "fixture"\ndefaultModel = "fixture"\npermissionPreset = "ask"\n[telemetry]\nenabled = false\n');
+await writeFile(join(root, 'config.toml'), 'defaultProvider = "fixture"\ndefaultModel = "fixture"\npermissionPreset = "ask"\n[telemetry]\nenabled = false\n[mcp_servers.steppage__steppage]\nenabled = false\n');
 await writeFile(join(root, 'models.json'), JSON.stringify({
   providers: { fixture: { baseUrl: `http://127.0.0.1:${server.address().port}/v1`, api: 'openai-completions', apiKey: 'local-test-only',
     models: ['fixture', 'fixture-next'].map(id => ({ id, name: id, contextWindow: 32768, maxTokens: 2048 })) } },
@@ -76,7 +77,7 @@ try {
   await page.getByText('Step Code 已连接', { exact: true }).waitFor({ timeout: 60000 });
   await page.evaluate(() => { HTMLMediaElement.prototype.play = () => Promise.resolve(); });
   const input = page.locator('.composer > .composer-input');
-  const send = async text => { await input.fill(text); await input.press('Enter'); };
+  const send = async text => { await input.fill(text); await submitSessionFixture(page, () => input.press('Enter')); };
   const changeLanguage = async (from, to) => {
     await page.locator('.sidebar-settings').click();
     const settings = page.getByRole('dialog', { name: from === 'zh' ? '设置' : 'Settings', exact: true });

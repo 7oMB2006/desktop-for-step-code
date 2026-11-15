@@ -79,6 +79,8 @@ export const acceptanceGroups = {
     'verify-hidden-messages.mjs',
     'verify-session-concurrency.mjs',
     'verify-session-navigation.mjs',
+    'verify-session-reading.mjs',
+    'verify-session-startup.mjs',
     'verify-mini-chat-electron.mjs',
     'verify-session-branching.mjs',
     'verify-message-order.mjs',

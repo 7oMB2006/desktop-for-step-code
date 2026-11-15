@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { queueFixture } from './queue-demo-fixture.mjs';
 import { closeDesktopFixture } from './close-desktop-fixture.mjs';
+import { submitSessionFixture, waitForSessionFixtureSnapshot } from './session-fixture.mjs';
 
 // Windows runners may expose TEMP through an 8.3 alias; compare native canonical paths.
 const profile = await realpath(await mkdtemp(join(tmpdir(), 'desktop-session-import-')));
@@ -210,11 +211,14 @@ try {
   await originalJob.locator('.import-job-trigger').click();
   await originalJob.getByRole('button', { name: `打开 ${result.title}`, exact: true }).first().click();
   await page.waitForSelector('.settings-dialog', { state: 'detached' });
-  await page.waitForFunction(id => window.desktop.snapshot().then(snapshot => snapshot.state?.sessionId === id), result.sessionId);
+  await waitForSessionFixtureSnapshot(page, snapshot => snapshot.state?.sessionId === result.sessionId,
+    'the imported native session to become selected');
   await page.locator('.messages').getByText('Historical answer', { exact: true }).waitFor();
   // Preview text can precede the imported runtime's complete history.
   await page.waitForFunction(() => document.querySelector('.new-chat')?.disabled === false);
-  const snapshot = await page.evaluate(() => window.desktop.snapshot());
+  const snapshot = await waitForSessionFixtureSnapshot(page, value => value.state?.sessionId === result.sessionId
+    && value.messages.some(message => message.desktopImported && message.role === 'toolResult'),
+    'the imported native tool history');
   assert.equal(snapshot.state.sessionId, result.sessionId);
   assert.ok(snapshot.messages.some(message => message.desktopImported && message.role === 'toolResult'),
     `Imported tool result is missing: ${JSON.stringify(snapshot.messages.map(({ role, desktopImported, entryId }) => ({ role, desktopImported, entryId })))}`);
@@ -227,9 +231,11 @@ try {
   await page.screenshot({ path: 'test-results/session-import-history.png' });
   const prompt = page.getByRole('textbox', { name: '消息', exact: true });
   await prompt.fill('Continue the imported sample with one new native edit.');
-  await prompt.press('Enter');
+  await submitSessionFixture(page, () => prompt.press('Enter'));
   await page.getByText('这一轮已处理完成。', { exact: true }).waitFor();
-  await page.waitForFunction(() => window.desktop.snapshot().then(snapshot => !snapshot.state?.isStreaming));
+  await waitForSessionFixtureSnapshot(page, snapshot => !snapshot.state?.isStreaming
+    && snapshot.messages.some(message => message.role === 'assistant'
+      && JSON.stringify(message.content).includes('这一轮已处理完成。')), 'the continued imported reply to settle');
   assert.ok(fixture.requests.some(text => text.includes('Continue the imported sample')));
   const continued = await page.evaluate(() => window.desktop.snapshot());
   assert.ok(continued.messages.some(message => message.role === 'user' && !message.desktopImported

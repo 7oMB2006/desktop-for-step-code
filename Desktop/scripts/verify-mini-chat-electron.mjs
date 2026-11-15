@@ -63,7 +63,7 @@ for (const [id, cwd] of [['one', workspace], ['two', workspace], ['three', works
   lines.push({ type: 'session_info', id: `${id}-name`, parentId, timestamp, name: id.startsWith('web-') ? 'Configuration checks' : `Mini ${id}` });
   await writeFile(join(root, 'sessions', `${id}.jsonl`), lines.map(value => JSON.stringify(value)).join('\n') + '\n');
 }
-await writeFile(join(root, 'config.toml'), 'defaultProvider = "fixture"\ndefaultModel = "fixture"\npermissionPreset = "ask"\n[telemetry]\nenabled = false\n');
+await writeFile(join(root, 'config.toml'), 'defaultProvider = "fixture"\ndefaultModel = "fixture"\npermissionPreset = "ask"\n[telemetry]\nenabled = false\n[mcp_servers.steppage__steppage]\nenabled = false\n');
 await writeFile(join(profile, 'preferences.json'), JSON.stringify({ language: 'zh', theme: 'dark', workspace,
   workspaces: [workspace, webLocal, webClient], terminalDock: 'bottom', completionSound: true }));
 const requests = [];

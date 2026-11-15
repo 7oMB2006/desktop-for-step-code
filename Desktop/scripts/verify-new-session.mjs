@@ -5,7 +5,8 @@ import { mkdtemp } from './test-profile.mjs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { queueFixture } from './queue-demo-fixture.mjs';
-import { waitForNewSessionButton } from './session-fixture.mjs';
+import { submitColdSessionFixture, waitForNewSessionButton, waitForSessionFixtureSnapshot } from './session-fixture.mjs';
+import { closeDesktopFixtureAndWait } from './close-desktop-fixture.mjs';
 
 const nativeHeightLimit = process.env.DESKTOP_NEW_SESSION_TEST_MAX_HEIGHT ? Number(process.env.DESKTOP_NEW_SESSION_TEST_MAX_HEIGHT) : undefined;
 if (nativeHeightLimit !== undefined) assert.ok(Number.isSafeInteger(nativeHeightLimit) && nativeHeightLimit >= 540, 'Invalid native test window height limit');
@@ -146,10 +147,9 @@ try {
   await input.press('ControlOrMeta+A');
   await input.press('Backspace');
   await page.waitForFunction(() => document.querySelector('.composer-input')?.value === '');
-  await page.waitForFunction(async () => {
-    const snapshot = await window.desktop.snapshot();
-    return (await window.desktop.composerRead({ draftId: snapshot.draftId })).value.text === '';
-  });
+  await waitForSessionFixtureSnapshot(page, async snapshot =>
+    (await page.evaluate(draftId => window.desktop.composerRead({ draftId }), snapshot.draftId)).value.text === '',
+  'the persisted empty draft');
   await page.reload();
   await heading.waitFor();
   await waitForNewSessionButton(page);
@@ -246,8 +246,10 @@ try {
   await waitForNewSessionButton(page);
   assert.equal((await snapshot()).runtimeId, undefined);
   await input.fill('FIRST-SEND 验证首次创建');
-  await input.press('Enter');
-  await input.press('Enter');
+  await submitColdSessionFixture(page, async () => {
+    await input.press('Enter');
+    await input.press('Enter');
+  });
   await waitState(value => value.runtimeId && value.messages.some(message => message.role === 'user' && JSON.stringify(message.content).includes('FIRST-SEND')));
   await waitState(value => !value.state?.isStreaming && value.messages.some(message => message.role === 'assistant' && message.stopReason === 'stop'));
   const sent = await snapshot();
@@ -276,10 +278,12 @@ try {
     draft: document.querySelector('.composer-input')?.textContent })).catch(() => undefined));
   throw error;
 } finally {
-  await writeFile('test-results/new-session-layout.json', JSON.stringify({ nativeHeightLimit, pickerLayouts, errors }, null, 2));
-  await app.evaluate(({ dialog }) => { dialog.showMessageBox = async () => ({ response: 1 }); }).catch(() => {});
-  await app.close();
-  await fixture.close();
+  try {
+    await writeFile('test-results/new-session-layout.json', JSON.stringify({ nativeHeightLimit, pickerLayouts, errors }, null, 2));
+  } finally {
+    try { await closeDesktopFixtureAndWait(app); }
+    finally { await fixture.close(); }
+  }
 }
 assert.deepEqual(errors, []);
 console.log('New session draft acceptance passed');

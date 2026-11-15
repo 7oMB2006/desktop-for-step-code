@@ -35,7 +35,7 @@ await writeFile(join(workspace, 'already-changed.txt'), 'Do not roll this back')
 await writeFile(join(profile, 'preferences.json'), JSON.stringify({
   language: 'zh', theme: 'light', workspaces: [workspace], workspace,
 }));
-await writeFile(join(root, 'config.toml'), 'defaultProvider = "fixture"\ndefaultModel = "fixture"\npermissionPreset = "ask"\n[telemetry]\nenabled = false\n');
+await writeFile(join(root, 'config.toml'), 'defaultProvider = "fixture"\ndefaultModel = "fixture"\npermissionPreset = "ask"\n[telemetry]\nenabled = false\n[mcp_servers.steppage__steppage]\nenabled = false\n');
 await writeFile(join(root, 'models.json'), JSON.stringify({
   defaultProvider: 'fixture', defaultModel: 'fixture',
   providers: { fixture: { baseUrl: `http://127.0.0.1:${server.address().port}/v1`, api: 'openai-completions', apiKey: 'local-test-only',

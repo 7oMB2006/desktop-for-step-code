@@ -10,8 +10,12 @@ export async function prepareDispatchInput(page, input, text, timeout = 5000) {
   await input.fill(text);
   const handle = await input.elementHandle();
   if (!handle) throw new Error('Composer input is not mounted');
-  let phase = 'editor readiness';
+  let phase = 'pointer tooltip dismissal';
   try {
+    // A hovered status surface consumes Escape before the command menu.
+    await page.mouse.move(0, 0);
+    await page.locator('.status-tooltip[aria-hidden="false"]').waitFor({ state: 'hidden', timeout });
+    phase = 'editor readiness';
     // contenteditable fill can return before ProseMirror and React commit.
     await page.waitForFunction(({ element, text }) => element.isConnected
       && element.ownerDocument.activeElement === element && element.value === text

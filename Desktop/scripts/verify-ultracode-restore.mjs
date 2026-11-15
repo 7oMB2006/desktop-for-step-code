@@ -2,6 +2,7 @@ import { _electron as electron } from 'playwright';
 import { createServer } from 'node:http';
 import { mkdir, writeFile, readFile } from 'node:fs/promises';
 import { mkdtemp } from './test-profile.mjs';
+import { waitForSessionFixtureTools } from './session-fixture.mjs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import assert from 'node:assert/strict';
@@ -21,7 +22,7 @@ const profile = await mkdtemp(join(tmpdir(), 'desktop-ultracode-restore-'));
 const root = join(profile, 'step-runtime');
 await mkdir(root);
 await writeFile(join(profile, 'preferences.json'), JSON.stringify({ language: 'zh', theme: 'dark' }));
-await writeFile(join(root, 'config.toml'), 'defaultProvider = "fixture"\ndefaultModel = "fixture"\n[telemetry]\nenabled = false\n');
+await writeFile(join(root, 'config.toml'), 'defaultProvider = "fixture"\ndefaultModel = "fixture"\n[telemetry]\nenabled = false\n[mcp_servers.steppage__steppage]\nenabled = false\n');
 await writeFile(join(root, 'models.json'), JSON.stringify({ providers: { fixture: { api: 'openai-completions',
   baseUrl: `http://127.0.0.1:${server.address().port}/v1`, apiKey: 'isolated-test',
   models: [{ id: 'fixture', name: 'Restore fixture', contextWindow: 32768, maxTokens: 2048 }] } } }));
@@ -61,6 +62,7 @@ try {
   let page = await open();
   const draft = await page.evaluate(() => window.desktop.snapshot());
   await page.evaluate(id => window.desktop.createDraftSession(id), draft.draftId);
+  await waitForSessionFixtureTools(page);
   await page.evaluate(() => window.desktop.command('prompt', { message: '/ultracode on' }));
   await waitSnapshot(page, snapshot => snapshot.launch.ultracode === true);
   await page.evaluate(() => window.desktop.command('prompt', { message: 'Hello' }));
@@ -113,6 +115,7 @@ try {
   assert.equal((await page.evaluate(() => window.desktop.snapshot())).launch.ultracode, false);
   const fresh = await page.evaluate(() => window.desktop.beginSession());
   const created = await page.evaluate(id => window.desktop.createDraftSession(id), fresh.draftId);
+  await waitForSessionFixtureTools(page, created.runtimeId);
   assert.equal(created.launch.ultracode, false, 'New sessions never inherit standing consent');
   await page.evaluate(() => window.desktop.command('prompt', { message: 'ultracode:\n\nOne task only' }));
   const oneTurn = await waitSnapshot(page, state => !state.state.isStreaming && !state.launch.ultracodeTurn

@@ -41,6 +41,7 @@ function fixture() {
     const quitting = false, quitPending = false;
     const updateInstalling = false, providerSettingsPending = false;
     let startup = Promise.resolve(), active = 'home';
+    const readingSelections = new Map(), readingOwner = () => 'fixture-owner';
     const runtimeRoot = 'runtime', nodePath = 'node', dataRoot = 'data';
     const workers = new Map();
     const sessions = ['remote', 'local-a', 'local-b'].map(id => ({

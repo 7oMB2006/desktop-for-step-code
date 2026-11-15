@@ -5,7 +5,7 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { mkdtemp } from './test-profile.mjs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { prepareSessionFixture } from './session-fixture.mjs';
+import { prepareSessionFixture, waitForSessionFixtureTools } from './session-fixture.mjs';
 
 const profile = await mkdtemp(join(tmpdir(), 'step-chain-runtime-'));
 const root = join(profile, 'step-runtime');
@@ -135,7 +135,7 @@ const server = createServer(async (req, res) => {
 });
 await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
 await writeFile(join(profile, 'preferences.json'), JSON.stringify({ theme: 'dark', language: 'zh', workspaces: [] }));
-await writeFile(join(root, 'config.toml'), 'defaultProvider = "chain-fixture"\ndefaultModel = "chain-fixture"\npermissionPreset = "approve-for-me"\n[telemetry]\nenabled = false\n');
+await writeFile(join(root, 'config.toml'), 'defaultProvider = "chain-fixture"\ndefaultModel = "chain-fixture"\npermissionPreset = "approve-for-me"\n[telemetry]\nenabled = false\n[mcp_servers.steppage__steppage]\nenabled = false\n');
 await writeFile(join(root, 'models.json'), JSON.stringify({ providers: { 'chain-fixture': {
   baseUrl: `http://127.0.0.1:${server.address().port}/v1`, api: 'openai-completions', apiKey: 'local-fixture',
   models: [{ id: 'chain-fixture', name: 'Local chain fixture', contextWindow: 32768, maxTokens: 2048 }],
@@ -147,6 +147,7 @@ try {
   const page = await app.firstWindow();
   await app.evaluate(({ BrowserWindow }) => { const win = BrowserWindow.getAllWindows()[0]; win.setOpacity(0); win.setIgnoreMouseEvents(true); win.showInactive(); });
   const snapshot = await prepareSessionFixture(page);
+  await waitForSessionFixtureTools(page, snapshot.runtimeId);
   phase('session ready');
   for (const scenario of ['CHAIN_SUCCESS', 'CHAIN_FAILURE', 'CHAIN_ABORT']) {
     const before = await page.evaluate(async () => (await window.desktop.snapshot()).messages.length);

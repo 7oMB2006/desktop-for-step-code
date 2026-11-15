@@ -1,12 +1,27 @@
-import { open, realpath } from 'node:fs/promises';
+import { open, realpath, stat } from 'node:fs/promises';
 import { relative, isAbsolute } from 'node:path';
 import { createHash } from 'node:crypto';
 
 export const MAX_HISTORY_PREVIEW_BYTES = 12 * 1024 * 1024;
+export const MAX_HISTORY_SOURCE_BYTES = 32 * 1024 * 1024;
+export const MAX_HISTORY_RESPONSE_BYTES = 24 * 1024 * 1024;
+
+export class HistoryReadError extends Error {
+  constructor(reason) { super(`history:${reason}`); this.reason = reason; }
+}
+const identity = value => ({
+  dev: value.dev, ino: value.ino, size: value.size, mtimeMs: value.mtimeMs, ctimeMs: value.ctimeMs,
+});
+const sameFile = (a, b) => Object.keys(a).every(key => a[key] === b[key]);
+export async function assertHistoryUnchanged(root, file, source) {
+  const [directory, canonical] = await Promise.all([realpath(root), realpath(file)]);
+  if (directory !== source.directory || canonical !== source.canonical
+    || !sameFile(source.identity, identity(await stat(canonical)))) throw new HistoryReadError('changed');
+}
 
 // The upstream open/load helpers may migrate or repair files. Preview only reads
 // bytes and uses the upstream in-memory migration and context projection.
-export async function readSessionHistory(upstream, root, file, sessionId, maxBytes = MAX_HISTORY_PREVIEW_BYTES) {
+export async function readHistorySource(upstream, root, file, sessionId, maxBytes = MAX_HISTORY_SOURCE_BYTES) {
   if (!root || typeof file !== 'string' || typeof sessionId !== 'string') throw new Error('Invalid history request');
   const [directory, canonical] = await Promise.all([realpath(root), realpath(file)]);
   const rel = relative(directory, canonical);
@@ -15,7 +30,8 @@ export async function readSessionHistory(upstream, root, file, sessionId, maxByt
   const handle = await open(canonical, 'r');
   try {
     const before = await handle.stat();
-    if (!before.isFile() || before.size > Math.min(maxBytes, MAX_HISTORY_PREVIEW_BYTES)) return null;
+    if (!before.isFile()) throw new HistoryReadError('unavailable');
+    if (before.size > Math.min(maxBytes, MAX_HISTORY_SOURCE_BYTES)) throw new HistoryReadError('source-limit');
     const buffer = Buffer.alloc(before.size + 1);
     let length = 0;
     while (length < buffer.length) {
@@ -24,13 +40,15 @@ export async function readSessionHistory(upstream, root, file, sessionId, maxByt
       length += bytesRead;
     }
     const after = await handle.stat();
-    if (length !== before.size || after.size !== before.size || after.mtimeMs !== before.mtimeMs) return null;
+    if (length !== before.size || !sameFile(identity(before), identity(after))) throw new HistoryReadError('changed');
+    const source = { directory, canonical, identity: identity(before) };
+    await assertHistoryUnchanged(root, file, source);
     const bytes = buffer.subarray(0, length);
-    const values = upstream.parseSessionEntries(bytes.toString('utf8'));
+    const values = upstream.parseSessionEntries(new TextDecoder('utf-8', { fatal: true }).decode(bytes));
     const header = values[0];
     if (header?.type !== 'session' || header.id !== sessionId || typeof header.cwd !== 'string')
       throw new Error('History identity changed');
-    if (header.version > upstream.CURRENT_SESSION_VERSION) return null;
+    if (header.version > upstream.CURRENT_SESSION_VERSION) throw new HistoryReadError('future-format');
     upstream.migrateSessionEntries(values);
     const entries = values.filter(value => value.type !== 'session');
     const byId = new Map();
@@ -46,12 +64,24 @@ export async function readSessionHistory(upstream, root, file, sessionId, maxByt
       id = byId.get(id).parentId;
     }
     const result = {
-      sessionId, cwd: header.cwd, entries, leafId,
+      sessionId, cwd: header.cwd, entries, leafId, source,
       version: createHash('sha256').update(bytes).digest('hex'),
       messages: upstream.buildSessionContext(entries, leafId, byId).messages,
     };
-    // Projection can expand escaped tool payloads; never overflow the shared
-    // management transport's 32 MiB frame and disconnect unrelated requests.
-    return JSON.stringify(result).length <= 24 * 1024 * 1024 ? result : null;
+    return result;
   } finally { await handle.close(); }
+}
+
+// Preserve the existing small-history management/search API. Larger projections
+// must use the isolated reader, never expand the shared management frame.
+export async function readSessionHistory(upstream, root, file, sessionId, maxBytes = MAX_HISTORY_PREVIEW_BYTES) {
+  try {
+    const { source, ...result } = await readHistorySource(upstream, root, file, sessionId,
+      Math.min(maxBytes, MAX_HISTORY_PREVIEW_BYTES));
+    await assertHistoryUnchanged(root, file, source);
+    return Buffer.byteLength(JSON.stringify(result), 'utf8') <= MAX_HISTORY_RESPONSE_BYTES ? result : null;
+  } catch (error) {
+    if (error instanceof HistoryReadError) return null;
+    throw error;
+  }
 }

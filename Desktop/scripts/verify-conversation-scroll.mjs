@@ -1,6 +1,6 @@
 import { _electron as electron } from 'playwright';
 import { captureWaapi } from './capture-waapi.mjs';
-import { prepareSessionFixture } from './session-fixture.mjs';
+import { prepareSessionFixture, waitForSessionFixtureTools } from './session-fixture.mjs';
 import assert from 'node:assert/strict';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { mkdtemp } from './test-profile.mjs';
@@ -9,6 +9,9 @@ import { join, resolve } from 'node:path';
 
 const profile = await mkdtemp(join(tmpdir(), 'step-scroll-follow-'));
 await writeFile(join(profile, 'preferences.json'), JSON.stringify({ language: 'zh', theme: 'dark', workspaces: [] }));
+await mkdir(join(profile, 'step-runtime'), { recursive: true });
+await writeFile(join(profile, 'step-runtime', 'config.toml'),
+  '[telemetry]\nenabled = false\n[mcp_servers.steppage__steppage]\nenabled = false\n');
 await mkdir('test-results', { recursive: true });
 const env = { ...process.env, DESKTOP_TEST_USER_DATA: profile, DESKTOP_TEST_NO_FOCUS: '1' };
 delete env.ELECTRON_RUN_AS_NODE;
@@ -31,7 +34,8 @@ try {
     window.setOpacity(0); window.setIgnoreMouseEvents(true); window.showInactive(); window.setSize(1200, 850);
   }, testMaxHeight);
   await page.getByText('Step Code 已连接', { exact: true }).waitFor({ timeout: 60000 });
-  const original = await prepareSessionFixture(page);
+  const owner = await prepareSessionFixture(page);
+  const original = await waitForSessionFixtureTools(page, owner.runtimeId);
   const timestamp = Date.now();
   const messages = [
     { role: 'user', content: 'Run the command and explain its failure.', timestamp },
@@ -265,8 +269,23 @@ try {
   const output = tool.locator('.process-tool-content pre').last();
   await output.evaluate(pre => { pre.scrollTop = 300; });
   const outerBefore = await measure();
-  const box = await output.boundingBox();
-  await page.mouse.move(box.x + 20, box.y + 80);
+  // A short hosted display can clip the top of the nested output. Target its
+  // visible intersection, and prove the native wheel will hit that output.
+  const nestedTarget = await output.evaluate(pre => {
+    const bounds = pre.getBoundingClientRect();
+    const viewport = document.querySelector('#conversation-scroll').getBoundingClientRect();
+    const left = Math.max(0, bounds.left, viewport.left);
+    const right = Math.min(innerWidth, bounds.right, viewport.right);
+    const top = Math.max(0, bounds.top, viewport.top);
+    const bottom = Math.min(innerHeight, bounds.bottom, viewport.bottom);
+    if (right - left < 4 || bottom - top < 4) throw new Error('Nested output has no visible wheel target');
+    const x = (left + right) / 2, y = (top + bottom) / 2;
+    const hit = document.elementFromPoint(x, y);
+    if (!hit || !pre.contains(hit)) throw new Error('Nested output wheel target is occluded');
+    return { x, y, scrollTop: pre.scrollTop };
+  });
+  assert.equal(nestedTarget.scrollTop, 300, 'The nested output must start at the requested scroll offset');
+  await page.mouse.move(nestedTarget.x, nestedTarget.y);
   await page.mouse.wheel(0, -40);
   await page.waitForFunction(() => [...document.querySelectorAll('.process-tool-content pre')].at(-1).scrollTop < 290);
   assert.equal((await measure()).top, outerBefore.top, 'Nested scrolling must not be redirected into the transcript');

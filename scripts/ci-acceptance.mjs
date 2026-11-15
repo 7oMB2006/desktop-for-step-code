@@ -79,6 +79,8 @@ export const acceptanceGroups = {
     'verify-hidden-messages.mjs',
     'verify-session-concurrency.mjs',
     'verify-session-navigation.mjs',
+    'verify-session-reading.mjs',
+    'verify-session-startup.mjs',
     'verify-mini-chat-electron.mjs',
     'verify-session-branching.mjs',
     'verify-message-order.mjs',
@@ -139,6 +141,13 @@ export const localOnly = [
   'verify-plugin-starter.mjs',
   'verify-plugin-center-package.mjs',
   'verify-plugin-center-manual.mjs',
+  // Large-package timing matrices require a controlled local filesystem baseline.
+  // Functional catalog isolation and target verification run in protocol tests.
+  'verify-plugin-target-reads.mjs',
+  'verify-session-plugin-cold-start.mjs',
+  // Cross-package SDK startup diagnostics and an explicitly supplied StepAudio release.
+  'verify-session-plugin-startup.mjs',
+  'verify-stepaudio-release.mjs',
   // Requires the actual companion source in an explicitly prepared separate checkout.
   'verify-external-connectors-electron.mjs',
   'verify-hermes-fresh-install-electron.mjs',
@@ -208,6 +217,10 @@ export const localOnly = [
   // Isolated Remote UI only; this check starts its own Vite server and uses no real channels.
   'verify-remote-access-preview.mjs',
   'verify-remote-chat-preview.mjs',
+  // Source-bundle instrumentation for before/after comparison; not a packaged-app probe.
+  'verify-remote-startup-navigation.mjs',
+  // Requires the separately started Remote navigation Vite preview.
+  'verify-remote-startup-toast-preview.mjs',
   'verify-scheduled-tasks-preview.mjs',
   'verify-app-update-source.mjs',
   'verify-chat-quotes.mjs',

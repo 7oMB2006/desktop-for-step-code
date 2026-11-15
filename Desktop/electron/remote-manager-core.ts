@@ -30,7 +30,7 @@ export interface RemoteHost {
   projects?(): RemoteProject[];
   refresh(): Promise<void>;
   validateWorkspaces(workspaces: string[]): Promise<void>;
-  prepare(sessionId: string): Promise<SessionRuntime>;
+  prepare(sessionId: string, recovering?: boolean): Promise<SessionRuntime>;
   createSession(workspace: string): Promise<SessionRuntime>;
   worker(runtimeId: string, sessionId: string): SessionRuntime;
   queued?(worker: SessionRuntime): number;
@@ -374,7 +374,7 @@ export class RemoteManager {
     if (!session) throw new Error('Session is unavailable or outside the authorized scope');
     const target = binding.targets.get(sessionId);
     if (!target) this.makeRoom(binding);
-    const worker = target ? this.current(target).worker : await this.host.prepare(sessionId);
+    const worker = target ? this.current(target).worker : await this.host.prepare(sessionId, this.recovering);
     this.assertBinding(binding);
     if (binding.selectionRevision !== revision) throw new Error('Selection was superseded by a forwarding change');
     const current = this.host.sessions().find(item => item.sessionId === sessionId && item.workspace === session.workspace);

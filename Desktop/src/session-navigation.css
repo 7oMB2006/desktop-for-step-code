@@ -6,6 +6,19 @@
   animation: session-navigation-spin 850ms linear infinite;
 }
 .session-reading-preview { opacity: 1; }
+.session-reading-status, .session-reading-unavailable {
+  max-width: 760px; margin: 12px auto; padding: 0 24px;
+  font-size: 12px; line-height: 1.5; color: var(--muted);
+}
+.session-reading-status { width: 100%; margin: 0; padding-block: 8px; border-bottom: 1px solid var(--border); flex: none; }
+.runtime-startup-status { flex: none; padding: 5px 24px; border-bottom: 1px solid var(--border); font-size: 12px; color: var(--muted); }
+.runtime-startup-heading { display: flex; align-items: center; gap: 8px; min-height: 28px; }
+.runtime-startup-heading > span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.runtime-startup-heading > button { width: 28px; height: 28px; flex: none; }
+.runtime-startup-status ul { list-style: none; margin: 0; padding: 0 0 5px 22px; max-height: 88px; overflow: auto; }
+.runtime-startup-status li { display: grid; grid-template-columns: minmax(0, 1fr) auto 48px; gap: 10px; line-height: 22px; }
+.runtime-startup-status li > :first-child { overflow-wrap: anywhere; }
+.runtime-startup-status time { text-align: right; font-variant-numeric: tabular-nums; }
 .session-reading-placeholder {
   max-width: 760px; margin: 30px auto; padding: 0 24px;
   display: flex; flex-direction: column; gap: 14px;
@@ -16,11 +29,15 @@
 }
 .session-reading-placeholder span:first-child { width: 34%; margin-left: auto; }
 .session-reading-placeholder span:last-child { width: 52%; }
-.session-navigation-pending .composer-tools { opacity: .55; }
+.session-navigation-pending .composer-tools > :not(.composer-action-button):not(.model-effort-placeholder) { visibility: hidden; }
+.model-effort-placeholder { width: 156px; flex: 0 1 156px; }
+.model-effort-placeholder .model-effort-trigger { width: 100%; opacity: 1; color: var(--muted); }
+.model-effort-placeholder svg { flex: none; }
+.model-effort-loading-icon { animation: session-navigation-spin 850ms linear infinite; }
 .conversation[aria-busy="false"] > .messages { animation: session-reading-enter 120ms cubic-bezier(.215, .61, .355, 1); }
 @keyframes session-navigation-spin { to { transform: rotate(360deg); } }
 @keyframes session-reading-enter { from { opacity: .8; } to { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) {
   .session-row.selected { transition: none; }
-  .session-navigation-spinner, .conversation[aria-busy="false"] > .messages { animation: none; }
+  .session-navigation-spinner, .model-effort-loading-icon, .conversation[aria-busy="false"] > .messages { animation: none; }
 }

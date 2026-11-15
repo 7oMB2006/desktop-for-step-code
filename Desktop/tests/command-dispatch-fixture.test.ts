@@ -25,6 +25,7 @@ function dispatchFixture(menuExpected = true) {
     evaluate: async () => ({ value, expanded, menuMounted, focused: document.activeElement === handle }),
   };
   const page = {
+    mouse: { move: async (x: number, y: number) => { assert.equal(x, 0); assert.equal(y, 0); } },
     keyboard: {
       press: async (key: string) => {
         assert.equal(key, 'Escape', 'Preparing input never submits or retries a command');
@@ -35,6 +36,11 @@ function dispatchFixture(menuExpected = true) {
       },
     },
     locator: (selector: string) => {
+      if (selector === '.status-tooltip[aria-hidden="false"]') return {
+        waitFor: async ({ state, timeout }: { state: string; timeout: number }) => {
+          assert.equal(state, 'hidden'); assert.equal(timeout, 5000);
+        },
+      };
       assert.equal(selector, '.composer-discovery[data-mode="commands"]');
       return { getByText: (text: string, options: { exact: boolean }) => {
         assert.equal(options.exact, true);
@@ -95,6 +101,46 @@ test('parameterized commands and ordinary prose do not wait for a nonexistent co
   }
 });
 
+test('dispatch clears pointer-owned status tooltips before its single completion Escape', async () => {
+  const value = dispatchFixture();
+  let parked = false, tooltipOpen = true, tooltipWaits = 0;
+  value.page.mouse.move = async (x, y) => {
+    assert.equal(x, 0); assert.equal(y, 0);
+    parked = true;
+  };
+  const locator = value.page.locator;
+  value.page.locator = selector => selector === '.status-tooltip[aria-hidden="false"]' ? {
+    waitFor: async ({ state, timeout }: { state: string; timeout: number }) => {
+      assert.equal(parked, true, 'moving away cancels a still-pending hover timer too');
+      assert.equal(state, 'hidden'); assert.equal(timeout, 5000);
+      tooltipWaits++; tooltipOpen = false;
+    },
+  } : locator(selector);
+  const press = value.page.keyboard.press;
+  value.page.keyboard.press = async key => {
+    assert.equal(tooltipOpen, false, 'a status tooltip must not consume the command menu Escape');
+    return press(key);
+  };
+  await prepareDispatchInput(value.page, value.input, '/todos');
+  assert.equal(parked, true);
+  assert.equal(tooltipWaits, 1);
+  assert.equal(value.events.filter(event => event === 'Escape').length, 1);
+  assert.equal(value.disposed(), true);
+});
+
+test('a tooltip dismissal failure retains the original error without pressing Escape or replaying input', async t => {
+  const value = dispatchFixture();
+  const failure = new Error('Status tooltip did not close');
+  const log = t.mock.method(console, 'error', () => {});
+  const locator = value.page.locator;
+  value.page.locator = selector => selector === '.status-tooltip[aria-hidden="false"]'
+    ? { waitFor: async () => { throw failure; } } : locator(selector);
+  await assert.rejects(prepareDispatchInput(value.page, value.input, '/todos'), error => error === failure);
+  assert.deepEqual(value.events, ['fill']);
+  assert.equal(JSON.parse(log.mock.calls[0].arguments[1]).phase, 'pointer tooltip dismissal');
+  assert.equal(value.disposed(), true);
+});
+
 test('an editor readiness failure prevents Escape and retains its diagnostic and original error', async t => {
   const value = dispatchFixture();
   const failure = new Error('Editor value did not commit');
@@ -111,7 +157,9 @@ test('a completion readiness failure prevents Escape and retains the original er
   const value = dispatchFixture();
   const failure = new Error('Completion menu did not appear');
   const log = t.mock.method(console, 'error', () => {});
-  value.page.locator = () => ({ getByText: () => ({ waitFor: async () => { throw failure; } }) });
+  const locator = value.page.locator;
+  value.page.locator = selector => selector === '.composer-discovery[data-mode="commands"]'
+    ? { getByText: () => ({ waitFor: async () => { throw failure; } }) } : locator(selector);
   await assert.rejects(prepareDispatchInput(value.page, value.input, '/todos'), error => error === failure);
   assert.deepEqual(value.events, ['fill', 'editor-ready']);
   assert.equal(log.mock.calls.length, 1);

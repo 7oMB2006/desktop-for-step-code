@@ -13,7 +13,8 @@ const copiedHelpers = ['admin.mjs', 'windows-runtime-job.ps1', 'capability-admin
   'session-import.mjs', 'session-history.mjs', 'session-search.mjs', 'steppage-config.mjs', 'usage-overview.mjs',
   'desktop-sessions.mjs', 'desktop-remote.mjs', 'runtime-compile-cache.mjs', 'remote-channel.mjs',
   'remote-channel-core.mjs', 'remote-media-channel.mjs', 'remote-card.mjs', 'remote-form.mjs'];
-const bundledHelpers = ['compaction-configuration.mjs', 'project-instructions.mjs', 'remote-markdown.mjs'];
+const bundledHelpers = ['compaction-configuration.mjs', 'project-instructions.mjs', 'remote-markdown.mjs',
+  'session-reading-worker.mjs'];
 const windowsOnly = { skip: process.platform !== 'win32' };
 
 type Fixture = { root: string; script: string; runtime: string; terminal: string; electron: string };

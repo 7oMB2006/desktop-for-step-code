@@ -6,12 +6,18 @@ export function parseExternalConnectorAction(value: unknown): ExternalConnectorA
   const input = value as Record<string, unknown>;
   const keys = Object.keys(input);
   if ((input.type === 'enable' || input.type === 'disable') && keys.length === 1) return { type: input.type };
-  if (input.type === 'pair' && keys.length === 3 && typeof input.displayName === 'string'
+  const pluginRef = typeof input.pluginRef === 'string' && /^[a-f0-9-]{36}$/u.test(input.pluginRef);
+  if (input.type === 'bind-plugin' && keys.length === 3 && pluginRef
+    && typeof input.agentId === 'string' && /^[a-z0-9][a-z0-9_-]{0,63}$/u.test(input.agentId))
+    return { type: 'bind-plugin', agentId: input.agentId, pluginRef: input.pluginRef as string };
+  if (input.type === 'pair' && (keys.length === 3 || keys.length === 4 && pluginRef)
+    && keys.every(key => ['type', 'displayName', 'roots', 'pluginRef'].includes(key)) && typeof input.displayName === 'string'
     && input.displayName.trim() && input.displayName.length <= 100 && !/[\u0000-\u001f\u007f]/u.test(input.displayName)
     && Array.isArray(input.roots) && input.roots.length > 0 && input.roots.length <= 32
     && input.roots.every(root => typeof root === 'string' && root.length > 0 && root.length <= 4096)
     && new Set(input.roots).size === input.roots.length)
-    return { type: 'pair', displayName: input.displayName.trim(), roots: input.roots as string[] };
+    return { type: 'pair', displayName: input.displayName.trim(), roots: input.roots as string[],
+      ...(pluginRef ? { pluginRef: input.pluginRef as string } : {}) };
   if (input.type === 'revoke' && keys.length === 2 && typeof input.agentId === 'string'
     && /^[a-z0-9][a-z0-9_-]{0,63}$/u.test(input.agentId)) return { type: 'revoke', agentId: input.agentId };
   const scope = typeof input.agentId === 'string' && /^[a-z0-9][a-z0-9_-]{0,63}$/u.test(input.agentId)

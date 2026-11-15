@@ -30,7 +30,7 @@ async function fixture(t: test.TestContext, validateImage?: (bytes: Buffer, maxD
   const catalog = async (kind = 'installed', provenance = 'recorded') => {
     const plugin = { id: 'bridge', name: 'Bridge', mcpServers: [], warnings: [],
       packageDescriptor: { root: directory, fingerprint: await packageFingerprint(directory),
-        id: 'bridge', name: 'bridge', kind, provenance } };
+        id: 'bridge', name: 'bridge', kind, provenance, instance: '12345678-1234-1234-1234-123456789abc' } };
     return { plugins: kind === 'installed' ? [plugin] : [], available: kind === 'installed' ? [] : [plugin],
       marketplaces: [], mcp: [], skills: [], warnings: [] } as unknown as CapabilityCatalog;
   };
@@ -67,6 +67,40 @@ test('desktop presentation accepts only bounded data-only pages and supported su
     'docs/start.md:stream', 'docs/start.md#section', 'https://example.com/start.md', 'docs/start.txt', 'docs/\nstart.md'])
     assert.throws(() => parsePresentation({ schemaVersion: 1,
       desktop: desktop({ pages: [{ ...desktop().pages[0], document }] }) }), document);
+});
+test('confirmation sources bind installation identity, survive updates and reject missing or broken declarations', async t => {
+  const f = await fixture(t);
+  const notice = { id: 'delegate', version: '1', action: 'external.delegate', policy: 'always',
+    title: 'Delegate review', message: 'The agent may make mistakes.', confirmLabel: 'Continue' };
+  const metadata = { schemaVersion: 1, desktop: desktop(), confirmations: [notice] };
+  await writeFile(join(f.directory, 'dfsc.plugin.json'), JSON.stringify(metadata));
+  let instance = '12345678-1234-1234-1234-123456789abc';
+  const service = () => new CapabilityService({ root: f.root, runtime: 'unused', node: 'unused', environment: () => ({}),
+    createWorker: () => ({
+      start() {}, async stopManagement() {},
+      async request() {
+        const value = await f.catalog() as any;
+        value.plugins[0].packageDescriptor.instance = instance;
+        return value;
+      },
+    } as unknown as RpcProcess) });
+  const first = service(), plugins = await first.confirmationPlugins();
+  assert.equal(plugins.length, 1);
+  const initial = await first.confirmationSource(plugins[0].ref);
+  assert.deepEqual(initial.confirmations, [notice]);
+  assert.deepEqual(await service().confirmationSource(initial.binding), initial);
+  await writeFile(join(f.directory, 'docs/start.md'), '# Updated');
+  const updated = await first.confirmationSource(initial.binding);
+  assert.deepEqual(updated.binding, initial.binding);
+  assert.notEqual(updated.revision, initial.revision);
+  instance = '22345678-1234-1234-1234-123456789abc';
+  await assert.rejects(first.confirmationSource(initial.binding), /stale/);
+  instance = '12345678-1234-1234-1234-123456789abc';
+  await writeFile(join(f.directory, 'dfsc.plugin.json'), JSON.stringify({ ...metadata, confirmations: [] }));
+  await assert.rejects(first.confirmationSource(initial.binding), /invalid-confirmation/);
+  await f.metadata();
+  await assert.rejects(first.confirmationSource(initial.binding), /invalid-confirmation/);
+  assert.equal((await first.confirmationPlugins()).length, 0);
 });
 test('only recorded installed packages expose desktop pages and authorize their documents', async t => {
   const f = await fixture(t);

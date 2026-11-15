@@ -80,6 +80,31 @@ try {
   await page.getByRole('switch').click();
   assert.equal(await page.locator('.external-connector-form button[type=submit]').isDisabled(), true);
   checks.push('empty project list cannot authorize');
+  await open('light', 'zh', '&plugin-unavailable=1&tasks=1');
+  await page.getByText('插件列表暂不可用', { exact: false }).waitFor();
+  assert.equal(await page.locator('.external-connector-row-heading button').first().isEnabled(), true);
+  assert.equal(await page.locator('.external-connector-form select').count(), 0);
+  checks.push('plugin discovery failure preserves connection management rather than blocking unrelated work');
+  for (const [theme, width, language] of [['light', 1360, 'zh'], ['dark', 1360, 'en'], ['light', 390, 'zh'], ['dark', 390, 'en']]) {
+    await page.setViewportSize({ width, height: 900 });
+    await open(theme, language, '&plugins=1');
+    await page.getByRole('switch').click();
+    await page.locator('.external-connector-form input:not([type=checkbox])').fill('Hermes');
+    await page.locator('.external-connector-form input[type=checkbox]').check();
+    const select = page.locator('.external-connector-form select');
+    await select.selectOption('12345678-1234-1234-1234-123456789abc');
+    await focus(select);
+    await page.locator('.external-connector-form button[type=submit]').click();
+    await settleLayout(page.locator('.external-connector-confirmation'));
+    assert.match(await page.locator('.external-connector-confirmation').innerText(), /Hermes x DFSC/);
+    await page.locator('.external-connector-confirmation button').last().click();
+    await page.locator('.external-plugin-identity').waitFor();
+    assert.match(await page.locator('.external-plugin-identity').innerText(), /fixture-bridge/);
+    assert.equal(await page.locator('.external-plugin-association').count(), 0);
+    await page.screenshot({ path: `${output}/plugin-association-${theme}-${width}.png`, fullPage: true });
+    assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+    checks.push(`${theme}/${width}/${language}: explicit plugin association, confirmation identity and focus bounds`);
+  }
   await open();
   await page.getByRole('switch').click();
   await page.locator('.external-connector-form input:not([type=checkbox])').fill('Hermes');

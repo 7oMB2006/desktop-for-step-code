@@ -31,12 +31,16 @@ export interface ExternalConnectorState {
     displayName: string;
     roots: string[];
     configPath: string;
+    plugin?: { id: string };
   }[];
   projects: { workspace: string; name: string }[];
   approvals?: ExternalApprovalState;
+  plugins?: { ref: string; id: string; name: string }[];
+  pluginDiscoveryUnavailable?: boolean;
 }
 export type ExternalConnectorAction = { type: 'enable' | 'disable' }
-  | { type: 'pair'; displayName: string; roots: string[] }
+  | { type: 'pair'; displayName: string; roots: string[]; pluginRef?: string }
+  | { type: 'bind-plugin'; agentId: string; pluginRef: string }
   | { type: 'revoke'; agentId: string }
   | { type: 'delegate'; taskId: string; minutes: number; categories: ExternalApprovalCategory[] }
   | { type: 'undelegate'; taskId: string }

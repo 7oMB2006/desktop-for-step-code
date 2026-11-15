@@ -4,6 +4,7 @@ import { createServer } from 'node:http';
 import { spawn } from 'node:child_process';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { mkdtemp } from './test-profile.mjs';
+import { submitColdSessionFixture } from './session-fixture.mjs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
@@ -27,7 +28,7 @@ const profile = await mkdtemp(join(tmpdir(), 'desktop-tray-'));
 const root = join(profile, 'step-runtime');
 await mkdir(root, { recursive: true });
 await writeFile(join(profile, 'preferences.json'), JSON.stringify({ theme: 'light', language: 'zh', workspaces: [] }));
-await writeFile(join(root, 'config.toml'), 'defaultProvider = "fixture"\ndefaultModel = "fixture"\n[telemetry]\nenabled = false\n');
+await writeFile(join(root, 'config.toml'), 'defaultProvider = "fixture"\ndefaultModel = "fixture"\n[telemetry]\nenabled = false\n[mcp_servers.steppage__steppage]\nenabled = false\n');
 await writeFile(join(root, 'models.json'), JSON.stringify({
   defaultProvider: 'fixture', defaultModel: 'fixture',
   providers: { fixture: { baseUrl: `http://127.0.0.1:${server.address().port}/v1`, api: 'openai-completions',
@@ -134,7 +135,7 @@ try {
   await page.evaluate(() => window.desktop.preferences({ theme: 'light' }));
   mark('hidden task and terminal retention');
   await page.getByRole('textbox', { name: '消息', exact: true }).fill('Run until explicitly stopped.');
-  await page.getByRole('textbox', { name: '消息', exact: true }).press('Enter');
+  await submitColdSessionFixture(page, () => page.getByRole('textbox', { name: '消息', exact: true }).press('Enter'));
   await page.waitForFunction(() => document.querySelector('.messages')?.textContent.includes('Tray fixture running.'));
   const before = await page.evaluate(() => window.desktop.snapshot());
   const terminal = await page.evaluate(id => window.desktop.terminalCreate(id), before.runtimeId);

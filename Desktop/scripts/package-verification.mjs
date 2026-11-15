@@ -45,7 +45,8 @@ for (const name of copiedHelpers) {
     `Runtime helper must match this checkout: ${name}`);
   helpers[name] = hash(bytes);
 }
-for (const name of ['compaction-configuration.mjs', 'project-instructions.mjs', 'remote-markdown.mjs']) {
+for (const name of ['compaction-configuration.mjs', 'project-instructions.mjs', 'remote-markdown.mjs',
+  'session-reading-worker.mjs']) {
   const bytes = await readFile(join(runtime, name));
   assert.ok(bytes.length > 0, `Missing bundled runtime helper: ${name}`);
   helpers[name] = hash(bytes);

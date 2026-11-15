@@ -21,6 +21,23 @@
     "documentation": { "$ref": "#/definitions/documentation" },
     "desktop": { "$ref": "#/definitions/desktop" },
     "requirements": { "$ref": "#/definitions/requirements" },
+    "confirmations": {
+      "type": "array", "minItems": 1, "maxItems": 8,
+      "description": "Data-only risk declarations for host-supported actions on an explicitly associated local connection. Does not grant permissions. IDs and actions must each be unique; the host checks these constraints.",
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["id", "version", "action", "policy", "title", "message", "confirmLabel"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$" },
+          "version": { "type": "string", "pattern": "^[a-zA-Z0-9._-]{1,64}$" },
+          "action": { "enum": ["external.delegate", "external.policy"] },
+          "policy": { "enum": ["always", "remember"] },
+          "title": { "allOf": [{ "$ref": "#/definitions/confirmationText" }], "maxLength": 160 },
+          "message": { "allOf": [{ "$ref": "#/definitions/confirmationText" }], "maxLength": 1600 },
+          "confirmLabel": { "allOf": [{ "$ref": "#/definitions/confirmationText" }], "maxLength": 40 }
+        }
+      }
+    },
     "locales": {
       "type": "object", "additionalProperties": false,
       "properties": {
@@ -53,6 +70,10 @@
     }
   },
   "definitions": {
+    "confirmationText": {
+      "type": "string", "minLength": 1,
+      "pattern": "^(?=.*\\S)[^\\u0000-\\u001f\\u007f-\\u009f\\u202a-\\u202e\\u2066-\\u2069]+$"
+    },
     "requirements": {
       "type": "object", "additionalProperties": false,
       "description": "Author-declared compatibility and external dependencies, not detected installation state. This grants no permission and never installs software or runs probes.",

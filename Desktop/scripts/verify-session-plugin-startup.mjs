@@ -8,13 +8,15 @@ import { _electron as electron } from 'playwright';
 import { installationReceipt, packageFingerprint, writeReceipts } from '../electron/plugin-files.mjs';
 import { closeDesktopFixtureAndWait } from './close-desktop-fixture.mjs';
 import { queueFixture } from './queue-demo-fixture.mjs';
-import { waitForNewSessionButton, waitForSessionFixtureSnapshot } from './session-fixture.mjs';
+import { submitSessionFixture, waitForNewSessionButton, waitForSessionFixtureSnapshot } from './session-fixture.mjs';
 import { mkdtemp, removeTestProfile } from './test-profile.mjs';
 
 const execute = promisify(execFile);
 const output = resolve(process.env.DESKTOP_VERIFY_OUTPUT ?? 'test-results/session-plugin-startup');
 const executablePath = process.env.DESKTOP_VERIFY_EXE && resolve(process.env.DESKTOP_VERIFY_EXE);
-const runtime = await realpath(executablePath ? join(dirname(executablePath), 'resources', 'runtime') : resolve('runtime'));
+const resources = executablePath ? (process.platform === 'darwin'
+  ? resolve(dirname(executablePath), '../Resources') : join(dirname(executablePath), 'resources')) : resolve('.');
+const runtime = await realpath(join(resources, 'runtime'));
 const node = join(runtime, 'node', process.platform === 'win32' ? 'node.exe' : 'node');
 const sdkSource = resolve('../examples/plugins/sdk-host-starter/plugins/dfsc-host-example');
 const normalId = 'dfsc-host-example', themeId = 'startup-resource-theme', largeId = 'startup-large-resource';
@@ -165,7 +167,47 @@ async function firstQuestion(context, label, { existingId } = {}) {
   const assistantCount = ready.messages.filter(item => item.role === 'assistant').length;
   const input = context.page.getByRole('textbox', { name: '\u6d88\u606f', exact: true });
   await input.fill(text);
-  await input.press('Enter');
+  if (context.label === 'failures') {
+    const requestsBefore = context.fixture.requests.length;
+    await input.press('Enter');
+    const failed = await waitForSessionFixtureSnapshot(context.page, value => {
+      const startup = value.state?.desktopStartup;
+      return startup?.targetBound && startup.modelReady && startup.discovery === 'ready'
+        && startup.tools.some(tool => tool.status === 'failed')
+        && startup.tools.every(tool => !['pending', 'connecting'].includes(tool.status));
+    }, 'controlled plugin failures to settle', 15000);
+    assert.equal(failed.state.desktopStartup.cleanupConfirmed, false, 'A timed-out handshake requires whole-worker recovery');
+    assert.ok(await context.page.locator('.composer-action-button').isDisabled());
+    assert.equal(await input.evaluate(element => element.value), text, 'Rejected execution retains the draft');
+    await assert.rejects(context.page.evaluate(() => window.desktop.command('prompt', {
+      message: 'MUST_NOT_BYPASS_PLUGIN_CLEANUP',
+    })), /STARTUP_NOT_READY/);
+    assert.equal(context.fixture.requests.length, requestsBefore, 'Unconfirmed cleanup must never reach the provider');
+    const disabled = await context.page.evaluate(name => window.desktop.capabilityMutate({
+      action: 'mcp-toggle', name, enabled: false,
+    }), service('startup-timeout'));
+    assert.deepEqual(disabled.warnings, []);
+    await context.page.getByRole('button', { name: '\u91cd\u65b0\u8fde\u63a5\u8fd0\u884c\u65f6', exact: true }).click();
+    await waitForSessionFixtureSnapshot(context.page, value => {
+      const startup = value.state?.desktopStartup;
+      return value.runtimeId !== failed.runtimeId && value.state?.sessionId === failed.state.sessionId
+        && startup?.targetBound && startup.modelReady && startup.discovery === 'ready'
+        && startup.cleanupConfirmed && startup.tools.some(tool => tool.name === service('startup-exit') && tool.status === 'failed')
+        && startup.tools.some(tool => tool.name === service('startup-timeout') && tool.status === 'disabled')
+        && startup.tools.every(tool => !['pending', 'connecting'].includes(tool.status) && tool.cleanupConfirmed !== false);
+    }, 'explicit reconnect to retire uncertain cleanup without replacing the session', 15000);
+    assert.equal(await input.evaluate(element => element.value), text, 'Explicit recovery retains the rejected draft');
+    assert.equal(context.fixture.requests.length, requestsBefore, 'Failed tools never silently authorize the first request');
+    const confirmation = context.page.getByRole('dialog', { name: '\u5de5\u5177\u4e0d\u53ef\u7528', exact: true });
+    if (!await confirmation.isVisible()) {
+      await context.page.waitForFunction(() => !document.querySelector('.composer-action-button')?.disabled);
+      await input.press('Enter');
+    }
+    await confirmation.waitFor();
+    await confirmation.getByRole('button', { name: '\u786e\u8ba4', exact: true }).click();
+    results.failureRecovery = { cleanupBlocked: true, explicitReconnect: true, sessionAndDraftRetained: true,
+      timedOutServiceDisabled: true, settledFailureExplicitlyConfirmed: true };
+  } else await submitSessionFixture(context.page, () => input.press('Enter'));
   const answered = await waitForSessionFixtureSnapshot(context.page, value => !value.state?.isStreaming
     && value.messages.some(item => item.role === 'user' && JSON.stringify(item.content).includes(text))
     && value.messages.filter(item => item.role === 'assistant' && item.stopReason === 'stop').length > assistantCount,
@@ -265,11 +307,12 @@ try {
   await run(await setup('failures', [['startup-exit', 'exit'], ['startup-timeout', 'timeout']]), async context => {
     await launch(context);
     await configure(context);
-    const question = await firstQuestion(context, 'failed-services-first');
+    const question = await firstQuestion(context, 'failed-services-first', { existingId: 'queue-demo' });
     question.mcp = await checkService(context, 'startup-exit', 'failed');
-    await checkService(context, 'startup-timeout', 'failed');
-    assert.ok(question.elapsedToReplyMs < 30000, 'Controlled plugin failures must not prevent the local first response');
-    for (const item of context.plugins) assert.equal((await launches(item)).length, 1, 'One controlled native launch per service');
+    await checkService(context, 'startup-timeout', 'disabled');
+    assert.ok(question.elapsedToReplyMs < 30000, 'Explicit recovery and confirmation must permit the local first response');
+    for (const item of context.plugins) assert.equal((await launches(item)).length, item.id === 'startup-exit' ? 2 : 1,
+      'Recovery launches the enabled failed service once more but never restarts the disabled timed-out service');
     results.failureFixture = { exitCode: 23, declaredStartupTimeoutSec: 1, delayedSdkImportMs: 60000,
       productTimeoutsChanged: false };
   });

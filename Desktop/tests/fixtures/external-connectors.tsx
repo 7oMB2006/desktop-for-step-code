@@ -15,6 +15,9 @@ let state: ExternalConnectorState = {
   projects: params.has('empty') ? [] : [{ workspace, name: 'Practice project' }],
 };
 const taskId = '12345678-1234-1234-1234-123456789abc';
+if (params.has('plugins')) state.plugins = [{ id: 'fixture-bridge',
+  ref: '12345678-1234-1234-1234-123456789abc', name: 'Hermes x DFSC' }];
+if (params.has('plugin-unavailable')) state.pluginDiscoveryUnavailable = true;
 if (params.has('tasks')) state = { ...state, enabled: true, listening: true, connections: [{
   agentId: 'fixture-agent', displayName: 'Hermes x DFSC', roots: [workspace], configPath: 'C:\\Fixture\\config.json',
 }], approvals: { tasks: [{ taskId, agentId: 'fixture-agent', title: 'Inspect a project and run its tests',
@@ -41,7 +44,10 @@ const bridge = {
     if (action.type === 'pair') state = { ...state, connections: [{
       agentId: 'fixture-agent', displayName: action.displayName, roots: action.roots,
       configPath: 'C:\\Users\\Fixture\\AppData\\Roaming\\Desktop for Step Code\\external-connectors\\agents\\fixture-agent\\config.json',
+      ...(action.pluginRef ? { plugin: { id: 'fixture-bridge' } } : {}),
     }] };
+    if (action.type === 'bind-plugin') state.connections = state.connections.map(connection =>
+      connection.agentId === action.agentId ? { ...connection, plugin: { id: 'fixture-bridge' } } : connection);
     if (action.type === 'revoke') state = { ...state, connections: [] };
     if (action.type === 'delegate' && state.approvals) {
       state.approvals.tasks[0].delegation = { categories: action.categories, expiresAt: action.minutes ? Date.now() + action.minutes * 60000 : null };

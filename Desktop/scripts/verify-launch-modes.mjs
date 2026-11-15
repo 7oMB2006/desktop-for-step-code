@@ -10,6 +10,7 @@ import assert from 'node:assert/strict';
 import { assertPersistentTurnStatus } from './turn-status-assertions.mjs';
 import { observeGoalClear, launchFailureDiagnostics, restoreGoalClearObservation } from './launch-failure-diagnostics.mjs';
 import { waitForLaunchProviderRequest } from './launch-provider-fixture.mjs';
+import { submitColdSessionFixture } from './session-fixture.mjs';
 
 const requests = [];
 const streams = new Set();
@@ -57,7 +58,7 @@ await mkdir(reuseDirectory);
 const reuseWorkspace = await realpath(reuseDirectory);
 await mkdir('test-results', { recursive: true });
 await writeFile(join(profile, 'preferences.json'), JSON.stringify({ language: 'zh', theme: 'dark', workspaces: [reuseWorkspace] }));
-await writeFile(join(root, 'config.toml'), 'defaultProvider = "fixture"\ndefaultModel = "fixture"\npermissionPreset = "ask"\n[telemetry]\nenabled = false\n');
+await writeFile(join(root, 'config.toml'), 'defaultProvider = "fixture"\ndefaultModel = "fixture"\npermissionPreset = "ask"\n[telemetry]\nenabled = false\n[mcp_servers.steppage__steppage]\nenabled = false\n');
 await writeFile(join(root, 'models.json'), JSON.stringify({ defaultProvider: 'fixture', defaultModel: 'fixture',
   providers: { fixture: { baseUrl: `http://127.0.0.1:${server.address().port}/v1`, api: 'openai-completions', apiKey: 'isolated-test',
     models: [{ id: 'fixture', name: 'Goal fixture', input: ['text', 'image'], contextWindow: 32768, maxTokens: 2048 }] } } }));
@@ -123,7 +124,7 @@ try {
   const input = page.getByRole('textbox', { name: '消息', exact: true });
   const goalRequestIndex = requests.length;
   await input.fill('核验这个图片，并完成本地测试目标。');
-  await input.press('Enter');
+  await submitColdSessionFixture(page, () => input.press('Enter'));
   await page.waitForFunction(() => document.querySelector('.launch-status-pulse')?.getAttribute('data-goal-state') === 'active', undefined, { timeout: 60000 });
   await page.locator('.messages .message.user img').waitFor();
   const goalRequest = await waitForLaunchProviderRequest(requests, goalRequestIndex);

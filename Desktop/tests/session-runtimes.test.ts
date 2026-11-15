@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
 import { resolve } from 'node:path';
 import { SessionRuntimes, taskOutcome, type WorkerTransport, type RuntimeStartupDiagnostic, type SessionRuntime } from '../electron/session-runtimes';
 import { WORKSPACE_POLICY, DESKTOP_SYSTEM_POLICY, DESKTOP_CRON_POLICY, desktopSystemPolicy } from '../electron/workspace-policy';
@@ -8,6 +9,7 @@ import { QUESTION_TITLE } from '../src/questionnaire';
 import { MessageRevision } from '../src/message-revision';
 import { applyToolResult } from '../src/message-events';
 import { quitReasons } from '../electron/quit-review';
+import type { RuntimeStartup } from '../src/runtime-startup';
 
 class Transport implements WorkerTransport {
   stopped = false;
@@ -38,6 +40,127 @@ function fixture(hooks: ConstructorParameters<typeof SessionRuntimes>[2] = {}) {
   const open = (cwd = `workspace-${transports.length}`) => pool.open('node', 'step', cwd, {});
   return { pool, transports, events, open };
 }
+
+for (const action of ['model', 'state'] as const) {
+  for (const discovery of ['ready', 'failed'] as const) {
+    test(`${action} startup response cannot overwrite a newer ${discovery} catalog event`, async () => {
+      const { pool, open, transports } = fixture();
+      try {
+        const worker = await open();
+        const previous: RuntimeStartup = { protocol: 1, runtimeId: worker.id, sessionId: worker.state!.sessionId!,
+          startupEpoch: randomUUID(), configurationRevision: randomUUID(), catalogRevision: 0,
+          targetBound: true, modelReady: false, cleanupConfirmed: true, discovery: 'discovering',
+          tools: [], coreReadyAt: 1 };
+        worker.startup = previous;
+        worker.startupConfigurationRevision = previous.configurationRevision;
+        const response = { ...previous, modelReady: true, modelReadyAt: 2 };
+        const latest = { ...response, catalogRevision: 1, discovery };
+        transports[0].request = async type => {
+          assert.equal(type, 'desktop_startup');
+          // The response is captured before the event; both may arrive in one stdout batch.
+          transports[0].receive({ type: 'desktop_startup_changed', startup: latest });
+          return response;
+        };
+        const result = action === 'model' ? await pool.modelReady(worker) : await pool.readStartup(worker);
+        assert.equal(worker.startup?.catalogRevision, 1);
+        assert.equal(worker.startup?.discovery, discovery);
+        assert.equal(worker.state?.desktopStartup?.discovery, discovery);
+        if (action === 'state') assert.equal(result?.discovery, discovery);
+      } finally { await pool.stopAll(); }
+    });
+  }
+}
+
+for (const field of ['targetBound', 'modelReady', 'cleanupConfirmed', 'firstPromptAcceptedAt'] as const) {
+  test(`state responses cannot roll back same-catalog ${field} progress`, async () => {
+    const { pool, open, transports } = fixture();
+    try {
+      const worker = await open();
+      const response: RuntimeStartup = { protocol: 1, runtimeId: worker.id, sessionId: worker.state!.sessionId!,
+        startupEpoch: randomUUID(), configurationRevision: randomUUID(), catalogRevision: 0,
+        targetBound: field !== 'targetBound', modelReady: field !== 'modelReady',
+        cleanupConfirmed: true, discovery: 'ready', tools: [], coreReadyAt: 1 };
+      worker.startup = response;
+      worker.startupConfigurationRevision = response.configurationRevision;
+      const latest = { ...response, [field]: field === 'cleanupConfirmed' ? false
+        : field === 'firstPromptAcceptedAt' ? 3 : true };
+      transports[0].request = async () => {
+        transports[0].receive({ type: 'desktop_startup_changed', startup: latest });
+        return response;
+      };
+      const result = await pool.readStartup(worker);
+      assert.equal(result?.[field], latest[field]);
+      assert.equal(worker.startup?.[field], latest[field]);
+      assert.equal(worker.state?.desktopStartup?.[field], latest[field]);
+    } finally { await pool.stopAll(); }
+  });
+}
+
+for (const action of ['model', 'state'] as const) {
+  test(`${action} startup response cannot replace a newer startup epoch`, async () => {
+    const { pool, open, transports } = fixture();
+    try {
+      const worker = await open();
+      const response: RuntimeStartup = { protocol: 1, runtimeId: worker.id, sessionId: worker.state!.sessionId!,
+        startupEpoch: randomUUID(), configurationRevision: randomUUID(), catalogRevision: 2,
+        targetBound: true, modelReady: true, cleanupConfirmed: true, discovery: 'ready',
+        tools: [], coreReadyAt: 1 };
+      worker.startup = response;
+      worker.startupConfigurationRevision = response.configurationRevision;
+      const latest = { ...response, startupEpoch: randomUUID(), catalogRevision: 0,
+        targetBound: false, modelReady: false, discovery: 'waiting' as const };
+      transports[0].request = async () => {
+        transports[0].receive({ type: 'desktop_startup_changed', startup: latest });
+        return response;
+      };
+      await assert.rejects(action === 'model' ? pool.modelReady(worker) : pool.readStartup(worker),
+        /startup identity changed|startup model restoration failed/i);
+      assert.equal(worker.startup?.startupEpoch, latest.startupEpoch);
+      assert.equal(worker.startup?.modelReady, false);
+      assert.equal(worker.state?.desktopStartup?.startupEpoch, latest.startupEpoch);
+    } finally { await pool.stopAll(); }
+  });
+}
+
+test('startup binding retains a catalog event delivered before its bind response resumes', async () => {
+  let worker!: SessionRuntime;
+  let latest!: RuntimeStartup;
+  const pool = new SessionRuntimes(() => {}, receive => {
+    const transport = new Transport(receive, 'bound-session');
+    const request = transport.request.bind(transport);
+    transport.request = async (type, args) => {
+      if (type === 'get_state') {
+        latest ??= { protocol: 1, runtimeId: worker.id, sessionId: transport.sessionId,
+          startupEpoch: randomUUID(), configurationRevision: worker.startupConfigurationRevision!,
+          catalogRevision: 0, targetBound: false, modelReady: false,
+          cleanupConfirmed: true, discovery: 'waiting', tools: [], coreReadyAt: 1 };
+        return { ...await request(type, args), desktopStartup: latest };
+      }
+      if (type === 'desktop_startup') {
+        if (args?.action === 'bind') {
+          const response = { ...latest, targetBound: true, discovery: 'discovering' as const };
+          latest = { ...response, catalogRevision: 1, discovery: 'ready' };
+          receive({ type: 'desktop_startup_changed', startup: latest });
+          return response;
+        }
+        latest = { ...latest, modelReady: true };
+        return latest;
+      }
+      return request(type, args);
+    };
+    return transport;
+  }, {
+    launch: current => { worker = current; return { env: {}, args: [] }; },
+    initializeModel: async current => {
+      assert.equal(current.startup?.discovery, 'ready',
+        'binding must not leave main-process startup behind the native catalog');
+      assert.equal(current.startup?.catalogRevision, 1);
+    },
+  });
+  try { await pool.open('node', 'step', 'workspace', {}); }
+  finally { await pool.stopAll(); }
+});
+
 test('host plugins are attached only after model restore and never for gated Cron preparation', async () => {
   const steps: string[] = [];
   const f = fixture({ initializeModel: async worker => {
@@ -295,6 +418,8 @@ test('startup diagnostics separate process, restoration, snapshot, model and plu
     assert.deepEqual(Object.keys(timing).sort(),
       ['modelRestoreMs', 'pluginAttachMs', 'processReadyMs', 'sessionRestoreMs', 'snapshotMs', 'totalMs']);
     assert.ok(Object.values(timing).every(value => Number.isFinite(value) && value >= 0));
+    assert.equal(typeof timing.pluginAttachMs, 'number');
+    assert.ok(timing.pluginAttachMs !== undefined);
     assert.ok(Math.abs(timing.totalMs - timing.processReadyMs - timing.sessionRestoreMs - timing.snapshotMs - timing.modelRestoreMs - timing.pluginAttachMs) < .001);
     assert.deepEqual(progress.map(({ phase, status }) => `${phase}:${status}`),
       ['launch:starting', 'process:starting', 'session:starting', 'snapshot:starting', 'model:starting', 'plugins:starting', 'plugins:ready']);
@@ -305,6 +430,59 @@ test('startup diagnostics separate process, restoration, snapshot, model and plu
     assert.equal(progress.length, 7);
   } finally { await pool.stopAll(); }
 });
+
+for (const outcome of ['resolved', 'rejected', 'replaced'] as const) {
+  test(`asynchronous plugin timing remains nonblocking and handles ${outcome} attachment`, { timeout: 5000 }, async () => {
+    let resolveAttachment!: () => void, rejectAttachment!: (error: Error) => void;
+    const attachment = new Promise<void>((resolve, reject) => {
+      resolveAttachment = resolve; rejectAttachment = reject;
+    });
+    const progress: RuntimeStartupDiagnostic[] = [];
+    const f = fixture({
+      initializeModel: async worker => {
+        const startup: RuntimeStartup = { protocol: 1, runtimeId: worker.id, sessionId: worker.state!.sessionId!,
+          startupEpoch: randomUUID(), configurationRevision: randomUUID(), catalogRevision: 1,
+          targetBound: true, modelReady: false, cleanupConfirmed: true, discovery: 'ready', tools: [], coreReadyAt: 1 };
+        worker.startup = startup;
+        worker.startupConfigurationRevision = startup.configurationRevision;
+        const transport = f.transports[0], request = transport.request.bind(transport);
+        transport.request = async (type, args) => type === 'desktop_startup'
+          ? { ...startup, modelReady: true } : request(type, args);
+      },
+      pluginsReady: () => attachment,
+      startup: diagnostic => progress.push(diagnostic),
+    });
+    try {
+      const worker = await f.open();
+      const pending = worker.startupTiming!;
+      assert.equal(worker.startup?.modelReady, true);
+      assert.equal(pending.pluginAttachMs, undefined, 'Pending attachment is not reported as zero or complete');
+      assert.equal(progress.at(-1)?.phase, 'model');
+      assert.equal(progress.at(-1)?.status, 'ready');
+      if (outcome === 'replaced') worker.startup = { ...worker.startup!, startupEpoch: randomUUID() };
+      if (outcome === 'rejected') rejectAttachment(new Error('private-attachment-error'));
+      else resolveAttachment();
+      await new Promise<void>(resolve => setImmediate(resolve));
+      assert.equal(worker.status, 'connected', 'Background attachment does not undo authoritative session readiness');
+      if (outcome === 'resolved') {
+        const timing = worker.startupTiming!;
+        assert.ok(timing.pluginAttachMs !== undefined && timing.pluginAttachMs >= 0);
+        assert.ok(Math.abs(timing.totalMs - timing.processReadyMs - timing.sessionRestoreMs
+          - timing.snapshotMs - timing.modelRestoreMs - timing.pluginAttachMs) < .001);
+        assert.equal(progress.at(-1)?.phase, 'plugins');
+        assert.equal(progress.at(-1)?.status, 'ready');
+      } else {
+        assert.equal(worker.startupTiming, pending, 'Failure or superseded epochs cannot publish completed timing');
+        assert.equal(progress.at(-1)?.status, outcome === 'rejected' ? 'failed' : 'ready');
+        assert.ok(!progress.some(item => item.phase === 'plugins' && item.status === 'ready'));
+      }
+      assert.doesNotMatch(JSON.stringify(progress), /private-attachment-error/);
+    } finally {
+      resolveAttachment();
+      await f.pool.stopAll();
+    }
+  });
+}
 
 for (const phase of ['launch', 'process', 'session', 'snapshot', 'model', 'plugins'] as const) {
   test(`failed ${phase} startup preserves bounded diagnostics and clears its pending approvals`, async () => {
@@ -1442,8 +1620,10 @@ function branchFixture(outcome: 'success' | 'cancelled' | 'changed' = 'success')
   return { pool, transports, events };
 }
 
-function retryFixture(outcome: 'success' | 'cancelled' | 'unsupported' | 'rejected' = 'success', withImages = true) {
+function retryFixture(outcome: 'success' | 'cancelled' | 'unsupported' | 'rejected' = 'success', withImages = true,
+  hooks: ConstructorParameters<typeof SessionRuntimes>[2] = {}) {
   const events: RuntimeEvent[] = [];
+  const transports: Transport[] = [];
   const image = { type: 'image', mimeType: 'image/png', data: 'fixture' };
   const entries = [
     { id: 'u1', parentId: null, type: 'message', message: { role: 'user', content: 'same', timestamp: 1 } },
@@ -1473,9 +1653,10 @@ function retryFixture(outcome: 'success' | 'cancelled' | 'unsupported' | 'reject
       }
       return {};
     };
+    transports.push(transport);
     return transport;
-  });
-  return { pool, events, submitted, image };
+  }, hooks);
+  return { pool, events, submitted, image, transports };
 }
 
 test('retry stays in the same worker/session, excludes the old turn and retains images', async () => {
@@ -1535,6 +1716,70 @@ test('rejected submission without a persisted user turn restores history and per
   assert.equal(worker.messages.length, 4);
   assert.equal(events.filter(event => event.type === 'desktop_history').length, 2);
   assert.equal(worker.submissions, 0);
+});
+test('rejected retry resets hosted leases and rebinds the restored startup epoch before model and host readiness', { timeout: 10000 }, async t => {
+  const steps: string[] = [];
+  let release!: () => void;
+  const heldPlugins = new Promise<void>(resolve => { release = resolve; });
+  t.after(() => release());
+  const { pool, transports } = retryFixture('rejected', false, {
+    pluginsReset: () => { steps.push('host-reset'); },
+    pluginsReady: async worker => {
+      if (!worker.startup) return;
+      assert.equal(worker.startup.targetBound, true);
+      assert.equal(worker.startup.modelReady, true);
+      steps.push('plugins');
+      await heldPlugins;
+    },
+  });
+  try {
+    const worker = await pool.open('node', 'step', 'cwd', {});
+    worker.permissionPreset = 'approve-for-me';
+    let startup: RuntimeStartup = { protocol: 1, runtimeId: worker.id, sessionId: 'source',
+      startupEpoch: randomUUID(), configurationRevision: randomUUID(), catalogRevision: 1,
+      targetBound: true, modelReady: true, cleanupConfirmed: true, discovery: 'ready', tools: [], coreReadyAt: 1 };
+    const previousEpoch = startup.startupEpoch;
+    worker.startup = { ...startup };
+    worker.startupConfigurationRevision = startup.configurationRevision;
+    const request = transports[0].request.bind(transports[0]);
+    transports[0].request = async (type, args) => {
+      if (type === 'get_state') return { ...await request(type, args), desktopStartup: { ...startup } };
+      if (type === 'desktop_startup') {
+        if (args?.action === 'bind') {
+          assert.equal(args.startupEpoch, startup.startupEpoch);
+          assert.equal(args.sessionId, startup.sessionId);
+          assert.equal(startup.targetBound, false);
+          steps.push('bind');
+          startup = { ...startup, targetBound: true };
+        } else if (args?.action === 'model') {
+          assert.equal(args.startupEpoch, startup.startupEpoch);
+          assert.equal(startup.targetBound, true);
+          steps.push('model');
+          startup = { ...startup, modelReady: true, discovery: 'ready' };
+        } else assert.equal(args?.action, 'state');
+        return { ...startup };
+      }
+      if (type === 'switch_session') {
+        assert.equal(steps.at(-1), 'host-reset');
+        steps.push('switch');
+        const restored = await request(type, args);
+        startup = { ...startup, startupEpoch: randomUUID(), targetBound: false, modelReady: false,
+          discovery: 'waiting' };
+        return restored;
+      }
+      if (type === 'prompt' && args?.message === '/permissions approve-for-me') steps.push('permissions');
+      return request(type, args);
+    };
+    await assert.rejects(pool.retryLatest(worker, 'u2', 'edited'), /Submission rejected/);
+    assert.deepEqual(steps, ['host-reset', 'switch', 'permissions', 'bind', 'model', 'plugins']);
+    assert.notEqual(worker.startup?.startupEpoch, previousEpoch);
+    assert.equal(worker.startup?.startupEpoch, startup.startupEpoch);
+    assert.equal(worker.state?.desktopStartup?.startupEpoch, startup.startupEpoch);
+    assert.equal(worker.leafId, 'a2');
+    assert.equal(worker.messages.length, 4);
+    assert.equal(worker.submissions, 0);
+    await pool.assertExecutionReady(worker);
+  } finally { release(); await pool.stopAll(); }
 });
 
 test('clone is prepared in a different worker and preserves the source and permissions', async () => {

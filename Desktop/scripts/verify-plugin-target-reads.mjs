@@ -11,7 +11,9 @@ import { mkdtemp, removeTestProfile } from './test-profile.mjs';
 
 const output = resolve(process.env.DESKTOP_VERIFY_OUTPUT ?? 'test-results/plugin-target-reads');
 const executablePath = process.env.DESKTOP_VERIFY_EXE && resolve(process.env.DESKTOP_VERIFY_EXE);
-const runtimePath = executablePath ? join(dirname(executablePath), 'resources', 'runtime') : resolve('runtime');
+const resources = executablePath ? (process.platform === 'darwin'
+  ? resolve(dirname(executablePath), '../Resources') : join(dirname(executablePath), 'resources')) : resolve('.');
+const runtimePath = join(resources, 'runtime');
 const baseline = process.env.DESKTOP_VERIFY_TARGET_BASELINE === '1';
 const readTimeoutMs = 180000, targetReadLimitMs = 15000, fullCatalogTimeoutMs = 90000;
 const results = { mode: executablePath ? 'package' : 'source', baseline,

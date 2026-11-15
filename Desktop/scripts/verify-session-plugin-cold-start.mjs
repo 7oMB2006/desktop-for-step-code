@@ -4,13 +4,15 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { _electron as electron } from 'playwright';
 import { closeDesktopFixtureAndWait } from './close-desktop-fixture.mjs';
-import { waitForSessionFixtureSnapshot } from './session-fixture.mjs';
+import { submitSessionFixture, waitForSessionFixtureSnapshot } from './session-fixture.mjs';
 import { mkdtemp, removeTestProfile } from './test-profile.mjs';
 import { COLD_START_DESKTOP_TITLES, COLD_START_PLUGIN_IDS, createColdStartPluginFixture } from './session-plugin-cold-start-fixture.mjs';
 
 const output = resolve(process.env.DESKTOP_VERIFY_OUTPUT ?? 'test-results/session-plugin-cold-start');
 const executablePath = process.env.DESKTOP_VERIFY_EXE && resolve(process.env.DESKTOP_VERIFY_EXE);
-const runtime = await realpath(executablePath ? join(dirname(executablePath), 'resources', 'runtime') : resolve('runtime'));
+const resources = executablePath ? (process.platform === 'darwin'
+  ? resolve(dirname(executablePath), '../Resources') : join(dirname(executablePath), 'resources')) : resolve('.');
+const runtime = await realpath(join(resources, 'runtime'));
 const node = join(runtime, 'node', process.platform === 'win32' ? 'node.exe' : 'node');
 const selectedCases = process.env.DESKTOP_VERIFY_COLD_CASE
   ? [process.env.DESKTOP_VERIFY_COLD_CASE] : ['first-question', 'historical-session'];
@@ -82,7 +84,8 @@ async function runCase(label) {
     }
     const text = `COLD-START-${label}`;
     await input.fill(text);
-    await input.press('Enter');
+    entry.initialSendMs = elapsed();
+    await submitSessionFixture(page, () => input.press('Enter'));
     entry.promptSubmittedMs = elapsed();
     const answered = await waitForSessionFixtureSnapshot(page, value => !value.state?.isStreaming
       && value.messages.some(item => item.role === 'user' && JSON.stringify(item.content).includes(text))

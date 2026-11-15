@@ -8,6 +8,8 @@ import type { ConfigurationDescriptor } from './plugin-configuration.mjs';
 import type { CapabilityService } from './capability-service';
 import type { SessionRuntime, SessionRuntimes } from './session-runtimes';
 import type { LaunchContext } from '../../examples/plugins/host-client/protocol.mjs';
+import { setTimeout as delay } from 'node:timers/promises';
+import { runtimeStartup } from '../src/runtime-startup';
 
 interface NativeRecord {
   requestId: string; sessionId: string; pluginId: string; consumer: string; root: string;
@@ -32,7 +34,9 @@ export class PluginHostLauncher {
   private attachments = new Map<SessionRuntime, Map<string, Attachment>>();
   private generation = 0;
   private versions = new WeakMap<SessionRuntime, number>();
-  private attaching = new WeakMap<SessionRuntime, Promise<void>>();
+  private attaching = new WeakMap<SessionRuntime, {
+    rpc: SessionRuntime['rpc']; version: number; generation: number; operation: Promise<void>;
+  }>();
   private deferred = new Map<SessionRuntime, SessionRuntime['rpc']>();
   constructor(private options: {
     root: string; pool: Pick<SessionRuntimes, 'workers' | 'activeId' | 'confirm'>;
@@ -66,11 +70,13 @@ export class PluginHostLauncher {
     }
     this.deferred.delete(worker);
     const pending = this.attaching.get(worker);
-    if (pending) return pending;
+    const rpc = worker.rpc, version = this.versions.get(worker) ?? 0, generation = this.generation;
+    if (pending?.rpc === rpc && pending.version === version && pending.generation === generation)
+      return pending.operation;
     const operation = this.open(worker).finally(() => {
-      if (this.attaching.get(worker) === operation) this.attaching.delete(worker);
+      if (this.attaching.get(worker)?.operation === operation) this.attaching.delete(worker);
     });
-    this.attaching.set(worker, operation);
+    this.attaching.set(worker, { rpc, version, generation, operation });
     return operation;
   }
   private async open(worker: SessionRuntime) {
@@ -84,6 +90,17 @@ export class PluginHostLauncher {
     const current = () => this.options.available() && identityCurrent();
     if (!sessionId || !current()) return;
     try {
+      if (worker.startup) {
+        const deadline = Date.now() + 60000;
+        for (;;) {
+          if (!current() || Date.now() >= deadline) return;
+          const state = runtimeStartup(await rpc.request('desktop_startup', { action: 'state' }, 10000), worker.id, sessionId);
+          if (!state || state.startupEpoch !== worker.startup.startupEpoch
+            || !state.targetBound || !state.modelReady || state.discovery === 'failed') return;
+          if (state.discovery === 'ready') break;
+          await delay(100);
+        }
+      }
       let inventory: unknown;
       try { inventory = await rpc.request('desktop_plugin_host', { action: 'list' }, 10000); }
       catch { return; }
@@ -98,25 +115,36 @@ export class PluginHostLauncher {
           || attachments.has(record.requestId)) continue;
         const attachment: Attachment = { record, rpc };
         attachments.set(record.requestId, attachment);
+        let valid = true, timedOut = false;
+        let timer: ReturnType<typeof setTimeout> | undefined;
         try {
-          await this.options.capabilities.withHostDescriptor(record.pluginId, record.root, record.consumer, async descriptor => {
-            if (!current()) throw new Error('Stale plugin launch');
+          const operation = this.options.capabilities.withHostDescriptor(record.pluginId, record.root, record.consumer, async descriptor => {
+            if (!valid || !current()) throw new Error('Stale plugin launch');
             const launch = await this.broker.issue(descriptor, worker);
             attachment.launch = launch;
-            if (!current()) throw new Error('Stale plugin launch');
+            if (!valid || !current()) { this.broker.release(launch); throw new Error('Stale plugin launch'); }
             const result = await rpc.request('desktop_plugin_host',
               { action: 'start', requestId: record.requestId, context: JSON.stringify(launch) }, 30000);
-            if (!current() || result?.started !== true) throw new Error('Plugin launch failed');
+            if (!valid || !current() || result?.started !== true) throw new Error('Plugin launch failed');
             attachment.started = true;
           });
+          if (worker.startup) await Promise.race([operation, new Promise<never>((_resolve, reject) => {
+            timer = setTimeout(() => { timedOut = true; valid = false; reject(new Error('Plugin startup timed out')); }, 120000);
+          })]);
+          else await operation;
         } catch {
           if (attachment.launch) {
             this.broker.release(attachment.launch);
             delete attachment.launch;
             // Keep this record consumed locally; transaction release cannot renew an issued launch.
           } else attachments.delete(record.requestId);
+          if (worker.startup && identityCurrent()) {
+            try { await rpc.request('desktop_plugin_host', { action: 'reject', requestId: record.requestId,
+              ...(timedOut ? { cleanupConfirmed: false } : {}) }, 10000); }
+            catch {}
+          }
           // Failure is local to this consumer; no raw native error is published.
-        }
+        } finally { valid = false; clearTimeout(timer); }
       }
     } finally {
       if (identityCurrent() && !this.options.available()) this.deferred.set(worker, rpc);

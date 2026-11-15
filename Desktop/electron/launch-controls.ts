@@ -3,6 +3,7 @@ import { emptyLaunch, type LaunchMode, type LaunchState } from '../src/launch-st
 import { ultracodeInput } from '../src/ultracode-input';
 
 export class LaunchControls {
+  private choices = new WeakMap<SessionRuntime, number>();
   constructor(private pool: SessionRuntimes) {}
   private async supports(worker: SessionRuntime, names: string[]) {
     const { commands } = await worker.rpc.request('get_commands');
@@ -15,6 +16,7 @@ export class LaunchControls {
     await this.pool.readLaunch(worker);
   }
   async set(worker: SessionRuntime, mode: LaunchMode, enabled: boolean) {
+    this.choices.set(worker, (this.choices.get(worker) ?? 0) + 1);
     await this.pool.readLaunch(worker);
     worker.launch ??= emptyLaunch();
     if (mode === 'review') {
@@ -116,10 +118,22 @@ export class LaunchControls {
   }
   consume(worker: SessionRuntime) {
     if (!worker.launch) return;
+    const rpc = worker.rpc, sessionId = worker.state?.sessionId;
+    const selected = { ultracodeArmed: worker.launch.ultracodeArmed,
+      planArmed: worker.launch.planArmed, goalArmed: worker.launch.goalArmed };
+    const choice = (this.choices.get(worker) ?? 0) + 1;
+    this.choices.set(worker, choice);
     worker.launch.ultracodeArmed = false;
     worker.launch.planArmed = false;
     worker.launch.goalArmed = false;
     this.pool.publishLaunch(worker);
+    return () => {
+      if (this.choices.get(worker) !== choice || this.pool.workers.get(worker.id) !== worker
+        || worker.rpc !== rpc || worker.state?.sessionId !== sessionId || !worker.launch) return;
+      this.choices.set(worker, choice + 1);
+      Object.assign(worker.launch, selected);
+      this.pool.publishLaunch(worker);
+    };
   }
   async disableStandingUltracode(worker: SessionRuntime) {
     await this.command(worker, 'ultraloop', 'off');

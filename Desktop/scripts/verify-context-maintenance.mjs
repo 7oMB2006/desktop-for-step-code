@@ -2,6 +2,7 @@ import { _electron as electron } from 'playwright';
 import { createServer } from 'node:http';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { mkdtemp } from './test-profile.mjs';
+import { waitForSessionFixtureTools } from './session-fixture.mjs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import assert from 'node:assert/strict';
@@ -19,7 +20,7 @@ const profile = await mkdtemp(join(tmpdir(), 'desktop-clm-'));
 const root = join(profile, 'step-runtime');
 await mkdir(root);
 await writeFile(join(profile, 'preferences.json'), JSON.stringify({ language: 'en', theme: 'dark' }));
-await writeFile(join(root, 'config.toml'), 'defaultProvider = "fixture"\ndefaultModel = "fixture"\n[telemetry]\nenabled = false\n');
+await writeFile(join(root, 'config.toml'), 'defaultProvider = "fixture"\ndefaultModel = "fixture"\n[telemetry]\nenabled = false\n[mcp_servers.steppage__steppage]\nenabled = false\n');
 await writeFile(join(root, 'models.json'), JSON.stringify({ providers: { fixture: { api: 'openai-completions',
   baseUrl: `http://127.0.0.1:${server.address().port}/v1`, apiKey: 'isolated-test',
   models: [{ id: 'fixture', name: 'Context fixture', contextWindow: 32768, maxTokens: 2048 }] } } }));
@@ -40,8 +41,9 @@ try {
   await page.evaluate(async () => {
     const draft = await window.desktop.snapshot();
     await window.desktop.createDraftSession(draft.draftId);
-    await window.desktop.command('prompt', { message: 'Hello' });
   });
+  await waitForSessionFixtureTools(page);
+  await page.evaluate(() => window.desktop.command('prompt', { message: 'Hello' }));
   await page.waitForFunction(async () => !(await window.desktop.snapshot()).state.isStreaming);
   const snapshot = await page.evaluate(() => window.desktop.snapshot());
   await page.reload();

@@ -21,6 +21,7 @@ export interface ExternalGrant {
   agentId: string;
   roots: string[];
   binding?: string;
+  plugin?: import('../src/plugin-confirmations').PluginConfirmationBinding;
   validate?(): Promise<void>;
 }
 export interface ExternalTaskHost {
@@ -326,8 +327,10 @@ export class ExternalConnectorTasks {
     }, 500);
     this.monitor.unref();
   }
-  async configurePolicy(action: Extract<ExternalConnectorAction, { type: 'policy' | 'unpolicy' }>, grant?: ExternalGrant) {
+  async configurePolicy(action: Extract<ExternalConnectorAction, { type: 'policy' | 'unpolicy' }>, grant?: ExternalGrant,
+    valid = () => true) {
     await this.initialize();
+    this.valid(valid);
     const scope = `${action.agentId}:${action.cwd}`;
     const revision = (this.policyRevisions.get(scope) ?? 0) + 1;
     this.policyRevisions.set(scope, revision);
@@ -349,7 +352,7 @@ export class ExternalConnectorTasks {
         || !validCategories(action.categories) || ![null, 1, 7, 30].includes(action.days)
         || !['ask', 'approve-for-me'].includes(action.permissionPreset) || !this.host.respond
         || action.permissionPreset === 'approve-for-me' && !this.host.restrict) fail('invalid-input');
-      await this.authorize(grant, action.cwd, () => this.policyRevisions.get(scope) === revision);
+      await this.authorize(grant, action.cwd, () => valid() && this.policyRevisions.get(scope) === revision);
       if (this.policies.length >= 256) fail('limit');
       const now = Date.now();
       const policy: SavedApprovalPolicy = { id: randomUUID(), agentId: action.agentId, cwd: action.cwd,
@@ -361,10 +364,12 @@ export class ExternalConnectorTasks {
       entry.scope = 'policy';
       try {
         await this.persist();
-        await this.authorize(grant, action.cwd, () => this.policyRevisions.get(scope) === revision);
+        await this.authorize(grant, action.cwd, () => valid() && this.policyRevisions.get(scope) === revision);
         this.setPolicyLease(policy);
         entry.outcome = 'applied'; await this.persist();
+        this.valid(valid);
       } catch (error) {
+        this.policyLeases.delete(policy.id);
         entry.outcome = 'not-applied';
         this.policies = this.policies.filter(p => p !== policy); await this.persist(); throw error;
       }
@@ -387,8 +392,9 @@ export class ExternalConnectorTasks {
       })), audit: structuredClone(this.approvalAudit).reverse(),
       policies: this.policies.filter(p => this.policy(p.agentId, p.cwd, p.binding) === p).map(({ binding: _, clock: __, ...p }) => structuredClone(p)) };
   }
-  async delegate(action: Extract<ExternalConnectorAction, { type: 'delegate' | 'undelegate' }>) {
+  async delegate(action: Extract<ExternalConnectorAction, { type: 'delegate' | 'undelegate' }>, valid = () => true) {
     await this.initialize();
+    this.valid(valid);
     const task = this.tasks.find(value => value.id === action.taskId);
     if (!task) fail('task-unavailable');
     const revision = (this.delegationRevisions.get(task.id) ?? 0) + 1;
@@ -402,6 +408,7 @@ export class ExternalConnectorTasks {
       return;
     }
     return this.serial(async () => {
+      this.valid(valid);
       if (this.storageFailed) fail('storage');
       const { worker } = this.attachment(task);
       if (terminal(task.phase) || task.stopRequested || !this.nativeAllowed(task, worker) || !this.host.respond) fail('session-unavailable');
@@ -413,12 +420,14 @@ export class ExternalConnectorTasks {
       await this.persist();
       try {
         this.attachment(task);
+        this.valid(valid);
         if (this.delegationRevisions.get(task.id) !== revision) fail('revoked');
         if (terminal(task.phase) || task.stopRequested || !this.nativeAllowed(task, worker)) fail('session-unavailable');
         this.optOut.delete(task.id);
         this.leases.set(task.id, lease);
         entry.outcome = 'applied';
         await this.persist();
+        this.valid(valid);
       } catch (error) {
         if (this.leases.get(task.id) === lease) this.leases.delete(task.id);
         entry.outcome = 'not-applied';

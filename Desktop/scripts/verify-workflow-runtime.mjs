@@ -4,6 +4,7 @@ import { _electron as electron } from 'playwright';
 import assert from 'node:assert/strict';
 import { mkdir, writeFile, readdir, readFile, realpath } from 'node:fs/promises';
 import { mkdtemp } from './test-profile.mjs';
+import { waitForSessionFixtureTools } from './session-fixture.mjs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { createServer } from 'node:http';
@@ -14,7 +15,7 @@ const workspace = join(profile, 'workspace');
 await mkdir(workspace, { recursive: true });
 await mkdir(join(profile, 'step-runtime'), { recursive: true });
 await writeFile(join(profile, 'preferences.json'), JSON.stringify({ language: 'zh', theme: 'dark', workspaces: [workspace] }));
-await writeFile(join(profile, 'step-runtime/config.toml'), 'permissionPreset = "approve-for-me"\n[telemetry]\nenabled = false\n');
+await writeFile(join(profile, 'step-runtime/config.toml'), 'permissionPreset = "approve-for-me"\n[telemetry]\nenabled = false\n[mcp_servers.steppage__steppage]\nenabled = false\n');
 const text = message => typeof message.content === 'string' ? message.content
   : message.content?.filter(block => block.type === 'text').map(block => block.text ?? '').join('\n') ?? '';
 const requests = [];
@@ -135,6 +136,7 @@ try {
     await window.desktop.command('set_model', { provider: providerId, modelId: 'fixture-workflow' }, runtimeId);
   }, { providerId, runtimeId: state.runtimeId });
   await page.evaluate(draftId => window.desktop.createDraftSession(draftId), state.draftId);
+  await waitForSessionFixtureTools(page);
   const prompting = page.evaluate(() => window.desktop.command('prompt', { message: 'WORKFLOW-PARENT' }));
   prompting.catch(() => {});
   await waitSnapshot(state => state.state?.isStreaming);
@@ -233,6 +235,8 @@ try {
   const script = `await agent("WORKFLOW-RECOVERY-A", ${options}); await agent("WORKFLOW-RECOVERY-B", ${options}); return await agent("WORKFLOW-RECOVERY-C", ${options});`;
   recoveryCalls.set('WORKFLOW-STOP', { script, agentTimeoutMs: 30000 });
   const submitRecovery = async task => {
+    const owner = await page.evaluate(() => window.desktop.snapshot());
+    await waitForSessionFixtureTools(page, owner.runtimeId);
     await page.evaluate(message => window.desktop.command('prompt', { message }), task);
     return waitSnapshot(async state => {
       for (const request of state.requests ?? []) {
@@ -306,7 +310,9 @@ try {
   });
   await waitSnapshot(state => state.status === 'ready' && state.sessions.some(session => session.id === sessionId));
   await page.evaluate(id => window.desktop.switchSession(id), sessionId);
-  const afterCrash = await waitSnapshot(state => state.state?.sessionId === sessionId && !state.state.isStreaming);
+  const afterCrash = await waitSnapshot(state => state.state?.sessionId === sessionId && !state.state.isStreaming
+    && state.messages.some(message => message.role === 'assistant' && Array.isArray(message.content)
+      && message.content.some(block => block.type === 'toolCall' && block.id === 'WORKFLOW-CRASH')));
   const crashResult = afterCrash.messages.find(message => message.toolCallId === 'WORKFLOW-CRASH');
   assert.equal(crashResult, undefined, 'abrupt termination did not persist a final tool result');
   await page.reload();

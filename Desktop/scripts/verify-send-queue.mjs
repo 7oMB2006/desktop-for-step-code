@@ -9,6 +9,7 @@ import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fixtureRuntimeChildren } from './fixture-runtime-children.mjs';
 import { queueFixture } from './queue-demo-fixture.mjs';
+import { submitSessionFixture, waitForSessionFixtureSnapshot } from './session-fixture.mjs';
 
 const profile = await realpath(await mkdtemp(join(tmpdir(), 'step-send-queue-')));
 const fixture = await queueFixture(profile, { duration: 120000 });
@@ -27,17 +28,18 @@ try {
   });
   await page.getByText('Step Code 已连接', { exact: true }).waitFor({ timeout: 60000 });
   await page.getByText('队列交互示例（本地模拟）', { exact: true }).click();
-  await page.waitForFunction(async () => (await window.desktop.snapshot()).state?.sessionId === 'queue-demo');
+  await waitForSessionFixtureSnapshot(page, snapshot => snapshot.state?.sessionId === 'queue-demo',
+    'the selected queue-demo session');
   await page.locator('.response-text').filter({ hasText: '示例目录里有一个 demo.txt。' }).waitFor();
   const input = page.getByRole('textbox', { name: '消息', exact: true });
   const snapshot = () => page.evaluate(() => window.desktop.snapshot());
   const pending = async count => {
     await page.waitForFunction(count => Number(document.querySelector('.queue-context:not(.is-leaving) .queue-trigger')?.textContent?.match(/\d+/)?.[0] ?? 0) === count, count);
   };
-  const send = async text => {
+  const send = text => submitSessionFixture(page, async () => {
     await page.waitForFunction(() => document.querySelector('.composer-wrap')?.getAttribute('aria-busy') === 'false');
     await input.fill(text); await input.press('Enter');
-  };
+  });
   await send('RUN-A 检查示例文件');
   await page.locator('.live-turn-chip').waitFor({ timeout: 60000 });
   await page.waitForFunction(() => document.querySelector('.response-active')?.textContent?.includes('正在处理'), undefined, { timeout: 30000 });

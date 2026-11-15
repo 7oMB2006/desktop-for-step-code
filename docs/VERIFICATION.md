@@ -1,6 +1,47 @@
 # Verification
 
-当前最新本机验收包为 [TTS r8](#plugin-tts-r8)，继承 r7 的启动与目标读取修复。
+## 插件启动修复 PR 整合验收（2026-11-15）
+
+分支整合 `main` 的 `0dd82aa`，保留插件风险确认及异步会话启动协议。
+宿主附加不阻塞权威会话建立；`pluginAttachMs` 在异步完成前缺省，完成后才记录。
+回调重新检查 worker、transport、连接状态、启动 epoch 和计时对象，过期或失败的
+附加不能回写完成计时或把可读会话断开。保留失败工具确认及清理未确认时的执行硬门。
+打包预检同时要求新主线的 `session-reading-worker.mjs`，避免漏记必要 helper。
+
+本机源码验证使用独立 helper 覆盖层及隔离测试 profile。复用主线已准备的原生资产，
+79 个 patched-source 哈希与当前清单一致，runtime pin 不升级；没有改写共享
+Step-Code、正式 profile、已交付 r8 包或快捷方式，没有新打包、安装或重启正式应用。
+
+- 类型检查、生产构建及差异空白检查通过；保留已有构建警告。
+- 整合定向测试 193/193、修正后的夹具/打包预检组合 81/81、SDK 13/13；
+  CI 路由和清单 67 项：66 通过、1 平台跳过。定向重跑不累加为全量测试数。
+- 首轮全量 2972 项中 2956 通过、15 跳过、1 失败，失败为验收 VM 未带入
+  新的规范化 executable 变量；修正后最终全量串行 2973 项：2958 通过、
+  15 平台跳过、零失败/取消，607592.2238 ms。此后仅补验收脚本跨平台资源路径，
+  源码/Windows 包/macOS 包路径矩阵及相关组合 81/81 另行通过，不叠加为全量数。
+- 源码 Electron 宿主设置及通用授权通过；真实 70 秒 MCP 下，历史可读约 758 ms、
+  权威身份约 2111 ms、工具连接约 71973 ms，提供商请求恰好一次、renderer 异常为零。
+- 双份各 3926 文件的冷启动夹具通过。立即首问/历史发问首次可操作分别为
+  1776/1722 ms，交互至首答 3045/2501 ms；原 15/30 秒门槛未放宽，
+  未控制 OS 文件缓存，使用本机合成模型，不代替正式供应商与大历史验收。
+- 双份各 3928 文件的目标读取夹具通过：菜单 313 ms，宿主设置 11128 ms、
+  配置 11251 ms、文档 11969 ms、桌面导航 11091 ms、配置页就绪 11156 ms。
+  设置入口至可编辑表单两段合计仍为 20726 ms，不宣称整体插件中心已足够快。
+  零模型请求、零服务启动、renderer 与清理异常均为空，截图已检查。
+- 会话插件组合通过连续新建、应用重启恢复、资源/MCP 共存、禁用零启动和异常恢复。
+  超时清理未确认时拒绝执行且无提供商请求；禁用故障服务后通过真实界面显式重连，
+  保留持久会话和草稿，剩余失败工具需确认后才发问，整条恢复至首答 7450 ms。
+  初轮旧夹具误把未确认清理当作可继续；后续修正 DOM 取值、使用持久会话及真实重连，
+  失败日志均保留，没有放宽产品门槛或自动绕过确认。
+
+证据：`D:\Desktop For Step Code\output\plugin-pr-integration-20261115`。
+产物盘点不跟随 junction：本轮证据及 helper 覆盖层约 3.9 MiB，
+可重建 `Desktop/dist` 约 13.1 MiB；没有删除历史包或共享资产。
+当前结果是整合源码验收，不把下述历史包的 TTS/音频字节验收套用到新源码，
+不证明真实账户、费用、音质、安装器或云端 CI；PR 的 exact-head CI 另行核验。
+长上下文会话的上游首响应延迟不属于本轮已解决范围。
+
+当前最新已打包本机验收包为 [TTS r8](#plugin-tts-r8)，继承 r7 的启动与目标读取修复。
 下述 r7 及更早内容是对应阶段的历史快照，不代表当前正在运行的包已自动切换。
 
 <a id="plugin-tts-r8"></a>
@@ -335,6 +376,55 @@ r7 被快捷方式引用，node/step/remote 链接依赖的 `main-20261113-54945
 `shortcut-handoff-r7.json`，未覆盖 r5 记录。正式 r5 PID 6036 及其子进程仍在运行，
 未关闭或重启；快捷方式更新不替换已运行的单实例。
 未运行安装器、删除历史包、提交、推送或公开发布。
+
+## 会话阅读与 MCP 启动解耦（2026-11-14，本地）
+
+实现独立只读历史投影、桌面专用异步启动、实际执行就绪检查和受保护的整运行时重连。
+不是 Scrapling 特判，不修改原生 runtime pin；集成补丁完整重放及 79 份最终源码哈希核对通过。
+完整协议 257/257 文件成功，2703 项通过、15 项平台或文件链接权限跳过，零失败或取消。
+最终类型检查、生产构建、受控 70 秒 MCP 与 20 次旧协议阅读验收通过；后者 DOM 可读 P95 为 656.06 ms。
+宿主授权、权限审批和会话迁移另有 Electron 回归；不把本机夹具结果等同于真实账号、安装器或云端验收。
+实施、独立复核、指标含义、末轮文案修正的验收顺序和产物清单见
+[Session Reading And Runtime Startup](SESSION_STARTUP_DECOUPLING.md)。
+本地验收后获准提交 PR；未打包、发布或替换日常 profile/快捷方式。
+
+同日增量修复切换会话时的旧模型/思考强度标签：导航立即卸载真实选择器，
+改为固定尺寸禁用占位；权威状态恢复后再展示，失败保留目标正文与未知模型占位。
+不更改实际模型恢复、默认偏好或下一轮预选规则。
+最终类型检查、生产构建、四文件 57 项定向测试及两组源码 Electron 验收通过；
+导航 38 次权威恢复校验、41 次跨重载观察中旧选择器残留为零，页面异常为零。
+已检查深浅色、700 像素窄窗口和减少动态效果。旧模型切换夹具改为先等待异步工具稳定，
+保留原快照相等断言；独立审查指出的重载后监测器丢失也已修复并重跑。
+完整 257 文件协议套件先于本增量，未把定向结果冒充为重跑全套。
+证据在上述实施文档的 `model-labels` 条目中。
+
+提交 PR 前已 rebase 到 `main 2d0777b`，保留 PR #245 的 Remote 等待与来源提示，
+并经独立只读合流审查。同步后类型检查、生产构建、21 文件 520 项定向协议测试全通过；
+根 CI 策略/清单/运行器/文档测试 39 通过、1 项平台跳过。
+源码 Electron 会话导航及 Remote 三模式验收通过，模型恢复仍为 38 次校验、
+41 次观察、零旧选择器残留和页面异常。再次运行实际 70 秒 MCP：
+正文约 599 ms 可读、权威状态约 2.05 秒恢复、工具约 72.02 秒连接；
+连接中拒绝执行、显式排除、清理拒绝、重连和冷草稿保留检查通过。
+五个 Electron runner 均返回 0，末次自有 Node/Electron 进程盘点为空。
+本轮未重跑完整 257 文件套件和 20 次阅读分布，证据在 `pr-main-sync`；
+不代表云端检查或正式发布成功，未生成安装器、改动日常 profile 或快捷方式。
+
+## PR #246 CI 兼容性修正（2026-11-14）
+
+首轮 Windows/macOS 夹具隐式依赖本机 StepPage，干净 runner 因工具不可用而正确拒绝发送；
+已在无关的本地模型夹具中显式关闭内置 StepPage，专用 StepPage 用例不变。
+首次启动仍使用真正的空档案，识别 onboarding 后才通过正式设置接口关闭无关 MCP。
+冷草稿夹具仅在确认未接受、未落盘且相同运行时工具已就绪时显式重试一次；
+已接受、其他错误、工具失败或清理不确定时不重试。新建会话使用有界正常退出并保证关闭 HTTP。
+摘要板保留故意失败的 `local-search`，通过真实应用内确认后才允许本地模型请求。
+
+后续验收还发现 Plan 冷启动恢复兼容性问题：只将 `/plan` 开关及 `on/off` 参数声明为初始化管理；
+`/plan <任务>`、`/plan approve` 仍在处理器执行前经过就绪门禁，嵌套执行也独立受限。
+原生 runtime pin、生产工具失败确认及验收超时均未放宽。
+原生三文件 185 项、Desktop 八文件 230 项及 staging 八项定向回归通过，类型检查与运行时重新暂存通过；
+本轮未在本地重跑完整 Desktop 协议清单。
+定向回归与逐项源码 Electron 证据位于实施文档的 `ci-fix` 条目；
+本地通过不等于当前 PR 云端 CI 通过，仍需核对推送后的 Windows/macOS 检查。
 
 ## PR #243 提问验收收尾修正（2026-11-14）
 
@@ -15538,3 +15628,258 @@ Windows/macOS/SDK 绿灯不算本次整合通过，云端结果以 PR 当前 hea
 
 这不是完整 Step Code 模型/UI 验收、全量协议通过、安装包、macOS 本机
 或云端 CI 结果；本次不升级 runtime pin 或打包发布。
+
+## 插件授权动作风险确认接口（2026-11-14）
+
+基于已包含 #243 的 `main a103bc8d3f051adce7cd071d149ea562bf53c788`，
+新增声明式 `confirmations`，首版仅覆盖 `external.delegate` 与
+`external.policy`。宿主原生警告框提供插件身份和实际授权范围，
+取消为默认，记住默认不选。确认不代替授权，不开放插件脚本、
+模型代答或任意动作拦截接口，不拦停止和撤销。
+
+新配对或无进行中任务及长期策略的旧连接可明确关联已安装插件。
+关联绑定可验证安装身份，不按连接名称猜测。相关插件失效、重装、
+风险变化、凭据或范围变化时拒绝授权或重新确认。
+确认期间撤销使迟到确认失效；异步授权提交阶段也检查失效状态，
+失败不遗留审批 lease。取消修改不删除已有策略。
+
+本轮本地验证：
+
+- 完整串行协议 runner：253/253 文件成功，保持原超时与测试清单。
+  运行期间调整了授权提交阶段的失效检查；最终源码上另行复验
+  相关定向测试 115/115，不把全量结果描述成不可变源码快照。
+- 最终类型检查、生产构建通过。文档检查及 CI 文档/协议 runner
+  自测通过；两仓库 `git diff --check` 通过。
+- 浏览器 20 组通过，包含中英文、明暗主题、1360/390 宽度、
+  插件关联、发现失败时仍可管理连接及四边 focus 检查。
+- 最终生产构建的 Windows Electron 18 组通过，使用隔离 profile、
+  真实 main/preload/Step 运行时与 Python socket；27 次受控模型请求，
+  零验收错误，正常退出码 0，退出后窗口为零。
+  覆盖直接 IPC 取消无授权、精确范围记住、范围变化重确认、
+  挂起期间撤销、坏 metadata 拒绝迟到确认及原有审批回归。
+- 桥 companion 全量 82 项：81 通过、1 项 Unix-only 平台跳过；
+  资源检查 10/10。使用 `python -X utf8 -B`，未修改无关编码测试。
+
+协议证据为 `Desktop/test-results/protocol/summary.json`；
+浏览器与原生证据分别在
+`Desktop/test-results/external-connectors-browser/` 和
+`Desktop/test-results/external-connectors-electron/`。
+原生风险对话框的响应由主进程测试夹具控制，Hermes 唤醒端为模拟 host；
+不代表真人点击、真实 Hermes/飞书、过夜、macOS 或安装包验收。
+
+本轮只重建源码 dist 并保留隔离验收证据，未生成安装包。
+未改 runtime pin、上游、日用 profile、配对、权限、快捷方式或市场，
+未删除历史包。此记录为本地结果，云端 CI 以提交后的 PR head 为准。
+
+### PR #244 CI 路径别名回归修复
+
+首个 head `685df58` 的 Windows runtime 与 macOS preparation 均在
+`plugin-confirmations.test.ts` 失败，11 项中 8 项报 `connector:storage`。
+Windows interface 与 sessions 已通过；汇总任务失败是上述失败的后果。
+
+风险确认测试夹具遗漏了同类测试使用的 `realpath`：临时目录经过路径
+别名时，私有存储的规范路径身份校验会拒绝它。本机默认临时路径没有
+别名，因此此前本地通过不能覆盖这一环境差异。
+
+先增加真实目录别名回归，在未修复夹具时本机复现相同的
+`connector:storage`；再仅将夹具创建的根目录规范化。
+回归同时验证记住记录可跨实例复用，以及生产存储仍拒绝未规范化的
+别名根目录，不放宽安全校验、断言、超时或测试清单。
+相关五个文件最终定向复验 116/116，CI 文档与协议 runner 自测 7/7；
+未改产品代码或运行时资产，不重建包、不动日用配置。
+本段记录为本地修复证据，新 head 的完整云端检查需独立通过。
+
+## Session Startup CI Follow-up (2026-11-14)
+
+PR #246 follow-up `d321fcc` passed Windows startup/new-session/Plan and the
+other session fixtures before failing first-run's missing clean-machine MCP
+command and session-move's immediate restored-history assertion. The fixtures
+now supply a valid disabled StepPage declaration after genuine fresh-profile
+detection and await selected history. Custom-provider successful submissions
+use authoritative tool readiness, awaited IPC polling and bounded orderly
+shutdown; no production admission gate or deadline was relaxed.
+
+Additional local Workflow acceptance found missing cloned interruption metadata.
+Clone/fork now read authoritative native messages before filtering Workflow
+bindings, independent of a discardable UI snapshot, and reread after copying
+them. The original immediate cloned-state assertion is
+retained; forced-crash coverage still terminates the owned fixture tree.
+
+Final local evidence under
+`D:\DFSC Builds\session-startup-decoupling\evidence-20261114\ci-fix`:
+four focused test files passed 92 tests; typecheck and production build passed;
+first-run, session-move, custom-providers, Workflow runtime and session-branching
+completed with exit code zero in their `r2`/`r4` logs. Earlier failing attempts
+are diagnostics, not passes. No installer, runtime pin upgrade, production
+profile change, shortcut change, merge or release is included.
+Current-head cloud CI remains a separate required check.
+
+The subsequent `e5ff3fd` cloud run reached the configured-plugin connection
+assertion and imported-session continuation. The former now waits for that
+MCP's real connection and still fails on service errors; the latter waits for
+tool readiness and committed continuation. The two composer IPC fixtures
+capture a settled native snapshot before replacing their handler, rather than
+freezing startup in progress. Final targeted `r4` logs cover capabilities,
+session import, composer menu, command dispatch, Workflow and branching.
+
+The complete local interface diagnostic batch attempted 62 runners, with
+56 passes and six failures. All six then passed scoped corrected reruns:
+capabilities, composer menu and command dispatch in `r4`; account settings,
+account routing and fulltext search in `r5`. This is not a claim that the
+original batch was green. Account success paths await real tool readiness
+without changing the intentional login-busy rejection or denied-Plan routing.
+Fulltext failure checks retain selected read-only history with execution
+disabled, then successfully reopen and locate the search result.
+
+The final four-file regression selection passed 94 tests; typecheck and the
+ordinary production build passed again (`focused-r5`, `typecheck-r5`,
+`build-r5`). The original failures remain diagnostic evidence. Only the
+latest pushed revision's cloud results can establish current-head CI success.
+
+At `da9c01d`, all three Windows cloud groups and their `CI result` passed.
+macOS candidate preparation passed, but source acceptance found a Windows-only
+View-menu selector in the new startup runner and a nested-scroll mouse position
+clipped by the hosted display. Startup now selects the existing macOS
+Application menu; scrolling captures settled native readiness and uses a
+visible, hit-tested nested-output point. The original scroll failure reproduced
+locally at 684px height; corrected short and default-window runs both passed
+without changing the scrolling assertions, deadlines or product layout.
+
+The full local `protocol-r5` run at `da9c01d` completed 258 files, with 2741
+passed tests, 15 platform skips and zero failures. After the fixture-only
+corrections, `focused-r6-final` passed 104 tests and `typecheck-r6` passed.
+`verify-session-startup-r6` passed the actual 70-second MCP scenario again:
+readable history about 776ms, authoritative identity about 2818ms, connection
+about 72.66s and exactly one confirmed provider request. These are controlled
+Windows results, not acceptance of the corrected macOS cloud run.
+
+At `c2e2cd2`, all Windows groups and their result, macOS candidate preparation
+and the macOS source/packaged runtime group passed. The macOS startup runner
+also passed its real 70-second MCP case: readable history about 894ms,
+authoritative identity about 1619ms, connection about 71.38s and one confirmed
+provider request. The sessions group then failed its first send-queue request,
+with native readiness complete but pending startup still visible in the UI.
+
+Two independently reproduced renderer races are now fixed: startup completion
+advances the existing revision watermark so older snapshots cannot restore
+pending status, and the event updates matching queued runtime/session state
+instead of checking a potentially not-yet-rendered view ref. The actual renderer
+callback and real revision tracker reproduced both failures before the fix.
+Cross-runtime/session, failed-reading and switching rejection remain covered.
+The queue runner awaits resolved selected-session IPC and real tool readiness;
+it does not mock native RPC, retry accepted/saved-session sends, weaken queue
+assertions or relax admission gates.
+
+The six-file `focused-r7` selection passed 196 tests; `typecheck-r7` and
+`build-r7` passed. All four `r7` source Electron reruns passed: send queue,
+message ordering, session startup and session navigation. The actual 70-second
+MCP case recorded readable history about 699ms, authoritative identity about
+2438ms, connection about 72.37s, exactly one confirmed provider request and no
+renderer errors. These controlled Windows results are not current-head cloud
+CI, macOS or packaged acceptance of the new renderer.
+The additional `verify-mini-chat-electron-r7` rerun also passed its real-runtime
+navigation, shared composer, approval, streaming and restart checks.
+The complete `protocol-r7` run on the unchanged product/test sources completed
+all 258 files: 2747 tests passed, 15 platform skips and zero failures.
+Documentation contracts and seven documentation/protocol-runner self-tests
+also passed. No installer was created and no existing directory was deleted.
+
+At `bb7eef7`, all Windows groups/result, both SDK jobs and macOS candidate
+preparation passed. All macOS source groups and the sessions/runtime packaged
+groups passed too. The interface package stage failed an immediate native-host
+connection assertion. Its script also ignored `DESKTOP_VERIFY_EXE`, so that
+specific package-stage fixture was still running source Electron.
+
+The corrected fixture selects the requested executable, awaits real tool
+readiness and then polls host connection under unchanged runtime/session, mode
+and revision. Read failures remain fatal and the subsequent configuration
+revocation still must report `restart-required`; no launch replay, production
+gate relaxation or timeout increase is included. Three added contracts failed
+before the fix and pass afterward. `focused-r8` passed 108 tests,
+`typecheck-r8` passed, and both host-settings and host-authorization source
+Electron reruns passed. Product/build sources remain those of `bb7eef7`;
+the complete local `protocol-r7` result predates these fixture-only changes.
+Corrected packaged macOS acceptance remains pending on the next cloud head.
+
+At `cf0dea9`, Windows sessions/runtime, both SDK jobs, macOS preparation and
+source/packaged sessions/runtime passed. Windows interface failed command
+completion dismissal; macOS source interface failed host-settings readiness.
+The aggregate workflows were therefore red.
+
+Host-settings now explicitly disables unrelated StepPage. A regression using
+the real macOS managed-server reconciler confirms that the preinstalled-plugin
+marker alone does not disable its default MCP registration, while an explicit
+disabled entry is preserved. Actual SDK readiness/connection and subsequent
+revocation assertions are retained.
+
+Capture-only renderer probes reproduced the command-dispatch Escape failure
+twice at CDP CPU throttling rate 4: a hovered Running status tooltip consumed
+the key at window capture, before the editor's completion handler. The input
+model was correct; duplicated DOM text was reference decoration. The fixture
+now parks the pointer and awaits tooltip closure before its original single
+Escape. It does not change product Escape priority, retry submissions, weaken
+completion assertions or increase deadlines. Added tests cover that ordering
+and a fatal tooltip-dismissal error with handle disposal.
+
+`focused-r9` passed 121 tests and `typecheck-r9` passed. All four consecutive
+`dispatch-fixed-cpu4-r9-{1..4}` runs passed with the external capture-only
+diagnostic wrapper. Ordinary `verify-command-dispatch-r9`,
+`verify-plugin-host-settings-electron-r9` and
+`verify-plugin-host-authorization-electron-r9` source Electron runs then
+passed too. Product/build sources remain unchanged from `bb7eef7`. These are
+controlled Windows results, not corrected macOS package acceptance or
+newest-head cloud CI success. No local installer or product UI change was made.
+
+At `3f749d9`, all Windows groups/result and both SDK jobs passed. macOS
+preparation, source/packaged sessions and source interface passed, including
+host-settings. Runtime source acceptance failed the first custom-provider
+cold Enter, without an accepted submission or explicit startup refusal; its
+failure screenshot still showed the unsent draft.
+
+Four unchanged provider-fixture runs at CPU throttling rate 4 passed locally;
+the complete cloud failure was not reproduced. Capture-only event probes
+nevertheless observed the expected editor text before React's nonempty state
+and enabled Send had committed. The first provider send now awaits exact
+editor value, controlled nonempty state, focus and editability before the
+original single Enter. This addresses an observed synchronization gap, not a
+proven unique explanation of that cloud failure. Cold-start refusal coverage,
+production admission, deadlines and send replay rules are unchanged.
+
+The added contract failed before the wait and passes after it, checking stale
+editor/React state, lost focus, disabled and missing editors. `focused-r10`
+passed 122 tests and `typecheck-r10` passed. Both
+`provider-fixed-cpu4-r10-{1..2}` runs and the ordinary
+`verify-custom-providers-r10` source Electron run passed. Product/build sources
+remain unchanged from `bb7eef7`. Latest-head cloud success is still required;
+the partial `3f749d9` macOS run is not recorded as green.
+
+At `826b494`, all Windows groups/result and both SDK jobs passed again.
+macOS preparation passed, but source acceptance failed in first-run cold send,
+question-review refused-send readiness and Cron management. The provider-only
+fixture change therefore has not yet completed macOS acceptance.
+
+An independently reproduced main-process race could overwrite newer startup
+events with older RPC responses when both arrive before the response's await
+continuation resumes. Eight actual `SessionRuntimes` cases failed before the
+observation fix (ready/failed catalogs and same-catalog binding/model/cleanup/
+first-acceptance progress); two further cases failed before adding epoch
+revalidation. A separate test covers the bind-response path. This establishes
+the product race, not a unique explanation of every cloud failure above.
+
+The main process now selects whole startup observations monotonically within
+one runtime/session/configuration/epoch. It retains newer catalogs and
+forward-only same-catalog progress, with epoch/session revalidation after RPC.
+It does not synthesize a merged tool directory or relax execution admission,
+missing-tool consent, cleanup safety or renderer isolation.
+
+`focused-r11` passed 209 tests; `typecheck-r11-final` and `build-r11` passed.
+Eight `r11` source Electron reruns passed: question review, first run, Cron
+management, custom providers, session startup, send queue, host settings and
+host authorization. Actual 70-second MCP startup recorded readable history
+about 576ms, authoritative identity about 2023ms, connection about 72.00s,
+exactly one provider request and no renderer errors.
+The full `protocol-r11` run completed 258 files with 2766 passed tests,
+15 platform skips and zero failures. A tested bounded fixture-timeout
+projection adds readiness diagnostics without serializing messages, paths,
+tool names/commands or credentials. Latest-head Windows/macOS cloud and
+macOS packaged acceptance remain required for this product revision.

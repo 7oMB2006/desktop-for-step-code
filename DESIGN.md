@@ -1,5 +1,14 @@
 # Design System
 
+## Plugin Risk Confirmation
+
+Plugin-declared risks use a host-owned native warning dialog before a supported
+authorization action. Cancel is the default and escape action; remember is
+unchecked. Display plugin identity and host-derived scope separately from
+plugin-authored prose. Acknowledgement grants no permissions. Never gate stop,
+revoke or unrelated work behind a risk prompt. Connection associations are
+explicit selects, not inferred names; preserve four-pixel form focus gutters.
+
 ## Form Focus Visibility
 
 Inputs, textareas and composite fields reuse the shared theme focus treatment.
@@ -477,6 +486,8 @@ Sidebar navigation follows Codex-style grouping: independent sessions appear in 
 Independent sessions always remain the first sidebar section, followed by pinned projects and ordinary projects. Archived sessions live only in Settings > Archived, grouped by project with an independent-session group, search and project filtering. Opening an archived title does not restore it; Unarchive returns it to its saved sidebar group and manual order. Single-session and all-archive permanent deletion execute directly without a secondary confirmation. The current session, active tasks and non-archived IDs are protected; deletion unlinks validated Desktop-profile JSONL history only, never project files. Project context menus pin/unpin whole projects; the pinned heading has no add-project button. Projects always have a persisted fixed order, and reopening a project cannot promote it. Sessions default to persisted manual order; General offers manual or recently updated first without discarding the saved manual order. New sessions enter at the top of their own group without reordering older rows. Primary-button long press drags sessions within their group and projects within their pinned/ordinary section, with a compact label preview, insertion line and edge scrolling. Drag completion never activates the row. Escape cancels; Alt+Up/Down provides keyboard reordering. Switching sessions or receiving output does not disturb manual positions.
 
 Session-operation notices occupy the second row below the window bar and center within the main conversation view, not the whole window. Content-sized neutral bubbles enter with cubic easing and follow sidebar/right-panel layout changes. Archive includes View and Undo; Undo restores the session and replaces the same bubble with normal text and a small green check, removing its actions and smoothly reducing its width without repeating the entrance. Success expires after three seconds, with hover/focus pausing. Copy and branch use the same surface. MCP warnings use an amber icon, retain the original diagnostic and provide View MCP; full diagnostic history stays in Settings. Reduced-motion skips the entrance, resize and content fade.
+
+Remote preparation is not a global notice. Only a confirmed Remote preparation blocking a local session navigation gets a neutral speech bubble above the sidebar Remote icon after one second. The main process identifies Feishu recovery, ordinary Feishu session preparation and external-agent task preparation separately; connection status alone cannot select the wording. The bubble names the latest selected local conversation and keeps one lifetime per preparation across repeated selections. Dismiss and Escape hide the bubble without cancelling navigation; hover or keyboard focus can reveal it again while waiting. Completion removes it without a success toast. Settings, project-removal dialogs and a collapsed sidebar hide the bubble. The close control retains visible keyboard focus; reduced motion disables the entrance and spinner rotation. Loopback listener restoration and read-only plugin status queries do not show this hint.
 
 Windows chrome: a 46px application-owned titlebar follows the active theme. A sidebar toggle and File, Edit, View and Help menus occupy the left side; the active session title occupies the flexible drag region, capped at 300px and truncating sooner on narrow windows to leave drag space while retaining the full title in a tooltip. Runtime restart and session statistics remain available from the View menu instead of occupying a separate conversation header. The three 46px window control buttons are excluded from dragging. Window close preserves running-task confirmation. Layout content and modal overlays begin below the titlebar. The transcript fades softly into the composer; a square scroll-to-bottom control appears while the reader is away from the latest message.
 

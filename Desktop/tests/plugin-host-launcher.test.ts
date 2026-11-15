@@ -8,6 +8,8 @@ import { PluginHostLauncher } from '../electron/plugin-host-launcher';
 import { createHostClient } from '../../examples/plugins/host-client/client.mjs';
 import type { CapabilityService } from '../electron/capability-service';
 import type { FollowLaunch } from '../../examples/plugins/host-client/protocol.mjs';
+import ts from 'typescript';
+import { runInNewContext } from 'node:vm';
 
 async function fixture(t: test.TestContext, configured = true) {
   const f = await hostService(t, { configured });
@@ -64,6 +66,60 @@ test('launcher issues only inside native receipt resolution and deduplicates con
   f.launcher.invalidate(f.worker);
   await assert.rejects(client.context(), /STALE_CONTEXT/);
 });
+test('actual retry IPC reattaches a recovered native host only after releasing its mutation lock', async t => {
+  const f = await fixture(t);
+  const source = ts.createSourceFile('main.ts', await readFile(new URL('../electron/main.ts', import.meta.url), 'utf8'),
+    ts.ScriptTarget.Latest, true);
+  const declaration = source.statements.find(node => ts.isFunctionDeclaration(node) && node.name?.text === 'handle')!;
+  const javascript = ts.transpileModule(declaration.getText(source), {
+    compilerOptions: { target: ts.ScriptTarget.ES2022 },
+  }).outputText;
+  const pool = { ...f.pool, require: () => f.worker, async retryLatest() {
+    assert.equal(f.worker.mutating, true);
+    f.launcher.invalidate(f.worker);
+    await f.launcher.attach(f.worker);
+    assert.equal(f.launchState.starts.length, 0, 'A locked recovery cannot issue a launch');
+    throw new Error('STARTUP_NOT_READY: recovered original history');
+  } };
+  const handle = runInNewContext(javascript + '\nhandle', {
+    Error, readingSelections: new Map(), transition: false, updateInstalling: false, runtimes: pool, pluginHosts: f.launcher,
+    externalTasks: { retains: () => false }, selectedRuntime: () => f.worker.id, text: (value: string) => value,
+  });
+  await assert.rejects(handle('retryMessage', ['saved-user', 'edited input', f.worker.id]), /STARTUP_NOT_READY/);
+  assert.equal(f.worker.mutating, false);
+  const deadline = Date.now() + 5000;
+  while (!f.launchState.starts.length && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 10));
+  assert.equal(f.launchState.starts.length, 1);
+  assert.equal(f.calls.length, 0);
+});
+for (const invalidation of ['worker', 'global', 'transport'] as const) {
+  test(`a held old attachment cannot deduplicate a new transport after ${invalidation} replacement`, { timeout: 10000 }, async t => {
+    const f = await fixture(t);
+    let entered!: () => void, release!: () => void;
+    const entering = new Promise<void>(resolve => { entered = resolve; });
+    const held = new Promise<void>(resolve => { release = resolve; });
+    t.after(() => release());
+    let resolutions = 0;
+    f.launchState.resolve = async () => {
+      if (++resolutions === 1) { entered(); await held; }
+    };
+    const old = f.launcher.attach(f.worker);
+    await entering;
+    try {
+      if (invalidation !== 'transport') f.launcher.invalidate(invalidation === 'worker' ? f.worker : undefined);
+      f.worker.rpc = { ...f.worker.rpc };
+      f.record.requestId = randomUUID();
+      const current = f.launcher.attach(f.worker);
+      assert.notEqual(current, old, 'The replacement must not reuse a promise bound to the old transport');
+      await current;
+      assert.equal(f.launchState.starts.length, 1);
+    } finally { release(); await old; }
+    assert.equal(f.launchState.starts.length, 1, 'The stale descriptor continuation must not start another consumer');
+    const client = f.client(); t.after(() => client.close());
+    await client.context();
+    assert.equal(f.calls.length, 0);
+  });
+}
 test('safe launcher observations distinguish first-use approval, approval and revocation without issuing or invoking', async t => {
   const f = await fixture(t);
   const binding = await f.store.current(f.descriptor);

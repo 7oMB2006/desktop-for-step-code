@@ -37,3 +37,7 @@
 .external-approval-audit { max-height: 320px; overflow: auto; padding: 4px 4px 4px 24px; scroll-padding: 4px; }
 .external-approval-audit li { padding: 10px 4px; border-bottom: 1px solid var(--border); }
 .external-approval-audit li > span, .external-approval-audit code { display: block; margin-top: 6px; }
+.external-connector-form select, .external-plugin-association select { width: 100%; min-width: 0; min-height: 38px; }
+.external-plugin-association { display: flex; flex-wrap: wrap; align-items: end; gap: 12px; padding: 4px; margin: 12px 0; }
+.external-plugin-association > label { flex: 1 1 200px; min-width: 0; }
+.external-plugin-identity { overflow-wrap: anywhere; font-size: 12px; }

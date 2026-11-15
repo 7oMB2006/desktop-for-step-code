@@ -80,8 +80,10 @@ import { submittedInputContent } from '../src/template-input';
 import { clmSnapshot } from './clm';
 import { BackgroundAgents } from './background-agents';
 import { RemoteManager, parseRemoteAction } from './remote-manager';
+import type { RemoteNavigationWait, RemotePreparationSource } from '../src/remote-navigation';
 import { ExternalConnectorTasks } from './external-connector-tasks';
 import { ConnectorJsonStore, ExternalConnectorGateway } from './external-connector-gateway';
+import { PluginConfirmations } from './plugin-confirmations';
 import { externalSessionCommandAllowed, parseExternalConnectorAction } from './external-connector-policy';
 import { receiveRemoteImages, sendRemoteImage } from './remote-images';
 import { hydrateWorkflowHistory, WorkflowBindings } from './workflow-history';
@@ -110,7 +112,9 @@ import type { FileTarget, FileDestination, FileOpenResult, FileOpeningOptions } 
 import type { BrowserAction } from '../src/contracts';
 import { conversationEntries } from '../src/conversation-presentation';
 import { turnChanges } from '../src/turn-changes';
-import type { Message, Model, PermissionPreset, Preferences, Session, SessionReading, Snapshot } from '../src/contracts';
+import type { Message, Model, PermissionPreset, Preferences, Session, SessionReadingResult, Snapshot } from '../src/contracts';
+import { SessionHistoryReaders, historyProcessRunner } from './session-history-readers';
+import { assertReadingBudget } from './session-reading-budget';
 import { validateSidebarPreferences } from '../src/sidebar-order';
 import { migrateWorkspaceIdentity, relocatedWorkspace, relocateWorkspace, removeWorkspace, moveSessionToWorkspace } from './workspace-management';
 import { archivedDeletionTargets, deleteManagedSessionFile, managedSessionFile } from './session-deletion';
@@ -167,6 +171,8 @@ function publishUpdate() {
 }
 let status = 'disconnected';
 let transition = false;
+let remotePreparation: (RemoteNavigationWait & { done: Promise<void> }) | undefined;
+let remotePreparationSequence = 0;
 let settingsMutation = false;
 let speechSaving = false;
 const speech = new SpeechService((input, init) => net.fetch(input instanceof URL ? input.href : String(input), init));
@@ -318,7 +324,7 @@ async function refreshThemePacks() {
   }
 }
 const capabilityService: CapabilityService = new CapabilityService({ root: dataRoot, runtime: runtimeRoot, node: nodePath,
-  beforePluginMutation: () => pluginHosts.invalidate(),
+  beforePluginMutation: () => { pluginHosts.invalidate(); pluginConfirmations.invalidate(); },
   hostAvailable: () => runtimeManifest.patches?.includes('desktop-plugin-host-launch') === true,
   hostStatus: (descriptor, binding) => pluginHosts.status(descriptor, binding),
   guardRecovery: async id => {
@@ -453,11 +459,26 @@ const emit = (event: unknown) => {
 };
 const composers = new ComposerStore(snapshot => emit({ type: 'desktop_composer', snapshot }));
 const rendererGenerations = new Map<number, number>();
+const historyReaders = new SessionHistoryReaders(historyProcessRunner(nodePath, join(runtimeRoot, 'session-reading-worker.mjs'), dataRoot));
+const historyReadingOwners = new Map<string, { serial: number; revision?: number }>();
+const readingSelections = new Map<string, { sessionId: string; revision?: number }>();
+let historyReadingSerial = 0;
+function cancelHistoryReading(owner: string, revision?: number) {
+  const current = historyReadingOwners.get(owner);
+  if (revision !== undefined && current?.revision !== revision) return;
+  historyReadingOwners.delete(owner);
+  historyReaders.cancel(owner);
+}
 function watchComposerWindow(view: BrowserWindow) {
   const contents = view.webContents, id = contents.id;
   rendererGenerations.set(id, 0);
   const reset = () => {
     if (view === window) speech.cancel();
+    for (const owner of historyReadingOwners.keys()) if (owner.startsWith(`${id}:`)) {
+      cancelHistoryReading(owner);
+    }
+    for (const owner of readingSelections.keys()) if (owner.startsWith(`${id}:`)) readingSelections.delete(owner);
+    historyReaders.forgetWindow(`${id}:`);
     rendererGenerations.set(id, (rendererGenerations.get(id) ?? 0) + 1);
     composers.recover(id);
   };
@@ -470,7 +491,7 @@ const creatingDrafts = new Set<string>();
 const miniMethods = new Set([
   'snapshot', 'windowControl', 'miniChatState', 'miniChatPin', 'miniChatReturn', 'miniChatMainAction',
   'windowPresentation', 'composerRead', 'composerWrite', 'composerTake', 'composerRestore',
-  'beginSession', 'chooseSessionProject', 'createDraftSession', 'navigateSession', 'sessionReading',
+  'beginSession', 'chooseSessionProject', 'createDraftSession', 'navigateSession', 'sessionReading', 'cancelSessionReading',
   'command', 'projectInstructions', 'branchSession', 'retryMessage', 'preferences',
   'chooseAttachments', 'importFile', 'importClipboardImage', 'imageAction', 'copyText', 'linkPreview',
   'fileOpen', 'fileOpenOptions', 'browserOpenLink', 'artifactFiles', 'artifactAction', 'backgroundAgents',
@@ -576,6 +597,8 @@ const runtimes: SessionRuntimes = new SessionRuntimes(event => {
   },
   beforePrompt: (worker, message) => modelSelections.prepare(worker, message),
   pluginsReady: worker => pluginHosts.attach(worker),
+  pluginsReset: worker => pluginHosts.invalidate(worker),
+  language: () => preferences.language,
   canReuseEmpty: worker => !outdatedInstructions.has(worker),
   // Keep at most two extra idle children when Windows has ample free memory.
   // This is a retention budget, never permission to speculatively start agents.
@@ -592,6 +615,7 @@ const runtimes: SessionRuntimes = new SessionRuntimes(event => {
     usageEstimates.attach(worker);
     const launch = collaboration.attach(worker);
     return { ...launch, env: { ...launch.env,
+      ...(runtimeManifest.patches?.includes('desktop-async-startup') ? { DFSC_ASYNC_STARTUP_V1: '1' } : {}),
       ...(runtimeManifest.patches?.includes('desktop-plugin-host-launch') ? { DFSC_RUNTIME_HOST_V1: '1' } : {}) },
       args: [...launch.args, '--extension', join(runtimeRoot, 'project-instructions.mjs'),
         '--extension', join(runtimeRoot, 'runtime-compile-cache.mjs')] };
@@ -698,8 +722,8 @@ const remote = new RemoteManager({
         throw new Error('Saved Remote project is no longer available');
     }
   },
-  prepare: sessionId => prepareRemoteSession(sessionId),
-  createSession: workspace => prepareRemoteSession(undefined, workspace),
+  prepare: (sessionId, recovering) => prepareRemoteSession(sessionId, undefined, recovering ? 'feishu-recovery' : 'feishu-session'),
+  createSession: workspace => prepareRemoteSession(undefined, workspace, 'feishu-session'),
   worker: (runtimeId, sessionId) => {
     const worker = runtimes.require(runtimeId);
     if (externallyOwned(worker)) throw new Error('This session belongs to an external task');
@@ -707,11 +731,19 @@ const remote = new RemoteManager({
     return worker;
   },
   submit: async (worker, message, accepted, images) => {
+    const rpc = worker.rpc, sessionId = worker.state?.sessionId;
+    const validate = () => {
+    if (runtimes.workers.get(worker.id) !== worker || worker.status !== 'connected'
+      || worker.rpc !== rpc || worker.state?.sessionId !== sessionId) throw new Error('Remote session identity changed');
     if (externalTasks.retains(worker)) throw new Error('This session belongs to an external task');
     if (transition || sessionNavigation.busy || settingsMutation || undoBusy || quitting || quitPending || updateInstalling
       || providerSettingsPending || worker.mutating || worker.stopping || worker.pendingUI.size
       || worker.failed || worker.interrupted || worker.launch?.goalArmed || worker.launch?.goal?.status === 'active')
       throw new Error('Review the session on Desktop before sending');
+    };
+    validate();
+    await runtimes.assertExecutionReady(worker);
+    validate();
     const id = pendingMessages.enqueue(worker, message, { message, ...(images?.length ? { images } : {}) });
     accepted(id);
     pendingMessages.resumed(worker);
@@ -740,6 +772,25 @@ const remote = new RemoteManager({
   return channel;
 }, state => emit({ type: 'desktop_remote', state }), Date.now, new RemoteStore(join(app.getPath('userData'), 'remote')));
 const externalRoot = join(app.getPath('userData'), 'external-connectors');
+const pluginConfirmations = new PluginConfirmations(externalRoot, {
+  resolve: binding => capabilityService.confirmationSource(binding),
+  confirm: async ({ source, notice, summary }) => {
+    if (!window || window.isDestroyed() || quitting || quitPending) throw new Error('connector:unavailable');
+    const zh = preferences.language === 'zh';
+    const identity = source.name.replace(/[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/gu, '').slice(0, 160);
+    const answer = await dialog.showMessageBox(window, {
+      type: 'warning', title: zh ? '插件风险确认' : 'Plugin risk confirmation',
+      message: `${identity} (${source.binding.id}) · ${notice.title}`,
+      detail: `${zh ? '插件声明的风险' : 'Plugin-declared risk'}\n${notice.message}\n\n${summary}\n\n${
+        zh ? '确认仅表示知晓风险，不会授予额外权限。撤销不能恢复已经修改或删除的数据。'
+          : 'Acknowledgement grants no extra permissions. Revocation cannot undo changes or deletions.'}`,
+      buttons: [zh ? '取消' : 'Cancel', notice.confirmLabel], defaultId: 0, cancelId: 0, noLink: true,
+      ...(notice.policy === 'remember' ? { checkboxLabel: zh ? '记住此插件版本及本次授权范围的风险确认'
+        : 'Remember for this package version and exact authorization scope', checkboxChecked: false } : {}),
+    });
+    return { confirmed: answer.response === 1, remember: answer.checkboxChecked === true };
+  },
+});
 const externalTasks: ExternalConnectorTasks = new ExternalConnectorTasks({
   validate: (cwd, roots) => externalConnectors.validate(cwd, roots),
   create: async (cwd, valid, preset = 'ask') => {
@@ -747,7 +798,7 @@ const externalTasks: ExternalConnectorTasks = new ExternalConnectorTasks({
     preparingExternal = true;
     let worker: SessionRuntime | undefined;
     try {
-      worker = await prepareRemoteSession(undefined, cwd, preset);
+      worker = await prepareRemoteSession(undefined, cwd, 'external-agent', preset);
       if (!valid()) { await runtimes.remove(worker); throw new Error('connector:revoked'); }
       return worker;
     } finally {
@@ -757,12 +808,19 @@ const externalTasks: ExternalConnectorTasks = new ExternalConnectorTasks({
     }
   },
   submit: async (worker, message, accepted, valid) => {
+    const rpc = worker.rpc, sessionId = worker.state?.sessionId;
+    const validate = () => {
     if (!valid() || runtimes.workers.get(worker.id) !== worker || worker.status !== 'connected'
+      || worker.rpc !== rpc || worker.state?.sessionId !== sessionId
       || !['ask', 'approve-for-me'].includes(worker.permissionPreset ?? '') || transition || sessionNavigation.busy || settingsMutation || undoBusy
       || quitting || quitPending || updateInstalling || providerSettingsPending || worker.mutating || worker.stopping
       || worker.pendingUI.size || worker.failed || worker.interrupted || worker.busy || worker.submissions
       || worker.launch?.goalArmed || worker.launch?.goal?.status === 'active')
       throw new Error('connector:unavailable');
+    };
+    validate();
+    await runtimes.assertExecutionReady(worker);
+    validate();
     const id = pendingMessages.enqueue(worker, message, { message });
     accepted(id);
     pendingMessages.resumed(worker);
@@ -798,7 +856,10 @@ const externalTasks: ExternalConnectorTasks = new ExternalConnectorTasks({
 }, new ConnectorJsonStore(externalRoot, 'tasks.json'));
 const externalConnectors = new ExternalConnectorGateway(externalRoot, {
   dispatch: async (grant, method, params, valid) => { await startup; return externalTasks.call(grant, method, params, valid); },
-  invalidated: (agentId, shutdown) => externalTasks.invalidate(agentId, shutdown),
+  invalidated: (agentId, shutdown) => {
+    pluginConfirmations.invalidate(agentId);
+    return externalTasks.invalidate(agentId, shutdown);
+  },
 });
 function externallyOwned(worker: SessionRuntime) {
   return externalPreparing.has(worker) || externalTasks.retains(worker);
@@ -868,6 +929,9 @@ const launchCronRecovery = async (plan: import('./cron-recovery').CronRecoveryPl
       throw new Error('Recovery account changed while opening the host');
     await cronBindings.set(plan.workspace, plan.jobs, plan.sessionId, 'recovered');
     assertRecoveryQueues(runtimes.workers.values(), plan.sessionId);
+    await runtimes.modelReady(worker);
+    await pluginHosts.attach(worker);
+    await runtimes.waitForTools(worker);
     // The resume helper removes explicit rejections; uncertain delivery must retain the host.
     activated = true;
     await resumeCronHost(worker.rpc, () => runtimes.remove(worker), plan.automaticBefore);
@@ -1005,10 +1069,14 @@ function remoteProjects() {
       || sessions.find(session => session.workspace === workspace)?.workspaceName || basename(workspace),
   }));
 }
-async function prepareRemoteSession(sessionId?: string, workspace?: string, externalPreset: 'ask' | 'approve-for-me' = 'ask'): Promise<SessionRuntime> {
+async function prepareRemoteSession(sessionId: string | undefined, workspace: string | undefined, source: RemotePreparationSource,
+  externalPreset: 'ask' | 'approve-for-me' = 'ask'): Promise<SessionRuntime> {
   if (transition || sessionNavigation.busy || settingsMutation || undoBusy || deletingArchived || quitting || quitPending
     || updateInstalling || providerSettingsPending) throw new Error('Desktop operation in progress');
   transition = true;
+  let release!: () => void;
+  remotePreparation = { id: ++remotePreparationSequence, source,
+    done: new Promise<void>(resolve => { release = resolve; }) };
   try {
     const target = sessionId ? remoteSessions().find(session => session.sessionId === sessionId) : undefined;
     if (sessionId && !target) throw new Error('Session is unavailable');
@@ -1043,7 +1111,7 @@ async function prepareRemoteSession(sessionId?: string, workspace?: string, exte
     }
     emit({ type: 'desktop_sessions_changed' });
     return worker;
-  } finally { transition = false; }
+  } finally { transition = false; remotePreparation = undefined; release(); }
 }
 async function snapshot(worker = runtimes.active, refresh = true, ignoreDraft = false, surface: Surface = 'main'): Promise<Snapshot> {
   const draft = ignoreDraft ? undefined : selectedDraft(surface);
@@ -1069,7 +1137,8 @@ async function snapshot(worker = runtimes.active, refresh = true, ignoreDraft = 
     customBackground: backgroundState, providerSettingsPending,
     status: draft ? 'ready' : worker?.status ?? status, draftId: draft?.id, runtimeId: worker?.id, runtimeStartupTiming: draft ? undefined : worker?.startupTiming, runtimes: runtimes.summaries(), unreadSessionIds: [...runtimes.unreadSessionIds],
     state: draft ? { isStreaming: false, model: draft.model ? providerModelNames([draft.model], appliedAuthData)[0] : undefined, thinkingLevel: draft.thinkingLevel }
-      : worker?.state ? { ...worker.state, model: worker.state.model ? providerModelNames([worker.state.model], appliedAuthData)[0] : undefined } : undefined,
+      : worker?.state ? { ...worker.state, desktopStartup: worker.startup,
+        model: worker.state.model ? providerModelNames([worker.state.model], appliedAuthData)[0] : undefined } : undefined,
     modelSelection: worker ? modelSelections.selection(worker) : undefined,
     modelChanges: worker ? modelSelections.changes(worker) : [],
     estimate: usageEstimates.summary(worker),
@@ -1171,6 +1240,11 @@ function commitSessionNavigation(worker: SessionRuntime, value: Snapshot, surfac
   if (runtimes.workers.get(worker.id) !== worker || worker.status !== 'connected' || worker.stopping)
     throw new Error('Session runtime disconnected while opening');
   selectRuntime(surface, worker);
+  const contents = readingSelections.size ? (surface === 'mini' ? miniChat?.window : window)?.webContents : undefined;
+  if (contents) {
+    const owner = `${contents.id}:${rendererGenerations.get(contents.id)}:${surface}`;
+    if (readingSelections.get(owner)?.sessionId === worker.state?.sessionId) readingSelections.delete(owner);
+  }
   if (surface === 'main') {
     preferences.workspace = worker.cwd;
     void savePreferences().catch(() => emit({ type: 'desktop_error', message: 'Could not save the selected workspace' }));
@@ -1182,7 +1256,10 @@ function commitSessionNavigation(worker: SessionRuntime, value: Snapshot, surfac
 async function decorateSessionMessages(id: string, cwd: string, messages: Message[]) {
   return hydrateWorkflowHistory(cwd, await conversationTiming.decorate(id, messages), await workflowBindings.load(id));
 }
-async function sessionReading(id: string): Promise<SessionReading | null> {
+async function sessionReading(id: string, owner: string, revision?: number): Promise<SessionReadingResult> {
+  cancelHistoryReading(owner);
+  const token = { serial: ++historyReadingSerial, revision };
+  historyReadingOwners.set(owner, token);
   if (isChildSession(id)) throw new Error('Child sessions belong to their parent task');
   const target = cachedSessions().find(session => session.id === id);
   if (!target) return null;
@@ -1192,7 +1269,17 @@ async function sessionReading(id: string): Promise<SessionReading | null> {
     messages: worker.messages, modelChanges: modelSelections.changes(worker),
   };
   if (!target.path) return null;
+  const file = await stat(target.path).catch(() => undefined);
+  if (historyReadingOwners.get(owner) !== token) return null;
+  if (!file) return { sessionId: id, unavailable: 'unavailable' };
+  if (file.size > 12 * 1024 * 1024) {
+    const value = await historyReaders.read(owner, token.serial, {
+      root: join(dataRoot, 'sessions'), profile: app.getPath('userData'), file: target.path, sessionId: id, cwd: target.cwd,
+    }, JSON.stringify([file.dev, file.ino, file.size, file.mtimeMs, file.ctimeMs]));
+    return historyReadingOwners.get(owner) === token ? value : null;
+  }
   const history = await admin.request('session_history', { sessionId: id, sessionPath: target.path });
+  if (historyReadingOwners.get(owner) !== token) return null;
   if (!history || history.sessionId !== id) return null;
   const projected = importedHistoryMessages(history.messages, history.entries, history.leafId);
   const messages = projected === history.messages
@@ -1200,7 +1287,10 @@ async function sessionReading(id: string): Promise<SessionReading | null> {
   const [decorated, record] = await Promise.all([
     decorateSessionMessages(id, target.cwd, messages), modelSelections.load(id),
   ]);
-  return { sessionId: id, version: history.version, messages: decorated, modelChanges: record.changes };
+  if (historyReadingOwners.get(owner) !== token) return null;
+  const result = { sessionId: id, version: history.version, messages: decorated, modelChanges: record.changes };
+  try { assertReadingBudget(result); return result; }
+  catch (error) { return { sessionId: id, unavailable: (error as { reason: 'response-limit' | 'node-limit' }).reason }; }
 }
 async function navigationSnapshot(worker: SessionRuntime) {
   worker.operations++;
@@ -1331,6 +1421,12 @@ async function beginSession(workspace?: string, surface: Surface = 'main') {
 const text = (value: unknown, max = 100000): string => { if (typeof value !== 'string' || value.length > max) throw new Error('Invalid text'); return value; };
 async function handle(method: string, args: any[], surface: Surface = 'main', markCapabilityPhase?: CapabilityPhaseMarker) {
   const originWindow = () => surface === 'mini' ? miniChat!.window! : window;
+  const readingOwner = () => {
+    const id = originWindow().webContents.id;
+    return `${id}:${rendererGenerations.get(id)}:${surface}`;
+  };
+  if (['command', 'branchSession', 'retryMessage'].includes(method) && readingSelections.size && readingSelections.has(readingOwner()))
+    throw new Error('Conversation is read-only until its runtime connects');
   const viewSnapshot = (worker?: SessionRuntime, refresh = true, ignoreDraft = false) => snapshot(worker, refresh, ignoreDraft, surface);
   if (surface === 'mini' && method === 'preferences'
     && (!args[0] || Object.keys(args[0]).some(key => key !== 'modelFavorite')))
@@ -1344,27 +1440,82 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
       if (!['disable', 'revoke', 'undelegate', 'unpolicy'].includes(action.type)
         && (transition || settingsMutation || undoBusy || quitting || quitPending || updateInstalling || providerSettingsPending))
         throw new Error('connector:unavailable');
+      const validate = async () => {
+        if (transition || settingsMutation || undoBusy || quitting || quitPending || updateInstalling || providerSettingsPending)
+          throw new Error('connector:unavailable');
+      };
+      const guarded = async (agentId: string, cwd: string, execute: (valid: () => boolean) => Promise<unknown>) => {
+        const grant = await externalConnectors.authorization(agentId);
+        const zh = preferences.language === 'zh';
+        const scope = action.type === 'policy' ? { cwd, days: action.days, permissionPreset: action.permissionPreset,
+          categories: [...action.categories].sort() } : action.type === 'delegate'
+          ? { taskId: action.taskId, cwd, minutes: action.minutes, categories: [...action.categories].sort() } : {};
+        const tier = action.type === 'delegate'
+          ? zh ? '仅委托剩余审批，不更改 DFSC 权限档位；已有自动执行策略仍独立生效。' : 'Delegates remaining requests without changing the DFSC permission tier; any existing automatic policy remains independent.'
+          : action.type === 'policy' && action.permissionPreset === 'approve-for-me'
+          ? zh ? '代我批准：常规命令与文件写入由 DFSC 自动执行，并非逐次经外部 Agent 审阅。' : 'Approve for me: DFSC runs ordinary commands and writes automatically; the external agent does not review each operation.'
+          : zh ? 'Ask：所选类型的审批可交由 Agent 判断。' : 'Ask: selected request types may be reviewed by the agent.';
+        const duration = action.type === 'policy' ? action.days === null
+          ? zh ? '直到手动撤销，跨任务及重启保留。' : 'Until manually revoked, across tasks and restarts.'
+          : `${action.days} ${zh ? '天，跨任务及重启保留。' : 'days, across tasks and restarts.'}`
+          : action.type === 'delegate' ? action.minutes === 0 ? zh ? '本次任务有效。' : 'This task only.'
+            : `${action.minutes} ${zh ? '分钟。' : 'minutes.'}` : '';
+        const names = { command: zh ? '普通命令' : 'Ordinary commands', file: zh ? '文件修改' : 'File changes',
+          risk: zh ? '高风险工具操作' : 'High-risk tools', question: zh ? '代答问题' : 'Answer questions' };
+        const categories = action.type === 'policy' || action.type === 'delegate' ? action.categories.map(c => names[c]).join(', ') : '';
+        return pluginConfirmations.run({ binding: grant.plugin, authorization: grant.binding!, agentId,
+          action: action.type === 'policy' ? 'external.policy' : 'external.delegate', scope,
+          summary: `${zh ? '本次实际授权' : 'Actual authorization'}\n${agentId}\n${cwd}\n${tier}\n${duration}\n${categories}`,
+          validate: async () => {
+            await validate(); await grant.validate?.(); await validate();
+            if (action.type === 'delegate' && !externalTasks.localApprovals().tasks.some(task =>
+              task.taskId === action.taskId && task.agentId === agentId && task.cwd === cwd))
+              throw new Error('connector:task-unavailable');
+          }, execute });
+      };
+      if (action.type === 'undelegate') {
+        const task = externalTasks.localApprovals().tasks.find(task => task.taskId === action.taskId);
+        if (task) pluginConfirmations.invalidate(task.agentId);
+      } else if (action.type === 'unpolicy') pluginConfirmations.invalidate(action.agentId);
       if (action.type === 'enable') await externalConnectors.enable();
       else if (action.type === 'disable') await externalConnectors.disable();
       else if (action.type === 'revoke') await externalConnectors.revoke(action.agentId);
       else if (action.type === 'policy' || action.type === 'unpolicy') {
-        await externalTasks.configurePolicy(action, action.type === 'policy'
-          ? await externalConnectors.authorization(action.agentId) : undefined);
+        if (action.type === 'unpolicy') await externalTasks.configurePolicy(action);
+        else await guarded(action.agentId, action.cwd, async valid => externalTasks.configurePolicy(action,
+          await externalConnectors.authorization(action.agentId), valid));
       }
       else if (action.type === 'delegate' || action.type === 'undelegate') {
         if (action.type === 'delegate' && !externalConnectors.snapshot().listening) throw new Error('connector:disabled');
-        await externalTasks.delegate(action);
+        if (action.type === 'undelegate') await externalTasks.delegate(action);
+        else {
+          const task = externalTasks.localApprovals().tasks.find(task => task.taskId === action.taskId);
+          if (!task) throw new Error('connector:task-unavailable');
+          await guarded(task.agentId, task.cwd, valid => externalTasks.delegate(action, valid));
+        }
+      }
+      else if (action.type === 'bind-plugin') {
+        const approvals = externalTasks.localApprovals();
+        if (approvals.tasks.some(task => task.agentId === action.agentId)
+          || approvals.policies?.some(policy => policy.agentId === action.agentId)) throw new Error('connector:busy');
+        const source = await capabilityService.confirmationSource(action.pluginRef);
+        await validate();
+        await externalConnectors.bindPlugin(action.agentId, source.binding);
       }
       else if (action.type === 'pair') {
         await listSessions();
         if (action.roots.some(root => !remoteProjects().some(project => project.workspace === root)))
           throw new Error('connector:invalid-input');
-        await externalConnectors.pair(action.displayName, action.roots);
+        const plugin = action.pluginRef ? await capabilityService.confirmationSource(action.pluginRef) : undefined;
+        await validate();
+        await externalConnectors.pair(action.displayName, action.roots, plugin?.binding);
       }
     }
     await listSessions();
+    const plugins = await capabilityService.confirmationPlugins().catch(() => undefined);
     return { ...externalConnectors.snapshot(), ...(externalBootError ? { error: 'connector:storage' } : {}),
-      projects: remoteProjects(), approvals: externalTasks.localApprovals() };
+      projects: remoteProjects(), approvals: externalTasks.localApprovals(),
+      plugins: plugins ?? [], ...(!plugins ? { pluginDiscoveryUnavailable: true } : {}) };
   }
   if (method === 'remoteAction') {
     const action = parseRemoteAction(args[0]);
@@ -1411,6 +1562,9 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
         savePresentation('main', owner, presentation);
         if (draft) selectDraft('main', draft);
         else commitSessionNavigation(worker!, value!);
+        const mainReadingOwner = `${window.webContents.id}:${rendererGenerations.get(window.webContents.id)}:main`;
+        cancelHistoryReading(mainReadingOwner);
+        readingSelections.delete(mainReadingOwner);
         window.webContents.send('runtime-event', { type: 'desktop_view_changed', surface: 'main', restorePresentation: true });
         showMainWindow();
         miniChat!.hide();
@@ -2078,7 +2232,7 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
         // Permissions and project trust from the source are not carried into it.
         await capabilityService.recover();
         prepared = await runtimes.prepare(nodePath, join(runtimeRoot, 'step/dist/bundle/step.js'), canonical,
-          { ...authEnvironment(), ...movedSessionEnvironment() }, path);
+          { ...authEnvironment(), ...movedSessionEnvironment(), DESKTOP_DEFER_MODEL_READY: '1' }, path);
         prepared.mutating = true;
         if (prepared.state?.sessionId !== id || prepared.permissionPreset !== 'ask')
           throw new Error('Could not verify the destination conversation and approval policy');
@@ -2091,6 +2245,7 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
             await prepared.rpc.request('set_thinking_level', { level: source.state.thinkingLevel });
         }
         await runtimes.read(prepared);
+        await runtimes.modelReady(prepared);
         const previous = preferences;
         preferences = moveSessionToWorkspace(preferences, target, destination);
         if (wasActive) preferences.workspace = canonical;
@@ -2107,6 +2262,8 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
           if (prepared) {
             prepared.mutating = false;
             if (!committed) await runtimes.remove(prepared);
+            else if (prepared.startup) void pluginHosts.attach(prepared).catch(() => {});
+            else await pluginHosts.attach(prepared);
           }
         } finally {
           if (locked) for (const worker of sources) worker.mutating = false;
@@ -2114,11 +2271,25 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
         }
       }
     }
-    case 'sessionReading': return sessionReading(text(args[0], 300));
+    case 'sessionReading':
+    case 'cancelSessionReading': {
+      const owner = readingOwner();
+      const revision = method === 'sessionReading' ? args[1] : args[0];
+      if (revision !== undefined && (!Number.isSafeInteger(revision) || revision < 0)) throw new Error('Invalid reading revision');
+      if (method === 'cancelSessionReading') {
+        cancelHistoryReading(owner, revision);
+        if (readingSelections.get(owner)?.revision === revision) readingSelections.delete(owner);
+        return;
+      }
+      const value = await sessionReading(text(args[0], 300), owner, revision);
+      return revision === undefined && value && 'unavailable' in value ? null : value;
+    }
     case 'navigateSession': {
       if (deletingArchived || transition && !sessionNavigation.busy) throw new Error('Workspace operation in progress');
       const id = text(args[0], 300);
       if (isChildSession(id)) throw new Error('Child sessions belong to their parent task');
+      if (args[1] !== undefined && (!Number.isSafeInteger(args[1]) || args[1] < 0)) throw new Error('Invalid reading revision');
+      readingSelections.set(readingOwner(), { sessionId: id, revision: args[1] });
       return (surface === 'mini' ? miniNavigation : sessionNavigation).select(id);
     }
     case 'switchSession': {
@@ -2171,7 +2342,9 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
           copyPath, { kind: 'open-copy', sessionId: copy.id, permissionPreset: source?.permissionPreset, name });
         copyOpened = true;
         await modelSelections.copyHistory(sessionId, worker.state!.sessionId!);
-        await workflowBindings.copyHistory(sessionId, worker.state!.sessionId!, worker.messages);
+        // A startup event can invalidate the UI snapshot; copy from authoritative history.
+        const copiedHistory = await worker.rpc.request('get_messages');
+        await workflowBindings.copyHistory(sessionId, worker.state!.sessionId!, copiedHistory.messages);
         await runtimes.read(worker);
         preferences.workspace = worker.cwd;
         await savePreferences();
@@ -2207,7 +2380,8 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
           sessionPath, { kind, entryId, leafId: source.leafId, permissionPreset: source.permissionPreset,
             name });
         await modelSelections.copyHistory(source.state!.sessionId!, worker.state!.sessionId!);
-        await workflowBindings.copyHistory(source.state!.sessionId!, worker.state!.sessionId!, worker.messages);
+        const copiedHistory = await worker.rpc.request('get_messages');
+        await workflowBindings.copyHistory(source.state!.sessionId!, worker.state!.sessionId!, copiedHistory.messages);
         await runtimes.read(worker);
         selectRuntime(surface, worker);
         return await viewSnapshot(worker);
@@ -2223,7 +2397,10 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
       if (/^\s*\/_desktop_(?:retry|goal_input|init)\b/.test(message)) throw new Error('Reserved Desktop command');
       worker.mutating = true;
       try { await runtimes.retryLatest(worker, entryId, message); }
-      finally { worker.mutating = false; }
+      finally {
+        worker.mutating = false;
+        void pluginHosts.attach(worker).catch(() => {});
+      }
       return null;
     }
     case 'deleteArchivedSessions': {
@@ -2397,6 +2574,7 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
       if (mutating) worker.mutating = true;
       let submitted = false;
       let restoreReview: (() => void) | undefined;
+      let restoreLaunch: (() => void) | undefined;
       try {
         if (projectRules) await runtimes.assertIdle(worker);
         const wasStreaming = promptNeedsQueue(worker);
@@ -2529,6 +2707,7 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
             });
           }
           if (wasStreaming || worker.state?.isCompacting) {
+            await runtimes.assertExecutionReady(worker);
             if (worker.launch?.goalArmed) throw new Error('Finish the current task before starting a new goal');
             if (worker.state?.desktopCompletionReview === 1)
               await rpc.request('desktop_completion_review_skip');
@@ -2550,21 +2729,23 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
         try {
           let response;
           if (type === 'prompt' && promptLaunch?.goalArmed && !projectRules) {
-            launchControls.consume(worker);
+            await runtimes.assertExecutionReady(worker);
+            restoreLaunch = launchControls.consume(worker);
             await runtimes.preparePrompt(worker, payload.message as string);
             if (!await launchControls.startGoal(worker, payload, promptLaunch)) throw new Error('Goal state changed before submission');
             response = { goal: true };
           } else {
             if (type === 'prompt' && !(payload.message as string).trimStart().startsWith('/')) {
               payload = launchControls.input(worker, payload, promptLaunch);
-              launchControls.consume(worker);
+              restoreLaunch = launchControls.consume(worker);
               await runtimes.preparePrompt(worker, payload.message as string);
             }
             if (projectRules) {
               await runtimes.preparePrompt(worker, '/init');
               payload.message = await projectInstructionsMessage(worker.cwd, '/init');
             }
-            const submission = rpc.request(type, payload, type === 'prompt' || type === 'compact' ? 600000 : 30000);
+            const submission = type === 'prompt' ? runtimes.submitPrompt(worker, payload, true)
+              : rpc.request(type, payload, type === 'compact' ? 600000 : 30000);
             response = await submission;
             if (type === 'prompt') { restoreReview = undefined; runtimes.publishLaunch(worker); }
           }
@@ -2577,7 +2758,10 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
           if (type === 'prompt' && Array.isArray(data.files)) for (const id of data.files) attachedFiles.delete(id);
           return response;
         } catch (error) {
-          if (type === 'prompt') { worker.failed = true; pendingMessages.pause(worker); }
+          if (type === 'prompt') {
+            if (error instanceof Error && error.message.startsWith('STARTUP_NOT_READY:')) restoreLaunch?.();
+            else { worker.failed = true; pendingMessages.pause(worker); }
+          }
           throw error;
         } finally {
           worker.operations--;
@@ -3094,7 +3278,7 @@ app.on('before-quit', event => {
       quitStage = 'external-connectors';
       await externalConnectors.shutdown();
       quitStage = 'services';
-      await Promise.all([runtimes.stopAll(), admin.stop(), capabilityService.stop(), collaboration.stop(), bvrBridge.stop(), pluginHosts.close()]);
+      await Promise.all([historyReaders.close(), runtimes.stopAll(), admin.stop(), capabilityService.stop(), collaboration.stop(), bvrBridge.stop(), pluginHosts.close()]);
       quitStage = 'persistence';
       await externalTasks.flush().catch(() => crashLog.record('external-connectors', new Error('External task state could not be saved')));
       await conversationTiming.flush();
@@ -3320,6 +3504,24 @@ else app.whenReady().then(async () => {
     const senderId = event.sender.id, generation = rendererGenerations.get(senderId);
     const execute = () => diagnoseCapabilityMutation(method, args[0], async markCapabilityPhase => {
       if (method === 'quitRespond' || method === 'windowControl') return handle(method, args, surface);
+      if (method === 'navigateSession') {
+        // Remote recovery prepares under the workspace lock without selecting a local view.
+        await startup;
+        const requestId = args[1];
+        const report = (wait?: RemoteNavigationWait) => {
+          if (!Number.isSafeInteger(requestId) || requestId < 1 || event.sender.isDestroyed()
+            || rendererGenerations.get(senderId) !== generation) return;
+          event.sender.send('runtime-event', { type: 'desktop_navigation_wait', requestId,
+            waiting: wait ? { id: wait.id, source: wait.source } : undefined });
+        };
+        try {
+          while (remotePreparation) {
+            const preparation = remotePreparation;
+            report(preparation);
+            await preparation.done;
+          }
+        } finally { report(); }
+      }
       // Reads must not observe the admin transport halfway through an idle reload.
       if (providerApplication) await providerApplication;
       const capabilityMutation = ['capabilityMutate', 'pluginUpdateApply', 'capabilityImportSkill', 'bvrSaveConfiguration', 'pluginSaveConfiguration', 'pluginSaveHostSettings', 'saveCompactionSettings'].includes(method);
@@ -3419,5 +3621,5 @@ else app.whenReady().then(async () => {
   startupWindow?.destroy();
   await crashLog.record('startup-failure', error, (error as { details?: Record<string, unknown> }).details ?? {});
   if (!backgroundAcceptance) dialog.showErrorBox('Desktop for Step Code', String(error));
-  quitting = true; void Promise.all([remote.shutdown(), externalConnectors.shutdown(), sessionImports.close(), runtimes.stopAll(), admin.stop(), capabilityService.stop(), collaboration.stop(), terminals.stopAll(), pluginHosts.close()]).finally(() => app.quit());
+  quitting = true; void Promise.all([historyReaders.close(), remote.shutdown(), externalConnectors.shutdown(), sessionImports.close(), runtimes.stopAll(), admin.stop(), capabilityService.stop(), collaboration.stop(), terminals.stopAll(), pluginHosts.close()]).finally(() => app.quit());
 });

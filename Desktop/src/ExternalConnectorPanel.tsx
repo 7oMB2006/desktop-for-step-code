@@ -12,6 +12,8 @@ export function ExternalConnectorPanel({ bridge, language }: { bridge: DesktopBr
   const [state, setState] = useState<ExternalConnectorState>();
   const [name, setName] = useState('');
   const [roots, setRoots] = useState<string[]>([]);
+  const [pluginRef, setPluginRef] = useState('');
+  const [associations, setAssociations] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [copied, setCopied] = useState('');
@@ -48,10 +50,26 @@ export function ExternalConnectorPanel({ bridge, language }: { bridge: DesktopBr
       const next = action ? await bridge.externalConnectorAction(action) : await bridge.externalConnectorState();
       if (!alive.current) return false;
       setState(next); setConfirmation(undefined);
-      if (action?.type === 'pair') { setName(''); setRoots([]); }
+      if (action?.type === 'pair') { setName(''); setRoots([]); setPluginRef(''); }
       if (confirmation) restoreFocus();
       return true;
-    } catch { if (alive.current) { setConfirmation(undefined); setError(failure()); if (confirmation) restoreFocus(); } return false; }
+    } catch (cause) {
+      if (alive.current) {
+        const message = cause instanceof Error ? cause.message : '';
+        const detail = message.includes('connector:confirmation-cancelled') ? ''
+          : /capability:(?:stale|invalid-confirmation)|connector:confirmation-stale/u.test(message)
+            ? t('插件或风险声明已变化或不可用，请刷新并核对插件。若已重装，请撤销此连接后重新配对。',
+              'The plugin or risk declaration changed or is unavailable. Refresh and check the plugin. After reinstalling, revoke this connection and pair again.')
+            : message.includes('connector:confirmation-busy')
+              ? t('请先完成或取消已打开的风险确认。', 'Finish or cancel the open risk confirmation first.')
+              : action?.type === 'bind-plugin' && message.includes('connector:busy')
+                ? t('请先停止此连接的任务并撤销长期委托，再关联插件。', 'Stop this connection’s tasks and revoke persistent policies before associating a plugin.')
+                : failure();
+        setConfirmation(undefined); setError(detail);
+        if (confirmation) restoreFocus();
+      }
+      return false;
+    }
     finally { if (alive.current) setBusy(false); }
   };
   const selected = roots.filter(root => state?.projects.some(project => project.workspace === root));
@@ -81,15 +99,25 @@ export function ExternalConnectorPanel({ bridge, language }: { bridge: DesktopBr
       <div><dt>{t('工具审批与问题', 'Approvals and questions')}</dt><dd>{t('默认本机审批，可按任务委托普通工具请求', 'Local by default; ordinary tool requests can be delegated per task')}</dd></div>
       <div><dt>{t('退出 DFSC 后', 'When DFSC exits')}</dt><dd>{t('不可用，不自动重放任务', 'Offline; no task replay')}</dd></div>
     </dl>
+    {state?.pluginDiscoveryUnavailable && <p role="status">{t(
+      '插件列表暂不可用，无法新增插件关联。已有连接仍可停止或撤销；关联插件的授权仍需通过检查。',
+      'The plugin list is unavailable, so new associations cannot be added. Existing connections can still be stopped or revoked; plugin-bound grants must still pass validation.')}</p>}
     <form className="external-connector-form" onSubmit={event => {
       event.preventDefault();
       if (state?.listening && name.trim() && selected.length)
-        ask({ type: 'pair', displayName: name.trim(), roots: selected }, event.currentTarget.querySelector('button[type=submit]')!);
+        ask({ type: 'pair', displayName: name.trim(), roots: selected, ...(pluginRef ? { pluginRef } : {}) },
+          event.currentTarget.querySelector('button[type=submit]')!);
     }}>
       <h3>{t('添加连接', 'Add connection')}</h3>
       <label><span>{t('连接名称', 'Connection name')}</span><input value={name} maxLength={100}
         placeholder={t('例如 Hermes', 'For example, Hermes')} disabled={busy || !state?.listening}
         onChange={event => { setName(event.target.value); setConfirmation(undefined); }}/></label>
+      {Boolean(state?.plugins?.length) && <label><span>{t('关联插件', 'Associated plugin')}</span>
+        <select value={pluginRef} disabled={busy || !state?.listening} onChange={event => {
+          setPluginRef(event.target.value); setConfirmation(undefined);
+        }}><option value="">{t('普通连接（不关联插件）', 'Generic connection (no plugin)')}</option>
+          {state?.plugins?.map(plugin => <option key={plugin.ref} value={plugin.ref}>{plugin.name} ({plugin.id})</option>)}
+        </select></label>}
       <fieldset className="remote-scope" disabled={busy || !state?.listening}>
         <legend>{t('授权项目', 'Authorized projects')}</legend>
         {state?.projects.map(project => <label key={project.workspace}>
@@ -109,18 +137,25 @@ export function ExternalConnectorPanel({ bridge, language }: { bridge: DesktopBr
       <summary hidden>{t('确认授权操作', 'Confirm authorization')}</summary>
       <div ref={disclosure.body} inert={!confirmation}><div className="remote-confirmation-content">
         <strong>{confirmation?.type === 'pair' ? t(`授权 ${confirmation.displayName}？`, `Authorize ${confirmation.displayName}?`)
+          : confirmation?.type === 'bind-plugin' ? t('将此连接关联到插件？', 'Associate this connection with a plugin?')
           : confirmation?.type === 'revoke' ? t(`撤销 ${revoking?.displayName ?? ''}？`, `Revoke ${revoking?.displayName ?? ''}?`)
             : t('关闭本机接入？', 'Disable local access?')}</strong>
         <p>{confirmation?.type === 'pair'
-          ? t('允许持有连接凭据的本机进程在以下项目创建任务并读取其回答。不会验证它收到的消息是否来自真人；工具审批仍须在 DFSC 处理。目录授权不是文件系统沙箱。',
-            'The local credential holder may create tasks and read their replies in these projects. Incoming messages are not verified as human instructions. Approvals remain local. Project scope is not a filesystem sandbox.')
+          ? t('允许持有连接凭据的本机进程在以下项目创建任务并读取其回答。不会验证它收到的消息是否来自真人；默认本机审批，委托需另外授权。目录授权不是文件系统沙箱。',
+            'The local credential holder may create tasks and read their replies in these projects. Incoming messages are not verified as human instructions. Approvals are local by default; delegation requires separate authorization. Project scope is not a filesystem sandbox.')
+          : confirmation?.type === 'bind-plugin' ? t('此连接之后的审批授权将检查该插件声明的风险。请先停止此连接的任务并撤销长期委托。关联不能直接解除或替换，需撤销连接后重新配对。',
+            'Future approval grants for this connection will check the plugin risk declarations. Stop its tasks and revoke persistent policies first. The association cannot be detached or replaced without revoking and pairing again.')
           : t('新请求会被拒绝，尚未发出的输入会尝试撤回。已开始的任务保留，可在本机会话中停止。',
             'New requests will be rejected and unsent input will be withdrawn where possible. Started tasks remain available to stop locally.')}</p>
         {confirmation?.type === 'pair' && <ul>{confirmation.roots.map(root => <li key={root}>{root}</li>)}</ul>}
+        {(confirmation?.type === 'pair' && confirmation.pluginRef || confirmation?.type === 'bind-plugin') && <p>
+          {t('关联插件', 'Associated plugin')} · {state?.plugins?.find(plugin => plugin.ref === confirmation.pluginRef)?.name}
+        </p>}
         <div className="remote-form-actions"><button ref={cancel} disabled={busy} onClick={close}>{t('取消', 'Cancel')}</button>
-          <button className={confirmation?.type === 'pair' ? 'primary' : 'remote-danger'} disabled={busy}
+          <button className={confirmation?.type === 'pair' || confirmation?.type === 'bind-plugin' ? 'primary' : 'remote-danger'} disabled={busy}
             onClick={() => void act(confirmation)}><ShieldCheck size={14}/>{confirmation?.type === 'pair'
-              ? t('确认授权', 'Confirm authorization') : confirmation?.type === 'revoke' ? t('撤销连接', 'Revoke connection') : t('关闭接入', 'Disable access')}</button>
+              ? t('确认授权', 'Confirm authorization') : confirmation?.type === 'bind-plugin' ? t('确认关联', 'Confirm association')
+                : confirmation?.type === 'revoke' ? t('撤销连接', 'Revoke connection') : t('关闭接入', 'Disable access')}</button>
         </div>
       </div></div>
     </details>
@@ -132,6 +167,19 @@ export function ExternalConnectorPanel({ bridge, language }: { bridge: DesktopBr
             data-tooltip={t('撤销连接', 'Revoke connection')} disabled={busy}
             onClick={event => ask({ type: 'revoke', agentId: item.agentId }, event.currentTarget)}><Unlink size={15}/></button></div>
         <ul>{item.roots.map(root => <li key={root}>{root}</li>)}</ul>
+        {item.plugin ? <p className="external-plugin-identity">{t('关联插件', 'Associated plugin')} · {item.plugin.id}</p>
+          : Boolean(state.plugins?.length) && <div className="external-plugin-association">
+            <label><span>{t('关联插件', 'Associated plugin')}</span>
+              <select aria-label={t(`为 ${item.displayName} 选择插件`, `Choose a plugin for ${item.displayName}`)}
+                value={associations[item.agentId] ?? ''} disabled={busy} onChange={event =>
+                  setAssociations(value => ({ ...value, [item.agentId]: event.target.value }))}>
+                <option value="">{t('选择插件', 'Choose a plugin')}</option>
+                {state.plugins?.map(plugin => <option key={plugin.ref} value={plugin.ref}>{plugin.name} ({plugin.id})</option>)}
+              </select></label>
+            <button disabled={busy || !state.listening || !associations[item.agentId]} onClick={event =>
+              ask({ type: 'bind-plugin', agentId: item.agentId, pluginRef: associations[item.agentId] }, event.currentTarget)}>
+              <Link2 size={14}/>{t('关联插件', 'Associate plugin')}</button>
+          </div>}
         <div className="external-connector-config"><span>{t('连接配置', 'Connection config')}</span><code>{item.configPath}</code>
           <button className="icon-button" aria-label={t(`复制 ${item.displayName} 配置路径`, `Copy ${item.displayName} config path`)}
             data-tooltip={t('复制配置路径', 'Copy config path')} onClick={() => void bridge.copyText(item.configPath)

@@ -1,0 +1,8 @@
+.startup-preview-tools {
+  display: flex; align-items: center; justify-content: flex-end; gap: 4px;
+  flex-shrink: 0; margin-top: 6px; padding-top: 6px;
+  border-top: 1px solid var(--border); color: var(--ink);
+}
+.startup-preview-tools > span { padding-right: 6px; font-size: 11px; }
+.startup-preview-tools select { width: 100px; min-height: 28px; padding: 2px 4px; font-size: 11px; }
+.startup-preview-tools .icon-button { width: 28px; height: 28px; min-height: 28px; }

@@ -274,7 +274,7 @@ try {
   await writeFile(join(profile, 'preferences.json'), JSON.stringify({
     theme: 'original-dark', language: 'zh', workspaces: [],
   }));
-  await writeFile(join(root, 'config.toml'), 'defaultProvider = "fixture"\ndefaultModel = "fixture"\n[telemetry]\nenabled = false\n');
+  await writeFile(join(root, 'config.toml'), 'defaultProvider = "fixture"\ndefaultModel = "fixture"\n[telemetry]\nenabled = false\n[mcp_servers.steppage__steppage]\nenabled = false\n');
   await writeFile(join(root, 'models.json'), JSON.stringify({ providers: { fixture: {
     api: 'openai-completions', baseUrl: `http://127.0.0.1:${server.address().port}/v1`, apiKey: 'fixture-only',
     models: [{ id: 'fixture', name: 'Offline diagnostics', contextWindow: 32768, maxTokens: 1024 }],

@@ -57,7 +57,7 @@ const handler = async (req, res) => {
 };
 const certificate = join(profile, 'fixture-cert.pem');
 const privateKey = join(profile, 'fixture-key.pem');
-await promisify(execFile)(process.env.DESKTOP_TEST_OPENSSL || 'C:/Program Files/Git/usr/bin/openssl.exe', [
+await promisify(execFile)(process.env.DESKTOP_TEST_OPENSSL || (process.platform === 'win32' ? 'C:/Program Files/Git/usr/bin/openssl.exe' : 'openssl'), [
   'req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-keyout', privateKey, '-out', certificate,
   '-days', '1', '-subj', '/CN=desktop-network.invalid', '-addext', 'subjectAltName=DNS:desktop-network.invalid',
 ], { windowsHide: true });

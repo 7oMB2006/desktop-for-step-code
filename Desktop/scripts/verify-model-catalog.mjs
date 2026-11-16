@@ -25,7 +25,7 @@ const errors = [];
 const resultDir = resolve('test-results/model-catalog');
 await mkdir(resultDir, { recursive: true });
 try {
-  app = await electron.launch({ args: [resolve('.')], env, timeout: 60000 });
+  app = await electron.launch({ ...(process.env.DESKTOP_VERIFY_EXE ? { executablePath: process.env.DESKTOP_VERIFY_EXE } : { args: [resolve('.')] }), env, timeout: 60000 });
   page = await app.firstWindow();
   page.on('pageerror', error => errors.push(error.message));
   await app.evaluate(({ BrowserWindow, session }) => {
@@ -118,7 +118,7 @@ try {
   assert.equal(await page.locator('.provider-thinking-declared').count(), 0);
   assert.equal(errors.length, 0, errors.join('\n'));
   await writeFile(join(resultDir, 'results.json'), JSON.stringify({
-    passed: true, packaged: false, catalogRequests: await app.evaluate(() => globalThis.catalogFixture.calls),
+    passed: true, packaged: Boolean(process.env.DESKTOP_VERIFY_EXE), catalogRequests: await app.evaluate(() => globalThis.catalogFixture.calls),
     scope: 'Isolated Electron fixture: explicit relay binding, unavailable catalog fallback, exact-only matching, mapping persistence, manual refresh, cache, identity invalidation, Chinese/English and dark/light/narrow UI. No paid provider.',
   }, null, 2));
   console.log('Model catalog Electron acceptance passed.');

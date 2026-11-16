@@ -33,6 +33,11 @@ test('every acceptance script is assigned exactly once or explicitly remains out
   assert.ok(!localOnly.includes('verify-plugin-update-electron.mjs'));
   assert.ok(acceptanceGroups.runtime.includes('verify-profile-lifecycle.mjs'));
   assert.ok(!localOnly.includes('verify-profile-lifecycle.mjs'));
+  for (const script of ['verify-model-catalog.mjs', 'verify-network-settings.mjs', 'verify-provider-proxy.mjs']) {
+    assert.ok(acceptanceGroups.runtime.includes(script));
+    assert.ok(!localOnly.includes(script));
+    assert.equal(Object.values(acceptanceGroups).flat().filter(name => name === script).length, 1);
+  }
   for (const [script, timeout] of Object.entries(acceptanceTimeouts)) {
     assert.ok(Object.values(acceptanceGroups).flat().includes(script));
     assert.equal(timeout, 300000);

@@ -44,6 +44,97 @@ const animate = (page, frames = [{ translate: '-100px' }, { translate: '0px' }],
 const cleanCss = page => page.evaluate(() => globalThis.desktopMotionSamples.size);
 const cleanWaapi = page => page.evaluate(() => globalThis.desktopWaapiSamples.size);
 
+test('Cron review waits for the expanding disclosure before pointer input and still requires a successful preview', { timeout: 15000 }, async () => {
+  const source = ts.createSourceFile('verify-cron-management.mjs',
+    await readFile(new URL('./verify-cron-management.mjs', import.meta.url), 'utf8'),
+    ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
+  const declaration = source.statements.find(node =>
+    ts.isFunctionDeclaration(node) && node.name?.text === 'reviewRecovery');
+  assert.ok(declaration, 'Exercise the native verifier recovery sequence');
+  const css = await readFile(new URL('../src/scheduled-tasks.css', import.meta.url), 'utf8');
+  for (const width of [1360, 640]) {
+    const page = await browser.newPage({ viewport: { width, height: 684 } });
+    try {
+      await page.setContent(`<style>
+        * { box-sizing: border-box; }
+        body { margin: 0; }
+        ${css}
+        .scheduled-tasks { height: 684px; }
+        button { height: 32px; }
+      </style><section class="scheduled-tasks"><div class="scheduled-detail">
+        <div style="height: 480px"></div>
+        <div id="scheduled-recovery" class="scheduled-recovery-disclosure" aria-hidden="true" inert>
+          <section class="scheduled-recovery"><div class="scheduled-recovery-content">
+            <h2>恢复项目调度</h2><label>承接会话<button>同项目会话</button></label>
+            <footer><button>取消恢复</button><button id="review">核对恢复配置</button></footer>
+          </div></section>
+        </div>
+        <footer class="scheduled-detail-footer"><button class="scheduled-recover">恢复项目调度 Beta</button></footer>
+      </div></section>`);
+      await page.evaluate(() => {
+        const panel = document.querySelector('#scheduled-recovery');
+        window.previewCalls = 0;
+        document.querySelector('.scheduled-recover').onclick = () => {
+          getComputedStyle(panel).gridTemplateRows;
+          panel.classList.add('is-open');
+          panel.inert = false;
+          panel.setAttribute('aria-hidden', 'false');
+          getComputedStyle(panel).gridTemplateRows;
+          const motion = panel.getAnimations().filter(animation => animation.transitionProperty === 'grid-template-rows');
+          if (motion.length !== 1) throw new Error('The real recovery grid must animate');
+          for (const animation of panel.getAnimations()) { animation.pause(); animation.currentTime = 0; }
+        };
+        document.querySelector('#review').onclick = event => {
+          window.previewCalls++;
+          if (!window.rejectPreview) event.currentTarget.textContent = '确认恢复调度';
+        };
+      });
+      let settled = false;
+      const panel = page.locator('#scheduled-recovery');
+      const inspect = new Function('settleLayout', `${declaration.getText(source)}; return reviewRecovery;`)(async locator => {
+        assert.equal(await locator.getAttribute('id'), 'scheduled-recovery');
+        await locator.evaluate(element => { for (const animation of element.getAnimations()) animation.play(); });
+        await settleLayout(locator);
+        settled = true;
+      });
+      const guarded = {
+        getByRole: (...args) => page.getByRole(...args),
+        locator(selector) {
+          assert.equal(selector, '#scheduled-recovery');
+          return {
+            getAttribute: (...args) => panel.getAttribute(...args),
+            evaluate: (...args) => panel.evaluate(...args),
+            getByRole(role, options) {
+              const button = panel.getByRole(role, options);
+              return {
+                async click() {
+                  assert.equal(settled, true, 'The review click must wait for disclosure motion');
+                  assert.equal(await panel.evaluate(element => element.getAnimations().some(animation =>
+                    animation.playState !== 'finished' && Number.isFinite(animation.effect.getComputedTiming().endTime))), false);
+                  await button.click({ delay: 80 });
+                },
+                waitFor: () => button.waitFor({ timeout: 300 }),
+              };
+            },
+          };
+        },
+      };
+      await inspect(guarded);
+      assert.equal(await page.evaluate(() => window.previewCalls), 1, 'One trusted click must reach the preview');
+      await page.evaluate(() => {
+        document.querySelector('#review').textContent = '核对恢复配置';
+        const panel = document.querySelector('#scheduled-recovery');
+        panel.classList.remove('is-open'); panel.inert = true; panel.setAttribute('aria-hidden', 'true');
+        window.rejectPreview = true;
+      });
+      await settleLayout(panel);
+      settled = false;
+      await assert.rejects(inspect(guarded), /Timeout/, 'A missing confirmation must still fail, not be retried or skipped');
+      assert.equal(await page.evaluate(() => window.previewCalls), 2);
+    } finally { await page.close(); }
+  }
+});
+
 test('session search acceptance waits for sidebar entrance and still rejects persistent focus clipping', { timeout: 15000 }, async () => {
   // Execute the verifier's own geometry block so a misplaced wait cannot pass.
   const source = ts.createSourceFile('verify-session-search.mjs',

@@ -23,6 +23,8 @@ test('macOS inherits shared feature coverage with only explicit native exclusion
   }
   for (const script of ['verify-profile-lifecycle.mjs', 'verify-macos-updater.mjs', 'verify-turn-undo.mjs', 'verify-auto-resume-electron.mjs',
     'verify-session-import.mjs', 'verify-then-run.mjs', 'verify-usage-worker.mjs']) assert.ok(scripts.includes(script));
+  assert.ok(macosAcceptanceGroups.interface.includes('verify-context-virtualization.mjs'));
+  assert.ok(!scripts.includes('verify-context-performance.mjs'));
   assert.equal(new Set(scripts).size, scripts.length);
   assert.throws(() => macosGroupScripts('typo'), /Unknown macOS/);
 });

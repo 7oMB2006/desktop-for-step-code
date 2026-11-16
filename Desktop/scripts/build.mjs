@@ -17,6 +17,7 @@ for (const name of ['file-associations.cs', 'file-associations.ps1'])
 for (const [source, name] of [
   ['three/LICENSE', 'three.txt'],
   ['@number-flow/react/LICENSE.md', 'number-flow-react.txt'],
+  ['@tanstack/react-virtual/LICENSE', 'tanstack-virtual.txt'],
   ['react-colorful/LICENSE', 'react-colorful.txt'],
   ['number-flow/LICENSE.md', 'number-flow.txt'],
   ['esm-env/LICENSE', 'esm-env.txt'],

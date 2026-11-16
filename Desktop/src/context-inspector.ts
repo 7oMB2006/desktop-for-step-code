@@ -34,7 +34,34 @@ export function contextMessagePreview(message: Message): string {
     parts.find(part => part.type === 'text')?.text ??
     parts.find(part => part.type === 'thinking')?.thinking ??
     parts.find(part => part.type === 'toolCall')?.name ?? message.summary ?? message.command ?? message.toolName ?? message.role;
-  return text.replace(/\s+/g, ' ').slice(0, 160);
+  const limit = 160;
+  const scanLimit = Math.min(text.length, 8192);
+  let preview = '';
+  let whitespace = false;
+  let index = 0;
+  while (index < scanLimit && preview.length < limit) {
+    if (/\s/.test(text[index])) {
+      if (!whitespace) preview += ' ';
+      whitespace = true;
+      index++;
+      continue;
+    }
+    whitespace = false;
+    const code = text.charCodeAt(index);
+    const highSurrogate = code >= 0xd800 && code <= 0xdbff;
+    if (highSurrogate && index + 1 >= scanLimit && index + 1 < text.length) break;
+    const next = highSurrogate ? text.charCodeAt(index + 1) : NaN;
+    const width = highSurrogate && next >= 0xdc00 && next <= 0xdfff ? 2 : 1;
+    if (preview.length + width > limit) return preview;
+    if (index + width > scanLimit) break;
+    preview += text.slice(index, index + width);
+    index += width;
+  }
+  // Bound pathological whitespace runs too; the marker denotes an unscanned tail.
+  if (index < text.length && preview.length < limit) {
+    return `${preview.slice(0, limit - 3).replace(/[\uD800-\uDBFF]$/, '')}...`;
+  }
+  return preview;
 }
 
 const hiddenKey = /^(?:data|.*signature|authorization|cookie|set-cookie|api[-_]?key|.*token|password|secret|credentials|env)$/i;

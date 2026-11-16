@@ -39,6 +39,16 @@ test('every acceptance script is assigned exactly once or explicitly remains out
   }
 });
 
+test('context virtualization runs in interface CI while comparative timing stays local', () => {
+  const functional = 'verify-context-virtualization.mjs';
+  const benchmark = 'verify-context-performance.mjs';
+  assert.ok(acceptanceGroups.interface.includes(functional));
+  assert.ok(!localOnly.includes(functional));
+  assert.equal(Object.values(acceptanceGroups).flat().filter(script => script === functional).length, 1);
+  assert.ok(localOnly.includes(benchmark));
+  assert.ok(!Object.values(acceptanceGroups).flat().includes(benchmark));
+});
+
 test('macOS package verification is registered in native CI without entering Windows groups', () => {
   assert.deepEqual(platformOnly, { macos: ['verify-macos-package.mjs', 'verify-macos-updater.mjs'] });
   const workflow = readFileSync(new URL('../.github/workflows/macos-integration.yml', import.meta.url), 'utf8');

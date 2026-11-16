@@ -44,6 +44,173 @@ const animate = (page, frames = [{ translate: '-100px' }, { translate: '0px' }],
 const cleanCss = page => page.evaluate(() => globalThis.desktopMotionSamples.size);
 const cleanWaapi = page => page.evaluate(() => globalThis.desktopWaapiSamples.size);
 
+test('plugin reading acceptance waits for displacement, not backward intent, and still rejects a lost position', { timeout: 15000 }, async () => {
+  const source = ts.createSourceFile('verify-plugin-surfaces-electron.mjs',
+    await readFile(new URL('./verify-plugin-surfaces-electron.mjs', import.meta.url), 'utf8'),
+    ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
+  const capture = source.statements.find(node =>
+    ts.isFunctionDeclaration(node) && node.name?.text === 'captureRetainedReading');
+  let restore;
+  const visit = node => {
+    if (ts.isVariableDeclaration(node) && node.name.getText(source) === 'assertReadingRestored')
+      restore = node.initializer?.getText(source);
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+  assert.ok(capture && restore, 'Exercise the native verifier capture and unchanged restore assertion');
+  const inspect = new Function('settleLayout', 'assert',
+    `${capture.getText(source)}; return captureRetainedReading;`)(settleLayout, assert);
+  for (const height of [373, 636]) {
+    const page = await browser.newPage();
+    try {
+      await page.setContent(`<div id="surface"><div id="conversation-scroll"
+        style="height:${height}px;overflow:auto"><div style="height:8328px"></div></div>
+        <button hidden>Scroll to bottom</button></div>`);
+      const viewport = page.locator('#conversation-scroll');
+      await viewport.evaluate(element => { element.scrollTop = element.scrollHeight; });
+      await settleLayout(viewport);
+      const before = await viewport.evaluate(element => element.scrollTop);
+      await viewport.evaluate(element => {
+        element.addEventListener('wheel', event => {
+          event.preventDefault();
+          document.querySelector('button').hidden = false;
+          window.applyDisplacement = () => {
+            if (!window.dropDisplacement) element.scrollTop += event.deltaY;
+          };
+        }, { passive: false });
+      });
+      let earlyIndicator = false;
+      const guarded = {
+        locator: (...args) => page.locator(...args),
+        getByRole: (...args) => page.getByRole(...args),
+        async waitForFunction(predicate, arg) {
+          if (await page.evaluate(() => Boolean(window.applyDisplacement))) {
+            assert.equal(await page.evaluate(predicate, arg), false, 'Intent alone cannot satisfy the displacement predicate');
+            await page.evaluate(() => {
+              window.applyDisplacement();
+              delete window.applyDisplacement;
+            });
+          }
+          return page.waitForFunction(predicate, arg, { timeout: 1000 });
+        },
+        mouse: { async wheel(...args) {
+          await page.mouse.wheel(...args);
+          await page.getByRole('button', { name: 'Scroll to bottom', exact: true }).waitFor();
+          assert.equal(await viewport.evaluate(element => element.scrollTop), before,
+            'Backward intent is visible while the actual displacement is still pending');
+          earlyIndicator = true;
+        } },
+      };
+      const reading = await inspect(guarded);
+      assert.equal(earlyIndicator, true);
+      assert.equal(reading, before - 2200, 'The baseline must include the delayed displacement');
+      const assertRestored = new Function('main', 'conversation', 'reading', 'assert', `return ${restore};`)(
+        guarded, viewport, reading, assert);
+      await page.locator('#surface').evaluate(element => { element.hidden = true; });
+      await page.locator('#surface').evaluate(element => { element.hidden = false; });
+      await assertRestored();
+      await viewport.evaluate(element => { element.scrollTop -= 120; });
+      await assert.rejects(assertRestored(), /Timeout/, 'A real lost reading position must still fail');
+      await viewport.evaluate(element => {
+        element.scrollTop = element.scrollHeight;
+        window.dropDisplacement = true;
+      });
+      await assert.rejects(inspect(guarded), /Timeout/, 'An intent without displacement cannot establish a baseline');
+    } finally { await page.close(); }
+  }
+});
+
+test('Cron review waits for the expanding disclosure before pointer input and still requires a successful preview', { timeout: 15000 }, async () => {
+  const source = ts.createSourceFile('verify-cron-management.mjs',
+    await readFile(new URL('./verify-cron-management.mjs', import.meta.url), 'utf8'),
+    ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
+  const declaration = source.statements.find(node =>
+    ts.isFunctionDeclaration(node) && node.name?.text === 'reviewRecovery');
+  assert.ok(declaration, 'Exercise the native verifier recovery sequence');
+  const css = await readFile(new URL('../src/scheduled-tasks.css', import.meta.url), 'utf8');
+  for (const width of [1360, 640]) {
+    const page = await browser.newPage({ viewport: { width, height: 684 } });
+    try {
+      await page.setContent(`<style>
+        * { box-sizing: border-box; }
+        body { margin: 0; }
+        ${css}
+        .scheduled-tasks { height: 684px; }
+        button { height: 32px; }
+      </style><section class="scheduled-tasks"><div class="scheduled-detail">
+        <div style="height: 480px"></div>
+        <div id="scheduled-recovery" class="scheduled-recovery-disclosure" aria-hidden="true" inert>
+          <section class="scheduled-recovery"><div class="scheduled-recovery-content">
+            <h2>恢复项目调度</h2><label>承接会话<button>同项目会话</button></label>
+            <footer><button>取消恢复</button><button id="review">核对恢复配置</button></footer>
+          </div></section>
+        </div>
+        <footer class="scheduled-detail-footer"><button class="scheduled-recover">恢复项目调度 Beta</button></footer>
+      </div></section>`);
+      await page.evaluate(() => {
+        const panel = document.querySelector('#scheduled-recovery');
+        window.previewCalls = 0;
+        document.querySelector('.scheduled-recover').onclick = () => {
+          getComputedStyle(panel).gridTemplateRows;
+          panel.classList.add('is-open');
+          panel.inert = false;
+          panel.setAttribute('aria-hidden', 'false');
+          getComputedStyle(panel).gridTemplateRows;
+          const motion = panel.getAnimations().filter(animation => animation.transitionProperty === 'grid-template-rows');
+          if (motion.length !== 1) throw new Error('The real recovery grid must animate');
+          for (const animation of panel.getAnimations()) { animation.pause(); animation.currentTime = 0; }
+        };
+        document.querySelector('#review').onclick = event => {
+          window.previewCalls++;
+          if (!window.rejectPreview) event.currentTarget.textContent = '确认恢复调度';
+        };
+      });
+      let settled = false;
+      const panel = page.locator('#scheduled-recovery');
+      const inspect = new Function('settleLayout', `${declaration.getText(source)}; return reviewRecovery;`)(async locator => {
+        assert.equal(await locator.getAttribute('id'), 'scheduled-recovery');
+        await locator.evaluate(element => { for (const animation of element.getAnimations()) animation.play(); });
+        await settleLayout(locator);
+        settled = true;
+      });
+      const guarded = {
+        getByRole: (...args) => page.getByRole(...args),
+        locator(selector) {
+          assert.equal(selector, '#scheduled-recovery');
+          return {
+            getAttribute: (...args) => panel.getAttribute(...args),
+            evaluate: (...args) => panel.evaluate(...args),
+            getByRole(role, options) {
+              const button = panel.getByRole(role, options);
+              return {
+                async click() {
+                  assert.equal(settled, true, 'The review click must wait for disclosure motion');
+                  assert.equal(await panel.evaluate(element => element.getAnimations().some(animation =>
+                    animation.playState !== 'finished' && Number.isFinite(animation.effect.getComputedTiming().endTime))), false);
+                  await button.click({ delay: 80 });
+                },
+                waitFor: () => button.waitFor({ timeout: 300 }),
+              };
+            },
+          };
+        },
+      };
+      await inspect(guarded);
+      assert.equal(await page.evaluate(() => window.previewCalls), 1, 'One trusted click must reach the preview');
+      await page.evaluate(() => {
+        document.querySelector('#review').textContent = '核对恢复配置';
+        const panel = document.querySelector('#scheduled-recovery');
+        panel.classList.remove('is-open'); panel.inert = true; panel.setAttribute('aria-hidden', 'true');
+        window.rejectPreview = true;
+      });
+      await settleLayout(panel);
+      settled = false;
+      await assert.rejects(inspect(guarded), /Timeout/, 'A missing confirmation must still fail, not be retried or skipped');
+      assert.equal(await page.evaluate(() => window.previewCalls), 2);
+    } finally { await page.close(); }
+  }
+});
+
 test('session search acceptance waits for sidebar entrance and still rejects persistent focus clipping', { timeout: 15000 }, async () => {
   // Execute the verifier's own geometry block so a misplaced wait cannot pass.
   const source = ts.createSourceFile('verify-session-search.mjs',

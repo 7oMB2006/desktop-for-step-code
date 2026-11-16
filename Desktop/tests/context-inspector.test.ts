@@ -40,6 +40,44 @@ test('context message categories count roles, not tool calls or token shares', (
   assert.equal(finiteAmount(0), 0);
 });
 
+test('message previews normalize whitespace before applying their display limit', () => {
+  const text = ` first${'\t\n\r '.repeat(80)}second\u00a0\u2003\u2028\u2029\ufeffthird `;
+  assert.equal(contextMessagePreview({ role: 'toolResult', content: text }), text.replace(/\s+/g, ' ').slice(0, 160));
+  assert.equal(contextMessagePreview({ role: 'toolResult', content: `a${' '.repeat(200)}${'b'.repeat(200)}` }),
+    `a ${'b'.repeat(158)}`);
+});
+
+test('message previews bound long tool output and pathological whitespace scans', () => {
+  const output = `tool output ${'x'.repeat(2_000_000)}`;
+  assert.equal(contextMessagePreview({ role: 'toolResult', content: output }), output.slice(0, 160));
+  assert.equal(contextMessagePreview({ role: 'toolResult', content: `${' '.repeat(2_000_000)}not scanned` }), ' ...');
+  assert.equal(contextMessagePreview({ role: 'toolResult', content: `prefix${' '.repeat(8192)}not scanned` }), 'prefix ...');
+  assert.equal(contextMessagePreview({ role: 'toolResult', content: `${' '.repeat(8191)}x` }), ' x');
+  assert.equal(contextMessagePreview({ role: 'toolResult', content: `${' '.repeat(8192)}x` }), ' ...');
+});
+
+test('message previews keep surrogate pairs intact at display and scan boundaries', () => {
+  const emoji = '\ud83d\ude80';
+  assert.equal(contextMessagePreview({ role: 'assistant', content: `${'x'.repeat(158)}${emoji}tail` }), `${'x'.repeat(158)}${emoji}`);
+  assert.equal(contextMessagePreview({ role: 'assistant', content: `${'x'.repeat(159)}${emoji}tail` }), 'x'.repeat(159));
+  assert.equal(contextMessagePreview({ role: 'assistant', content: `${' '.repeat(8191)}${emoji}` }), ' ...');
+  assert.equal(contextMessagePreview({ role: 'assistant', content: `${'x'.repeat(155)}${emoji}${' '.repeat(8192)}` }),
+    `${'x'.repeat(155)}${emoji}...`);
+  assert.equal(contextMessagePreview({ role: 'assistant', content: `${'x'.repeat(156)}${emoji}${' '.repeat(8192)}` }),
+    `${'x'.repeat(156)}...`);
+});
+
+test('message previews preserve source priority and role fallbacks', () => {
+  assert.equal(contextMessagePreview({ role: 'assistant', content: [
+    { type: 'toolCall', name: 'tool fallback' }, { type: 'thinking', thinking: 'thought fallback' }, { type: 'text', text: 'text first' },
+  ] }), 'text first');
+  assert.equal(contextMessagePreview({ role: 'assistant', content: [] }), 'assistant');
+  assert.equal(contextMessagePreview({ role: 'toolResult', content: [], toolName: 'read_file' }), 'read_file');
+  assert.equal(contextMessagePreview({ role: 'bashExecution', content: [], command: 'pwd' }), 'pwd');
+  assert.equal(contextMessagePreview({ role: 'compactionSummary', content: [], summary: 'retained summary' }), 'retained summary');
+  assert.equal(contextMessagePreview({ role: 'assistant', content: '' }), '');
+});
+
 test('message JSON omits image bytes, named secrets and unapproved message fields', () => {
   const message = {
     role: 'assistant', provider: 'fixture', model: 'test-model', timestamp: 1,

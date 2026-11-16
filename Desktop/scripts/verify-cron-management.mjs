@@ -33,6 +33,14 @@ const resize = async (width, height) => {
   const page = await app.firstWindow();
   await page.waitForFunction(([width, height]) => innerWidth === width && innerHeight === height, size);
 };
+async function reviewRecovery(page) {
+  await page.getByRole('button', { name: '恢复项目调度 Beta', exact: true }).click();
+  const panel = page.locator('#scheduled-recovery');
+  // The clipped button can pass actionability before its expanding grid moves it.
+  await settleLayout(panel);
+  await panel.getByRole('button', { name: '核对恢复配置', exact: true }).click();
+  await panel.getByRole('button', { name: '确认恢复调度', exact: true }).waitFor();
+}
 // Poll async IPC in Node; waitForFunction's predicate must remain synchronous.
 const until = async (check, label) => {
   const deadline = Date.now() + 30000;
@@ -58,6 +66,39 @@ const launch = async () => {
   await resize(1360, 900);
   await page.getByRole('textbox', { name: '消息', exact: true }).waitFor();
   await page.waitForFunction(() => !document.querySelector('.new-chat')?.disabled, undefined, { timeout: 60000 });
+  await app.evaluate(({ ipcMain }) => {
+    const handlers = ipcMain._invokeHandlers, original = handlers.get('desktop');
+    if (typeof original !== 'function') throw new Error('Desktop IPC handler unavailable');
+    globalThis.cronPreviewCalls = [];
+    handlers.set('desktop', async (...args) => {
+      const row = args[1] === 'cronRecoveryPreview' ? { time: Date.now(), outcome: 'pending' } : undefined;
+      if (row && globalThis.cronPreviewCalls.length < 16) globalThis.cronPreviewCalls.push(row);
+      try {
+        const result = await original(...args);
+        if (row) row.outcome = 'resolved';
+        return result;
+      } catch (error) {
+        if (row) row.outcome = 'rejected';
+        throw error;
+      }
+    });
+  });
+  await page.evaluate(() => {
+    window.cronRecoveryClicks = [];
+    for (const type of ['pointerdown', 'pointerup', 'click']) document.addEventListener(type, event => {
+      if (!event.target.closest?.('.scheduled-detail')) return;
+      const button = event.target.closest('button'), panel = document.querySelector('#scheduled-recovery');
+      window.cronRecoveryClicks.push({
+        type, time: Date.now(), target: button?.textContent?.trim(), tag: event.target.tagName,
+        x: event.clientX, y: event.clientY, open: panel?.classList.contains('is-open'),
+        scrollTop: document.querySelector('.scheduled-tasks')?.scrollTop,
+        animations: panel?.getAnimations({ subtree: true }).map(animation => ({
+          property: animation.transitionProperty, state: animation.playState, time: animation.currentTime,
+        })),
+      });
+      if (window.cronRecoveryClicks.length > 60) window.cronRecoveryClicks.shift();
+    }, true);
+  });
   return page;
 };
 const close = async () => {
@@ -297,9 +338,7 @@ try {
   {
     const tasks = (await page.evaluate(() => window.desktop.cronList())).tasks;
     assert.equal(tasks[0].association.sessionId, 'queue-demo');
-    await page.getByRole('button', { name: '恢复项目调度 Beta', exact: true }).click();
-    await page.getByRole('button', { name: '核对恢复配置', exact: true }).click();
-    await page.getByRole('button', { name: '确认恢复调度', exact: true }).waitFor();
+    await reviewRecovery(page);
     assert.equal((await page.evaluate(() => window.desktop.snapshot())).runtimes.length, 0);
     assert.equal(fixture.requests.length, 0);
     await screenshot('recovery-dark', 1360, 1000, 'dark');
@@ -327,8 +366,7 @@ try {
     await assert.rejects(page.evaluate(token => window.desktop.cronRecover(token), stale.token), /expired/i);
     results.push('Changed native task invalidates the reviewed snapshot and consumes its token');
 
-    await page.getByRole('button', { name: '恢复项目调度 Beta', exact: true }).click();
-    await page.getByRole('button', { name: '核对恢复配置', exact: true }).click();
+    await reviewRecovery(page);
     await page.getByRole('checkbox', { name: '授权应用启动或空闲宿主异常后自动恢复此项目 · Beta', exact: true }).check();
     await page.getByRole('button', { name: '确认恢复调度', exact: true }).click();
     await page.getByText('调度宿主在线', { exact: true }).waitFor({ timeout: 30000 });
@@ -514,8 +552,20 @@ try {
     actions: [...document.querySelectorAll('.scheduled-detail-footer button')].map(button => ({
       label: button.textContent?.trim(), disabled: button.disabled,
     })),
+    recovery: (() => {
+      const panel = document.querySelector('#scheduled-recovery');
+      if (!panel) return undefined;
+      return {
+        open: panel.classList.contains('is-open'), inert: panel.inert,
+        buttons: [...panel.querySelectorAll('button')].map(button => ({
+          label: button.textContent?.trim(), disabled: button.disabled, bounds: button.getBoundingClientRect().toJSON(),
+        })),
+      };
+    })(),
+    recoveryClicks: window.cronRecoveryClicks,
   })).catch(() => undefined);
-  console.error('Cron management failure state:', JSON.stringify({ ...state, completedCases: results.length, pageErrors: errors.length }));
+  const previewCalls = await app?.evaluate(() => globalThis.cronPreviewCalls).catch(() => undefined);
+  console.error('Cron management failure state:', JSON.stringify({ ...state, previewCalls, completedCases: results.length, pageErrors: errors.length }));
   await page?.screenshot({ path: 'test-results/cron-management-failure.png' }).catch(() => {});
   throw error;
 } finally {

@@ -152,6 +152,7 @@ export class SessionRuntimes {
       initializeModel?: (worker: SessionRuntime, restoring: boolean) => Promise<void>;
       pluginsReady?: (worker: SessionRuntime) => Promise<void>;
       pluginsReset?: (worker: SessionRuntime) => void;
+      snapshotSettled?: () => void;
       language?: () => 'zh' | 'en';
       startup?: (diagnostic: RuntimeStartupDiagnostic) => void;
       idleLimit?: () => number; backgroundAvailable?: () => boolean; retain?: (worker: SessionRuntime) => boolean;
@@ -728,6 +729,8 @@ export class SessionRuntimes {
       worker.operations--;
       reads.delete(reading);
       if (!reads.size) this.reads.delete(worker);
+      // Navigation may have skipped this resident while its snapshot was in flight.
+      if (!worker.operations) this.hooks.snapshotSettled?.();
     });
     reads.add(reading);
     return reading;

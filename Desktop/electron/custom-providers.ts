@@ -2,82 +2,46 @@ import { randomUUID } from 'node:crypto';
 import { readFile, writeFile, rename, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import { SPEECH_FIELD } from './speech';
+import { enrichDiscoveredModel, officialModelCapabilities, officialResponsesRequired } from '../src/official-model-capabilities';
 import type { CustomProvider, ProviderInfo, Model, ProviderApi, DiscoveredProviderModel } from '../src/contracts';
+import { catalogProviders, resolveCatalogProvider } from '../src/provider-catalog';
+import { THINKING_LEVELS, stringSubset, modelListing, parseModelListing, readModelJson } from './provider-discovery';
+import type { ModelCatalog } from './model-catalog';
+export { THINKING_LEVELS, discoverModelMetadata } from './provider-discovery';
 
 const FIELD = '__desktopCustomProviders';
 const PREFIX = 'desktop-custom-';
 const APIS: ProviderApi[] = ['openai-completions', 'openai-responses', 'anthropic-messages'];
 type AuthData = Record<string, unknown>;
-export const THINKING_LEVELS = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra'];
 const MODALITIES = ['text', 'image', 'audio', 'video', 'file'];
-function stringSubset(raw: unknown, allowed: string[]): string[] | undefined {
-  return Array.isArray(raw) && raw.length > 0 && raw.every(v => typeof v === 'string' && allowed.includes(v)) ? allowed.filter(v => raw.includes(v)) : undefined;
-}
-export function discoverModelMetadata(entry: Record<string, any>): Partial<DiscoveredProviderModel> {
-  const result: Partial<DiscoveredProviderModel> = {};
-  const input = stringSubset(entry.input_modalities ?? entry.architecture?.input_modalities, MODALITIES);
-  const output = stringSubset(entry.output_modalities ?? entry.architecture?.output_modalities, MODALITIES);
-  if (input) { result.declaredInput = input; result.vision = input.includes('image'); }
-  if (output) result.declaredOutput = output;
-  if (typeof entry.reasoning === 'boolean') result.reasoning = entry.reasoning;
-  // Discovery may contain future efforts; saved configuration remains strict.
-  const rawLevels = entry.thinking_levels ?? entry.supported_reasoning_efforts ?? entry.effort?.supported_levels;
-  const levels = Array.isArray(rawLevels) && rawLevels.every(v => typeof v === 'string')
-    ? THINKING_LEVELS.filter(level => rawLevels.includes(level)) : [];
-  if (levels.length) { result.thinkingLevels = levels; result.reasoning = levels.some(v => v !== 'off'); }
-  if (typeof entry.effort?.default_level === 'string' && levels.includes(entry.effort.default_level)) result.thinkingDefaultLevel = entry.effort.default_level;
-  const context = entry.context_window ?? entry.context_length;
-  const max = entry.max_output_tokens ?? entry.top_provider?.max_completion_tokens;
-  if (Number.isSafeInteger(context) && context > 0 && context <= 10000000) result.contextWindow = context;
-  if (Number.isSafeInteger(max) && max > 0 && max <= 10000000 && (result.contextWindow === undefined || max <= result.contextWindow)) result.maxTokens = max;
-  return result;
-}
-export async function discoverProviderModels(auth: AuthData, raw: unknown, key?: unknown): Promise<DiscoveredProviderModel[]> {
+export async function discoverProviderModels(auth: AuthData, raw: unknown, key?: unknown,
+  request: (url: string, init: RequestInit) => Promise<Response> = globalThis.fetch,
+  catalog?: Pick<ModelCatalog, 'enrich'>): Promise<DiscoveredProviderModel[]> {
   if (!raw || typeof raw !== 'object') throw new Error('Invalid provider');
   const p = raw as CustomProvider;
   const url = new URL(text(p.baseUrl, 2048, 'Base URL'));
   if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.search || url.hash || !APIS.includes(p.api)) throw new Error('Invalid model endpoint');
   if (typeof p.keyless !== 'boolean') throw new Error('Invalid provider state');
+  if (p.catalogProvider !== undefined && p.catalogProvider !== 'none' && !catalogProviders.some(item => item.id === p.catalogProvider)) throw new Error('Invalid catalog provider');
   if (key !== undefined && (typeof key !== 'string' || key.length > 8192 || /[\r\n\u0000]/.test(key))) throw new Error('Invalid API key');
   const saved = providerList(auth).find(item => item.id === p.id);
-  const credential = p.keyless ? undefined : (typeof key === 'string' && key.trim() ? key.trim() : saved ? (auth[saved.id] as { key?: string } | undefined)?.key : undefined);
+  const sameEndpoint = saved && new URL(saved.baseUrl).href.replace(/\/+$/, '') === url.href.replace(/\/+$/, '');
+  const credential = p.keyless ? undefined : (typeof key === 'string' && key.trim() ? key.trim() : sameEndpoint ? (auth[saved!.id] as { key?: string } | undefined)?.key : undefined);
   if (!p.keyless && !credential) throw new Error('API key is required');
-  url.pathname = `${url.pathname.replace(/\/$/, '')}/models`;
-  const headers: Record<string, string> = { Accept: 'application/json' };
-  if (p.api === 'anthropic-messages') {
-    headers['anthropic-version'] = '2023-06-01';
-    if (credential) headers['x-api-key'] = credential;
-  } else if (credential) headers.Authorization = `Bearer ${credential}`;
+  const listing = modelListing(url, p.api, credential);
+  const timeout = AbortSignal.timeout(15000);
   try {
-    const response = await fetch(url, { headers, redirect: 'error', signal: AbortSignal.timeout(15000) });
-    if (!response.ok) throw new Error(`Model discovery HTTP ${response.status}`);
-    if (!response.body) throw new Error('Empty model response');
-    const reader = response.body.getReader();
-    const chunks: Uint8Array[] = [];
-    let size = 0;
-    try {
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        size += value.length;
-        if (size > 2 * 1024 * 1024) throw new Error('Model response too large');
-        chunks.push(value);
-      }
-    } finally { await reader.cancel(); }
-    const body = JSON.parse(Buffer.concat(chunks).toString('utf8'));
-    if (!Array.isArray(body?.data)) throw new Error('Invalid model list');
-    const result = new Map<string, DiscoveredProviderModel>();
-    for (const entry of body.data) {
-      if (typeof entry?.id !== 'string' || !entry.id.trim() || entry.id.length > 300 || /[\u0000-\u001f]/.test(entry.id)) continue;
-      const id = entry.id.trim();
-      const displayName = [entry.display_name, entry.name].find(value => typeof value === 'string' && value.trim() && value.length <= 200 && !/[\u0000-\u001f]/.test(value));
-      const name = displayName?.trim() ?? id;
-      result.set(id, { id, name, ...discoverModelMetadata(entry) });
-      if (result.size >= 1000) break;
+    const response = await request(listing.url.href, { headers: listing.headers, redirect: 'error', signal: timeout, credentials: 'omit', cache: 'no-store' });
+    if (!response.ok) {
+      await response.body?.cancel();
+      throw new Error(`Model discovery HTTP ${response.status}`);
     }
-    return [...result.values()];
+    const models = parseModelListing(await readModelJson(response, 2 * 1024 * 1024))
+      .map(model => enrichDiscoveredModel(p.baseUrl, p.api, model));
+    return catalog ? await catalog.enrich(p, models) : models;
   } catch (error) {
     if (error instanceof Error && /^Model discovery HTTP \d+$/.test(error.message)) throw error;
+    if (timeout.aborted) throw new Error('Model discovery timed out');
     throw new Error('Could not retrieve model list');
   }
 }
@@ -98,12 +62,20 @@ export function validateProvider(raw: unknown): CustomProvider {
   if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.search || url.hash) throw new Error('Use an HTTP(S) base address without credentials, query or fragment');
   if (!APIS.includes(p.api)) throw new Error('Unsupported API format');
   if (typeof p.enabled !== 'boolean' || typeof p.keyless !== 'boolean') throw new Error('Invalid provider state');
+  if (p.catalogProvider !== undefined && p.catalogProvider !== 'none' && !catalogProviders.some(item => item.id === p.catalogProvider)) throw new Error('Invalid catalog provider');
   if (!Array.isArray(p.models) || !p.models.length || p.models.length > 100) throw new Error('Add between 1 and 100 models');
   const ids = new Set<string>();
   const models = p.models.map(m => {
     const modelId = text(m?.id, 300, 'model ID');
     if (ids.has(modelId)) throw new Error('Duplicate model ID');
     ids.add(modelId);
+    const official = officialModelCapabilities(p.baseUrl, p.api, modelId);
+    const catalog = m.catalogMetadata;
+    if (catalog && (catalog.provider !== resolveCatalogProvider(p.baseUrl, p.api, p.catalogProvider) ||
+        catalog.modelId !== modelId || typeof catalog.retrievedAt !== 'string' ||
+        !Number.isFinite(Date.parse(catalog.retrievedAt)) || catalog.retrievedAt.length > 40 || typeof catalog.stale !== 'boolean')) throw new Error('Invalid catalog metadata');
+    if (catalog?.thinkingMapping && (p.api === 'anthropic-messages' || typeof catalog.thinkingMapping !== 'object' || Array.isArray(catalog.thinkingMapping) ||
+        Object.entries(catalog.thinkingMapping).some(([level, wire]) => !THINKING_LEVELS.includes(level) || wire !== level && !(level === 'off' && wire === 'none')))) throw new Error('Invalid catalog thinking mapping');
     if (typeof m.reasoning !== 'boolean' || typeof m.vision !== 'boolean') throw new Error('Invalid model capabilities');
     const contextWindow = integer(m.contextWindow, 10000000);
     const maxTokens = integer(m.maxTokens, 10000000);
@@ -116,12 +88,17 @@ export function validateProvider(raw: unknown): CustomProvider {
     let thinkingControl = m.thinkingControl;
     if (thinkingControl) {
       const levels = stringSubset(thinkingControl.levels, THINKING_LEVELS);
-      if (!['upstream', 'manual'].includes(thinkingControl.source) || !levels) throw new Error('Invalid thinking control');
+      if (!['upstream', 'official', 'catalog', 'manual'].includes(thinkingControl.source) || !levels) throw new Error('Invalid thinking control');
       const mapping = thinkingControl.mapping;
       if (mapping !== undefined && (!mapping || typeof mapping !== 'object' || Array.isArray(mapping) ||
           Object.keys(mapping).some(level => !levels.includes(level)) ||
           levels.some(level => typeof mapping[level] !== 'string' || !/^[a-zA-Z0-9_-]{1,40}$/.test(mapping[level])))) throw new Error('Invalid thinking mapping');
       if (thinkingControl.source === 'upstream' && (mapping || !declaredThinkingLevels || JSON.stringify(levels) !== JSON.stringify(declaredThinkingLevels))) throw new Error('Invalid upstream thinking control');
+      if (thinkingControl.source === 'catalog' && (!catalog || p.api === 'anthropic-messages' || !mapping ||
+          !declaredThinkingLevels || JSON.stringify(levels) !== JSON.stringify(declaredThinkingLevels) ||
+          levels.some(level => mapping[level] !== catalog.thinkingMapping?.[level]))) throw new Error('Invalid catalog thinking control');
+      if (thinkingControl.source === 'official' && (!official || JSON.stringify(levels) !== JSON.stringify(official.thinkingLevels) ||
+          !mapping || levels.some(level => mapping[level] !== official.thinkingMapping?.[level]))) throw new Error('Invalid official thinking control');
       if (thinkingControl.adaptive !== undefined && (typeof thinkingControl.adaptive !== 'boolean' || p.api !== 'anthropic-messages' || thinkingControl.source !== 'manual')) throw new Error('Invalid adaptive thinking control');
       if (JSON.stringify(levels) !== JSON.stringify(thinkingLevels)) throw new Error('Thinking control does not match levels');
       if (thinkingControl.defaultLevel !== undefined && !levels.includes(thinkingControl.defaultLevel)) throw new Error('Invalid default thinking level');
@@ -131,10 +108,24 @@ export function validateProvider(raw: unknown): CustomProvider {
     const declaredOutput = m.declaredOutput === undefined ? undefined : stringSubset(m.declaredOutput, MODALITIES);
     if ((m.declaredInput !== undefined && !declaredInput) || (m.declaredOutput !== undefined && !declaredOutput)) throw new Error('Invalid modalities');
     if (m.metadataSource !== undefined && !['manual', 'upstream'].includes(m.metadataSource)) throw new Error('Invalid metadata source');
+    if (m.capabilitySources && (typeof m.capabilitySources !== 'object' || Array.isArray(m.capabilitySources) ||
+        Object.entries(m.capabilitySources).some(([field, source]) => !['contextWindow', 'maxTokens', 'vision', 'thinking'].includes(field) ||
+          !['upstream', 'official', 'catalog', 'manual', 'default'].includes(source) || source === 'official' && !official || source === 'catalog' && !catalog))) throw new Error('Invalid capability sources');
+    if (m.officialDocumentation && (!official || m.officialDocumentation.url !== official.officialDocumentation?.url ||
+        m.officialDocumentation.verifiedAt !== official.officialDocumentation?.verifiedAt)) throw new Error('Invalid official documentation');
+    if (m.declaredThinkingSource !== undefined && !['upstream', 'official', 'catalog'].includes(m.declaredThinkingSource)) throw new Error('Invalid declaration source');
+    if (m.declaredThinkingSource === 'official' && !official) throw new Error('Invalid official declaration');
+    if (m.declaredThinkingSource === 'catalog' && !catalog) throw new Error('Invalid catalog declaration');
     return { id: modelId, name: text(m.name || modelId, 200, 'model name'), reasoning: m.reasoning, vision: m.vision, contextWindow, maxTokens,
+      ...(m.capabilitySources ? { capabilitySources: { ...m.capabilitySources } } : {}),
+      ...(m.officialDocumentation ? { officialDocumentation: { ...m.officialDocumentation } } : {}),
+      ...(catalog ? { catalogMetadata: { provider: catalog.provider, modelId, retrievedAt: catalog.retrievedAt, stale: catalog.stale,
+        ...(catalog.thinkingMapping ? { thinkingMapping: { ...catalog.thinkingMapping } } : {}) } } : {}),
+      ...(m.declaredThinkingSource ? { declaredThinkingSource: m.declaredThinkingSource } : {}),
       ...(thinkingLevels ? { thinkingLevels } : {}), ...(thinkingControl ? { thinkingControl } : {}), ...(declaredThinkingLevels ? { declaredThinkingLevels } : {}), ...(declaredInput ? { declaredInput } : {}), ...(declaredOutput ? { declaredOutput } : {}), ...(m.metadataSource ? { metadataSource: m.metadataSource } : {}) };
   });
-  return { id, name: text(p.name, 100, 'provider name'), baseUrl: url.href.replace(/\/$/, ''), api: p.api, enabled: p.enabled, keyless: p.keyless, models };
+  return { id, name: text(p.name, 100, 'provider name'), baseUrl: url.href.replace(/\/$/, ''), api: p.api, enabled: p.enabled, keyless: p.keyless,
+    ...(p.catalogProvider !== undefined ? { catalogProvider: p.catalogProvider } : {}), models };
 }
 export function providerList(auth: AuthData): CustomProvider[] {
   if (auth[FIELD] === undefined) return [];
@@ -146,6 +137,7 @@ export function providerInfos(auth: AuthData): ProviderInfo[] {
 }
 export function saveProviderAuth(auth: AuthData, raw: unknown, key?: unknown): AuthData {
   const provider = validateProvider(raw);
+  if (provider.models.some(model => officialResponsesRequired(provider.baseUrl, provider.api, model.id))) throw new Error('This model requires Responses API for tools');
   const providers = providerList(auth);
   if (!providers.some(p => p.id === provider.id) && providers.length >= 50) throw new Error('Maximum 50 providers');
   const next = { ...auth };
@@ -214,7 +206,8 @@ export function providerModelNames(models: Model[], auth: AuthData): Model[] {
     const configured = p?.models.find(v => v.id === m.id);
     const controlled = configured?.thinkingLevels?.length && (p?.api !== 'anthropic-messages' || configured.thinkingControl?.adaptive === true);
     return p ? { ...m, providerName: p.name, ...(configured ? { thinkingServiceDefault: !controlled, thinkingLevels: controlled ? configured.thinkingLevels : [], input: configured.vision ? ['text', 'image'] : ['text'], contextWindow: configured.contextWindow, maxTokens: configured.maxTokens,
-      declaredInput: configured.declaredInput, declaredOutput: configured.declaredOutput, metadataSource: configured.metadataSource ?? 'manual' } : {}) } : m;
+      declaredInput: configured.declaredInput, declaredOutput: configured.declaredOutput, capabilitySources: configured.capabilitySources,
+      officialDocumentation: configured.officialDocumentation, metadataSource: configured.metadataSource ?? 'manual' } : {}) } : m;
   });
 }
 export async function projectProviders(root: string, auth: AuthData) {

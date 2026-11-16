@@ -46,7 +46,7 @@ export function isolatedEnvironment(root: string, parent: NodeJS.ProcessEnv = pr
  * Upstream diagnostics can echo environment values, so nothing that looks like a
  * secret reaches a file; the tail is bounded so a runaway log cannot bloat it.
  */
-const SENSITIVE_LINE = /(api[-_.]?key|access[-_]?token|refresh[-_]?token|auth[-_]?token|secret|password|passwd|credential|cookie|authorization|bearer\s+[A-Za-z0-9._-]|['"]?(?:token|apiKey|api_key)['"]?\s*[:=]|^\s*(?:STEP|PI|AI_AGENT)[A-Z0-9_]*\s*=)/i;
+const SENSITIVE_LINE = /(api[-_.]?key|access[-_]?token|refresh[-_]?token|auth[-_]?token|secret|password|passwd|credential|cookie|authorization|(?:https?|all)_proxy|https?:\/\/[^/\s@]+@|bearer\s+[A-Za-z0-9._-]|['"]?(?:token|apiKey|api_key)['"]?\s*[:=]|^\s*(?:STEP|PI|AI_AGENT)[A-Z0-9_]*\s*=)/i;
 function stderrForLog(text: string, lines = 40): string {
   const safe = text.split(/\r?\n/).filter(line => line.trim().length > 0 && !SENSITIVE_LINE.test(line));
   const tail = safe.slice(-lines);

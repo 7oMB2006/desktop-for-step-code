@@ -2,7 +2,8 @@ import type { CustomProvider, ProviderDiagnostic } from '../src/contracts';
 import { providerList } from './custom-providers';
 
 // Diagnostics are isolated HTTP requests, not agent prompts or saved configuration.
-export async function testProvider(auth: Record<string, unknown>, raw: unknown, modelId: unknown, key: unknown, signal?: AbortSignal): Promise<ProviderDiagnostic> {
+export async function testProvider(auth: Record<string, unknown>, raw: unknown, modelId: unknown, key: unknown, signal?: AbortSignal,
+  request: (url: string, init: RequestInit) => Promise<Response> = globalThis.fetch): Promise<ProviderDiagnostic> {
   const started = performance.now();
   let status: number | undefined;
   let endpoint = '';
@@ -48,7 +49,7 @@ export async function testProvider(auth: Record<string, unknown>, raw: unknown, 
   const timeout = AbortSignal.timeout(30000);
   const combined = signal ? AbortSignal.any([signal, timeout]) : timeout;
   try {
-    const response = await fetch(url, { method: 'POST', headers, body: JSON.stringify(body), redirect: 'error', signal: combined });
+    const response = await request(url.href, { method: 'POST', headers, body: JSON.stringify(body), redirect: 'error', signal: combined, credentials: 'omit', cache: 'no-store' });
     status = response.status;
     if (!response.ok) {
       await response.body?.cancel();

@@ -515,7 +515,7 @@ for (const exitConfirmed of [true, false]) {
       const speech = { cancel() {} };
       const state = { quits: 0, errors: 0, prevented: 0, diagnostics: [], messages: [], externalShutdowns: 0, externalFlushes: 0 };
       const stop = { async stopAll() {}, async stop() {}, async close() {}, async shutdown() {}, async flush() {} };
-      const runtimes = stop, terminals = stop, sessionImports = stop, remote = stop, admin = stop;
+      const runtimes = stop, terminals = stop, sessionImports = stop, remote = stop, admin = stop, network = stop;
       const historyReaders = stop, collaboration = stop, bvrBridge = stop, pluginHosts = stop, conversationTiming = stop, modelSelections = stop;
       const usageEstimates = stop, workflowBindings = stop, miniChat = undefined, pluginWindows = undefined, browser = undefined;
       const capabilityGate = { async whenIdle() {} };
@@ -562,6 +562,7 @@ for (const failExternalShutdown of [false, true]) {
       const speech = { cancel() {} };
       const stop = { async stopAll() {}, async stop() {}, async close() {}, async shutdown() {}, async flush() {} };
       const runtimes = stop, terminals = stop, sessionImports = stop, remote = stop, admin = stop;
+      const network = { async stop() { events.push('network-stopped'); } };
       const historyReaders = stop, collaboration = stop, bvrBridge = stop, pluginHosts = stop, conversationTiming = stop, modelSelections = stop;
       const usageEstimates = stop, workflowBindings = stop, miniChat = undefined, pluginWindows = undefined, browser = undefined;
       const capabilityService = { async stop() { events.push('service-stopped'); } };
@@ -587,7 +588,7 @@ for (const failExternalShutdown of [false, true]) {
     await Promise.all([operation, settled]);
     assert.deepEqual(events, failExternalShutdown
       ? ['write-finished', 'external-stopped', 'quit-failure:external-connectors', 'error']
-      : ['write-finished', 'external-stopped', 'service-stopped', 'external-flushed', 'quit']);
+      : ['write-finished', 'external-stopped', 'service-stopped', 'network-stopped', 'external-flushed', 'quit']);
     assert.equal(f.pending(), !failExternalShutdown);
     assert.equal(f.quitting(), !failExternalShutdown);
   });

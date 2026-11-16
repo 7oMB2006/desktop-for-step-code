@@ -33,6 +33,9 @@ new MutationObserver(() => {
 
 const invoke = (method: string, ...args: unknown[]) => ipcRenderer.invoke('desktop', method, ...args);
 const bridge: DesktopBridge = {
+  networkSettings: () => invoke('networkSettings'),
+  saveNetwork: config => invoke('saveNetwork', config),
+  testNetwork: url => invoke('testNetwork', url),
   speechSettings: () => invoke('speechSettings'),
   saveSpeech: (config, revision, key) => invoke('saveSpeech', config, revision, key),
   acknowledgeSpeech: revision => invoke('acknowledgeSpeech', revision),

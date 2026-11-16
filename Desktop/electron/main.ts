@@ -68,6 +68,8 @@ import { diagnoseCapabilityMutation, type CapabilityPhaseMarker } from './capabi
 import { capabilityFailureDetails } from './capability-failure.mjs';
 import { UsageEstimates } from './usage-estimates';
 import { providerInfos, providerModelNames, runtimeAuth, mergeRuntimeAuth, saveProviderAuth, deleteProviderAuth, projectProviders, discoverProviderModels, keylessEnvironment } from './custom-providers';
+import { DesktopNetwork, validateNetwork } from './network';
+import { ModelCatalog } from './model-catalog';
 import { testProvider } from './provider-diagnostic';
 let providerTestController: AbortController | undefined;
 import { installCrashLog } from './crash-log';
@@ -149,6 +151,16 @@ const localPages = new LocalPagePreview();
 const localFileGrants = new Map<string, string>();
 const fileAssociationScript = () => join(app.isPackaged ? join(process.resourcesPath, 'file-opening') : join(__dirname, 'file-opening'), process.platform === 'darwin' ? 'file-applications-macos' : 'file-associations.ps1');
 let preferences: Preferences = { theme: 'system', language: 'zh', workspaces: [] };
+// Provider requests share Chromium's selected proxy/PAC policy.
+const providerFetch = (url: string, options: RequestInit) => net.fetch(url, options);
+const modelCatalog = new ModelCatalog(providerFetch);
+const network = new DesktopNetwork({
+  setProxy: config => session.defaultSession.setProxy(config),
+  closeAllConnections: () => session.defaultSession.closeAllConnections(),
+  resolveProxy: url => session.defaultSession.resolveProxy(url),
+  fetch: providerFetch,
+});
+let discoveringProviders = 0;
 const updateVersion = process.platform === 'darwin' && app.isPackaged ? macUpdateVersion(process.resourcesPath, app.getVersion()) : app.getVersion();
 const updates = new AppUpdates(updateVersion, (url, options) => net.fetch(url, options),
   state => { installer.reconcile(state.release); publishUpdate(); }, () => Date.now(), 15_000, process.platform === 'darwin' ? 'darwin' : 'win32');
@@ -429,7 +441,7 @@ let providerSettingsPending = false;
 let providerApplyFailed = false;
 let providerApplication: Promise<void> | undefined;
 const authEnvironment = () => ({
-  ...env,
+  ...network.environment(env),
   DESKTOP_CRON_STATE: '1',
   DESKTOP_CRON_SCOPE_DIR: undefined,
   STEPCODE_DESKTOP_AUTH_PATH: env.STEPCODE_AUTH_PATH,
@@ -2865,13 +2877,35 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
       return saved;
     }
     case 'settings': return { ...await admin.request('settings', { cwd: (sessionDraft ? sessionDraft.workspace : preferences.workspace) ?? app.getPath('documents') }), providers: providerInfos(authData) };
-    case 'discoverProviderModels': return discoverProviderModels(authData, args[0], args[1]);
+    case 'networkSettings': return network.settings();
+    case 'testNetwork': return network.probe(args[0]);
+    case 'saveNetwork': {
+      await guardIdle();
+      if (providerTestController || discoveringProviders) throw new Error('Provider request in progress');
+      const next = validateNetwork(args[0]);
+      const previous = network.settings();
+      await network.apply(next);
+      const previousPreference = preferences.network;
+      preferences.network = next;
+      try { await savePreferences(); }
+      catch (error) {
+        preferences.network = previousPreference;
+        await network.apply(previous);
+        throw error;
+      }
+      return network.settings();
+    }
+    case 'discoverProviderModels': {
+      discoveringProviders++;
+      try { return await discoverProviderModels(authData, args[0], args[1], providerFetch, modelCatalog); }
+      finally { discoveringProviders--; }
+    }
     case 'cancelProviderTest': providerTestController?.abort(); return;
     case 'testProvider': {
       if (providerTestController) throw new Error('Provider test already in progress');
       const controller = new AbortController();
       providerTestController = controller;
-      try { return await testProvider(authData, args[0], args[1], args[2], controller.signal); }
+      try { return await testProvider(authData, args[0], args[1], args[2], controller.signal, providerFetch); }
       finally { if (providerTestController === controller) providerTestController = undefined; }
     }
     case 'saveProvider':
@@ -3279,6 +3313,7 @@ app.on('before-quit', event => {
       await externalConnectors.shutdown();
       quitStage = 'services';
       await Promise.all([historyReaders.close(), runtimes.stopAll(), admin.stop(), capabilityService.stop(), collaboration.stop(), bvrBridge.stop(), pluginHosts.close()]);
+      await network.stop();
       quitStage = 'persistence';
       await externalTasks.flush().catch(() => crashLog.record('external-connectors', new Error('External task state could not be saved')));
       await conversationTiming.flush();
@@ -3326,6 +3361,7 @@ else app.whenReady().then(async () => {
   await projectProviders(dataRoot, authData);
   crashLog.setPhase('vault loaded');
   try { preferences = { ...preferences, ...JSON.parse(await readFile(preferencesFile, 'utf8')) }; } catch {}
+  await network.start(preferences.network ?? { mode: 'system', proxyUrl: '' });
   preferences = migrateWorkspaceIdentity(preferences);
   Object.assign(preferences, normalizePanelPreferences(preferences));
   Object.assign(preferences, notificationPreferences(preferences));
@@ -3534,7 +3570,7 @@ else app.whenReady().then(async () => {
       // CapabilityService selects its trusted scope after freezing the package.
       // Discovery network work and data-only themes must not block Remote I/O.
       const shared = capabilityMutation && !['capabilityMutate', 'pluginUpdateApply'].includes(method)
-        || ['login', 'logout', 'saveMcp', 'saveProvider', 'deleteProvider', 'prepareStepPage', 'finishFirstRun'].includes(method);
+        || ['login', 'logout', 'saveMcp', 'saveProvider', 'deleteProvider', 'saveNetwork', 'prepareStepPage', 'finishFirstRun'].includes(method);
       if ((shared || method === 'capabilityMutate' || method === 'pluginUpdateApply') && speechSaving) throw new Error('Speech settings operation in progress');
       if ((shared || method === 'capabilityMutate' || method === 'pluginUpdateApply') && capabilityGate.active)
         throw new Error('Shared settings operation in progress');
@@ -3543,9 +3579,9 @@ else app.whenReady().then(async () => {
       if (capabilityMutation && (settingsMutation || undoBusy || transition || updateInstalling || quitting || quitPending))
         throw new Error('Shared settings operation in progress');
       if (undoBusy && ['moveSessionToProject', 'prepareStepPage', 'removeWorkspace', 'relocateWorkspace', 'beginSession', 'chooseSessionProject', 'createDraftSession', 'command', 'branchSession', 'cloneSession', 'retryMessage', 'restart', 'workspace', 'chooseWorkspace',
-        'switchSession', 'navigateSession', 'newIndependentSession', 'deleteSession', 'deleteArchivedSessions', 'login', 'logout', 'saveMcp', 'saveProvider', 'deleteProvider'].includes(method))
+        'switchSession', 'navigateSession', 'newIndependentSession', 'deleteSession', 'deleteArchivedSessions', 'login', 'logout', 'saveMcp', 'saveProvider', 'deleteProvider', 'saveNetwork'].includes(method))
         throw new Error('Undo in progress');
-      if (settingsMutation && ['moveSessionToProject', 'prepareStepPage', 'removeWorkspace', 'relocateWorkspace', 'beginSession', 'chooseSessionProject', 'createDraftSession', 'command', 'branchSession', 'cloneSession', 'retryMessage', 'restart', 'workspace', 'chooseWorkspace', 'switchSession', 'navigateSession', 'newIndependentSession', 'deleteSession', 'deleteArchivedSessions', 'login', 'logout', 'saveMcp', 'saveProvider', 'deleteProvider', 'finishFirstRun'].includes(method)) throw new Error('Shared settings operation in progress');
+      if (settingsMutation && ['moveSessionToProject', 'prepareStepPage', 'removeWorkspace', 'relocateWorkspace', 'beginSession', 'chooseSessionProject', 'createDraftSession', 'command', 'branchSession', 'cloneSession', 'retryMessage', 'restart', 'workspace', 'chooseWorkspace', 'switchSession', 'navigateSession', 'newIndependentSession', 'deleteSession', 'deleteArchivedSessions', 'login', 'logout', 'saveMcp', 'saveProvider', 'deleteProvider', 'saveNetwork', 'discoverProviderModels', 'testProvider', 'testNetwork', 'finishFirstRun'].includes(method)) throw new Error('Shared settings operation in progress');
       const speechOperation = ['speechSettings', 'saveSpeech', 'acknowledgeSpeech', 'beginSpeech', 'transcribeSpeech', 'finishSpeech', 'cancelSpeech'].includes(method);
       if (!capabilityRead && !speechOperation && !['capabilityMutate', 'pluginUpdateApply'].includes(method) && !updateInstalling && providerSettingsPending && !settingsMutation && canApplyProviders()) {
         await applyProviderSettings();

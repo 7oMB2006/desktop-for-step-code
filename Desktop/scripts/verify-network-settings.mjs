@@ -15,7 +15,7 @@ import { submitSessionFixture, waitForSessionFixtureTools } from './session-fixt
 const profile = await mkdtemp(join(tmpdir(), 'desktop-network-settings-'));
 await writeFile(join(profile, 'preferences.json'), JSON.stringify({ language: 'zh', theme: 'dark', workspaces: [] }));
 await mkdir(join(profile, 'step-runtime'), { recursive: true });
-await writeFile(join(profile, 'step-runtime/config.toml'), 'permissionPreset = "bypass"\n[telemetry]\nenabled = false\n');
+await writeFile(join(profile, 'step-runtime/config.toml'), 'permissionPreset = "bypass"\n[telemetry]\nenabled = false\n[mcp_servers.steppage__steppage]\nenabled = false\n');
 const origin = 'http://desktop-network.invalid';
 const key = 'isolated-network-key';
 const bodies = [];

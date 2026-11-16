@@ -350,6 +350,25 @@ const captureHermesAction = async theme => {
   await main.screenshot({ path: join(output, `hermes-overflow-${theme}.png`) });
   await main.keyboard.press('Escape');
 };
+async function captureRetainedReading(page) {
+  const viewport = page.locator('#conversation-scroll');
+  await settleLayout(viewport);
+  await viewport.hover();
+  const before = await viewport.evaluate(element => element.scrollTop);
+  await page.mouse.wheel(0, -2200);
+  // The backward-intent handler can reveal the button before native scrolling.
+  await page.waitForFunction(before => {
+    const element = document.querySelector('#conversation-scroll');
+    return element && element.scrollTop > 0 && element.scrollTop < before - 4
+      && element.scrollHeight - element.clientHeight - element.scrollTop > 4;
+  }, before);
+  await settleLayout(viewport);
+  await page.getByRole('button', { name: 'Scroll to bottom', exact: true }).waitFor();
+  const reading = await viewport.evaluate(element => element.scrollTop);
+  assert.ok(reading > 0 && reading < before - 4, 'Record the displaced reading position, not only backward intent');
+  console.log('Retained conversation reading baseline:', { before, reading });
+  return reading;
+}
 try {
   const executablePath = process.env.DESKTOP_VERIFY_EXE;
   app = await electron.launch({
@@ -393,12 +412,7 @@ try {
   const composer = main.locator('main .composer-input');
   const conversation = main.locator('#conversation-scroll');
   await composer.fill('KEEP THE REAL DESKTOP DRAFT');
-  await conversation.hover();
-  await main.mouse.wheel(0, -2200);
-  await main.getByRole('button', { name: 'Scroll to bottom', exact: true }).waitFor();
-  const reading = await conversation.evaluate(element => element.scrollTop);
-  assert.ok(reading > 0);
-  console.log('Retained conversation reading baseline:', reading);
+  const reading = await captureRetainedReading(main);
   const assertReadingRestored = async () => {
     await main.waitForFunction(expected => {
       const viewport = document.querySelector('#conversation-scroll');

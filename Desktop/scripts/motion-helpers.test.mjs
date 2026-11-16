@@ -44,6 +44,82 @@ const animate = (page, frames = [{ translate: '-100px' }, { translate: '0px' }],
 const cleanCss = page => page.evaluate(() => globalThis.desktopMotionSamples.size);
 const cleanWaapi = page => page.evaluate(() => globalThis.desktopWaapiSamples.size);
 
+test('plugin reading acceptance waits for displacement, not backward intent, and still rejects a lost position', { timeout: 15000 }, async () => {
+  const source = ts.createSourceFile('verify-plugin-surfaces-electron.mjs',
+    await readFile(new URL('./verify-plugin-surfaces-electron.mjs', import.meta.url), 'utf8'),
+    ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
+  const capture = source.statements.find(node =>
+    ts.isFunctionDeclaration(node) && node.name?.text === 'captureRetainedReading');
+  let restore;
+  const visit = node => {
+    if (ts.isVariableDeclaration(node) && node.name.getText(source) === 'assertReadingRestored')
+      restore = node.initializer?.getText(source);
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+  assert.ok(capture && restore, 'Exercise the native verifier capture and unchanged restore assertion');
+  const inspect = new Function('settleLayout', 'assert',
+    `${capture.getText(source)}; return captureRetainedReading;`)(settleLayout, assert);
+  for (const height of [373, 636]) {
+    const page = await browser.newPage();
+    try {
+      await page.setContent(`<div id="surface"><div id="conversation-scroll"
+        style="height:${height}px;overflow:auto"><div style="height:8328px"></div></div>
+        <button hidden>Scroll to bottom</button></div>`);
+      const viewport = page.locator('#conversation-scroll');
+      await viewport.evaluate(element => { element.scrollTop = element.scrollHeight; });
+      await settleLayout(viewport);
+      const before = await viewport.evaluate(element => element.scrollTop);
+      await viewport.evaluate(element => {
+        element.addEventListener('wheel', event => {
+          event.preventDefault();
+          document.querySelector('button').hidden = false;
+          window.applyDisplacement = () => {
+            if (!window.dropDisplacement) element.scrollTop += event.deltaY;
+          };
+        }, { passive: false });
+      });
+      let earlyIndicator = false;
+      const guarded = {
+        locator: (...args) => page.locator(...args),
+        getByRole: (...args) => page.getByRole(...args),
+        async waitForFunction(predicate, arg) {
+          if (await page.evaluate(() => Boolean(window.applyDisplacement))) {
+            assert.equal(await page.evaluate(predicate, arg), false, 'Intent alone cannot satisfy the displacement predicate');
+            await page.evaluate(() => {
+              window.applyDisplacement();
+              delete window.applyDisplacement;
+            });
+          }
+          return page.waitForFunction(predicate, arg, { timeout: 1000 });
+        },
+        mouse: { async wheel(...args) {
+          await page.mouse.wheel(...args);
+          await page.getByRole('button', { name: 'Scroll to bottom', exact: true }).waitFor();
+          assert.equal(await viewport.evaluate(element => element.scrollTop), before,
+            'Backward intent is visible while the actual displacement is still pending');
+          earlyIndicator = true;
+        } },
+      };
+      const reading = await inspect(guarded);
+      assert.equal(earlyIndicator, true);
+      assert.equal(reading, before - 2200, 'The baseline must include the delayed displacement');
+      const assertRestored = new Function('main', 'conversation', 'reading', 'assert', `return ${restore};`)(
+        guarded, viewport, reading, assert);
+      await page.locator('#surface').evaluate(element => { element.hidden = true; });
+      await page.locator('#surface').evaluate(element => { element.hidden = false; });
+      await assertRestored();
+      await viewport.evaluate(element => { element.scrollTop -= 120; });
+      await assert.rejects(assertRestored(), /Timeout/, 'A real lost reading position must still fail');
+      await viewport.evaluate(element => {
+        element.scrollTop = element.scrollHeight;
+        window.dropDisplacement = true;
+      });
+      await assert.rejects(inspect(guarded), /Timeout/, 'An intent without displacement cannot establish a baseline');
+    } finally { await page.close(); }
+  }
+});
+
 test('Cron review waits for the expanding disclosure before pointer input and still requires a successful preview', { timeout: 15000 }, async () => {
   const source = ts.createSourceFile('verify-cron-management.mjs',
     await readFile(new URL('./verify-cron-management.mjs', import.meta.url), 'utf8'),

@@ -19,6 +19,20 @@ const visit = (node: ts.Node) => {
 visit(source);
 assert.equal(installers.length, 1, 'Exercise the actual native startup interceptor');
 
+test('navigation fixture disables unrelated external StepPage startup', () => {
+  const configs: string[] = [];
+  const collect = (node: ts.Node) => {
+    if (ts.isCallExpression(node) && node.expression.getText(source) === 'writeFile'
+      && node.arguments[0]?.getText(source) === "join(root, 'config.toml')"
+      && node.arguments[1] && ts.isStringLiteral(node.arguments[1]))
+      configs.push(node.arguments[1].text);
+    ts.forEachChild(node, collect);
+  };
+  collect(source);
+  assert.equal(configs.length, 1);
+  assert.match(configs[0], /\[mcp_servers\.steppage__steppage\]\r?\nenabled = false(?:\r?\n|$)/);
+});
+
 for (const isPackaged of [false, true]) for (const supervised of [false, true]) {
   test(`${isPackaged ? 'packaged' : 'source'} ${supervised ? 'supervised' : 'direct'} navigation fixture holds only two session workers, not management RPC`, () => {
     const app = { isPackaged };

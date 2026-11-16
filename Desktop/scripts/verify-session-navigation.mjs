@@ -24,7 +24,7 @@ await mkdir(output, { recursive: true });
 await writeFile(join(profile, 'preferences.json'), JSON.stringify({
   language: 'zh', theme: 'light', workspaces: [project, failureProject], workspace: project,
 }));
-await writeFile(join(root, 'config.toml'), 'defaultProvider = "fixture"\ndefaultModel = "fixture"\n[telemetry]\nenabled = false\n');
+await writeFile(join(root, 'config.toml'), 'defaultProvider = "fixture"\ndefaultModel = "fixture"\n[telemetry]\nenabled = false\n[mcp_servers.steppage__steppage]\nenabled = false\n');
 await writeFile(join(root, 'models.json'), JSON.stringify({ providers: {
   fixture: { baseUrl: 'http://127.0.0.1:1/v1', api: 'openai-completions', apiKey: 'local-test-only',
     models: [modelFor(0), modelFor(1)].map(({ id, name }) => ({ id, name, reasoning: true,
@@ -72,8 +72,16 @@ const modelObservations = [];
 let phase = 'startup';
 const waitForTrimmedResidents = async page => {
   const deadline = Date.now() + 15000;
-  while ((await page.evaluate(() => window.desktop.snapshot())).runtimes.length > 3) {
-    assert.ok(Date.now() < deadline, 'Idle runtimes were not recycled');
+  for (;;) {
+    const snapshot = await page.evaluate(() => window.desktop.snapshot());
+    if (snapshot.runtimes.length <= 3) return;
+    if (Date.now() >= deadline) {
+      console.error('Navigation resident timeout:', JSON.stringify({
+        active: snapshot.runtimeId,
+        residents: snapshot.runtimes.map(({ runtimeId, status }) => ({ runtimeId, status })),
+      }));
+      assert.fail('Idle runtimes were not recycled');
+    }
     await delay(50);
   }
 };

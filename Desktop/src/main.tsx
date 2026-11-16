@@ -851,10 +851,9 @@ function App() {
     acceptQuitReview(value.quitReview);
     if (!messageRevision.current.acceptSnapshot(value)) return false;
     registerPluginThemes(value.themePacks ?? []);
-    const previous = view.current;
-    const changedOwner = composerKey(composerOwner(value)) !== composerKey(previous.draftId ? { draftId: previous.draftId }
-      : previous.sessionId ? { sessionId: previous.sessionId } : undefined);
-    if (previous.runtimeId !== value.runtimeId || changedOwner || navigationPending.current
+    // Consecutive snapshots can arrive before the rendered view ref advances.
+    const changedOwner = composerKey(composerOwner(value)) !== composerKey(composer.client.active?.owner);
+    if (viewId.current !== value.runtimeId || changedOwner || navigationPending.current
       || revision !== presentationRevision.current) {
       if (!navigationPending.current) rememberView();
       const saved = value.state?.sessionId ? composerBySession.current.get(value.state.sessionId) : undefined;

@@ -798,7 +798,7 @@ try {
     await page.getByRole('button', { name: '卸载插件', exact: true }).click();
     await confirmThemeRemoval();
   }
-  await page.getByRole('button', { name: '全部插件', exact: true }).click();
+  if (await allPlugins.isVisible()) await allPlugins.click();
   await page.getByRole('button', { name: '检查插件更新', exact: true }).click();
   await poll(catalog, value => !value.plugins.some(item => item.id === 'stellar-cruise'), 'theme uninstalled');
   await waitForUiReady(page.getByRole('tab', { name: /^已安装/u }), 'theme uninstall UI settled');

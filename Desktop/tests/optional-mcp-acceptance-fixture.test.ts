@@ -171,3 +171,23 @@ for (const [name, owners, operation] of [
     }
   });
 }
+
+test('Diagnostics refresh after removal supports both automatic native return and retained legacy detail', async () => {
+  const statements = diagnostics.statements.find(ts.isTryStatement)?.tryBlock.statements;
+  assert.ok(statements);
+  const removal = statements.findIndex(node => node.getText(diagnostics).includes("'theme uninstalled'"));
+  assert.ok(removal > 1);
+  const refresh = statements[removal - 1];
+  assert.ok(refresh.getText(diagnostics).includes("'检查插件更新'"));
+  const guard = statements[removal - 2];
+  assert.ok(ts.isIfStatement(guard), 'A native removal already returned to the list; do not click a missing detail action');
+  const run = new Function('allPlugins', `return (async () => { ${guard.getText(diagnostics)} })();`);
+  for (const visible of [false, true]) {
+    let clicks = 0;
+    await run({
+      async isVisible() { return visible; },
+      async click() { assert.equal(visible, true); clicks++; },
+    });
+    assert.equal(clicks, visible ? 1 : 0);
+  }
+});

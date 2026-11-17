@@ -15,17 +15,26 @@ export function ThinkingDisclosure({ autoOpen, running, preview, resetKey, state
   const viewport = useRef<HTMLDivElement>(null);
   const content = useRef<HTMLDivElement>(null);
   const following = useRef(true);
+  const updateEdges = () => {
+    const scroller = viewport.current;
+    if (!scroller || !body.current) return;
+    body.current.style.setProperty('--thinking-fade-top', `${Math.min(18, Math.max(0, scroller.scrollTop))}px`);
+    body.current.style.setProperty('--thinking-fade-bottom',
+      `${Math.min(18, Math.max(0, scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop))}px`);
+  };
   useLayoutEffect(() => {
     const scroller = viewport.current, text = content.current;
-    if (!scroller || !text || !expanded || !running) return;
+    if (!scroller || !text || !expanded) return;
     const follow = () => {
       const selection = window.getSelection();
-      if (following.current && !(selection && !selection.isCollapsed && text.contains(selection.anchorNode)))
+      if (running && following.current && !(selection && !selection.isCollapsed && text.contains(selection.anchorNode)))
         scroller.scrollTop = scroller.scrollHeight;
+      updateEdges();
     };
     follow();
     const observer = new ResizeObserver(follow);
     observer.observe(text);
+    observer.observe(scroller);
     return () => observer.disconnect();
   }, [expanded, running]);
   useEffect(() => {
@@ -48,6 +57,7 @@ export function ThinkingDisclosure({ autoOpen, running, preview, resetKey, state
         onScroll={event => {
           const element = event.currentTarget;
           following.current = element.scrollHeight - element.clientHeight - element.scrollTop <= 1;
+          updateEdges();
         }}>
         <div ref={content}>{(visited || expanded) && children}</div>
       </div>

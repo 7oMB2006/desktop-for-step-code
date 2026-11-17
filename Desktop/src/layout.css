@@ -578,7 +578,19 @@ details[open] > summary > .disclosure-chevron { transform: rotate(90deg); }
 .response-content > .thinking > summary { display: flex; align-items: center; gap: 6px; width: fit-content; min-height: 30px; padding: 3px 0; cursor: pointer; list-style: none; }
 .response-content > .thinking > summary:hover { color: var(--ink); }
 .thinking-body > p { padding: 5px 0; }
-.thinking-scroll { max-height: min(280px, 40vh); overflow: auto; overscroll-behavior: contain; scrollbar-width: thin; padding: 4px 8px 4px 2px; overflow-wrap: anywhere; }
+.thinking-body { position: relative; }
+.thinking-body::before, .thinking-body::after {
+  content: ''; position: absolute; left: 2px; right: 8px; z-index: 1; pointer-events: none;
+}
+.thinking-body::before {
+  top: 0; height: var(--thinking-fade-top, 0px);
+  background: linear-gradient(to bottom, var(--bg), transparent);
+}
+.thinking-body::after {
+  bottom: 0; height: var(--thinking-fade-bottom, 0px);
+  background: linear-gradient(to bottom, transparent, var(--bg));
+}
+.thinking-scroll { max-height: min(280px, 40vh); overflow: auto; overscroll-behavior: contain; padding: 4px 8px 4px 2px; overflow-wrap: anywhere; }
 .thinking-scroll > div > :first-child { margin-top: 0; }
 .thinking-scroll > div > :last-child { margin-bottom: 0; }
 .sent-attachments { display: flex; flex-wrap: wrap; gap: 6px 12px; margin-top: 8px; min-width: 0; }

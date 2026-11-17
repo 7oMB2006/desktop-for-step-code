@@ -80,6 +80,20 @@ const waitForTrimmedResidents = async page => {
         active: snapshot.runtimeId,
         residents: snapshot.runtimes.map(({ runtimeId, status }) => ({ runtimeId, status })),
       }));
+      console.error('Native recycle protections:', JSON.stringify(await app.evaluate(() => ({
+        workers: [...(globalThis.navigationDiagnosticWorkers?.values() ?? [])].map(worker => ({
+          runtimeId: worker.id, sessionId: worker.state?.sessionId, status: worker.status,
+          operations: worker.operations, mutating: worker.mutating, pendingModel: Boolean(worker.pendingModel),
+          remoteAttached: Boolean(worker.remoteAttached), queued: Boolean(worker.queued),
+          busy: worker.busy, submissions: worker.submissions, pendingUI: worker.pendingUI.size,
+          goal: worker.launch?.goal?.status, cron: worker.cron?.status, cronJobs: worker.cron?.jobs.length,
+          backgroundActive: worker.backgroundActive, backgroundLanes: worker.backgroundLanes?.length,
+          messageCount: worker.messages.length,
+        })),
+        preparations: [...globalThis.navigationDiagnosticPreparations].map(([map, kind]) => ({
+          kind, sessions: [...map.keys()].filter(id => /^navigation-\d$/.test(id)),
+        })),
+      })).catch(error => ({ diagnosticError: String(error) }))));
       assert.fail('Idle runtimes were not recycled');
     }
     await delay(50);
@@ -285,6 +299,18 @@ try {
     const sessionEntry = join(runtime, 'step/dist/bundle/step.js');
     const childProcess = process.getBuiltinModule('child_process');
     const spawn = childProcess.spawn;
+    const set = Map.prototype.set;
+    globalThis.navigationDiagnosticPreparations = new Map();
+    // Capture only fixture-owned worker/preparation maps; never change their values.
+    Map.prototype.set = function (key, value) {
+      if (value && typeof value === 'object' && value.rpc && value.pendingUI instanceof Map
+        && Number.isInteger(value.operations) && key === value.id) globalThis.navigationDiagnosticWorkers = this;
+      if (typeof key === 'string' && /^navigation-\d$/.test(key) && value && typeof value === 'object') {
+        const kind = typeof value.then === 'function' ? 'opening' : value.controller && typeof value.cold === 'boolean' ? 'navigation' : undefined;
+        if (kind) set.call(globalThis.navigationDiagnosticPreparations, this, kind);
+      }
+      return set.call(this, key, value);
+    };
     let claimed = 0;
     const releases = [];
     globalThis.navigationStalled = 0;
@@ -320,7 +346,12 @@ try {
       };
       return child;
     };
-    globalThis.navigationRestoreSpawn = () => { childProcess.spawn = spawn; };
+    globalThis.navigationRestoreSpawn = () => {
+      childProcess.spawn = spawn;
+      Map.prototype.set = set;
+      globalThis.navigationDiagnosticWorkers = undefined;
+      globalThis.navigationDiagnosticPreparations = undefined;
+    };
   });
   try {
     await row(1).click();

@@ -33,6 +33,36 @@ test('navigation fixture disables unrelated external StepPage startup', () => {
   assert.match(configs[0], /\[mcp_servers\.steppage__steppage\]\r?\nenabled = false(?:\r?\n|$)/);
 });
 
+test('native recycling capture preserves map writes and restores its instrumentation', () => {
+  const context = {
+    process: { getBuiltinModule: (name: string) => name === 'path' ? path : childProcess },
+    electron: { app: { isPackaged: false } },
+  };
+  const childProcess = { spawn: () => ({ stdin: { write: () => true } }) };
+  runInNewContext('globalThis.originalMapSet = Map.prototype.set', context);
+  runInNewContext(`(${installers[0].getText(source)})(electron)`, context);
+  const result = runInNewContext(`(() => {
+    const worker = { id: 'worker', rpc: {}, pendingUI: new Map(), operations: 0 };
+    const workers = new Map();
+    const same = workers.set(worker.id, worker) === workers;
+    const opening = new Map(), navigation = new Map(), unrelated = new Map();
+    const promise = Promise.resolve();
+    opening.set('navigation-1', promise);
+    navigation.set('navigation-0', { controller: {}, cold: true });
+    unrelated.set('personal-session', promise);
+    const captured = navigationDiagnosticWorkers === workers
+      && navigationDiagnosticPreparations.get(opening) === 'opening'
+      && navigationDiagnosticPreparations.get(navigation) === 'navigation'
+      && !navigationDiagnosticPreparations.has(unrelated);
+    const unchanged = workers.get(worker.id) === worker && opening.get('navigation-1') === promise;
+    navigationRestoreSpawn();
+    return { same, captured, unchanged, restored: Map.prototype.set === originalMapSet,
+      released: navigationDiagnosticWorkers === undefined && navigationDiagnosticPreparations === undefined };
+  })()`, context);
+  assert.deepEqual(JSON.parse(JSON.stringify(result)),
+    { same: true, captured: true, unchanged: true, restored: true, released: true });
+});
+
 for (const isPackaged of [false, true]) for (const supervised of [false, true]) {
   test(`${isPackaged ? 'packaged' : 'source'} ${supervised ? 'supervised' : 'direct'} navigation fixture holds only two session workers, not management RPC`, () => {
     const app = { isPackaged };

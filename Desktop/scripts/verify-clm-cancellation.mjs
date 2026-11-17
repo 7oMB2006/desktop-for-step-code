@@ -3,6 +3,7 @@ import { createServer } from 'node:http';
 import { mkdir, writeFile, readFile } from 'node:fs/promises';
 import { writeSync } from 'node:fs';
 import { mkdtemp } from './test-profile.mjs';
+import { waitForSessionFixtureSnapshot } from './session-fixture.mjs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -83,24 +84,26 @@ try {
     const window = BrowserWindow.getAllWindows()[0]; window.setOpacity(0); window.setIgnoreMouseEvents(true); window.showInactive();
   });
   phase = 'restore fixture session';
-  await page.waitForFunction(async id => (await window.desktop.snapshot()).sessions.some(s => s.id === id), sessionId, { timeout: 60000 });
+  await waitForSessionFixtureSnapshot(page, snapshot => snapshot.sessions.some(s => s.id === sessionId),
+    'saved CLM fixture session', 60000);
   await page.evaluate(id => window.desktop.switchSession(id), sessionId);
   await page.reload(); await page.locator('.messages .message').first().waitFor();
   const input = page.getByRole('textbox', { name: 'Message', exact: true });
   phase = 'start held context maintenance';
   await input.fill('Continue checking the protected requirement.'); await input.press('Enter');
   await page.getByText('Organizing context', { exact: true }).waitFor();
-  await page.waitForFunction(async () => (await window.desktop.snapshot()).state.isCompacting);
+  await waitForSessionFixtureSnapshot(page, snapshot => snapshot.state.isCompacting, 'held context maintenance');
   phase = 'queue recovery message';
   await input.fill('RECOVERY QUEUED MESSAGE'); await input.press('Enter');
-  await page.waitForFunction(async () => (await window.desktop.snapshot()).pendingMessages.length === 1);
+  await waitForSessionFixtureSnapshot(page, snapshot => snapshot.pendingMessages.length === 1, 'queued recovery message');
   await input.fill('');
   phase = 'stop context maintenance';
   const stop = page.getByRole('button', { name: 'Stop response', exact: true });
   assert.equal(await stop.isEnabled(), true);
   await stop.click();
   await page.getByText('Organizing context', { exact: true }).waitFor({ state: 'hidden' });
-  await page.waitForFunction(async () => { const s = await window.desktop.snapshot(); return !s.state.isStreaming && !s.state.isCompacting; });
+  await waitForSessionFixtureSnapshot(page, snapshot => !snapshot.state.isStreaming && !snapshot.state.isCompacting,
+    'cancelled context maintenance');
   phase = 'verify cancelled maintenance and retained queue';
   const paused = await page.evaluate(() => window.desktop.snapshot());
   assert.equal(paused.pendingMessages.length, 1);
@@ -113,8 +116,9 @@ try {
   // Resume through the same public bridge used by the queue action; CLM remains enabled.
   phase = 'explicit recovery';
   await page.evaluate(item => window.desktop.command('queue_steer', { id: item.id, version: item.version }), paused.pendingMessages[0]);
-  await page.waitForFunction(async () => { const s = await window.desktop.snapshot(); return !s.pendingMessages.length
-    && !s.state.isStreaming && !s.state.isCompacting && s.messages.some(m => m.role === 'assistant' && m.content?.some?.(p => p.text === 'CLM recovery completed.')); }, undefined, { timeout: 60000 });
+  await waitForSessionFixtureSnapshot(page, s => !s.pendingMessages.length
+    && !s.state.isStreaming && !s.state.isCompacting && s.messages.some(m => m.role === 'assistant'
+      && m.content?.some?.(p => p.text === 'CLM recovery completed.')), 'completed CLM recovery', 60000);
   phase = 'verify recovered context and journal';
   assert.deepEqual(errors, []);
   assert.equal(maintenanceCalls, 1, 'Recovery honors the upstream maintenance cooldown');

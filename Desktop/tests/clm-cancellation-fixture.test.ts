@@ -4,11 +4,60 @@ import { runInNewContext } from 'node:vm';
 import test from 'node:test';
 import ts from 'typescript';
 
+const { waitForSessionFixtureSnapshot } =
+  await import(new URL('../scripts/session-fixture.mjs', import.meta.url).href);
 const source = ts.createSourceFile('verify-clm-cancellation.mjs',
   await readFile(new URL('../scripts/verify-clm-cancellation.mjs', import.meta.url), 'utf8'),
   ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
 const acceptance = source.statements.find((node): node is ts.TryStatement => ts.isTryStatement(node));
 assert.ok(acceptance?.catchClause, 'The real acceptance must report failures before its teardown');
+
+test('CLM acceptance awaits resolved snapshot conditions rather than truthy Promises', () => {
+  let waits = 0;
+  const visit = (node: ts.Node) => {
+    if (ts.isCallExpression(node)) {
+      if (ts.isPropertyAccessExpression(node.expression) && node.expression.name.text === 'waitForFunction') {
+        const predicate = node.arguments[0];
+        assert.ok(predicate && (ts.isArrowFunction(predicate) || ts.isFunctionExpression(predicate)));
+        assert.equal(predicate.modifiers?.some(modifier => modifier.kind === ts.SyntaxKind.AsyncKeyword) ?? false, false,
+          'Browser polling must not treat an unresolved IPC Promise as a passed condition');
+      }
+      if (ts.isIdentifier(node.expression) && node.expression.text === 'waitForSessionFixtureSnapshot') {
+        assert.ok(ts.isAwaitExpression(node.parent));
+        waits++;
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+  assert.equal(waits, 5, 'Restoration, maintenance, queue, cancellation and recovery all await real state');
+});
+
+test('real CLM recovery predicate cannot pass before the actor response and idle state', async () => {
+  let predicateSource = '';
+  const visit = (node: ts.Node) => {
+    if (ts.isCallExpression(node) && node.expression.getText(source) === 'waitForSessionFixtureSnapshot'
+      && node.arguments[2]?.getText(source) === "'completed CLM recovery'")
+      predicateSource = node.arguments[1].getText(source);
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+  assert.ok(predicateSource);
+  const predicate = runInNewContext(`(${predicateSource})`);
+  const reply = { role: 'assistant', content: [{ type: 'text', text: 'CLM recovery completed.' }] };
+  const snapshots = [
+    { pendingMessages: [], state: { isStreaming: false, isCompacting: false }, messages: [] },
+    { pendingMessages: [], state: { isStreaming: true, isCompacting: false }, messages: [reply] },
+    { pendingMessages: [], state: { isStreaming: false, isCompacting: false }, messages: [reply] },
+  ];
+  let calls = 0;
+  const page = { evaluate: async () => {
+    await new Promise(resolve => setImmediate(resolve));
+    return snapshots[calls++];
+  } };
+  assert.equal(await waitForSessionFixtureSnapshot(page, predicate, 'controlled CLM recovery', 1000), snapshots[2]);
+  assert.equal(calls, 3);
+});
 
 for (const mode of ['normal', 'screenshot failure', 'snapshot stalled', 'disk failure', 'disk stalled'] as const) {
   test(`CLM diagnostics preserve the original failure: ${mode}`, async () => {

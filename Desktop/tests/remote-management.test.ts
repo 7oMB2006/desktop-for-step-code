@@ -152,8 +152,10 @@ async function fixture() {
   } };
 }
 
-const saves: [string, ...unknown[]][] = [
+const nextStartSaves: [string, ...unknown[]][] = [
   ['pluginSaveConfiguration', { ref: 'fixture' }],
+];
+const saves: [string, ...unknown[]][] = [
   ['pluginSaveHostSettings', { ref: 'fixture' }],
   ['bvrSaveConfiguration', {}],
   ['saveMcp', 'fixture-tools', { command: 'never-run', args: [], enabled: false }, {}],
@@ -170,7 +172,7 @@ const actions: CapabilityMutation[] = [
   { action: 'skill-toggle', id: 'example', enabled: false },
   { action: 'skill-remove', id: 'example' },
 ];
-const operations: [string, ...unknown[]][] = [...saves, ...actions.map(action =>
+const operations: [string, ...unknown[]][] = [...nextStartSaves, ...saves, ...actions.map(action =>
   ['capabilityMutate', action] as [string, ...unknown[]])];
 
 for (const ownership of ['preparing', 'retained'] as const) {
@@ -181,11 +183,13 @@ for (const ownership of ['preparing', 'retained'] as const) {
     for (const [method, ...args] of saves)
       await assert.rejects(f.host.invoke(method, ...args), /Stop external tasks before changing shared settings/);
     assert.deepEqual(f.state.writes, []);
+    for (const [method, ...args] of nextStartSaves) await f.host.invoke(method, ...args);
+    assert.deepEqual(f.state.writes, ['configuration']);
     assert.equal(f.host.locked(), false);
     f.retained();
     owners.delete(f.worker);
     await f.host.invoke(...saves[0]);
-    assert.equal(f.state.writes.length, 1);
+    assert.equal(f.state.writes.length, 2);
     f.retained();
   });
 }
@@ -224,6 +228,20 @@ const blocked: [string, (worker: SessionRuntime) => void, RegExp][] = [
   ['disconnected Remote', worker => { worker.status = 'disconnected'; }, /Runtime is not connected/],
 ];
 for (const [name, busy, message] of blocked) {
+  for (const [method, ...args] of [
+    ...nextStartSaves,
+    ['capabilityMutate', { action: 'plugin-toggle', id: 'example', enabled: false }],
+    ['capabilityMutate', { action: 'mcp-toggle', name: 'example__tools', enabled: false }],
+  ] as [string, ...unknown[]][]) {
+    test(`actual main next-start ${method}/${(args[0] as CapabilityMutation)?.action ?? 'save'} preserves ${name} and Remote`, async () => {
+      const f = await fixture();
+      busy(f.worker);
+      await f.host.invoke(method, ...args);
+      assert.equal(f.state.writes.length, 1);
+      assert.equal(f.host.locked(), false);
+      f.retained();
+    });
+  }
   for (const [method, ...args] of saves) {
     test(`actual main ${method} still refuses ${name} without changing Remote`, async () => {
       const f = await fixture();

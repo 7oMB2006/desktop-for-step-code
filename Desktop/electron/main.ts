@@ -64,6 +64,7 @@ import { StepPagePreparer } from './steppage-prepare';
 import { CapabilityService, assertPluginUnused } from './capability-service';
 import { CapabilityGate } from './capability-gate';
 import { PluginUpdateCoordinator } from './plugin-update-coordinator';
+import type { PluginRemovalRequest } from '../src/plugin-update';
 import { diagnoseCapabilityMutation, type CapabilityPhaseMarker } from './capability-diagnostics';
 import { capabilityFailureDetails } from './capability-failure.mjs';
 import { UsageEstimates } from './usage-estimates';
@@ -699,6 +700,29 @@ const pluginUpdates = new PluginUpdateCoordinator({
     window.webContents.send('runtime-event', { type: 'desktop_theme_packs', packs: themePacks.packs, preferences });
   },
 });
+const pluginRemovals = new PluginUpdateCoordinator<PluginRemovalRequest>({
+  root: dataRoot, pool: runtimes, gate: capabilityGate,
+  recordName: 'removal-operation.json', mutationFailureUncertain: true,
+  check: input => capabilityService.preflightRemoval(input),
+  mutate: (input, guard, checked) => capabilityService.remove(input, guard, checked),
+  assertAvailable: () => {
+    if (settingsMutation || speechSaving || undoBusy || transition || updateInstalling || quitting || quitPending
+      || providerSettingsPending || providerApplyFailed || miniNavigation.busy) throw new Error('capability:busy');
+    if (!capabilityService.available || !capabilityService.runtimeAvailable) throw new Error('capability:management-unavailable');
+  },
+  acquire: () => {
+    settingsMutation = true;
+    return () => { settingsMutation = !capabilityService.runtimeAvailable; };
+  },
+  external: worker => externallyOwned(worker),
+  canRestore: () => capabilityService.runtimeAvailable,
+  restore: lease => runtimes.restoreAfterUpdate(lease, nodePath, join(runtimeRoot, 'step/dist/bundle/step.js'), authEnvironment()),
+  refreshed: async () => {
+    await refreshThemePacks();
+    emit({ type: 'desktop_plugin_catalog_changed' });
+    window.webContents.send('runtime-event', { type: 'desktop_theme_packs', packs: themePacks.packs, preferences });
+  },
+});
 const pluginHosts = new PluginHostLauncher({ root: dataRoot, pool: runtimes, capabilities: capabilityService,
   provider: new StepPluginHostProvider(runtimes, () => appliedAuthData,
     () => settingsMutation || providerSettingsPending || providerApplyFailed || quitting || quitPending,
@@ -722,7 +746,7 @@ const pendingMessages = new PendingMessages(worker => {
   (worker, id, event) => {
     remote.queueEvent(worker, id, event);
     externalTasks.queueEvent(worker, id, event);
-  });
+  }, (worker, payload, valid, dispatched) => runtimes.submitPrompt(worker, payload, false, 600000, valid, dispatched));
 const remote = new RemoteManager({
   language: () => preferences.language,
   sessions: remoteSessions,
@@ -2967,6 +2991,9 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
     case 'pluginUpdatePreflight': return pluginUpdates.preflight(args[0]);
     case 'pluginUpdateOperation': return pluginUpdates.latest(args[0]?.pluginId);
     case 'pluginUpdateApply': return pluginUpdates.apply(args[0]);
+    case 'pluginRemovalPreflight': return pluginRemovals.preflight(args[0]);
+    case 'pluginRemovalOperation': return pluginRemovals.latest(args[0]?.pluginId);
+    case 'pluginRemovalApply': return pluginRemovals.apply(args[0]);
     case 'pluginWindowOpen': {
       if (quitting || quitPending || settingsMutation) throw new Error('capability:busy');
       const plugin = await capabilityService.desktop(args[0]?.ref);
@@ -3013,7 +3040,6 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
     case 'pluginConfiguration':
     case 'pluginSaveConfiguration': {
       if (method === 'pluginConfiguration' && settingsMutation) throw new Error('capability:busy');
-      if (method === 'pluginSaveConfiguration') await guardIdle({ stopHost: false });
       try { return await capabilityService.configuration(args[0], method === 'pluginSaveConfiguration' ? args[0] : undefined); }
       catch (error) { throw new Error(error instanceof Error && /^capability:[a-z-]+$/u.test(error.message) ? error.message : 'capability:operation-failed'); }
     }
@@ -3561,21 +3587,21 @@ else app.whenReady().then(async () => {
       }
       // Reads must not observe the admin transport halfway through an idle reload.
       if (providerApplication) await providerApplication;
-      const capabilityMutation = ['capabilityMutate', 'pluginUpdateApply', 'capabilityImportSkill', 'bvrSaveConfiguration', 'pluginSaveConfiguration', 'pluginSaveHostSettings', 'saveCompactionSettings'].includes(method);
+      const capabilityMutation = ['capabilityMutate', 'pluginUpdateApply', 'pluginRemovalApply', 'capabilityImportSkill', 'bvrSaveConfiguration', 'pluginSaveConfiguration', 'pluginSaveHostSettings', 'saveCompactionSettings'].includes(method);
       const capabilityRead = ['capabilityCatalog', 'pluginDesktopCatalog', 'pluginDocument', 'pluginRepositoryInfo', 'pluginConfiguration', 'pluginHostSettings', 'pluginWindowOpen',
-        'pluginUpdatePreflight', 'pluginUpdateOperation',
+        'pluginUpdatePreflight', 'pluginUpdateOperation', 'pluginRemovalPreflight', 'pluginRemovalOperation',
         'pluginConnectionState', 'pluginConnectionChooseProfile', 'pluginConnectionForgetProfile',
         'pluginChoosePath', 'themeScene', 'themePoster', 'themeImage', 'customBackgroundState', 'customBackgroundImage',
         'customBackgroundImport', 'customBackgroundSave', 'customBackgroundRemove',
         'bvrConfiguration', 'bvrCheckEnvironment', 'bvrChoosePath'].includes(method);
       // CapabilityService selects its trusted scope after freezing the package.
       // Discovery network work and data-only themes must not block Remote I/O.
-      const shared = capabilityMutation && !['capabilityMutate', 'pluginUpdateApply'].includes(method)
+      const shared = capabilityMutation && !['capabilityMutate', 'pluginUpdateApply', 'pluginRemovalApply'].includes(method)
         || ['login', 'logout', 'saveMcp', 'saveProvider', 'deleteProvider', 'saveNetwork', 'prepareStepPage', 'finishFirstRun'].includes(method);
-      if ((shared || method === 'capabilityMutate' || method === 'pluginUpdateApply') && speechSaving) throw new Error('Speech settings operation in progress');
-      if ((shared || method === 'capabilityMutate' || method === 'pluginUpdateApply') && capabilityGate.active)
+      if ((shared || method === 'capabilityMutate' || method === 'pluginUpdateApply' || method === 'pluginRemovalApply') && speechSaving) throw new Error('Speech settings operation in progress');
+      if ((shared || method === 'capabilityMutate' || method === 'pluginUpdateApply' || method === 'pluginRemovalApply') && capabilityGate.active)
         throw new Error('Shared settings operation in progress');
-      if ((shared || method === 'capabilityMutate' || method === 'pluginUpdateApply') && !capabilityService.available)
+      if ((shared || method === 'capabilityMutate' || method === 'pluginUpdateApply' || method === 'pluginRemovalApply') && !capabilityService.available)
         throw new Error('capability:management-unavailable');
       if (capabilityMutation && (settingsMutation || undoBusy || transition || updateInstalling || quitting || quitPending))
         throw new Error('Shared settings operation in progress');
@@ -3584,7 +3610,7 @@ else app.whenReady().then(async () => {
         throw new Error('Undo in progress');
       if (settingsMutation && ['moveSessionToProject', 'prepareStepPage', 'removeWorkspace', 'relocateWorkspace', 'beginSession', 'chooseSessionProject', 'createDraftSession', 'command', 'branchSession', 'cloneSession', 'retryMessage', 'restart', 'workspace', 'chooseWorkspace', 'switchSession', 'navigateSession', 'newIndependentSession', 'deleteSession', 'deleteArchivedSessions', 'login', 'logout', 'saveMcp', 'saveProvider', 'deleteProvider', 'saveNetwork', 'discoverProviderModels', 'testProvider', 'testNetwork', 'finishFirstRun'].includes(method)) throw new Error('Shared settings operation in progress');
       const speechOperation = ['speechSettings', 'saveSpeech', 'acknowledgeSpeech', 'beginSpeech', 'transcribeSpeech', 'finishSpeech', 'cancelSpeech'].includes(method);
-      if (!capabilityRead && !speechOperation && !['capabilityMutate', 'pluginUpdateApply'].includes(method) && !updateInstalling && providerSettingsPending && !settingsMutation && canApplyProviders()) {
+      if (!capabilityRead && !speechOperation && !['capabilityMutate', 'pluginUpdateApply', 'pluginRemovalApply'].includes(method) && !updateInstalling && providerSettingsPending && !settingsMutation && canApplyProviders()) {
         await applyProviderSettings();
       }
       if (rendererGenerations.get(senderId) !== generation) throw new Error('Window reloaded; retry the current action');
@@ -3601,7 +3627,7 @@ else app.whenReady().then(async () => {
       }
       finally {
         if (shared) settingsMutation = !capabilityService.runtimeAvailable;
-        if (shared || method === 'capabilityMutate' || method === 'pluginUpdateApply') await pluginHosts.resumeDeferred();
+        if (shared || method === 'capabilityMutate' || method === 'pluginUpdateApply' || method === 'pluginRemovalApply') await pluginHosts.resumeDeferred();
       }
     }, (error, details) => crashLog.record('capability-operation', error, details));
     if (method === 'command' && args[0] === 'prompt' && args[1]?.composerReceipt !== undefined) {

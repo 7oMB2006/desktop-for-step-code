@@ -14,7 +14,7 @@ import semver from 'semver';
 import type { PluginConfigurationInput, PluginHostRuntime, PluginHostSettings, PluginHostSettingsInput } from '../src/capabilities';
 import { parseModelSelection } from '../../examples/plugins/host-client/protocol.mjs';
 import type { CapabilityCatalog, CapabilityMutation, CapabilityPlugin, MarketplacePlugin, CapabilityResult } from '../src/capabilities';
-import type { PluginUpdateCompatibility, PluginUpdateRequest } from '../src/plugin-update';
+import type { PluginRemovalRequest, PluginUpdateCompatibility, PluginUpdateRequest } from '../src/plugin-update';
 import type { PluginConfirmationBinding, PluginConfirmationSource } from '../src/plugin-confirmations';
 import { parsePluginConfirmations, validPluginConfirmationBinding } from './plugin-confirmation-contract.mjs';
 
@@ -122,7 +122,7 @@ export class CapabilityService {
       return await dataOnlyThemeFingerprint(join(this.options.root, 'plugins', matches[0].folder), input.id);
     } catch { return; }
   }
-  private async themeInstallExpected(input: CapabilityMutation): Promise<Record<string, string> | undefined> {
+  private async installExpected(input: CapabilityMutation): Promise<Record<string, string> | undefined> {
     if (input.action !== 'plugin-install' || !input.ref) return;
     try {
       // Use an already issued reference: classification must not recover a pending
@@ -131,8 +131,8 @@ export class CapabilityService {
       if (descriptor.kind !== 'available' || descriptor.provenance !== 'recorded'
         || descriptor.name !== input.name || descriptor.marketplace !== input.marketplace || !descriptor.source) return;
       const fingerprint = await dataOnlyThemeFingerprint(descriptor.root, descriptor.id);
-      if (fingerprint !== descriptor.fingerprint) return;
-      return { expectedFingerprint: fingerprint, expectedSource: descriptor.source, themeId: descriptor.id };
+      return { expectedFingerprint: descriptor.fingerprint, expectedSource: descriptor.source,
+        ...(fingerprint === descriptor.fingerprint ? { themeId: descriptor.id } : {}) };
     } catch { return; }
   }
   initialize() { return this.enqueue(() => this.initializeStorage()); }
@@ -338,12 +338,14 @@ export class CapabilityService {
   })); }
   configuration(input: { ref: string }, save?: PluginConfigurationInput) { return this.enqueue(async () => {
     if (!input || typeof input.ref !== 'string') throw new Error('capability:invalid-input');
-    return this.withTarget(input.ref, true, async ({ catalog, descriptor, scope }) => {
+    return this.withTarget(input.ref, true, async ({ catalog, plugin, descriptor, scope }) => {
+      if (save && plugin.package?.hostSettingsAvailable) throw new Error('capability:host-unavailable');
       const current = await this.configurations.read(descriptor, scope);
       const servers = catalog.mcp.filter(server => server.name === `${descriptor.id}__${current.schema.consumer.server}`);
       if (servers.length !== 1 || servers[0].source !== 'plugin' || servers[0].pluginId !== descriptor.id
         || servers[0].transport !== 'stdio') throw new Error('capability:configuration-consumer-conflict');
-      if (save) this.options.beforePluginMutation?.();
+      // A generic service may require a restart to read its new snapshot.
+      // Saving it must not revoke unrelated live host leases.
       return save ? this.configurations.save(descriptor, save) : current;
     }, Boolean(save));
   }); }
@@ -469,8 +471,34 @@ export class CapabilityService {
       return { ...report, version, identity: digest(JSON.stringify(expected)), scope: theme ? 'theme' : 'runtime' };
     });
   }
+  private async removalExpected(input: PluginRemovalRequest) {
+    if (await optionalFile(this.options.root, 'desktop-plugins/update-transaction.json', 65536) !== undefined)
+      throw new Error('capability:update-recovery-required');
+    if (!input || typeof input !== 'object' || Array.isArray(input)
+      || Object.keys(input).some(key => !['id', 'ref'].includes(key))
+      || typeof input.id !== 'string' || !input.id || input.id.length > 128
+      || typeof input.ref !== 'string') throw new Error('capability:invalid-input');
+    return this.withTarget(input.ref, false, async ({ plugin, descriptor }) => {
+      if (descriptor.kind !== 'installed' || descriptor.id !== input.id) throw new Error('capability:stale');
+      const expected = { expectedFingerprint: descriptor.fingerprint,
+        ...(descriptor.instance ? { expectedInstance: descriptor.instance } : {}) };
+      const identity = digest(JSON.stringify([descriptor.root, descriptor.id, descriptor.name,
+        descriptor.instance, descriptor.source, descriptor.marketplace, descriptor.fingerprint]));
+      return { status: 'compatible' as const, changes: [], stamp: identity, identity,
+        version: plugin.version || 'unknown',
+        scope: await dataOnlyThemeFingerprint(descriptor.root, input.id) === descriptor.fingerprint
+          ? 'theme' as const : 'runtime' as const, expected };
+    });
+  }
+  preflightRemoval(input: PluginRemovalRequest) {
+    const frozen = structuredClone(input);
+    return this.enqueue(() => this.removalExpected(frozen));
+  }
+  remove(input: PluginRemovalRequest, guard: CapabilityGuard, checked: { stamp: string; identity: string }) {
+    return this.mutate({ action: 'plugin-remove', id: input.id }, guard, { ...checked, removal: { ...input } });
+  }
   mutate(input: CapabilityMutation, guard?: CapabilityGuard,
-    checked?: { stamp: string; identity: string }): Promise<CapabilityResult> {
+    checked?: { stamp: string; identity: string; removal?: PluginRemovalRequest }): Promise<CapabilityResult> {
     if (!input || typeof input !== 'object' || Array.isArray(input)
       || JSON.stringify(input).length > 150000) throw new Error('capability:invalid-input');
     // Freeze caller-owned input before the operation waits in the serial queue.
@@ -481,7 +509,7 @@ export class CapabilityService {
       let expected: Record<string, string> | undefined;
       let themeId: string | undefined;
       const fingerprint = await this.themeRemovalFingerprint(input);
-      const installation = await this.themeInstallExpected(input);
+      const installation = await this.installExpected(input);
       if (fingerprint && input.action === 'plugin-remove') {
         expected = { expectedFingerprint: fingerprint }; themeId = input.id;
       }
@@ -498,12 +526,24 @@ export class CapabilityService {
           && await dataOnlyThemeFingerprint(candidate.root, input.id) === candidate.fingerprint)
           themeId = input.id;
       }
+      if (input.action === 'plugin-remove' && checked?.removal) {
+        const removal = await this.removalExpected(checked.removal);
+        if (checked.removal.id !== input.id || removal.identity !== checked.identity || removal.stamp !== checked.stamp)
+          throw new Error('capability:stale');
+        expected = removal.expected;
+        themeId = removal.scope === 'theme' ? input.id : undefined;
+      }
       const policy = Object.freeze({ ...capabilityPolicy(input.action, themeId),
+        ...(installation && !themeId ? { scope: 'next-start' as const } : {}),
         ...(['plugin-remove', 'plugin-update'].includes(input.action) && 'id' in input ? { pluginId: input.id } : {}) });
-      const release = await guard?.(policy, checked && input.action === 'plugin-update' ? async () => {
+      const recheck = checked?.removal && input.action === 'plugin-remove' ? async () => {
+        const current = await this.removalExpected(checked.removal!);
+        if (current.identity !== checked.identity || current.stamp !== checked.stamp) throw new Error('capability:stale');
+      } : checked && input.action === 'plugin-update' ? async () => {
         const report = await this.request('plugin-update-preflight', { input: { ...input, ...expected } });
         if (report.status !== 'compatible' || report.stamp !== checked.stamp) throw new Error('capability:stale-configuration');
-      } : undefined);
+      } : undefined;
+      const release = await guard?.(policy, recheck);
       let desktopInvalidated = false;
       try {
         // Recovery is a different operation, guarded by the actual journal owner.

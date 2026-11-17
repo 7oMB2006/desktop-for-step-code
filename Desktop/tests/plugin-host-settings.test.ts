@@ -77,6 +77,17 @@ test('independent mode commits a validated configuration and returns no stored s
   assert.equal(followed.independent?.hasSecret.key, true, 'Switching source never deletes saved independent settings');
   assert.equal(f.calls.length, 0);
 });
+test('generic configuration save cannot bypass the protected host-settings route', async t => {
+  const f = await fixture(t);
+  const configuration = await f.service.configuration({ ref: f.ref });
+  await assert.rejects(f.service.configuration({ ref: f.ref }, {
+    ref: f.ref, revision: configuration.revision, values: {},
+    secrets: { key: { action: 'replace', value: 'must-not-commit' } },
+  }), /host-unavailable/);
+  assert.equal((await f.service.configuration({ ref: f.ref })).revision, configuration.revision);
+  assert.equal((await f.service.hostSettings({ ref: f.ref })).mode, null);
+  assert.equal(f.invalidations(), 0);
+});
 test('a failed second pointer commit is explicit and cannot leave the old independent binding usable', async t => {
   const f = await fixture(t);
   const first = await f.save({ revision: 'unconfigured', mode: 'independent',

@@ -1,9 +1,10 @@
 import { useEffect, useRef } from 'react';
-import { ArrowUpFromLine, Check, CircleAlert, LoaderCircle, RotateCcw, X } from 'lucide-react';
+import { ArrowUpFromLine, Check, CircleAlert, LoaderCircle, RotateCcw, Trash2, X } from 'lucide-react';
 import { capabilityErrorText } from './capability-errors';
 import type { PluginUpdateOperation, PluginUpdatePreflight } from './plugin-update';
 
 export interface PluginUpdatePanel {
+  intent?: 'remove';
   pluginId: string; name: string; preflight?: PluginUpdatePreflight;
   operation?: PluginUpdateOperation; running: boolean; error?: string;
 }
@@ -55,25 +56,31 @@ export function PluginUpdateDialog({ panel, open, language, onClose, onApply, on
   panel = panel ?? lastPanel.current;
   if (!panel) return null;
   const { preflight, operation, running } = panel;
+  const removing = panel.intent === 'remove';
   const sessions = operation?.sessions ?? preflight?.sessions ?? [];
-  const title = operation ? operation.installation === 'committed' ? t('新版已安装', 'New version installed')
-    : operation.installation === 'unknown' ? t('更新结果待核对', 'Update outcome needs review')
-      : t('尚未更新', 'Not updated')
+  const title = operation ? operation.installation === 'committed' ? removing ? t('插件已卸载', 'Plugin uninstalled') : t('新版已安装', 'New version installed')
+    : operation.installation === 'unknown' ? removing ? t('卸载结果待核对', 'Removal outcome needs review') : t('更新结果待核对', 'Update outcome needs review')
+      : removing ? t('尚未卸载', 'Not uninstalled') : t('尚未更新', 'Not updated')
     : preflight?.readiness === 'needs-release' ? t('需要释放会话占用', 'Sessions need to release this plugin')
-      : t('需要重新检查', 'Check again before updating');
+      : removing && preflight?.readiness === 'ready' ? t('确认卸载插件', 'Confirm plugin removal') : t('需要重新检查', 'Check again before updating');
   const phase = operation?.phase;
   const stage = phase === 'releasing' ? t('正在释放占用', 'Releasing sessions')
-    : phase === 'applying' ? t('正在应用更新', 'Applying update')
+    : phase === 'applying' ? removing ? t('正在卸载插件', 'Uninstalling plugin') : t('正在应用更新', 'Applying update')
       : phase === 'restoring' ? t('正在恢复会话', 'Restoring sessions') : title;
-  return <dialog ref={dialog} className="pc-dialog pc-update-dialog" aria-label={t('插件更新', 'Plugin update')}
+  return <dialog ref={dialog} className="pc-dialog pc-update-dialog" aria-label={removing ? t('卸载插件', 'Uninstall plugin') : t('插件更新', 'Plugin update')}
     onCancel={event => { event.preventDefault(); onClose(); }}>
-    <header><h2>{panel.name}</h2><button className="icon-button" aria-label={t('关闭更新详情', 'Close update details')}
+    <header><h2>{panel.name}</h2><button className="icon-button" aria-label={removing ? t('关闭卸载详情', 'Close removal details') : t('关闭更新详情', 'Close update details')}
       onClick={onClose}><X size={16}/></button></header>
     <div className="pc-update-dialog-status" role="status" aria-live="polite">
       {running ? <LoaderCircle size={17} className="pc-spin"/> : operation?.phase === 'done' ? <Check size={17}/> : <CircleAlert size={17}/>}
       <strong>{running ? stage : title}</strong><span>v{operation?.version ?? preflight?.version}</span>
     </div>
-    {!operation && preflight?.readiness === 'needs-release' && <p>{t(
+    {!operation && removing && <p>{preflight?.readiness === 'needs-release' ? t(
+      '将暂停以下空闲会话，卸载插件后恢复原会话。运行时临时状态会重置，会话记录不会删除。',
+      'Pause these idle sessions, uninstall the plugin, then restore the conversations. Runtime-only state resets; conversation history is not deleted.')
+      : preflight?.readiness === 'blocked' ? t('请先打开以下会话处理占用，再重新检查。不会强行停止任务或删除会话记录。', 'Open the sessions below to resolve ownership, then check again. Work will not be forcibly stopped and history will not be deleted.')
+        : t('卸载后将不再加载此插件，会话记录不会删除。', 'The plugin will no longer load. Conversation history is not deleted.')}</p>}
+    {!operation && !removing && preflight?.readiness === 'needs-release' && <p>{t(
       '将暂停以下空闲会话，安装新版后恢复原会话。运行时临时状态会重置，已有配置和服务开关保持不变。',
       'These idle sessions will pause, then reopen after installation. Runtime-only state resets; saved settings and service switches are kept.')}</p>}
     {running && <p>{t('关闭此窗口不会取消操作。', 'Closing this window will not cancel the operation.')}</p>}
@@ -91,12 +98,17 @@ export function PluginUpdateDialog({ panel, open, language, onClose, onApply, on
       <li key={index}>{'field' in change && typeof change.field === 'string' && <code>{change.field}: </code>}{pluginUpdateChangeText(change.code, zh)}</li>)}</ul>}
     {operation?.error && <p role="alert">{capabilityErrorText(operation.error, zh)}</p>}
     {panel.error && <p role="alert">{panel.error}</p>}
+    {removing && operation?.installation === 'unknown' && <p>{t(
+      '暂不能确认卸载结果。请保留现场并核对插件和会话状态，不要重复卸载。',
+      'Removal could not be confirmed. Preserve the current state and review the plugin and sessions; do not repeat removal.')}</p>}
     {operation?.installation === 'committed' && operation.sessions.some(item => item.restoration !== 'restored') &&
-      <p>{t('新版已安装，但部分会话未恢复。请查看对应会话并重启，不要重复更新。', 'The new version is installed, but some sessions need recovery. Open those sessions and restart them; do not repeat the update.')}</p>}
+      <p>{removing ? t('插件已卸载，但部分会话未恢复。请打开对应会话处理，不要重复卸载。', 'The plugin was removed, but some sessions need recovery. Open those sessions; do not repeat removal.')
+        : t('新版已安装，但部分会话未恢复。请查看对应会话并重启，不要重复更新。', 'The new version is installed, but some sessions need recovery. Open those sessions and restart them; do not repeat the update.')}</p>}
     <footer><button autoFocus onClick={onClose}>{running || operation ? t('关闭', 'Close') : t('取消', 'Cancel')}</button>
-      {!running && !operation && preflight?.readiness === 'needs-release' && <button className="primary" onClick={onApply}>
-        <RotateCcw size={14}/>{t('重启相关会话并更新', 'Restart affected sessions and update')}</button>}
-      {!running && (!operation && preflight?.readiness !== 'needs-release'
+      {!running && !operation && (preflight?.readiness === 'needs-release' || removing && preflight?.readiness === 'ready') && <button className={removing ? 'pc-danger-button' : 'primary'} onClick={onApply}>
+        {removing ? <Trash2 size={14}/> : <RotateCcw size={14}/>}{removing ? preflight?.readiness === 'needs-release' ? t('释放占用并卸载', 'Release sessions and uninstall') : t('卸载插件', 'Uninstall plugin')
+          : t('重启相关会话并更新', 'Restart affected sessions and update')}</button>}
+      {!running && (!operation && preflight?.readiness !== 'needs-release' && !(removing && preflight?.readiness === 'ready')
         || operation?.installation === 'unchanged') && <button onClick={onCheck}>
         <RotateCcw size={14}/>{t('重新检查', 'Check again')}</button>}
     </footer>

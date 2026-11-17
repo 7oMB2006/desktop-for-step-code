@@ -44,9 +44,10 @@ export interface ScheduledTaskView {
 }
 export interface ScheduledTaskCreation { title: string; prompt: string; workspace: string; runtimeId: string; cron: string; recurring: boolean; durable: boolean }
 
-export function SidebarTaskActions({ selected, pluginsSelected = false, onNewSession, onScheduledTasks, onPlugins, onSearchChange, onFulltextSearch, fulltextOpen = false, disabled = false, language = 'zh' }: {
+export function SidebarTaskActions({ selected, pluginsSelected = false, pluginsAttention = false, onNewSession, onScheduledTasks, onPlugins, onSearchChange, onFulltextSearch, fulltextOpen = false, disabled = false, language = 'zh' }: {
   selected: boolean;
   pluginsSelected?: boolean;
+  pluginsAttention?: boolean;
   onNewSession: () => void;
   onScheduledTasks: () => void;
   onPlugins?: () => void;
@@ -69,8 +70,12 @@ export function SidebarTaskActions({ selected, pluginsSelected = false, onNewSes
       <button type="button" className="new-chat" disabled={disabled} onClick={onNewSession}>
         <Plus size={16}/><span>{zh ? '新建会话' : 'New chat'}</span>
       </button>
-      {onPlugins && <button type="button" disabled={disabled} aria-pressed={pluginsSelected} aria-label={zh ? '插件市场' : 'Plugin marketplace'} onClick={onPlugins}>
+      {onPlugins && <button type="button" className="sidebar-plugins-entry" disabled={disabled} aria-pressed={pluginsSelected}
+        aria-label={zh ? '插件市场' : 'Plugin marketplace'}
+        aria-description={pluginsAttention ? zh ? '当前会话有工具不可用，打开查看' : 'Tools need attention in the current session; open to review' : undefined}
+        onClick={onPlugins}>
         <Plug size={16}/><span>{zh ? '插件' : 'Plugins'}</span>
+        {pluginsAttention && <i className="sidebar-plugins-dot" aria-hidden="true"/>}
       </button>}
     </div>
     <div className="sidebar-utility-row" data-search-open={searchOpen}>

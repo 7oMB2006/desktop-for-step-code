@@ -26,3 +26,9 @@ export interface PluginUpdateBridge {
   pluginUpdateApply(input: { token: string; release: boolean }): Promise<PluginUpdateOperation>;
   pluginUpdateOperation(input: { pluginId: string }): Promise<PluginUpdateOperation | null>;
 }
+export interface PluginRemovalRequest { id: string; ref: string }
+export interface PluginRemovalBridge {
+  pluginRemovalPreflight(input: PluginRemovalRequest): Promise<PluginUpdatePreflight>;
+  pluginRemovalApply(input: { token: string; release: boolean }): Promise<PluginUpdateOperation>;
+  pluginRemovalOperation(input: { pluginId: string }): Promise<PluginUpdateOperation | null>;
+}

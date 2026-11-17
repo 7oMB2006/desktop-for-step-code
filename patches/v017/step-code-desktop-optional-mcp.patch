@@ -1,0 +1,98 @@
+diff --git a/packages/coding-agent/src/step/desktop-startup.ts b/packages/coding-agent/src/step/desktop-startup.ts
+index 82c85ac..a283014 100644
+--- a/packages/coding-agent/src/step/desktop-startup.ts
++++ b/packages/coding-agent/src/step/desktop-startup.ts
+@@ -263,7 +263,9 @@ export class DesktopStartup {
+ 		if (!this.available()) throw new ExecutionNotReadyError();
+ 		const revision = this.state.catalogRevision;
+ 		const request = submissions.getStore();
+-		if (this.missing().length || request?.approval) {
++		// Failed optional tools are absent from the catalog, not execution permissions.
++		// Continue to validate explicit legacy receipts if a client supplies one.
++		if (request?.approval) {
+ 			const receipt = request?.approval && this.receipts.get(request.approval.receipt);
+ 			if (
+ 				!request ||
+diff --git a/packages/coding-agent/test/desktop-startup.test.ts b/packages/coding-agent/test/desktop-startup.test.ts
+index b5837bf..5b52e6e 100644
+--- a/packages/coding-agent/test/desktop-startup.test.ts
++++ b/packages/coding-agent/test/desktop-startup.test.ts
+@@ -1,5 +1,6 @@
+ import { randomUUID } from "node:crypto";
+ import { join } from "node:path";
++import { fauxAssistantMessage } from "@step-harness/providers";
+ import { afterEach, expect, test, vi } from "vitest";
+ import { acquireExecutionAdmission } from "../src/core/execution-admission.ts";
+ import { createStepExtension } from "../src/features/step.ts";
+@@ -67,12 +68,12 @@ test("connecting, unknown discovery and unconfirmed cleanup are never bypassable
+ 	f.startup.discoveryFailed();
+ 	expect(() => acquireExecutionAdmission(f.owner)).toThrow("STARTUP_NOT_READY");
+ });
+-test("a failed optional capability needs one payload-bound, revision-bound, non-replayable submission receipt", () => {
++test("optional failures need no receipt; explicit legacy receipts remain payload-bound and non-replayable", () => {
+ 	const f = fixture();
+ 	f.startup.bind(f.identity());
+ 	f.startup.modelReady(f.identity());
+ 	f.startup.discovered([{ name: "missing", status: "failed", toolCount: 0, startedAt: Date.now() }]);
+-	expect(() => acquireExecutionAdmission(f.owner)).toThrow("STARTUP_NOT_READY");
++	expect(() => acquireExecutionAdmission(f.owner).verify()).not.toThrow();
+ 	const command = { type: "prompt", message: "one task" };
+ 	const receipt = f.startup.authorize({
+ 		...f.identity(),
+@@ -96,6 +97,56 @@ test("a failed optional capability needs one payload-bound, revision-bound, non-
+ 		withStartupSubmission({ ...command, startupApproval: receipt }, () => acquireExecutionAdmission(f.owner)),
+ 	).toThrow("STARTUP_NOT_READY");
+ });
++test("optional failures allow repeated normal, steer and follow-up admissions without issuing receipts", () => {
++	const f = fixture();
++	f.startup.bind(f.identity());
++	f.startup.modelReady(f.identity());
++	f.startup.discovered([{ name: "optional", status: "failed", toolCount: 0, startedAt: Date.now() }]);
++	for (let i = 0; i < 600; i++) {
++		for (const streamingBehavior of [undefined, "steer", "followUp"]) {
++			withStartupSubmission({ type: "prompt", ...{ message: `task ${i}`, streamingBehavior } }, () =>
++				acquireExecutionAdmission(f.owner).verify(),
++			);
++		}
++	}
++	expect(f.startup.snapshot().firstPromptAcceptedAt).toBeTypeOf("number");
++	expect(f.startup.snapshot().tools[0].status).toBe("failed");
++	f.startup.dispose();
++});
++test("actual AgentSession keeps its loop, steering and follow-up usable after optional MCP failure", async () => {
++	const harness = await createHarness();
++	harnesses.push(harness);
++	const f = fixture(harness.sessionManager);
++	f.startup.bind(f.identity());
++	f.startup.modelReady(f.identity());
++	f.startup.discovered([{ name: "optional", status: "failed", toolCount: 0, startedAt: Date.now() }]);
++	let release!: () => void;
++	const pending = new Promise<void>((resolve) => {
++		release = resolve;
++	});
++	harness.setResponses([
++		async () => {
++			await pending;
++			return fauxAssistantMessage("first");
++		},
++		fauxAssistantMessage("steered"),
++		fauxAssistantMessage("follow-up"),
++	]);
++	const run = harness.session.prompt("normal");
++	try {
++		await vi.waitFor(() => expect(harness.session.isStreaming).toBe(true));
++		await expect(harness.session.steer("steering")).resolves.toBeUndefined();
++		await expect(harness.session.followUp("queued")).resolves.toBeUndefined();
++		expect(harness.session.pendingMessageCount).toBe(2);
++	} finally {
++		release();
++	}
++	await run;
++	expect(harness.session.messages.filter((message) => message.role === "user")).toHaveLength(3);
++	expect(harness.session.pendingMessageCount).toBe(0);
++	expect(f.startup.snapshot().tools[0].status).toBe("failed");
++	f.startup.dispose();
++});
+ test("catalog changes invalidate an in-flight admission and old epochs cannot authorize the replacement", () => {
+ 	const f = fixture();
+ 	f.startup.bind(f.identity());

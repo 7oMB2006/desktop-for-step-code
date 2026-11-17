@@ -384,8 +384,17 @@ async function installRace() {
   assert.ok(theme.fs.nodes.has(theme.target), 'a proven pure theme may be installed while retaining the runtime');
   for (const [isTheme, declarations] of [[false, {}], [true, { entry: 'executable.js' }], [true, { skills: ['skills'] }]]) {
     const candidate = await installationFixture(undefined, isTheme, declarations);
-    await assert.rejects(candidate.install({
+    await candidate.install({
       preserveRuntime: true, expectedFingerprint: candidate.expectedFingerprint, expectedSource: candidate.expectedSource,
+    });
+    candidate.assertStaged();
+    assert.ok(candidate.fs.nodes.has(candidate.target), 'verified new packages are installed for the next runtime');
+  }
+  for (const proof of ['missing', 'fingerprint-only', 'source-only']) {
+    const candidate = await installationFixture();
+    await assert.rejects(candidate.install({ preserveRuntime: true,
+      ...(proof === 'fingerprint-only' ? { expectedFingerprint: candidate.expectedFingerprint } : {}),
+      ...(proof === 'source-only' ? { expectedSource: candidate.expectedSource } : {}),
     }), error => error.code === 'stale');
     candidate.assertUnpublished();
   }

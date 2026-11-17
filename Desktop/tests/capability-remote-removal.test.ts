@@ -99,6 +99,45 @@ test('idle Remote installs a referenced data-only theme without restarting its w
   assert.match(await readFile(join(f.root, 'plugins/voyager/README.md'), 'utf8'), /Voyager fixture/);
 });
 
+test('removal preflight binds the installed target without stopping its runtime or deleting files', async t => {
+  const f = await fixture(t);
+  const plugin = (await f.service.catalog()).plugins.find(item => item.id === 'theme')!;
+  const checked = await f.service.preflightRemoval({ id: plugin.id, ref: plugin.package!.ref });
+  assert.equal(checked.scope, 'theme');
+  assert.equal(checked.status, 'compatible');
+  assert.equal(f.transport.stopped, false);
+  assert.ok(await readFile(join(f.plugin, 'step.plugin.json')));
+  await assert.rejects(f.service.preflightRemoval({ id: 'different', ref: plugin.package!.ref }), /stale/);
+});
+
+test('removal rechecks package proof before the guard may release a session', async t => {
+  const f = await fixture(t);
+  const plugin = (await f.service.catalog()).plugins.find(item => item.id === 'theme')!;
+  const input = { id: plugin.id, ref: plugin.package!.ref };
+  const checked = await f.service.preflightRemoval(input);
+  let reachedRelease = false;
+  await assert.rejects(f.service.remove(input, async (_policy, recheck) => {
+    await f.saveManifest({ ...f.manifest, version: '9.0.0' });
+    await recheck!();
+    reachedRelease = true;
+  }, checked), /stale/);
+  assert.equal(reachedRelease, false);
+  assert.equal(f.transport.stopped, false);
+  assert.ok(await readFile(join(f.plugin, 'step.plugin.json')));
+});
+
+test('removal refuses a pending transaction before calling the release guard', async t => {
+  const f = await fixture(t);
+  const plugin = (await f.service.catalog()).plugins.find(item => item.id === 'theme')!;
+  const input = { id: plugin.id, ref: plugin.package!.ref };
+  const checked = await f.service.preflightRemoval(input);
+  await mkdir(join(f.root, 'desktop-plugins'), { recursive: true });
+  await writeFile(join(f.root, 'desktop-plugins/update-transaction.json'), '{}');
+  let guarded = false;
+  await assert.rejects(f.service.remove(input, async () => { guarded = true; }, checked), /update-recovery-required/);
+  assert.equal(guarded, false);
+});
+
 test('a busy Remote updates a proven theme without replacing its runtime, RPC, session or installation instance', async t => {
   const f = await installFixture(t), install = await f.input();
   await f.service.mutate(install, policy => f.guard(install, policy));
@@ -142,7 +181,7 @@ test('theme update refuses a candidate changed after classification and preserve
   assert.equal(f.transport.stopped, false);
 });
 
-test('unproven theme installations cannot bypass a strict caller guard under Remote', async t => {
+test('new installations cannot bypass an explicitly strict caller guard under Remote', async t => {
   const f = await installFixture(t);
   for (const extra of [
     { entry: 'index.js' }, { skills: ['skills'] }, { commands: ['commands'] }, { agents: ['agents'] },
@@ -151,7 +190,8 @@ test('unproven theme installations cannot bypass a strict caller guard under Rem
   ]) {
     await writeFile(join(f.candidate, 'step.plugin.json'), JSON.stringify({ ...f.candidateManifest, ...extra }));
     const input = await f.input();
-    await assert.rejects(f.service.mutate(input, options => f.guard(input, options)), /Unbind Remote/);
+    await assert.rejects(f.service.mutate(input, () =>
+      f.pool.assertAllIdle({ stopHost: false, resources: true })), /Unbind Remote/);
   }
   await writeFile(join(f.candidate, 'step.plugin.json'), JSON.stringify(f.candidateManifest));
   const input = await f.input();
@@ -163,6 +203,23 @@ test('unproven theme installations cannot bypass a strict caller guard under Rem
     await assert.rejects(f.service.mutate(input, options => f.guard(forged, options)), /Unbind Remote/);
   }
   await assert.rejects(readFile(join(f.root, 'plugins/voyager/step.plugin.json')), { code: 'ENOENT' });
+});
+
+test('a verified non-theme installation is next-start only and leaves a busy Remote intact', async t => {
+  const f = await installFixture(t);
+  await writeFile(join(f.candidate, 'step.plugin.json'), JSON.stringify({
+    ...f.candidateManifest, mcpServers: { tools: { command: 'never-run' } },
+  }));
+  const input = await f.input(), rpc = f.worker.rpc;
+  f.worker.busy = true; f.transport.state.isStreaming = true;
+  await f.service.mutate(input, async policy => {
+    assert.equal(policy.scope, 'next-start');
+    await f.guard(input, policy);
+  });
+  assert.equal(f.worker.rpc, rpc);
+  assert.equal(f.transport.stopped, false);
+  assert.equal(f.worker.busy, true);
+  assert.equal((await f.service.catalog()).plugins.find(plugin => plugin.id === 'voyager')?.package?.provenance, 'recorded');
 });
 
 test('theme installation rejects a changed candidate after the idle guard without publishing it', async t => {
@@ -390,7 +447,7 @@ test('renderer-supplied flags cannot exempt capability mutations from a strict c
     { action: 'mcp-toggle', name: 'fixture', enabled: false },
   ] satisfies CapabilityMutation[]) {
     const input = { ...mutation, allowRemote: true, preserveRuntime: true };
-    await assert.rejects(f.service.mutate(input, options => f.guard(input, options)),
+    await assert.rejects(f.service.mutate(input, () => f.pool.assertAllIdle({ stopHost: false, resources: true })),
       mutation.action === 'plugin-update' ? /capability:stale/ : /Unbind Remote/);
   }
   await assert.rejects(f.pool.assertIdle(f.worker, { allowRemote: true }), /Unbind Remote/);

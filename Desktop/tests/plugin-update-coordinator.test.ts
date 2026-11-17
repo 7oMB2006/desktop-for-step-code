@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
-import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import test from 'node:test';
@@ -34,6 +34,8 @@ function fixture(config: {
   pauseMutation?: boolean;
   realPersistence?: boolean;
   warnings?: string[];
+  removal?: boolean;
+  failMutation?: boolean;
 } = {}) {
   const events: Event[] = [], restored: string[] = [], released: string[] = [];
   const enteredMutation = deferred(), finishMutation = deferred();
@@ -101,6 +103,8 @@ function fixture(config: {
   const coordinator = new PluginUpdateCoordinator({
     root: config.root ?? 'C:/unused-coordinator-fixture',
     pool, gate, releaseSupported: true,
+    recordName: config.removal ? 'removal-operation.json' : 'update-operation.json',
+    mutationFailureUncertain: config.removal,
     async check() { checks++; return { ...checked }; },
     assertAvailable() {
       if (locked) throw new Error('capability:busy');
@@ -131,6 +135,7 @@ function fixture(config: {
         enteredMutation.resolve();
         if (config.pauseMutation) await finishMutation.promise;
         mutations++;
+        if (config.failMutation) throw new Error('capability:operation-failed');
         return { warnings: config.warnings ?? [] };
       } finally {
         release?.();
@@ -163,6 +168,97 @@ test('preflight observes idle consumers without writing, stopping, restoring or 
   }
   assert.equal(f.locked(), false);
 });
+
+test('removal requires consent, consumes it once, releases and restores all idle owners', async () => {
+  const f = fixture({ removal: true, workers: [{ used: true }, { used: true }] });
+  const preview = await f.coordinator.preflight(request);
+  assert.equal(f.counts().mutations, 0);
+  await assert.rejects(f.coordinator.apply({ token: preview.token, release: false }), /operation-denied/);
+  assert.equal(f.released.length, 0);
+  const confirmed = await f.coordinator.preflight(request);
+  const result = await f.coordinator.apply({ token: confirmed.token, release: true });
+  assert.equal(result.installation, 'committed');
+  assert.equal(f.released.length, 2);
+  assert.equal(f.restored.length, 2);
+  assert.equal(result.phase, 'done');
+  await assert.rejects(f.coordinator.apply({ token: confirmed.token, release: true }), /stale/);
+});
+
+test('removal partial mutation has unknown outcome and still restores released sessions', async () => {
+  const f = fixture({ removal: true, failMutation: true });
+  const preview = await f.coordinator.preflight(request);
+  const result = await f.coordinator.apply({ token: preview.token, release: true });
+  assert.equal(result.installation, 'unknown');
+  assert.equal(result.phase, 'attention');
+  assert.equal(result.sessions[0].restoration, 'restored');
+});
+
+test('data-only removal failure also reports an unknown installation outcome', async () => {
+  const f = fixture({ removal: true, failMutation: true, scope: 'theme' });
+  const preview = await f.coordinator.preflight(request);
+  const result = await f.coordinator.apply({ token: preview.token, release: false });
+  assert.equal(result.installation, 'unknown');
+  assert.equal(f.released.length, 0);
+});
+
+test('removal writes its own journal without replacing the update record', async t => {
+  const root = await realpath(await mkdtemp(join(tmpdir(), 'dfsc-removal-journal-')));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  await mkdir(join(root, 'desktop-plugins'), { recursive: true });
+  const updatePath = join(root, 'desktop-plugins/update-operation.json');
+  await writeFile(updatePath, 'existing-update-record');
+  const f = fixture({ removal: true, root, realPersistence: true });
+  const preview = await f.coordinator.preflight(request);
+  await f.coordinator.apply({ token: preview.token, release: true });
+  assert.equal(await readFile(updatePath, 'utf8'), 'existing-update-record');
+  const record = JSON.parse(await readFile(join(root, 'desktop-plugins/removal-operation.json'), 'utf8'));
+  assert.equal(record.operation.id, preview.token);
+  assert.equal(record.operation.installation, 'committed');
+});
+
+test('an interrupted removal record is reviewed with removal-specific recovery wording', async t => {
+  const root = await realpath(await mkdtemp(join(tmpdir(), 'dfsc-removal-recovery-')));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  await mkdir(join(root, 'desktop-plugins'), { recursive: true });
+  const operation = { id: 'interrupted-removal', pluginId: 'example', version: '1.0.0',
+    phase: 'applying', installation: 'unchanged', sessions: [], warnings: [] };
+  await writeFile(join(root, 'desktop-plugins/removal-operation.json'), JSON.stringify({ version: 1, operation }));
+  const f = fixture({ removal: true, root, realPersistence: true });
+  const result = await f.coordinator.latest('example');
+  assert.equal(result?.installation, 'unknown');
+  assert.equal(result?.error, 'capability:removal-operation-interrupted');
+  assert.equal(f.counts().mutations, 0);
+  await assert.rejects(f.coordinator.apply({ token: operation.id, release: true }), /stale/);
+});
+
+test('an invalid removal journal fails closed without reporting an update transaction', async t => {
+  const root = await realpath(await mkdtemp(join(tmpdir(), 'dfsc-removal-invalid-')));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  await mkdir(join(root, 'desktop-plugins'), { recursive: true });
+  await writeFile(join(root, 'desktop-plugins/removal-operation.json'), '{invalid');
+  const f = fixture({ removal: true, root, realPersistence: true });
+  await assert.rejects(f.coordinator.latest('example'), /removal-operation-record-invalid/);
+  assert.equal(f.counts().mutations, 0);
+});
+
+test('removal does not mutate after unconfirmed release', async () => {
+  const f = fixture({ removal: true, failReleaseAt: 0 });
+  const preview = await f.coordinator.preflight(request);
+  const result = await f.coordinator.apply({ token: preview.token, release: true });
+  assert.equal(f.counts().mutations, 0);
+  assert.equal(result.installation, 'unchanged');
+});
+
+for (const worker of [{ busy: true }, { disconnected: true }]) {
+  test(`removal blocks ${worker.busy ? 'busy' : 'unknown'} sessions before release`, async () => {
+    const f = fixture({ removal: true, workers: [worker] });
+    const preview = await f.coordinator.preflight(request);
+    assert.equal(preview.readiness, 'blocked');
+    await assert.rejects(f.coordinator.apply({ token: preview.token, release: true }), /operation-denied/);
+    assert.equal(f.released.length, 0);
+    assert.equal(f.counts().mutations, 0);
+  });
+}
 
 test('preflight blocks an unsaved consumer without releasing any session', async () => {
   const f = fixture({ workers: [{ used: true, missingHistory: true }, { used: true }] });

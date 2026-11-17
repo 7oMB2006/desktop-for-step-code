@@ -52,3 +52,7 @@ export function startupBlocked(state?: RuntimeStartup) {
 export function startupMissing(state: RuntimeStartup) {
   return state.tools.filter(tool => tool.status === 'failed').map(tool => tool.name).sort();
 }
+export function startupNeedsAttention(state?: RuntimeStartup) {
+  return Boolean(state && (state.discovery === 'failed' || !state.cleanupConfirmed
+    || state.tools.some(tool => tool.status === 'failed' || tool.cleanupConfirmed === false)));
+}

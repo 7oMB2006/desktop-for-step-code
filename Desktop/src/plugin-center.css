@@ -210,6 +210,7 @@
 .pc-status > i { width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
 .pc-status.is-ready { color: var(--green); }
 .pc-status.is-pending { color: var(--primary); }
+.pc-status-unavailable { color: var(--danger); }
 .pc-auth-state { display: flex; align-items: center; gap: 5px; font-size: 11px; color: var(--muted); }
 .pc-detail-tabs { position: sticky; top: 0; z-index: 1; isolation: isolate; gap: 25px; margin: 0 4px; padding-top: 4px; background: var(--bg); }
 .pc-detail-tabs::before { content: ''; position: absolute; inset: 0 -4px; z-index: -1; background: var(--bg); pointer-events: none; }

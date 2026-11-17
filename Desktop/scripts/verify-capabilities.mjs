@@ -277,14 +277,14 @@ try {
   await page.getByRole('button', { name: '全部插件', exact: true }).click();
   await page.getByRole('tab', { name: /^已安装/ }).click();
   const examplePanel = page.locator('.pc-plugin-row').filter({ hasText: 'Example plugin' });
-  const removeExamplePlugin = async () => {
+  const openExampleRemoval = async () => {
     if (!await page.getByRole('heading', { name: 'Example plugin', exact: true }).isVisible())
       await page.getByRole('button', { name: '配置 Example plugin', exact: true }).click();
     await settleLayout(page.locator('.pc-detail'));
     await page.getByRole('button', { name: '卸载插件', exact: true }).click();
-    const confirmation = page.getByRole('dialog', { name: '卸载 Example plugin？', exact: true });
+    const confirmation = page.getByRole('dialog', { name: '卸载插件', exact: true });
     await confirmation.waitFor();
-    await confirmation.getByRole('button', { name: '确认', exact: true }).click();
+    return confirmation;
   };
   await examplePanel.locator('.cap-plugin-icon img').waitFor();
   await page.waitForFunction(() => document.querySelector('.pc-plugin-row .cap-plugin-icon img')?.naturalWidth === 1);
@@ -450,8 +450,20 @@ try {
   assert.match(blockedUpdate, /capability:resource-in-use/, 'A connected MCP must block package replacement');
   assert.equal(JSON.parse(await readFile(join(profile, 'step-runtime/plugins/example/step.plugin.json'), 'utf8')).version, '1.1.0');
   await page.getByRole('button', { name: '插件', exact: true }).click();
-  await removeExamplePlugin();
-  await page.getByRole('alert').filter({ hasText: '插件仍被会话占用' }).waitFor();
+  const beforeBlockedRemoval = await page.evaluate(() => window.desktop.snapshot());
+  const blockedRemoval = await openExampleRemoval();
+  await blockedRemoval.getByText('需要重新检查', { exact: true }).waitFor();
+  await blockedRemoval.locator('.pc-update-reasons').getByText(/会话尚无可用的持久历史/).waitFor();
+  assert.equal(await blockedRemoval.locator('.pc-update-sessions li').count(), 1,
+    'Preflight must identify the actual empty runtime owning this plugin');
+  assert.equal(await blockedRemoval.getByRole('button', { name: /^(释放占用并卸载|卸载插件)$/ }).count(), 0,
+    'An unpersisted session cannot be released or uninstalled');
+  await blockedRemoval.getByRole('button', { name: '取消', exact: true }).click();
+  await blockedRemoval.waitFor({ state: 'hidden' });
+  const afterBlockedRemoval = await page.evaluate(() => window.desktop.snapshot());
+  assert.equal(afterBlockedRemoval.runtimeId, beforeBlockedRemoval.runtimeId);
+  assert.equal(afterBlockedRemoval.state.sessionId, beforeBlockedRemoval.state.sessionId);
+  assert.deepEqual(afterBlockedRemoval.messages, beforeBlockedRemoval.messages, 'Preflight and cancel preserve history');
   assert.ok((await page.evaluate(() => window.desktop.capabilityCatalog())).plugins.some(plugin => plugin.id === 'example'));
   assert.match(await readFile(join(profile, 'step-runtime', 'plugins', 'example', 'step.plugin.json'), 'utf8'), /Example plugin/);
   assert.match(await readFile(join(profile, 'step-runtime', 'plugins', 'example', 'skills', 'review', 'SKILL.md'), 'utf8'), /Review fixture/);
@@ -461,9 +473,24 @@ try {
   await restartSession();
   await page.getByText(/会话中已停用/).waitFor();
   await page.getByRole('button', { name: '插件', exact: true }).click();
-  await removeExamplePlugin();
+  const beforeRemoval = await page.evaluate(() => window.desktop.snapshot());
+  const removal = await openExampleRemoval();
+  await removal.getByText('确认卸载插件', { exact: true }).waitFor();
+  assert.equal(await removal.locator('.pc-update-sessions li').count(), 0, 'Disabled, restarted services no longer own the plugin');
+  await removal.getByRole('button', { name: '卸载插件', exact: true }).click();
+  await removal.getByText('插件已卸载', { exact: true }).waitFor();
+  const removedOperation = await page.evaluate(() => window.desktop.pluginRemovalOperation({ pluginId: 'example' }));
+  assert.equal(removedOperation.phase, 'done');
+  assert.equal(removedOperation.installation, 'committed');
+  assert.deepEqual(removedOperation.sessions, [], 'Uninstall must not release unrelated workers');
+  const afterRemoval = await page.evaluate(() => window.desktop.snapshot());
+  assert.equal(afterRemoval.runtimeId, beforeRemoval.runtimeId);
+  assert.equal(afterRemoval.state.sessionId, beforeRemoval.state.sessionId);
+  assert.deepEqual(afterRemoval.messages, beforeRemoval.messages);
+  await removal.getByRole('button', { name: '关闭', exact: true }).click();
   await page.getByRole('heading', { name: 'Example plugin', exact: true }).waitFor({ state: 'detached' });
   assert.equal((await page.evaluate(() => window.desktop.capabilityCatalog())).plugins.some(plugin => plugin.id === 'example'), false);
+  await assert.rejects(readFile(join(profile, 'step-runtime/plugins/example/step.plugin.json')), { code: 'ENOENT' });
   const messagesBefore = (await page.evaluate(() => window.desktop.snapshot())).messages.length;
   for (const [command, heading] of [['/plugin browse', '插件'], ['/mcp', 'MCP'], ['/skills', 'Skills']]) {
     await closeSurface();

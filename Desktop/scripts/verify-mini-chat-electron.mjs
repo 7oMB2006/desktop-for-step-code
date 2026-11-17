@@ -8,6 +8,7 @@ import { _electron as electron } from 'playwright';
 import { closeDesktopFixtureAndWait } from './close-desktop-fixture.mjs';
 import { settleLayout } from './settle-layout.mjs';
 import { verifyTooltipLayer } from './tooltip-layer-probe.mjs';
+import { waitForSessionFixtureSnapshot } from './session-fixture.mjs';
 
 const profile = await realpath(await mkdtemp(join(tmpdir(), 'desktop-mini-chat-')));
 const root = join(profile, 'step-runtime'), workspace = join(profile, 'project');
@@ -526,8 +527,38 @@ try {
   await main.waitForFunction(() => window.__soundPlays === 1);
   assert.equal(await mini.evaluate(() => window.__soundPlays), 0);
   assert.equal(await main.evaluate(() => window.__soundPlays), 1);
+  // Persist a reading position, then restore it in the native Mini renderer.
+  // Sending from there must release that anchor and resume following output.
+  await miniScroll.evaluate(element => { element.scrollTop = 0; });
+  await mini.waitForFunction(() => !!document.querySelector('.jump-to-bottom'));
+  await waitForSessionFixtureSnapshot(mini, snapshot => snapshot.windowPresentation?.position.follow === false,
+    'the saved MiniChat reading position');
+  await mini.reload();
+  await editor.waitFor();
+  await mini.waitForFunction(() => !!document.querySelector('.jump-to-bottom'));
   await editor.fill('MINI-HOLD-STOP'); await editor.press('Enter');
   await mini.getByText('Mini streaming is live.', { exact: true }).waitFor();
+  const atTail = () => mini.waitForFunction(() => {
+    const viewport = document.querySelector('#conversation-scroll');
+    return viewport.scrollHeight - viewport.clientHeight - viewport.scrollTop <= 1;
+  });
+  await atTail();
+  const streaming = [...held.values()].at(-1);
+  assert.ok(streaming);
+  for (let index = 0; index < 4; index++) {
+    streaming.write(chunk({ content: `\n\nMini tail batch ${index}\n\n` + 'Streaming must remain at the latest reply.\n\n'.repeat(12) }));
+    await mini.getByText(`Mini tail batch ${index}`, { exact: true }).waitFor();
+    await atTail();
+  }
+  await mini.screenshot({ path: join(output, 'native-restored-reading-send-tail.png') });
+  await miniScroll.hover(); await mini.mouse.wheel(0, -450);
+  await mini.waitForFunction(() => !!document.querySelector('.jump-to-bottom'));
+  const readingTop = await miniScroll.evaluate(element => element.scrollTop);
+  streaming.write(chunk({ content: '\n\nMini paused tail marker\n\n' + 'Do not steal the reading position.\n\n'.repeat(8) }));
+  await mini.getByText('Mini paused tail marker', { exact: true }).waitFor({ state: 'attached' });
+  assert.ok(Math.abs(await miniScroll.evaluate(element => element.scrollTop) - readingTop) <= 2,
+    'Upward reading remains paused during new output');
+  await mini.locator('.jump-to-bottom').click(); await atTail();
   const runningBeforeMinimize = await mini.evaluate(() => window.desktop.snapshot());
   await minimizeWindow();
   const runningWhileMinimized = await main.evaluate(() => window.desktop.snapshot());

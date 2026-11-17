@@ -578,6 +578,14 @@ details[open] > summary > .disclosure-chevron { transform: rotate(90deg); }
 .response-content > .thinking > summary { display: flex; align-items: center; gap: 6px; width: fit-content; min-height: 30px; padding: 3px 0; cursor: pointer; list-style: none; }
 .response-content > .thinking > summary:hover { color: var(--ink); }
 .thinking-body > p { padding: 5px 0; }
+.thinking-scroll { max-height: min(280px, 40vh); overflow: auto; overscroll-behavior: contain; scrollbar-width: thin; padding: 4px 8px 4px 2px; overflow-wrap: anywhere; }
+.thinking-scroll > div > :first-child { margin-top: 0; }
+.thinking-scroll > div > :last-child { margin-bottom: 0; }
+.sent-attachments { display: flex; flex-wrap: wrap; gap: 6px 12px; margin-top: 8px; min-width: 0; }
+.sent-attachment { display: inline-flex; align-items: center; gap: 5px; max-width: 100%; min-width: 0; color: var(--primary); font-size: 13px; }
+.sent-attachment > svg { flex-shrink: 0; }
+.sent-attachment > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.menu-shortcut { margin-left: auto; padding-left: 20px; color: var(--muted); font: inherit; font-size: 11px; white-space: nowrap; }
 .elapsed-label { color: var(--muted); font-size: 11px; font-weight: 400; white-space: nowrap; }
 .thinking > summary > .elapsed-label { margin-left: 5px; }
 .elapsed-label > span { font-variant-numeric: tabular-nums; }

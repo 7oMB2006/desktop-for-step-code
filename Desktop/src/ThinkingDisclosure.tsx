@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { Brain } from 'lucide-react';
 import { DisclosureChevron } from './DisclosureChevron';
@@ -12,6 +12,22 @@ export function ThinkingDisclosure({ autoOpen, running, preview, resetKey, state
   const [expanded, setExpanded] = useConversationDisclosure(stateKey, autoOpen, resetKey);
   const [visited, setVisited] = useState(expanded);
   const { details, body } = useAnimatedDisclosure(expanded, onLayoutChange);
+  const viewport = useRef<HTMLDivElement>(null);
+  const content = useRef<HTMLDivElement>(null);
+  const following = useRef(true);
+  useLayoutEffect(() => {
+    const scroller = viewport.current, text = content.current;
+    if (!scroller || !text || !expanded || !running) return;
+    const follow = () => {
+      const selection = window.getSelection();
+      if (following.current && !(selection && !selection.isCollapsed && text.contains(selection.anchorNode)))
+        scroller.scrollTop = scroller.scrollHeight;
+    };
+    follow();
+    const observer = new ResizeObserver(follow);
+    observer.observe(text);
+    return () => observer.disconnect();
+  }, [expanded, running]);
   useEffect(() => {
     if (expanded) setVisited(true);
   }, [expanded]);
@@ -26,6 +42,15 @@ export function ThinkingDisclosure({ autoOpen, running, preview, resetKey, state
       <span className="thinking-chevron"><DisclosureChevron/></span>
       {!expanded && preview && <span className="thinking-preview">{preview}</span>}
     </summary>
-    <div ref={body} className="thinking-body" aria-hidden={!expanded} inert={!expanded}>{(visited || expanded) && children}</div>
+    <div ref={body} className="thinking-body" aria-hidden={!expanded} inert={!expanded}>
+      <div ref={viewport} className="thinking-scroll" tabIndex={expanded ? 0 : -1} role="region" aria-label={label}
+        onWheel={event => { if (event.deltaY < 0) following.current = false; }}
+        onScroll={event => {
+          const element = event.currentTarget;
+          following.current = element.scrollHeight - element.clientHeight - element.scrollTop <= 1;
+        }}>
+        <div ref={content}>{(visited || expanded) && children}</div>
+      </div>
+    </div>
   </details>;
 }

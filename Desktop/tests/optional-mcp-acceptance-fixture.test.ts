@@ -9,6 +9,7 @@ async function script(name: string) {
 }
 const summary = await script('verify-summary-runtime.mjs');
 const capabilities = await script('verify-capabilities.mjs');
+const diagnostics = await script('verify-capability-diagnostics.mjs');
 function variable(source: ts.SourceFile, name: string): ts.VariableDeclaration {
   let found: ts.VariableDeclaration | undefined;
   const visit = (node: ts.Node) => {
@@ -121,5 +122,52 @@ for (const [name, operation, runtimeId] of [
     const result = verifyRemoved(page, assert, operation, before, window);
     if (name === 'committed unowned removal') await result;
     else await assert.rejects(result, assert.AssertionError);
+  });
+}
+
+const themeRemoval = variable(diagnostics, 'confirmThemeRemoval').initializer;
+assert.ok(themeRemoval && ts.isArrowFunction(themeRemoval));
+const verifyTheme = new Function('page', 'assert', 'window', `return (${themeRemoval.getText(diagnostics)})();`);
+for (const [name, owners, operation] of [
+  ['committed theme removal', 0, { phase: 'done', installation: 'committed', sessions: [] }],
+  ['preflight owner', 1, { phase: 'done', installation: 'committed', sessions: [] }],
+  ['unfinished operation', 0, { phase: 'restoring', installation: 'committed', sessions: [] }],
+  ['unknown removal', 0, { phase: 'attention', installation: 'unknown', sessions: [] }],
+  ['unexpected release', 0, { phase: 'done', installation: 'committed', sessions: [{ runtimeId: 'peer' }] }],
+] as const) {
+  test(`Diagnostics native theme confirmation rejects unsafe outcomes: ${name}`, async () => {
+    const events: string[] = [];
+    const dialog = {
+      getByText(text: string) { return { async waitFor() { events.push(text); } }; },
+      locator(selector: string) {
+        assert.equal(selector, '.pc-update-sessions li');
+        return { async count() { return owners; } };
+      },
+      getByRole(role: string, input: { name: string }) {
+        assert.equal(role, 'button');
+        return { async click() { events.push(input.name); } };
+      },
+      async waitFor(input: { state: string }) { assert.equal(input.state, 'hidden'); events.push('hidden'); },
+    };
+    const page = {
+      getByRole(role: string, input: { name: string }) {
+        assert.equal(role, 'dialog');
+        assert.equal(input.name, '卸载插件');
+        return dialog;
+      },
+      async evaluate(callback: () => unknown) { return callback(); },
+    };
+    const window = { desktop: { async pluginRemovalOperation(input: { pluginId: string }) {
+      assert.equal(input.pluginId, 'stellar-cruise');
+      return operation;
+    } } };
+    const pending = verifyTheme(page, assert, window);
+    if (name === 'committed theme removal') {
+      await pending;
+      assert.deepEqual(events, ['确认卸载插件', '卸载插件', '插件已卸载', '关闭', 'hidden']);
+    } else {
+      await assert.rejects(pending, assert.AssertionError);
+      assert.ok(!events.includes('关闭'), 'A failed operation cannot be dismissed as successful');
+    }
   });
 }

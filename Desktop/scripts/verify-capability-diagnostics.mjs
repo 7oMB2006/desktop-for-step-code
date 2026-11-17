@@ -126,6 +126,20 @@ const confirmThemeInstall = async () => {
   assert.match(await dialog.innerText(), /不提供恶意插件沙箱/);
   await dialog.getByRole('button', { name: '安装插件', exact: true }).click();
 };
+const confirmThemeRemoval = async () => {
+  const dialog = page.getByRole('dialog', { name: '卸载插件', exact: true });
+  await dialog.getByText('确认卸载插件', { exact: true }).waitFor();
+  assert.equal(await dialog.locator('.pc-update-sessions li').count(), 0,
+    'A data-only theme must not release a streaming or Remote-bound worker');
+  await dialog.getByRole('button', { name: '卸载插件', exact: true }).click();
+  await dialog.getByText('插件已卸载', { exact: true }).waitFor();
+  const operation = await page.evaluate(() => window.desktop.pluginRemovalOperation({ pluginId: 'stellar-cruise' }));
+  assert.equal(operation.phase, 'done');
+  assert.equal(operation.installation, 'committed');
+  assert.deepEqual(operation.sessions, []);
+  await dialog.getByRole('button', { name: '关闭', exact: true }).click();
+  await dialog.waitFor({ state: 'hidden' });
+};
 // Backend completion can precede perform's catalog refresh, selection change, and pending reset.
 const waitForUiReady = (control, description) => poll(async () =>
   await control.isVisible() && await control.isEnabled()
@@ -652,7 +666,7 @@ try {
   await waitForUiReady(page.getByRole('button', { name: '卸载插件', exact: true }),
     'pure theme removal enabled while peer streams');
   await page.getByRole('button', { name: '卸载插件', exact: true }).click();
-  await confirm();
+  await confirmThemeRemoval();
   await poll(catalog, value => !value.plugins.some(item => item.id === 'stellar-cruise'), 'theme removed while peer streams');
   await waitForUiReady(page.getByRole('tab', { name: /^已安装/u }), 'theme removal UI settled while peer streams');
   await page.getByRole('button', { name: '查看 星辰巡航 使用说明', exact: true }).waitFor({ state: 'hidden' });
@@ -691,12 +705,20 @@ try {
   assert.notEqual(executable.package?.dataOnlyTheme, true);
   assert.equal(executable.version, '1.1.0');
   assert.equal(executable.package?.provenance, 'recorded');
-  assert.equal(await page.getByRole('button', { name: '卸载插件', exact: true }).isDisabled(), true);
+  assert.equal(await page.getByRole('button', { name: '卸载插件', exact: true }).isEnabled(), true);
+  await page.getByRole('button', { name: '卸载插件', exact: true }).click();
+  const busyRemoval = page.getByRole('dialog', { name: '卸载插件', exact: true });
+  await busyRemoval.getByText('需要重新检查', { exact: true }).waitFor();
+  await busyRemoval.locator('.pc-update-reasons').getByText(/有会话仍有任务或受保护的运行状态/).waitFor();
+  assert.ok(await busyRemoval.locator('.pc-update-sessions li').count() > 0);
+  assert.equal(await busyRemoval.getByRole('button', { name: /^(释放占用并卸载|卸载插件)$/ }).count(), 0);
+  await busyRemoval.getByRole('button', { name: '取消', exact: true }).click();
+  await busyRemoval.waitFor({ state: 'hidden' });
   await expectBackendRefusal({ action: 'plugin-remove', id: executableId });
   assert.deepEqual(await executableReceipt(), updatedExecutableReceipt);
   assert.deepEqual(JSON.parse(await readFile(join(executableRoot, 'step.plugin.json'), 'utf8')), nextExecutableManifest);
   await assertBusyRemoteRetained(peer.runtimeId);
-  checks.push('streaming-peer-disables-executable-removal-and-backend-refuses-session-busy-with-receipt-intact');
+  checks.push('streaming-peer-blocks-executable-removal-in-read-only-preflight-and-backend-refuses-session-busy-with-receipt-intact');
   await page.getByRole('button', { name: '全部插件', exact: true }).click();
   await page.getByRole('tab', { name: '市场来源', exact: true }).click();
   await page.getByRole('button', { name: '添加市场', exact: true }).click();
@@ -759,16 +781,25 @@ try {
   await page.getByRole('button', { name: '查看 星辰巡航 使用说明', exact: true }).click();
   if (process.platform === 'win32') {
     await holdDirectory(join(root, 'plugins/stellar-cruise'));
-    await page.getByRole('button', { name: '卸载插件', exact: true }).click();
-    await confirm();
-    await readDiagnostic('(?:operation-denied|file-in-use|directory-not-empty)', 'mutation');
+    // Diagnostics belong to capabilityMutate; native uncertain removals must not be replayed.
+    let refusal;
+    await assert.rejects(mutate({ action: 'plugin-remove', id: 'stellar-cruise' }), error => {
+      refusal = error.message;
+      return /capability:(?:operation-denied|file-in-use|directory-not-empty)/u.test(refusal);
+    });
+    await readDiagnostic('(?:operation-denied|file-in-use|directory-not-empty)', 'mutation', refusal);
     await waitForUiReady(page.getByRole('button', { name: '卸载插件', exact: true }),
       'failed theme removal UI settled before retry');
     await page.screenshot({ path: join(output, 'locked-plugin.png') });
     await releaseDirectory();
+    // A failed legacy removal can invalidate package references; finish its own retry path.
+    assert.deepEqual((await mutate({ action: 'plugin-remove', id: 'stellar-cruise' })).warnings, []);
+  } else {
+    await page.getByRole('button', { name: '卸载插件', exact: true }).click();
+    await confirmThemeRemoval();
   }
-  await page.getByRole('button', { name: '卸载插件', exact: true }).click();
-  await confirm();
+  await page.getByRole('button', { name: '全部插件', exact: true }).click();
+  await page.getByRole('button', { name: '检查插件更新', exact: true }).click();
   await poll(catalog, value => !value.plugins.some(item => item.id === 'stellar-cruise'), 'theme uninstalled');
   await waitForUiReady(page.getByRole('tab', { name: /^已安装/u }), 'theme uninstall UI settled');
   await page.getByRole('button', { name: '查看 星辰巡航 使用说明', exact: true }).waitFor({ state: 'hidden' });

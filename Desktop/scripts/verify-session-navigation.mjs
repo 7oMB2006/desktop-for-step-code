@@ -157,7 +157,14 @@ try {
       'The stale selection is absent from the accessibility tree too');
     assert.ok((await page.locator('.session-reading-status').textContent()).includes(failed ? '模型未就绪' : '正在恢复模型'));
     const box = await placeholder.boundingBox();
-    assert.ok(box.width > 80 && box.width <= 156 && box.height === 29);
+    const layout = await placeholder.evaluate(element => {
+      const style = getComputedStyle(element);
+      return { width: Number.parseFloat(style.width), height: Number.parseFloat(style.height) };
+    });
+    // CDP's float coordinates can yield 156.00003 for a 156px box at fractional scale.
+    assert.ok(layout.width > 80 && layout.width <= 156 && layout.height === 29
+      && Math.abs(box.width - layout.width) < 0.001 && Math.abs(box.height - layout.height) < 0.001,
+    `Model placeholder must retain its fixed geometry: ${JSON.stringify({ box, layout })}`);
     assert.ok(await placeholder.evaluate(element => {
       const label = element.querySelector('.model-effort-name');
       const button = element.querySelector('button').getBoundingClientRect();

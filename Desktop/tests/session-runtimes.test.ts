@@ -41,6 +41,65 @@ function fixture(hooks: ConstructorParameters<typeof SessionRuntimes>[2] = {}) {
   return { pool, transports, events, open };
 }
 
+for (const kind of ['startup', 'status'] as const) {
+  test(`${kind} metadata during initial history decoration cannot leave a restored worker empty`, async () => {
+    const saved = [{ role: 'user' as const, content: 'Saved history' }];
+    const pool = new SessionRuntimes(() => {}, receive => {
+      const transport = new Transport(receive, 'restored-session');
+      const request = transport.request.bind(transport);
+      transport.request = async (type, args) => type === 'get_messages' ? { messages: saved }
+        : type === 'desktop_startup' ? pool.workers.get(transport.startEnv.DFSC_RUNTIME_ID!)!.startup : request(type, args);
+      return transport;
+    }, { messages: async (worker, messages) => {
+      const transport = worker.rpc as Transport;
+      if (kind === 'status')
+        transport.receive({ type: 'extension_ui_request', method: 'setStatus', statusKey: 'fixture-metadata', statusText: 'ready' });
+      else transport.receive({ type: 'desktop_startup_changed', startup: {
+        protocol: 1, runtimeId: worker.id, sessionId: worker.state!.sessionId!, startupEpoch: randomUUID(),
+        configurationRevision: worker.startupConfigurationRevision!, catalogRevision: 0,
+        targetBound: true, modelReady: true, cleanupConfirmed: true, discovery: 'ready', tools: [], coreReadyAt: 1,
+      } });
+      return messages;
+    } });
+    try {
+      const worker = await pool.prepare('node', 'step', 'workspace', {}, 'saved.jsonl');
+      assert.ok(worker.revision > 0, 'The real event handler advanced its native revision during the read');
+      assert.deepEqual(worker.messages, saved, 'Metadata must not discard unchanged historical messages');
+      await pool.recycle(() => false);
+      // Age only this fixture past the unchanged idle deadline.
+      worker.touched = Date.now() - 6 * 60000;
+      await pool.recycle();
+      assert.equal(pool.workers.size, 0, 'A nonempty restored resident must remain eligible for ordinary recycling');
+    } finally { await pool.stopAll(); }
+  });
+}
+
+for (const kind of ['message', 'compaction', 'unknown', 'manual revision'] as const) {
+  test(`${kind} events still prevent stale history from overwriting a live snapshot`, async () => {
+    let emitDuringRead = false;
+    const { pool, open, transports } = fixture({ messages: async (worker, messages) => {
+      if (emitDuringRead) {
+        if (kind === 'manual revision') worker.revision++;
+        else transports[0].receive(kind === 'message'
+          ? { type: 'message_start', message: { role: 'user', content: 'Newer message' } }
+          : kind === 'compaction' ? { type: 'auto_compaction_start' } : { type: 'future_history_change' });
+      }
+      return messages;
+    } });
+    try {
+      const worker = await open();
+      const current = [{ role: 'user' as const, content: 'Current history' }];
+      worker.messages = current;
+      emitDuringRead = true;
+      await pool.read(worker);
+      assert.equal(worker.messages[0], current[0]);
+      if (kind === 'message') assert.equal(worker.messages.at(-1)?.content, 'Newer message');
+      else assert.equal(worker.messages, current);
+      if (kind === 'compaction') assert.equal(worker.state?.isCompacting, true);
+    } finally { await pool.stopAll(); }
+  });
+}
+
 for (const action of ['model', 'state'] as const) {
   for (const discovery of ['ready', 'failed'] as const) {
     test(`${action} startup response cannot overwrite a newer ${discovery} catalog event`, async () => {

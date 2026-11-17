@@ -63,6 +63,27 @@ test('native recycling capture preserves map writes and restores its instrumenta
     { same: true, captured: true, unchanged: true, restored: true, released: true });
 });
 
+test('model placeholder geometry tolerates CDP float serialization but rejects real layout changes', () => {
+  let assertion = '';
+  const visit = (node: ts.Node) => {
+    if (ts.isCallExpression(node) && node.expression.getText(source) === 'assert.ok'
+      && node.arguments[1]?.getText(source).includes('Model placeholder must retain its fixed geometry'))
+      assertion = node.getText(source);
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+  assert.ok(assertion);
+  const check = (layout: { width: number; height: number }, box = layout) =>
+    runInNewContext(assertion, { assert, Math, JSON, layout, box });
+  check({ width: 156, height: 29 }, { width: 156.00003051757812, height: 29 });
+  check({ width: 156, height: 29 }, { width: 155.99996948242188, height: 29 });
+  for (const layout of [{ width: 157, height: 29 }, { width: 156.01, height: 29 },
+    { width: 156, height: 30 }, { width: 80, height: 29 }])
+    assert.throws(() => check(layout));
+  assert.throws(() => check({ width: 156, height: 29 }, { width: 157, height: 29 }));
+  assert.throws(() => check({ width: 156, height: 29 }, { width: 156, height: 29.01 }));
+});
+
 for (const isPackaged of [false, true]) for (const supervised of [false, true]) {
   test(`${isPackaged ? 'packaged' : 'source'} ${supervised ? 'supervised' : 'direct'} navigation fixture holds only two session workers, not management RPC`, () => {
     const app = { isPackaged };

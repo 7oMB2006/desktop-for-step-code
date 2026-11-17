@@ -19,6 +19,71 @@ const visit = (node: ts.Node) => {
 visit(source);
 assert.equal(installers.length, 1, 'Exercise the actual native startup interceptor');
 
+test('navigation fixture disables unrelated external StepPage startup', () => {
+  const configs: string[] = [];
+  const collect = (node: ts.Node) => {
+    if (ts.isCallExpression(node) && node.expression.getText(source) === 'writeFile'
+      && node.arguments[0]?.getText(source) === "join(root, 'config.toml')"
+      && node.arguments[1] && ts.isStringLiteral(node.arguments[1]))
+      configs.push(node.arguments[1].text);
+    ts.forEachChild(node, collect);
+  };
+  collect(source);
+  assert.equal(configs.length, 1);
+  assert.match(configs[0], /\[mcp_servers\.steppage__steppage\]\r?\nenabled = false(?:\r?\n|$)/);
+});
+
+test('native recycling capture preserves map writes and restores its instrumentation', () => {
+  const context = {
+    process: { getBuiltinModule: (name: string) => name === 'path' ? path : childProcess },
+    electron: { app: { isPackaged: false } },
+  };
+  const childProcess = { spawn: () => ({ stdin: { write: () => true } }) };
+  runInNewContext('globalThis.originalMapSet = Map.prototype.set', context);
+  runInNewContext(`(${installers[0].getText(source)})(electron)`, context);
+  const result = runInNewContext(`(() => {
+    const worker = { id: 'worker', rpc: {}, pendingUI: new Map(), operations: 0 };
+    const workers = new Map();
+    const same = workers.set(worker.id, worker) === workers;
+    const opening = new Map(), navigation = new Map(), unrelated = new Map();
+    const promise = Promise.resolve();
+    opening.set('navigation-1', promise);
+    navigation.set('navigation-0', { controller: {}, cold: true });
+    unrelated.set('personal-session', promise);
+    const captured = navigationDiagnosticWorkers === workers
+      && navigationDiagnosticPreparations.get(opening) === 'opening'
+      && navigationDiagnosticPreparations.get(navigation) === 'navigation'
+      && !navigationDiagnosticPreparations.has(unrelated);
+    const unchanged = workers.get(worker.id) === worker && opening.get('navigation-1') === promise;
+    navigationRestoreSpawn();
+    return { same, captured, unchanged, restored: Map.prototype.set === originalMapSet,
+      released: navigationDiagnosticWorkers === undefined && navigationDiagnosticPreparations === undefined };
+  })()`, context);
+  assert.deepEqual(JSON.parse(JSON.stringify(result)),
+    { same: true, captured: true, unchanged: true, restored: true, released: true });
+});
+
+test('model placeholder geometry tolerates CDP float serialization but rejects real layout changes', () => {
+  let assertion = '';
+  const visit = (node: ts.Node) => {
+    if (ts.isCallExpression(node) && node.expression.getText(source) === 'assert.ok'
+      && node.arguments[1]?.getText(source).includes('Model placeholder must retain its fixed geometry'))
+      assertion = node.getText(source);
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+  assert.ok(assertion);
+  const check = (layout: { width: number; height: number }, box = layout) =>
+    runInNewContext(assertion, { assert, Math, JSON, layout, box });
+  check({ width: 156, height: 29 }, { width: 156.00003051757812, height: 29 });
+  check({ width: 156, height: 29 }, { width: 155.99996948242188, height: 29 });
+  for (const layout of [{ width: 157, height: 29 }, { width: 156.01, height: 29 },
+    { width: 156, height: 30 }, { width: 80, height: 29 }])
+    assert.throws(() => check(layout));
+  assert.throws(() => check({ width: 156, height: 29 }, { width: 157, height: 29 }));
+  assert.throws(() => check({ width: 156, height: 29 }, { width: 156, height: 29.01 }));
+});
+
 for (const isPackaged of [false, true]) for (const supervised of [false, true]) {
   test(`${isPackaged ? 'packaged' : 'source'} ${supervised ? 'supervised' : 'direct'} navigation fixture holds only two session workers, not management RPC`, () => {
     const app = { isPackaged };

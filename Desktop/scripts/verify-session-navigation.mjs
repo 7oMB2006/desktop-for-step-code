@@ -24,7 +24,7 @@ await mkdir(output, { recursive: true });
 await writeFile(join(profile, 'preferences.json'), JSON.stringify({
   language: 'zh', theme: 'light', workspaces: [project, failureProject], workspace: project,
 }));
-await writeFile(join(root, 'config.toml'), 'defaultProvider = "fixture"\ndefaultModel = "fixture"\n[telemetry]\nenabled = false\n');
+await writeFile(join(root, 'config.toml'), 'defaultProvider = "fixture"\ndefaultModel = "fixture"\n[telemetry]\nenabled = false\n[mcp_servers.steppage__steppage]\nenabled = false\n');
 await writeFile(join(root, 'models.json'), JSON.stringify({ providers: {
   fixture: { baseUrl: 'http://127.0.0.1:1/v1', api: 'openai-completions', apiKey: 'local-test-only',
     models: [modelFor(0), modelFor(1)].map(({ id, name }) => ({ id, name, reasoning: true,
@@ -72,8 +72,30 @@ const modelObservations = [];
 let phase = 'startup';
 const waitForTrimmedResidents = async page => {
   const deadline = Date.now() + 15000;
-  while ((await page.evaluate(() => window.desktop.snapshot())).runtimes.length > 3) {
-    assert.ok(Date.now() < deadline, 'Idle runtimes were not recycled');
+  for (;;) {
+    const snapshot = await page.evaluate(() => window.desktop.snapshot());
+    if (snapshot.runtimes.length <= 3) return;
+    if (Date.now() >= deadline) {
+      console.error('Navigation resident timeout:', JSON.stringify({
+        active: snapshot.runtimeId,
+        residents: snapshot.runtimes.map(({ runtimeId, status }) => ({ runtimeId, status })),
+      }));
+      console.error('Native recycle protections:', JSON.stringify(await app.evaluate(() => ({
+        workers: [...(globalThis.navigationDiagnosticWorkers?.values() ?? [])].map(worker => ({
+          runtimeId: worker.id, sessionId: worker.state?.sessionId, status: worker.status,
+          operations: worker.operations, mutating: worker.mutating, pendingModel: Boolean(worker.pendingModel),
+          remoteAttached: Boolean(worker.remoteAttached), queued: Boolean(worker.queued),
+          busy: worker.busy, submissions: worker.submissions, pendingUI: worker.pendingUI.size,
+          goal: worker.launch?.goal?.status, cron: worker.cron?.status, cronJobs: worker.cron?.jobs.length,
+          backgroundActive: worker.backgroundActive, backgroundLanes: worker.backgroundLanes?.length,
+          messageCount: worker.messages.length,
+        })),
+        preparations: [...globalThis.navigationDiagnosticPreparations].map(([map, kind]) => ({
+          kind, sessions: [...map.keys()].filter(id => /^navigation-\d$/.test(id)),
+        })),
+      })).catch(error => ({ diagnosticError: String(error) }))));
+      assert.fail('Idle runtimes were not recycled');
+    }
     await delay(50);
   }
 };
@@ -135,7 +157,14 @@ try {
       'The stale selection is absent from the accessibility tree too');
     assert.ok((await page.locator('.session-reading-status').textContent()).includes(failed ? '模型未就绪' : '正在恢复模型'));
     const box = await placeholder.boundingBox();
-    assert.ok(box.width > 80 && box.width <= 156 && box.height === 29);
+    const layout = await placeholder.evaluate(element => {
+      const style = getComputedStyle(element);
+      return { width: Number.parseFloat(style.width), height: Number.parseFloat(style.height) };
+    });
+    // CDP's float coordinates can yield 156.00003 for a 156px box at fractional scale.
+    assert.ok(layout.width > 80 && layout.width <= 156 && layout.height === 29
+      && Math.abs(box.width - layout.width) < 0.001 && Math.abs(box.height - layout.height) < 0.001,
+    `Model placeholder must retain its fixed geometry: ${JSON.stringify({ box, layout })}`);
     assert.ok(await placeholder.evaluate(element => {
       const label = element.querySelector('.model-effort-name');
       const button = element.querySelector('button').getBoundingClientRect();
@@ -277,6 +306,18 @@ try {
     const sessionEntry = join(runtime, 'step/dist/bundle/step.js');
     const childProcess = process.getBuiltinModule('child_process');
     const spawn = childProcess.spawn;
+    const set = Map.prototype.set;
+    globalThis.navigationDiagnosticPreparations = new Map();
+    // Capture only fixture-owned worker/preparation maps; never change their values.
+    Map.prototype.set = function (key, value) {
+      if (value && typeof value === 'object' && value.rpc && value.pendingUI instanceof Map
+        && Number.isInteger(value.operations) && key === value.id) globalThis.navigationDiagnosticWorkers = this;
+      if (typeof key === 'string' && /^navigation-\d$/.test(key) && value && typeof value === 'object') {
+        const kind = typeof value.then === 'function' ? 'opening' : value.controller && typeof value.cold === 'boolean' ? 'navigation' : undefined;
+        if (kind) set.call(globalThis.navigationDiagnosticPreparations, this, kind);
+      }
+      return set.call(this, key, value);
+    };
     let claimed = 0;
     const releases = [];
     globalThis.navigationStalled = 0;
@@ -312,7 +353,12 @@ try {
       };
       return child;
     };
-    globalThis.navigationRestoreSpawn = () => { childProcess.spawn = spawn; };
+    globalThis.navigationRestoreSpawn = () => {
+      childProcess.spawn = spawn;
+      Map.prototype.set = set;
+      globalThis.navigationDiagnosticWorkers = undefined;
+      globalThis.navigationDiagnosticPreparations = undefined;
+    };
   });
   try {
     await row(1).click();

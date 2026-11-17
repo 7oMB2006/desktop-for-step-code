@@ -118,7 +118,7 @@ export function ModelEffortPicker({ model, models, favoriteModels, onFavorite, l
     audio: { icon: AudioLines, label: zh ? '音频' : 'Audio' }, video: { icon: Video, label: zh ? '视频' : 'Video' }, file: { icon: File, label: zh ? '文件' : 'File' },
   };
   const previewModalities = parameters?.declaredInput ?? parameters?.input ?? [];
-  const capacity = parameters?.contextWindow;
+  const capacity = parameters?.capabilitySources?.contextWindow === 'default' ? undefined : parameters?.contextWindow;
   const capacityLabel = capacity ? capacity >= 1000000 ? `${Number((capacity / 1000000).toFixed(2))}M` : capacity >= 1000 ? `${Number((capacity / 1000).toFixed(1))}K` : String(capacity) : '?';
   const activeLevel = level && levels.includes(level) ? level : levels[0];
   const currentIndex = Math.max(0, levels.indexOf(activeLevel ?? ''));
@@ -273,10 +273,10 @@ export function ModelEffortPicker({ model, models, favoriteModels, onFavorite, l
             })}
             {!parameters?.input && !parameters?.declaredInput && <span>{zh ? '输入能力未确认' : 'Input capabilities unknown'}</span>}
           </div>
-          <dl className="model-parameters-values"><div><dt>{zh ? '上下文' : 'Context'}</dt><dd>{parameters?.contextWindow?.toLocaleString() ?? (zh ? '未确认' : 'Unknown')}</dd></div><div><dt>{zh ? '最大输出' : 'Max output'}</dt><dd>{parameters?.maxTokens?.toLocaleString() ?? (zh ? '未确认' : 'Unknown')}</dd></div></dl>
+          <dl className="model-parameters-values"><div><dt>{zh ? '上下文' : 'Context'}</dt><dd>{capacity?.toLocaleString() ?? (zh ? '未确认' : 'Unknown')}</dd></div><div><dt>{zh ? '最大输出' : 'Max output'}</dt><dd>{parameters?.capabilitySources?.maxTokens === 'default' ? (zh ? '未确认' : 'Unknown') : parameters?.maxTokens?.toLocaleString() ?? (zh ? '未确认' : 'Unknown')}</dd></div></dl>
           <div className="model-parameters-levels"><span>{zh ? '思考档位' : 'Thinking levels'}</span><div>{levels.map(v => <span key={v}>{effortLabel(v, language)}</span>)}</div></div>
           {parameters?.declaredOutput && <div className="model-parameters-output">{zh ? '上游输出' : 'Declared output'} · {parameters.declaredOutput.map(v => modalities[v]?.label ?? v).join(' / ')}{parameters.declaredOutput.some(v => v !== 'text') && <small>{zh ? '当前客户端仅接入文本输出' : 'Only text output is supported'}</small>}</div>}
-          <div className="model-parameters-footer"><span>{parameters?.metadataSource === 'upstream' ? (zh ? '包含上游声明 · 未实测' : 'Upstream declarations · Untested') : parameters?.provider.startsWith('desktop-custom-') ? (zh ? '手动配置 · 未实测' : 'Manual configuration · Untested') : (zh ? '运行时配置' : 'Runtime configuration')}</span>{onConfigure && parameters?.provider.startsWith('desktop-custom-') && <button type="button" onClick={() => { setOpen(false); onConfigure(); }}><SlidersHorizontal size={13}/>{zh ? '配置' : 'Configure'}</button>}</div>
+          <div className="model-parameters-footer"><span>{Object.values(parameters?.capabilitySources ?? {}).includes('catalog') ? (zh ? '包含 models.dev 资料 · 未实测' : 'Includes models.dev metadata · Untested') : Object.values(parameters?.capabilitySources ?? {}).includes('official') ? (zh ? '包含官方资料 · 未实测' : 'Includes official documentation · Untested') : parameters?.metadataSource === 'upstream' ? (zh ? '包含上游声明 · 未实测' : 'Upstream declarations · Untested') : parameters?.provider.startsWith('desktop-custom-') ? (zh ? '手动配置 · 未实测' : 'Manual configuration · Untested') : (zh ? '运行时配置' : 'Runtime configuration')}</span>{onConfigure && parameters?.provider.startsWith('desktop-custom-') && <button type="button" onClick={() => { setOpen(false); onConfigure(); }}><SlidersHorizontal size={13}/>{zh ? '配置' : 'Configure'}</button>}</div>
         </div>
       </div>
     </div>}

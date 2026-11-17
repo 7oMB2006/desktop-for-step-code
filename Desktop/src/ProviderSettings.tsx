@@ -7,6 +7,9 @@ import { SubagentStatusIcon } from './SubagentStatusIcon';
 import './provider-settings.css';
 import { ProviderThinkingSettings, thinkingSummary } from './ProviderThinkingSettings';
 import { importProviderModel } from './provider-model-import';
+import { providerDiscoveryError } from './provider-discovery-error';
+import { officialModelCapabilities, officialResponsesRequired } from './official-model-capabilities';
+import { catalogProviders, type CatalogSelection } from './provider-catalog';
 
 const formats: { id: ProviderApi; label: string }[] = [
   { id: 'openai-completions', label: 'Chat Completions · /chat/completions' },
@@ -14,7 +17,18 @@ const formats: { id: ProviderApi; label: string }[] = [
   { id: 'anthropic-messages', label: 'Anthropic Messages · /messages' },
 ];
 const blank = (): ProviderInfo => ({ id: '', name: '', baseUrl: '', api: 'openai-completions', enabled: true, keyless: false, hasKey: false, models: [] });
-const model = (): ProviderModel => ({ id: '', name: '', reasoning: false, vision: false, contextWindow: 128000, maxTokens: 16384 });
+const model = (): ProviderModel => ({ id: '', name: '', reasoning: false, vision: false, contextWindow: 128000, maxTokens: 16384,
+  capabilitySources: { contextWindow: 'default', maxTokens: 'default', vision: 'default', thinking: 'default' } });
+function capabilitySource(model: ProviderModel, field: 'contextWindow' | 'maxTokens' | 'vision', language: string): string {
+  const zh = language !== 'en';
+  const source = model.capabilitySources?.[field];
+  return source === 'official' ? zh ? '官方资料' : 'Official documentation'
+    : source === 'catalog' ? `models.dev${model.catalogMetadata?.stale ? zh ? ' · 缓存' : ' · Cached' : ''}`
+    : source === 'upstream' ? zh ? '上游声明' : 'Provider declared'
+      : source === 'manual' ? zh ? '手动配置' : 'Manual'
+        : source === 'default' ? zh ? '未知 · 临时值' : 'Unknown · Fallback'
+          : zh ? '旧配置 · 来源未确认' : 'Legacy · Unconfirmed source';
+}
 export function ProviderSettings({ providers, language, pending, onSave, onDelete, onDiscover, onTest, onCancelTest, onCopyDiagnostic, activeModel, onBusyChange }: {
   providers: ProviderInfo[]; language: string; pending?: boolean;
   onSave: (provider: CustomProvider, key?: string) => Promise<ProviderInfo[]>;
@@ -42,6 +56,9 @@ export function ProviderSettings({ providers, language, pending, onSave, onDelet
   const [filter, setFilter] = useState('');
   const anchor = useRef<HTMLButtonElement>(null);
   const closeMenu = useCallback(() => setMenu(false), []);
+  const [catalogMenu, setCatalogMenu] = useState(false);
+  const catalogAnchor = useRef<HTMLButtonElement>(null);
+  const closeCatalogMenu = useCallback(() => setCatalogMenu(false), []);
   const [testing, setTesting] = useState(false);
   const [diagnosticOpen, setDiagnosticOpen] = useState(false);
   const [diagnostic, setDiagnostic] = useState<ProviderDiagnostic>();
@@ -99,6 +116,7 @@ export function ProviderSettings({ providers, language, pending, onSave, onDelet
     catch { setCopyFailed(true); }
   };
   const select = (p: ProviderInfo) => {
+    setCatalogMenu(false);
     setDraft(p); setKey(''); setShowKey(false); setDirty(false); setError(''); setSaved(false); setConfirmation(undefined); setDiscovered(undefined); setSelected([]); setFilter('');
     setDiagnosticOpen(false); setDiagnostic(undefined); setTestModel(''); setTestMenu(false); setCopied(false); setCopyFailed(false);
   };
@@ -106,15 +124,67 @@ export function ProviderSettings({ providers, language, pending, onSave, onDelet
     if (dirty) setConfirmation(p); else select(p);
   };
   const update = (patch: Partial<ProviderInfo>) => {
-    setDraft(p => p ? { ...p, ...patch, ...(patch.api && patch.api !== p.api ? { models: p.models.map(m => ({ ...m, thinkingLevels: undefined, thinkingControl: undefined, declaredThinkingLevels: undefined })) } : {}) } : p); setDirty(true); setSaved(false); setError('');
+    setDraft(p => {
+      if (!p) return p;
+      const apiChanged = patch.api !== undefined && patch.api !== p.api;
+      const endpointChanged = patch.baseUrl !== undefined && patch.baseUrl !== p.baseUrl;
+      const catalogChanged = 'catalogProvider' in patch && patch.catalogProvider !== p.catalogProvider;
+      const models = apiChanged || endpointChanged || catalogChanged ? p.models.map(m => {
+        if (!apiChanged && !endpointChanged) {
+          const next = { ...m, catalogMetadata: undefined, capabilitySources: { ...m.capabilitySources } };
+          for (const field of ['contextWindow', 'maxTokens', 'vision'] as const) {
+            if (m.capabilitySources?.[field] !== 'catalog') continue;
+            Object.assign(next, { [field]: field === 'contextWindow' ? 128000 : field === 'maxTokens' ? 16384 : false });
+            next.capabilitySources[field] = 'default';
+          }
+          if (m.capabilitySources?.vision === 'catalog') { next.declaredInput = undefined; next.declaredOutput = undefined; }
+          if (m.declaredThinkingSource === 'catalog') { next.declaredThinkingLevels = undefined; next.declaredThinkingSource = undefined; }
+          if (m.thinkingControl?.source === 'catalog') {
+            next.thinkingControl = undefined; next.thinkingLevels = undefined; next.reasoning = false; next.capabilitySources.thinking = 'default';
+          }
+          return next;
+        }
+        const next = { ...m, catalogMetadata: undefined, officialDocumentation: undefined, declaredThinkingLevels: undefined, declaredThinkingSource: undefined,
+          declaredInput: undefined, declaredOutput: undefined, capabilitySources: { ...m.capabilitySources } };
+        for (const field of ['contextWindow', 'maxTokens', 'vision'] as const) {
+          if (['official', 'upstream', 'catalog'].includes(m.capabilitySources?.[field] ?? '')) {
+            Object.assign(next, { [field]: field === 'contextWindow' ? 128000 : field === 'maxTokens' ? 16384 : false });
+            next.capabilitySources[field] = 'default';
+          }
+        }
+        if (apiChanged || m.thinkingControl?.source !== 'manual') {
+          next.thinkingLevels = undefined; next.thinkingControl = undefined; next.reasoning = false;
+          next.capabilitySources.thinking = 'default';
+        }
+        return next;
+      }) : p.models;
+      return { ...p, ...patch, models: patch.models ?? models };
+    }); setDirty(true); setSaved(false); setError('');
     setDiagnosticOpen(false); setDiagnostic(undefined); setCopied(false);
+    setDiscovered(undefined); setSelected([]);
   };
-  const updateModel = (index: number, patch: Partial<ProviderModel>) => update({ models: draft!.models.map((m, i) => i === index ? { ...m, ...patch, metadataSource: 'manual' } : m) });
+  const updateModel = (index: number, patch: Partial<ProviderModel>) => update({ models: draft!.models.map((m, i) => {
+    if (i !== index) return m;
+    const next = { ...m, ...patch, metadataSource: 'manual' as const };
+    if ('thinkingControl' in patch) next.capabilitySources = { ...next.capabilitySources, thinking: patch.thinkingControl?.source ?? 'default' };
+    if (patch.id !== undefined && patch.id !== m.id) {
+      next.officialDocumentation = undefined;
+      next.catalogMetadata = undefined;
+      next.declaredThinkingLevels = undefined; next.declaredThinkingSource = undefined;
+      next.thinkingLevels = undefined; next.thinkingControl = undefined; next.reasoning = false;
+      next.capabilitySources = { contextWindow: 'manual', maxTokens: 'manual', vision: 'manual', thinking: 'default' };
+      if (m.capabilitySources?.contextWindow !== 'manual') { next.contextWindow = 128000; next.capabilitySources.contextWindow = 'default'; }
+      if (m.capabilitySources?.maxTokens !== 'manual') { next.maxTokens = 16384; next.capabilitySources.maxTokens = 'default'; }
+      if (m.capabilitySources?.vision !== 'manual') { next.vision = false; next.capabilitySources.vision = 'default'; }
+      next.declaredInput = undefined; next.declaredOutput = undefined;
+    }
+    return next;
+  }) });
   const discover = async () => {
     if (!draft || discovering) return;
     setDiscovering(true); setError(''); setDiscovered(undefined); setSelected([]); setFilter('');
     try { setDiscovered(await onDiscover(draft, key.trim() ? key : undefined)); }
-    catch { setError(t('无法获取模型。请检查地址和密钥；供应商可能不支持 /models 接口，可继续手动添加。', 'Could not retrieve models. Check the address and key; this provider may not support /models. You can still add models manually.')); }
+    catch (error) { setError(providerDiscoveryError(error, language)); }
     finally { setDiscovering(false); }
   };
   const importModels = () => {
@@ -172,6 +242,13 @@ export function ProviderSettings({ providers, language, pending, onSave, onDelet
             <AppMenu anchor={anchor} open={menu} label={t('API 格式', 'API format')} items={formats} selected={draft.api}
               onSelect={id => update({ api: id as ProviderApi })} onClose={closeMenu}/>
           </div>
+          <div className="provider-format"><span id="provider-catalog-label">{t('公共模型目录', 'Public model catalog')}</span>
+            <button type="button" ref={catalogAnchor} aria-labelledby="provider-catalog-label provider-catalog-value" aria-haspopup="menu" aria-expanded={catalogMenu}
+              onClick={() => setCatalogMenu(value => !value)}><span id="provider-catalog-value">{draft.catalogProvider === 'none' ? t('不使用', 'Disabled') : catalogProviders.find(p => p.id === draft.catalogProvider)?.label ?? t('自动匹配官方地址', 'Auto: official endpoints')}</span><DisclosureChevron/></button>
+            <AppMenu anchor={catalogAnchor} open={catalogMenu} label={t('公共模型目录', 'Public model catalog')} selected={draft.catalogProvider ?? 'auto'}
+              items={[{ id: 'auto', label: t('自动匹配官方地址', 'Auto: official endpoints') }, { id: 'none', label: t('不使用', 'Disabled') }, ...catalogProviders.map(({ id, label }) => ({ id, label }))]}
+              onSelect={id => update({ catalogProvider: id === 'auto' ? undefined : id as CatalogSelection })} onClose={closeCatalogMenu}/>
+          </div>
           <label>API Key<div className="provider-key"><input aria-label="API Key" type={showKey ? 'text' : 'password'} autoComplete="off" maxLength={8192}
             disabled={draft.keyless} value={key} placeholder={draft.hasKey ? t('已加密保存 · 留空保留', 'Saved securely · Leave blank to keep') : t('输入 API Key', 'Enter API key')}
             onChange={e => { setKey(e.target.value); setDirty(true); setSaved(false); setDiagnostic(undefined); setDiagnosticOpen(false); }}/>
@@ -180,11 +257,12 @@ export function ProviderSettings({ providers, language, pending, onSave, onDelet
           <div className="provider-model-heading"><h4>{t('模型列表', 'Models')}</h4><button type="button" disabled={!draft.baseUrl.trim() || (!draft.keyless && !draft.hasKey && !key.trim())} onClick={() => void discover()}>{discovering ? <LoaderCircle size={14} className="provider-discovery-spinner"/> : <Download size={14}/>} {discovering ? t('获取中…', 'Fetching…') : t('从上游获取', 'Fetch models')}</button><button type="button" disabled={draft.models.length >= 100} onClick={() => update({ models: [...draft.models, model()] })}><Plus size={14}/>{t('添加模型', 'Add model')}</button></div>
           {discovered && <section className="provider-discovery" aria-label={t('上游模型', 'Available models')}>
             <div className="provider-discovery-top"><span>{t('上游模型', 'Available models')} · {discovered.length}</span><button type="button" className="provider-icon" aria-label={t('关闭模型列表', 'Close model list')} onClick={() => setDiscovered(undefined)}><X size={14}/></button></div>
+            {discovered.some(m => m.catalogMatch === 'unavailable') && <p role="status" className="provider-capability-note">{t('公共目录暂不可用，仅显示上游结果。', 'Public catalog unavailable. Showing provider results only.')}</p>}
             <input aria-label={t('搜索模型', 'Search models')} placeholder={t('搜索模型 ID', 'Search model ID')} value={filter} onChange={e => setFilter(e.target.value)}/>
             <div className="provider-discovery-list">
               {discovered.filter(m => `${m.id} ${m.name}`.toLowerCase().includes(filter.toLowerCase())).map(m => {
                 const exists = draft.models.some(existing => existing.id === m.id);
-                return <label className="provider-checkbox" key={m.id}><input type="checkbox" checked={selected.includes(m.id)} onChange={e => setSelected(ids => e.target.checked ? [...ids, m.id] : ids.filter(id => id !== m.id))}/><span>{m.id}{m.thinkingLevels && <small className="provider-discovered-capabilities">{t('思考', 'Thinking')}: {m.thinkingLevels.join(' · ')}{m.thinkingDefaultLevel && ` · ${t('默认', 'Default')} ${m.thinkingDefaultLevel}`}</small>}{m.declaredInput && <small className="provider-discovered-capabilities">{m.declaredInput.join(' · ')}</small>}</span>{exists && <small>{t('已添加 · 可更新', 'Added · Refreshable')}</small>}</label>;
+                return <label className="provider-checkbox" key={m.id}><input type="checkbox" checked={selected.includes(m.id)} onChange={e => setSelected(ids => e.target.checked ? [...ids, m.id] : ids.filter(id => id !== m.id))}/><span>{m.id}{m.thinkingLevels && <small className="provider-discovered-capabilities">{t('思考', 'Thinking')}: {m.thinkingLevels.join(' · ')}{m.thinkingDefaultLevel && ` · ${t('默认', 'Default')} ${m.thinkingDefaultLevel}`}</small>}{m.catalogMetadata && <small className="provider-discovered-capabilities">models.dev · {m.catalogMetadata.provider} · {m.catalogMetadata.stale ? t('缓存', 'Cached') : t('精确匹配', 'Exact match')}</small>}{m.declaredInput && <small className="provider-discovered-capabilities">{m.declaredInput.join(' · ')}</small>}</span>{exists && <small>{t('已添加 · 可更新', 'Added · Refreshable')}</small>}</label>;
               })}
               {!discovered.length && <span>{t('上游未返回模型', 'No models returned')}</span>}
             </div>
@@ -197,16 +275,31 @@ export function ProviderSettings({ providers, language, pending, onSave, onDelet
               <label>{t('显示名', 'Display name')}<input aria-label={`${t('显示名', 'Display name')} ${index + 1}`} maxLength={200} value={m.name} placeholder={m.id || t('可选', 'Optional')} onChange={e => updateModel(index, { name: e.target.value })}/></label>
               <button type="button" className="provider-icon" title={t('移除模型', 'Remove model')} aria-label={`${t('移除模型', 'Remove model')} ${index + 1}`} onClick={() => update({ models: draft.models.filter((_, i) => i !== index) })}><X size={14}/></button>
             </div>
-            <details className="provider-model-advanced"><summary><DisclosureChevron/>{t('能力与容量', 'Capabilities and limits')}<span className={`provider-thinking-summary${m.thinkingControl?.source !== 'upstream' && m.thinkingLevels?.length ? ' provider-thinking-manual' : ''}`}>{thinkingSummary(m, language, draft.api)}</span></summary>
+            {officialModelCapabilities(draft.baseUrl, draft.api, m.id) && <div className="provider-official">
+              <button type="button" onClick={() => {
+                const official = officialModelCapabilities(draft.baseUrl, draft.api, m.id)!;
+                update({ models: draft.models.map((item, i) => i === index ? importProviderModel(official, item) : item) });
+              }}><Download size={13}/>{t('更新官方资料', 'Update official metadata')}</button>
+              {m.officialDocumentation && <a href={m.officialDocumentation.url} target="_blank" rel="noreferrer">{t('官方资料', 'Official documentation')} · {m.officialDocumentation.verifiedAt}</a>}
+            </div>}
+            {officialResponsesRequired(draft.baseUrl, draft.api, m.id) && <p className="provider-error">{t('此模型的工具调用需要 Responses API，请切换 API 格式。', 'Tool use with this model requires Responses API. Change the API format.')}</p>}
+            <details className="provider-model-advanced"><summary><DisclosureChevron/>{t('能力与容量', 'Capabilities and limits')}<span className={`provider-thinking-summary${m.thinkingControl?.source === 'manual' && m.thinkingLevels?.length ? ' provider-thinking-manual' : ''}`}>{thinkingSummary(m, language, draft.api)}</span></summary>
             <div className="provider-model-limits">
-              <label>{t('上下文容量', 'Context window')}<input aria-label={`${t('上下文容量', 'Context window')} ${index + 1}`} type="number" min={1} max={10000000} required value={m.contextWindow || ''} onChange={e => updateModel(index, { contextWindow: Number(e.target.value) })}/></label>
-              <label>{t('最大输出', 'Max output')}<input aria-label={`${t('最大输出', 'Max output')} ${index + 1}`} type="number" min={1} max={m.contextWindow} required value={m.maxTokens || ''} onChange={e => updateModel(index, { maxTokens: Number(e.target.value) })}/></label>
+              <label>{t('上下文容量', 'Context window')}<input aria-label={`${t('上下文容量', 'Context window')} ${index + 1}`} type="number" min={1} max={10000000}
+                placeholder={`${t('未知，暂用', 'Unknown; fallback')} ${m.contextWindow}`} value={m.capabilitySources?.contextWindow === 'default' ? '' : m.contextWindow || ''}
+                onChange={e => updateModel(index, { contextWindow: e.target.value ? Number(e.target.value) : 128000, capabilitySources: { ...m.capabilitySources, contextWindow: e.target.value ? 'manual' : 'default' } })}/>
+                <small className="provider-source">{capabilitySource(m, 'contextWindow', language)}</small></label>
+              <label>{t('最大输出', 'Max output')}<input aria-label={`${t('最大输出', 'Max output')} ${index + 1}`} type="number" min={1} max={m.contextWindow}
+                placeholder={`${t('未知，暂用', 'Unknown; fallback')} ${m.maxTokens}`} value={m.capabilitySources?.maxTokens === 'default' ? '' : m.maxTokens || ''}
+                onChange={e => updateModel(index, { maxTokens: e.target.value ? Number(e.target.value) : Math.min(16384, m.contextWindow), capabilitySources: { ...m.capabilitySources, maxTokens: e.target.value ? 'manual' : 'default' } })}/>
+                <small className="provider-source">{capabilitySource(m, 'maxTokens', language)}</small></label>
             </div>
             <div className="provider-model-capabilities">
-              <label className="provider-checkbox"><input type="checkbox" checked={m.vision} onChange={e => updateModel(index, { vision: e.target.checked, declaredInput: e.target.checked ? [...new Set([...(m.declaredInput ?? ['text']), 'image'])] : m.declaredInput?.filter(v => v !== 'image') ?? ['text'] })}/>{t('图片输入', 'Image input')}</label>
+              <label className="provider-checkbox"><input type="checkbox" checked={m.vision} onChange={e => updateModel(index, { vision: e.target.checked, capabilitySources: { ...m.capabilitySources, vision: 'manual' }, declaredInput: e.target.checked ? [...new Set([...(m.declaredInput ?? ['text']), 'image'])] : m.declaredInput?.filter(v => v !== 'image') ?? ['text'] })}/>{t('图片输入', 'Image input')}<small className="provider-source">{capabilitySource(m, 'vision', language)}</small></label>
             </div>
-            <ProviderThinkingSettings model={m} api={draft.api} index={index} language={language} onChange={patch => updateModel(index, patch)}/>
-            {(m.declaredInput || m.declaredOutput) && <p className="provider-capability-note">{t('上游声明', 'Declared modalities')}: {m.declaredInput?.join(' / ') ?? '—'} → {m.declaredOutput?.join(' / ') ?? '—'}{[...(m.declaredInput ?? []), ...(m.declaredOutput ?? [])].some(v => !['text', 'image'].includes(v)) && <span>{t(' · 音频、视频和文件模态暂不接入', ' · Audio, video and file modalities are not supported')}</span>}{m.declaredOutput?.includes('image') && <span>{t(' · 暂不支持图片生成', ' · Image generation is not supported')}</span>}</p>}
+            <ProviderThinkingSettings model={m} api={draft.api} baseUrl={draft.baseUrl} index={index} language={language} onChange={patch => updateModel(index, patch)}/>
+            {(m.declaredInput || m.declaredOutput) && <p className="provider-capability-note">{t('输入与输出资料', 'Input and output metadata')}: {m.declaredInput?.join(' / ') ?? '—'} → {m.declaredOutput?.join(' / ') ?? '—'}{[...(m.declaredInput ?? []), ...(m.declaredOutput ?? [])].some(v => !['text', 'image'].includes(v)) && <span>{t(' · 音频、视频和文件模态暂不接入', ' · Audio, video and file modalities are not supported')}</span>}{m.declaredOutput?.includes('image') && <span>{t(' · 暂不支持图片生成', ' · Image generation is not supported')}</span>}</p>}
+            {m.catalogMetadata && <p className="provider-capability-note">models.dev · {m.catalogMetadata.provider}/{m.catalogMetadata.modelId} · {m.catalogMetadata.retrievedAt.slice(0, 10)} · {m.catalogMetadata.stale ? t('缓存资料 · 接口未验证', 'Cached metadata · Endpoint unverified') : t('目录资料 · 接口未验证', 'Catalog metadata · Endpoint unverified')}</p>}
             </details>
           </div>)}
           {confirmation && <div className="provider-confirm" role="alert">

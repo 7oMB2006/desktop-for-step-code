@@ -127,6 +127,7 @@ export class SessionRuntimes {
   private openingEmpty = new Map<string, Promise<SessionRuntime>>();
   private reads = new Map<SessionRuntime, Set<Promise<void>>>();
   private snapshotEpochs = new WeakMap<SessionRuntime, number>();
+  private transcriptMetadataRevisions = new WeakMap<SessionRuntime, number>();
   private statsVersions = new WeakMap<SessionRuntime, number>();
   private statsReads = new WeakMap<SessionRuntime, {
     rpc: WorkerTransport; sessionId: string; dirty: boolean; reading?: Promise<void>;
@@ -152,6 +153,7 @@ export class SessionRuntimes {
       initializeModel?: (worker: SessionRuntime, restoring: boolean) => Promise<void>;
       pluginsReady?: (worker: SessionRuntime) => Promise<void>;
       pluginsReset?: (worker: SessionRuntime) => void;
+      snapshotSettled?: () => void;
       language?: () => 'zh' | 'en';
       startup?: (diagnostic: RuntimeStartupDiagnostic) => void;
       idleLimit?: () => number; backgroundAvailable?: () => boolean; retain?: (worker: SessionRuntime) => boolean;
@@ -398,6 +400,9 @@ export class SessionRuntimes {
       if (event.type === 'agent_start' && worker.runActive && reviewActive(worker.launch?.review))
         event = { ...event, desktopReviewContinuation: true };
       event = this.hooks.event?.(worker, event) ?? event;
+      if (event.type === 'desktop_startup_changed'
+        || event.type === 'extension_ui_request' && event.method === 'setStatus')
+        this.transcriptMetadataRevisions.set(worker, (this.transcriptMetadataRevisions.get(worker) ?? 0) + 1);
       worker.revision++;
       if (event.type === 'agent_start' || event.type === 'desktop_exit'
         || event.type === 'tool_execution_start' && ['subagent', 'agent_send'].includes(event.toolName)
@@ -728,12 +733,18 @@ export class SessionRuntimes {
       worker.operations--;
       reads.delete(reading);
       if (!reads.size) this.reads.delete(worker);
+      // Navigation may have skipped this resident while its snapshot was in flight.
+      if (!worker.operations) this.hooks.snapshotSettled?.();
     });
     reads.add(reading);
     return reading;
   }
+  private transcriptRevision(worker: SessionRuntime) {
+    return worker.revision - (this.transcriptMetadataRevisions.get(worker) ?? 0);
+  }
   private async readSnapshot(worker: SessionRuntime) {
     const revision = worker.revision;
+    const transcriptRevision = this.transcriptRevision(worker);
     const epoch = this.snapshotEpochs.get(worker);
     const rpc = worker.rpc;
     const statsVersion = this.nextStatsVersion(worker);
@@ -755,12 +766,13 @@ export class SessionRuntimes {
     // Never replace newly received deltas with an older asynchronous snapshot.
     if (revision === worker.revision) {
       worker.state = worker.runActive ? { ...state, isStreaming: true } : state;
-      // get_messages contains committed history, not the in-flight assistant.
-      if (!state.isStreaming && !worker.runActive) {
-        worker.messages = decorated;
-        worker.leafId = history.leafId ?? undefined;
-      }
       worker.busy = worker.runActive || Boolean(state.isStreaming) || reviewActive(worker.launch?.review);
+    }
+    // Startup/status metadata can advance state without invalidating saved history.
+    // get_messages contains committed history, never the in-flight assistant.
+    if (transcriptRevision === this.transcriptRevision(worker) && !state.isStreaming && !worker.runActive) {
+      worker.messages = decorated;
+      worker.leafId = history.leafId ?? undefined;
     }
     worker.models = models;
     if (this.statsVersions.get(worker) === statsVersion) worker.stats = stats;

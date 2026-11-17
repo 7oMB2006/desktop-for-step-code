@@ -90,6 +90,23 @@ test('model discovery uses draft or saved literal keys, validates responses and 
     await assert.rejects(discoverProviderModels({}, p));
   } finally { await new Promise<void>(resolve => server.close(() => resolve())); }
 });
+test('discovery uses the supplied desktop transport without ambient credentials and cancels rejected bodies', async () => {
+  let cancelled = false;
+  const request = async (url: string, init: RequestInit) => {
+    assert.equal(url, 'https://example.test/v1/models');
+    assert.equal(init.credentials, 'omit');
+    assert.equal(init.cache, 'no-store');
+    assert.equal(init.redirect, 'error');
+    assert.ok(init.signal instanceof AbortSignal);
+    assert.equal(new Headers(init.headers).get('Authorization'), 'Bearer literal-key');
+    return new Response(new ReadableStream({ cancel() { cancelled = true; } }), { status: 403 });
+  };
+  await assert.rejects(discoverProviderModels({}, fixture(), 'literal-key', request), /^Error: Model discovery HTTP 403$/);
+  assert.equal(cancelled, true);
+  await assert.rejects(discoverProviderModels({}, fixture(), 'literal-key', async () => {
+    throw new Error('private transport error: literal-key');
+  }), /^Error: Could not retrieve model list$/);
+});
 test('custom discovery imports nested effort declarations and refreshes existing models without overriding manual control', () => {
   const metadata = discoverModelMetadata({ effort: { supported_levels: ['low', 'high', 'max'], default_level: 'high' } });
   assert.deepEqual(metadata, { reasoning: true, thinkingLevels: ['low', 'high', 'max'], thinkingDefaultLevel: 'high' });

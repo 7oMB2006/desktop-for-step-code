@@ -74,10 +74,22 @@ export interface StepPagePreparation {
   error?: 'download' | 'integrity' | 'validation' | 'storage' | 'configuration';
 }
 export type ProviderApi = 'openai-completions' | 'openai-responses' | 'anthropic-messages';
-export interface ProviderThinkingControl { source: 'upstream' | 'manual'; levels: string[]; mapping?: Record<string, string>; adaptive?: boolean; defaultLevel?: string }
-export interface ProviderModel { id: string; name: string; reasoning: boolean; vision: boolean; contextWindow: number; maxTokens: number; thinkingLevels?: string[]; thinkingControl?: ProviderThinkingControl; declaredThinkingLevels?: string[]; declaredInput?: string[]; declaredOutput?: string[]; metadataSource?: 'upstream' | 'manual' }
-export interface DiscoveredProviderModel { id: string; name: string; reasoning?: boolean; vision?: boolean; contextWindow?: number; maxTokens?: number; thinkingLevels?: string[]; thinkingDefaultLevel?: string; declaredInput?: string[]; declaredOutput?: string[] }
-export interface CustomProvider { id: string; name: string; baseUrl: string; api: ProviderApi; enabled: boolean; keyless: boolean; models: ProviderModel[] }
+export type CapabilitySource = 'upstream' | 'official' | 'catalog' | 'manual' | 'default';
+export type CapabilitySources = Partial<Record<'contextWindow' | 'maxTokens' | 'vision' | 'thinking', CapabilitySource>>;
+export interface Model { capabilitySources?: CapabilitySources; officialDocumentation?: { url: string; verifiedAt: string } }
+export interface NetworkConfig { mode: 'system' | 'direct' | 'manual'; proxyUrl: string }
+export interface NetworkProbe { outcome: 'reachable' | 'timeout' | 'network'; status?: number; route: 'direct' | 'proxy' | 'unknown'; elapsedMs: number }
+export interface Preferences { network?: NetworkConfig }
+export interface DesktopBridge {
+  networkSettings(): Promise<NetworkConfig>;
+  saveNetwork(config: NetworkConfig): Promise<NetworkConfig>;
+  testNetwork(url: string): Promise<NetworkProbe>;
+}
+export interface ProviderThinkingControl { source: 'upstream' | 'official' | 'catalog' | 'manual'; levels: string[]; mapping?: Record<string, string>; adaptive?: boolean; defaultLevel?: string }
+export interface CatalogMetadata { provider: import('./provider-catalog').CatalogProvider; modelId: string; retrievedAt: string; stale: boolean; thinkingMapping?: Record<string, string> }
+export interface ProviderModel { id: string; name: string; reasoning: boolean; vision: boolean; contextWindow: number; maxTokens: number; thinkingLevels?: string[]; thinkingControl?: ProviderThinkingControl; declaredThinkingLevels?: string[]; declaredThinkingSource?: 'upstream' | 'official' | 'catalog'; declaredInput?: string[]; declaredOutput?: string[]; capabilitySources?: CapabilitySources; officialDocumentation?: { url: string; verifiedAt: string }; catalogMetadata?: CatalogMetadata; metadataSource?: 'upstream' | 'manual' }
+export interface DiscoveredProviderModel { id: string; name: string; reasoning?: boolean; vision?: boolean; contextWindow?: number; maxTokens?: number; thinkingLevels?: string[]; thinkingDefaultLevel?: string; thinkingMapping?: Record<string, string>; declaredInput?: string[]; declaredOutput?: string[]; capabilitySources?: CapabilitySources; officialDocumentation?: { url: string; verifiedAt: string }; catalogMetadata?: CatalogMetadata; catalogMatch?: 'exact' | 'none' | 'unavailable' }
+export interface CustomProvider { id: string; name: string; baseUrl: string; api: ProviderApi; enabled: boolean; keyless: boolean; catalogProvider?: import('./provider-catalog').CatalogSelection; models: ProviderModel[] }
 export interface ProviderInfo extends CustomProvider { hasKey: boolean }
 export interface ProviderDiagnostic {
   ok: boolean; outcome: 'reply' | 'authentication' | 'not-found' | 'rate-limit' | 'http-error' | 'invalid-response' | 'timeout' | 'cancelled' | 'network' | 'invalid-config';

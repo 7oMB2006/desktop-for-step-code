@@ -4,7 +4,7 @@ import { readFile } from 'node:fs/promises';
 import { runInNewContext } from 'node:vm';
 import ts from 'typescript';
 import { parseWindowPresentation } from '../electron/window-presentation';
-import { composerErrorText, composerKey, type WindowPresentation } from '../src/window-conversation';
+import { composerErrorText, composerKey, type ComposerOwner, type WindowPresentation } from '../src/window-conversation';
 
 const presentation = (top: number): WindowPresentation => ({ position: { follow: false, top }, disclosures: [] });
 
@@ -129,13 +129,17 @@ test('the actual renderer installer rejects late pre-transfer snapshots and rest
   let restored = 0, installed = 0;
   const errors: string[] = [];
   const refused = "Error invoking remote method 'desktop': Error: STARTUP_NOT_READY: wait for tools";
+  const client = {
+    active: { owner: { sessionId: 'one' } } as { owner: ComposerOwner } | undefined,
+    select(owner?: ComposerOwner) { this.active = owner ? { owner } : undefined; },
+  };
   const context = {
     acceptQuitReview: () => {}, presentationRevision: { current: 1 },
     messageRevision: { current: { acceptSnapshot: () => true } }, registerPluginThemes: () => {},
     view: { current: { runtimeId: 'worker', sessionId: 'one' } }, composerKey, composerErrorText,
     composerOwner: () => ({ sessionId: 'one' }), navigationPending: { current: null },
     rememberView: () => {}, composerBySession: { current: new Map() },
-    composer: { client: { select: () => {} } }, setArrivingUser: () => {}, setError: (value: string) => { errors.push(value); }, setNotice: () => {},
+    composer: { client }, setArrivingUser: () => {}, setError: (value: string) => { errors.push(value); }, setNotice: () => {},
     setDetails: () => {}, errorsBySession: { current: new Map([['one', refused]]) }, stoppingRef: { current: false }, setStopping: () => {},
     follow: { current: true }, scrollIntent: { current: undefined }, touchY: { current: undefined },
     setAwayFromBottom: () => {}, readingRestore: { current: undefined }, restoreWindowPresentation: () => { restored++; },
@@ -157,4 +161,15 @@ test('the actual renderer installer rejects late pre-transfer snapshots and rest
   assert.equal(install({ ...value, preferences: { language: 'zh' }, windowPresentationRevision: 3 }), true);
   assert.equal(errors.at(-1), composerErrorText(refused, 'zh'), 'Revisited errors use the current snapshot language');
   assert.doesNotMatch(errors.join('\n'), /STARTUP_NOT_READY|remote method/);
+
+  context.view.current = { runtimeId: 'cold-worker', sessionId: 'cold' };
+  context.viewId.current = 'cold-worker';
+  client.active = { owner: { draftId: 'cold' } };
+  context.errorsBySession.current.set('one', refused);
+  const before = errors.length;
+  const promoted = { ...value, windowPresentationRevision: 3 };
+  assert.equal(install(promoted), true);
+  assert.equal(install(promoted), true);
+  assert.deepEqual(errors.slice(before), [composerErrorText(refused, 'en')],
+    'A repeated promotion snapshot before React renders cannot clear the restored refusal');
 });

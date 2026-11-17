@@ -131,6 +131,52 @@ test('obsolete startup does not suspend bounded idle recycling or remove protect
   }
 });
 
+test('idle recycling resumes after an overtaken resident snapshot releases its protection', async () => {
+  const gate = deferred<void>();
+  let held = false;
+  const recycling: Promise<void>[] = [];
+  const recycle = () => { recycling.push(pool.recycle(worker => navigation.pending(worker.state?.sessionId))); };
+  const pool = new SessionRuntimes(() => {}, () => {
+    let id = '';
+    return {
+      start(_node, _entry, cwd) { id = cwd; },
+      async request(type) {
+        if (type === 'get_state') {
+          if (held && id === 'old') await gate.promise;
+          return { sessionId: id, isStreaming: false };
+        }
+        if (type === 'get_messages') return { messages: [{ role: 'user', content: id }] };
+        if (type === 'get_available_models') return { models: [] };
+        return {};
+      },
+      respond() {}, async stop() {},
+    };
+  }, { snapshotSettled: recycle });
+  const navigation = new SessionNavigation(id => pool.prepare('node', 'step', id, {}, `${id}.jsonl`),
+    worker => { pool.activate(worker); return worker.state!.sessionId; }, () => {}, { settled: recycle });
+  try {
+    for (const id of ['old', 'idle-1', 'idle-2']) await navigation.select(id);
+    await Promise.all(recycling);
+    const old = [...pool.workers.values()].find(worker => worker.state?.sessionId === 'old')!;
+    held = true;
+    const reading = pool.read(old);
+    await navigation.select('latest');
+    await Promise.all(recycling);
+    assert.equal(pool.workers.size, 4, 'A live snapshot remains protected during navigation recycling');
+    assert.equal(pool.workers.get(old.id), old);
+    gate.resolve();
+    await reading;
+    await Promise.all(recycling);
+    assert.equal(pool.workers.size, 3, 'Reclaim idle residents without waiting for the periodic timer');
+    assert.equal(pool.active?.state?.sessionId, 'latest');
+  } finally {
+    gate.resolve();
+    await tick();
+    await Promise.all(recycling);
+    await pool.stopAll();
+  }
+});
+
 test('navigation bounds preparation, skips queued targets, and commits only the latest', async () => {
   const aGate = deferred<string>(), bGate = deferred<string>();
   const prepared: string[] = [], committed: string[] = [], busy: boolean[] = [];

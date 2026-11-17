@@ -1,7 +1,9 @@
 import { _electron as electron } from 'playwright';
 import { createServer } from 'node:http';
 import { mkdir, writeFile, readFile } from 'node:fs/promises';
+import { writeSync } from 'node:fs';
 import { mkdtemp } from './test-profile.mjs';
+import { waitForSessionFixtureSnapshot } from './session-fixture.mjs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -70,29 +72,39 @@ const sessionPath = join(root, 'sessions', `${sessionId}.jsonl`);
 await writeFile(sessionPath, entries.map(entry => JSON.stringify(entry)).join('\n') + '\n');
 const env = { ...process.env, DESKTOP_TEST_USER_DATA: profile, DESKTOP_TEST_NO_FOCUS: '1' };
 delete env.ELECTRON_RUN_AS_NODE;
-let app;
+const output = resolve('test-results/clm-cancellation');
+await mkdir(output, { recursive: true });
+let app, page;
+let phase = 'launch';
 try {
   app = await electron.launch({ ...(process.env.DESKTOP_VERIFY_EXE ? { executablePath: process.env.DESKTOP_VERIFY_EXE }
     : { args: [resolve('.')] }), env, timeout: 60000 });
-  const page = await app.firstWindow(); page.on('pageerror', error => errors.push(error.message));
+  page = await app.firstWindow(); page.on('pageerror', error => errors.push(error.message));
   await app.evaluate(({ BrowserWindow }) => {
     const window = BrowserWindow.getAllWindows()[0]; window.setOpacity(0); window.setIgnoreMouseEvents(true); window.showInactive();
   });
-  await page.waitForFunction(async id => (await window.desktop.snapshot()).sessions.some(s => s.id === id), sessionId, { timeout: 60000 });
+  phase = 'restore fixture session';
+  await waitForSessionFixtureSnapshot(page, snapshot => snapshot.sessions.some(s => s.id === sessionId),
+    'saved CLM fixture session', 60000);
   await page.evaluate(id => window.desktop.switchSession(id), sessionId);
   await page.reload(); await page.locator('.messages .message').first().waitFor();
   const input = page.getByRole('textbox', { name: 'Message', exact: true });
+  phase = 'start held context maintenance';
   await input.fill('Continue checking the protected requirement.'); await input.press('Enter');
   await page.getByText('Organizing context', { exact: true }).waitFor();
-  await page.waitForFunction(async () => (await window.desktop.snapshot()).state.isCompacting);
+  await waitForSessionFixtureSnapshot(page, snapshot => snapshot.state.isCompacting, 'held context maintenance');
+  phase = 'queue recovery message';
   await input.fill('RECOVERY QUEUED MESSAGE'); await input.press('Enter');
-  await page.waitForFunction(async () => (await window.desktop.snapshot()).pendingMessages.length === 1);
+  await waitForSessionFixtureSnapshot(page, snapshot => snapshot.pendingMessages.length === 1, 'queued recovery message');
   await input.fill('');
+  phase = 'stop context maintenance';
   const stop = page.getByRole('button', { name: 'Stop response', exact: true });
   assert.equal(await stop.isEnabled(), true);
   await stop.click();
   await page.getByText('Organizing context', { exact: true }).waitFor({ state: 'hidden' });
-  await page.waitForFunction(async () => { const s = await window.desktop.snapshot(); return !s.state.isStreaming && !s.state.isCompacting; });
+  await waitForSessionFixtureSnapshot(page, snapshot => !snapshot.state.isStreaming && !snapshot.state.isCompacting,
+    'cancelled context maintenance');
+  phase = 'verify cancelled maintenance and retained queue';
   const paused = await page.evaluate(() => window.desktop.snapshot());
   assert.equal(paused.pendingMessages.length, 1);
   assert.equal(Boolean(paused.pendingMessages[0].sending), false);
@@ -102,9 +114,12 @@ try {
   assert.equal(cancelled.some(e => e.customType === 'step-live-context' && !e.data?.reset), false);
   held?.end(); held = undefined;
   // Resume through the same public bridge used by the queue action; CLM remains enabled.
+  phase = 'explicit recovery';
   await page.evaluate(item => window.desktop.command('queue_steer', { id: item.id, version: item.version }), paused.pendingMessages[0]);
-  await page.waitForFunction(async () => { const s = await window.desktop.snapshot(); return !s.pendingMessages.length
-    && !s.state.isStreaming && !s.state.isCompacting && s.messages.some(m => m.role === 'assistant' && m.content?.some?.(p => p.text === 'CLM recovery completed.')); }, undefined, { timeout: 60000 });
+  await waitForSessionFixtureSnapshot(page, s => !s.pendingMessages.length
+    && !s.state.isStreaming && !s.state.isCompacting && s.messages.some(m => m.role === 'assistant'
+      && m.content?.some?.(p => p.text === 'CLM recovery completed.')), 'completed CLM recovery', 60000);
+  phase = 'verify recovered context and journal';
   assert.deepEqual(errors, []);
   assert.equal(maintenanceCalls, 1, 'Recovery honors the upstream maintenance cooldown');
   assert.ok(summaries > 0, 'Native threshold recovery remains available while CLM is cooling down');
@@ -116,8 +131,39 @@ try {
     'Cancellation itself does not compact; explicit recovery may compact once under context pressure');
   assert.deepEqual(errors, []);
   console.log('Real CLM UI cancellation, IPC abort, retained queue and explicit recovery with native compaction passed.');
+} catch (error) {
+  const failure = { phase, error: error?.stack ?? String(error), maintenanceCalls, summaries,
+    actorInputs: actorInputs.length, errors: [...errors] };
+  // The teardown watchdog may exit before an uncaught exception can be printed.
+  writeSync(2, `CLM cancellation acceptance failed:\n${JSON.stringify(failure, null, 2)}\n`);
+  let diagnosticTimeout;
+  try {
+    await Promise.race([
+      (async () => {
+        await writeFile(join(output, 'failure.json'), JSON.stringify(failure, null, 2) + '\n');
+        if (page) await Promise.all([
+          page.screenshot({ path: join(output, 'failure.png'), timeout: 5000 }),
+          page.evaluate(async () => {
+            const snapshot = await window.desktop.snapshot();
+            return {
+              state: { isStreaming: snapshot.state.isStreaming, isCompacting: snapshot.state.isCompacting },
+              pendingMessages: snapshot.pendingMessages.map(item => ({ id: item.id, version: item.version, sending: item.sending })),
+              messages: snapshot.messages.map(item => ({ role: item.role, stopReason: item.stopReason })),
+            };
+          }).then(snapshot => writeFile(join(output, 'snapshot.json'), JSON.stringify(snapshot, null, 2) + '\n')),
+        ]);
+      })(),
+      new Promise((_, reject) => { diagnosticTimeout = setTimeout(() => reject(new Error('Failure diagnostics timed out')), 5000); }),
+    ]);
+  } catch (diagnosticError) {
+    writeSync(2, `CLM failure diagnostics: ${diagnosticError?.stack ?? String(diagnosticError)}\n`);
+  } finally { clearTimeout(diagnosticTimeout); }
+  throw error;
 } finally {
-  const timeout = setTimeout(() => { app?.process()?.kill(); process.exit(1); }, 15000);
+  const timeout = setTimeout(() => {
+    writeSync(2, `CLM fixture cleanup timed out after 15000ms; last acceptance phase: ${phase}\n`);
+    app?.process()?.kill(); process.exit(1);
+  }, 15000);
   try {
     held?.end(); server.closeAllConnections(); await new Promise(resolve => server.close(resolve));
     if (app) { await app.evaluate(({ dialog }) => { dialog.showMessageBox = async () => ({ response: 1 }); }); await app.close(); }

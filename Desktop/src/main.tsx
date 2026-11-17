@@ -95,6 +95,7 @@ import { ReviewPanel } from './ReviewPanel';
 import { SummaryBoard } from './SummaryBoard';
 import { AccountSettings, ProviderIcon, StepPlatformIcon } from './AccountSettings';
 import { ProviderSettings } from './ProviderSettings';
+import { NetworkSettings } from './NetworkSettings';
 import { CapabilitySettings } from './CapabilitySettings';
 import { PluginCenter } from './PluginCenter';
 import { PluginActionGroup } from './PluginActionGroup';
@@ -850,10 +851,9 @@ function App() {
     acceptQuitReview(value.quitReview);
     if (!messageRevision.current.acceptSnapshot(value)) return false;
     registerPluginThemes(value.themePacks ?? []);
-    const previous = view.current;
-    const changedOwner = composerKey(composerOwner(value)) !== composerKey(previous.draftId ? { draftId: previous.draftId }
-      : previous.sessionId ? { sessionId: previous.sessionId } : undefined);
-    if (previous.runtimeId !== value.runtimeId || changedOwner || navigationPending.current
+    // Consecutive snapshots can arrive before the rendered view ref advances.
+    const changedOwner = composerKey(composerOwner(value)) !== composerKey(composer.client.active?.owner);
+    if (viewId.current !== value.runtimeId || changedOwner || navigationPending.current
       || revision !== presentationRevision.current) {
       if (!navigationPending.current) rememberView();
       const saved = value.state?.sessionId ? composerBySession.current.get(value.state.sessionId) : undefined;
@@ -2698,7 +2698,7 @@ function App() {
       </>}
       {tab === 'import' && bridge ? <SessionImportSettings bridge={bridge} language={data.preferences.language}
         onOpen={async id => { const session = (await bridge.sessions()).find(item => item.id === id); if (!session) throw new Error('Imported session is unavailable'); finishSettingsClose(); await navigateSession(session); }}/>
-      : tab === 'updates' ? <><h3>{t('版本更新', 'Updates')}</h3><AppUpdates bridge={bridge} state={appUpdate} preferences={data.preferences} onPreferences={setPreference}/></> : tab === 'general' ? <>{bridge && <><CompactionSettings bridge={bridge} language={data.preferences.language} models={data.models} model={data.state?.model}/><SpeechSettings bridge={bridge} language={data.preferences.language}/></>}<h3>{t('语言', 'Language')}</h3><label>{t('语言', 'Language')}<select aria-label={t('语言', 'Language')} value={data.preferences.language} onChange={e => void setPreference({ language: e.target.value })}><option value="zh">简体中文</option><option value="en">English</option></select></label><h3>{t('诊断', 'Diagnostics')}</h3><button onClick={() => void run(() => bridge!.diagnostics())}><Download size={15}/>{t('导出脱敏诊断', 'Export diagnostics')}</button></> : !settings ? <p>{t('加载中…', 'Loading…')}</p> : tab === 'providers' ? <ProviderSettings language={data.preferences.language} providers={settings.providers ?? []} pending={data.providerSettingsPending}
+      : tab === 'updates' ? <><h3>{t('版本更新', 'Updates')}</h3><AppUpdates bridge={bridge} state={appUpdate} preferences={data.preferences} onPreferences={setPreference}/></> : tab === 'general' ? <>{bridge && <><CompactionSettings bridge={bridge} language={data.preferences.language} models={data.models} model={data.state?.model}/><SpeechSettings bridge={bridge} language={data.preferences.language}/><NetworkSettings bridge={bridge} language={data.preferences.language} busy={anyBusy || busy}/></>}<h3>{t('语言', 'Language')}</h3><label>{t('语言', 'Language')}<select aria-label={t('语言', 'Language')} value={data.preferences.language} onChange={e => void setPreference({ language: e.target.value })}><option value="zh">简体中文</option><option value="en">English</option></select></label><h3>{t('诊断', 'Diagnostics')}</h3><button onClick={() => void run(() => bridge!.diagnostics())}><Download size={15}/>{t('导出脱敏诊断', 'Export diagnostics')}</button></> : !settings ? <p>{t('加载中…', 'Loading…')}</p> : tab === 'providers' ? <ProviderSettings language={data.preferences.language} providers={settings.providers ?? []} pending={data.providerSettingsPending}
         onDiscover={(provider, key) => bridge!.discoverProviderModels(provider, key)}
         onTest={(provider, modelId, key) => bridge!.testProvider(provider, modelId, key)}
         onCancelTest={() => bridge!.cancelProviderTest()}

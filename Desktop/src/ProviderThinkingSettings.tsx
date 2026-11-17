@@ -2,6 +2,7 @@ import { Plus, X } from 'lucide-react';
 import type { ProviderModel, ProviderApi } from './contracts';
 import { effortLabel } from './ModelEffortPicker';
 import { DisclosureChevron } from './DisclosureChevron';
+import { officialModelCapabilities } from './official-model-capabilities';
 
 const levels = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra'];
 export function thinkingSummary(model: ProviderModel, language: string, api?: ProviderApi): string {
@@ -11,12 +12,14 @@ export function thinkingSummary(model: ProviderModel, language: string, api?: Pr
     return zh ? '控制方式待确认 · 服务默认' : 'Control mode unconfirmed · Service default';
   const source = model.thinkingControl?.source === 'upstream'
     ? zh ? '上游声明' : 'Provider declared'
-    : zh ? '手动配置 · 未验证' : 'Manual · Unverified';
+    : model.thinkingControl?.source === 'official' ? zh ? '官方资料' : 'Official documentation'
+      : model.thinkingControl?.source === 'catalog' ? zh ? 'models.dev · 接口未验证' : 'models.dev · Endpoint unverified'
+      : zh ? '手动配置 · 未验证' : 'Manual · Unverified';
   return `${source} · ${model.thinkingLevels.length}${zh ? ' 档' : ' levels'}`;
 }
 
-export function ProviderThinkingSettings({ model, api, index, language, onChange }: {
-  model: ProviderModel; api: ProviderApi; index: number; language: string; onChange: (patch: Partial<ProviderModel>) => void;
+export function ProviderThinkingSettings({ model, api, baseUrl, index, language, onChange }: {
+  model: ProviderModel; api: ProviderApi; baseUrl?: string; index: number; language: string; onChange: (patch: Partial<ProviderModel>) => void;
 }) {
   const zh = language !== 'en';
   const t = (cn: string, en: string) => zh ? cn : en;
@@ -29,6 +32,17 @@ export function ProviderThinkingSettings({ model, api, index, language, onChange
   });
   const reset = () => {
     const declared = model.declaredThinkingLevels;
+    const official = model.declaredThinkingSource === 'official' ? officialModelCapabilities(baseUrl ?? '', api, model.id) : undefined;
+    if (official?.thinkingLevels) {
+      onChange({ thinkingLevels: official.thinkingLevels, reasoning: official.reasoning,
+        thinkingControl: { source: 'official', levels: official.thinkingLevels, mapping: official.thinkingMapping, defaultLevel: official.thinkingDefaultLevel } });
+      return;
+    }
+    if (model.declaredThinkingSource === 'catalog' && declared && model.catalogMetadata?.thinkingMapping) {
+      onChange({ thinkingLevels: declared, reasoning: declared.some(level => level !== 'off'),
+        thinkingControl: { source: 'catalog', levels: declared, mapping: model.catalogMetadata.thinkingMapping } });
+      return;
+    }
     onChange({ thinkingLevels: declared, thinkingControl: declared ? { source: 'upstream', levels: declared } : undefined,
       reasoning: declared ? declared.some(level => level !== 'off') : model.reasoning });
   };
@@ -37,7 +51,7 @@ export function ProviderThinkingSettings({ model, api, index, language, onChange
       <span className={manual ? 'provider-thinking-manual' : ''}>{thinkingSummary(model, language, api)}</span></div>
     {!manual && (selected.length ? <div className="provider-thinking-declared">{selected.map(level => <span key={level}>{effortLabel(level, zh ? 'zh' : 'en')} · {level}</span>)}</div>
       : <p className="provider-capability-note">{t('未提供可用的思考控制信息。不附加思考参数，使用服务默认。', 'No usable thinking control metadata. Use the service default without thinking parameters.')}</p>)}
-    {!manual && model.thinkingControl?.defaultLevel && <p className="provider-capability-note">{t('接口声明默认强度', 'Declared default effort')}: {effortLabel(model.thinkingControl.defaultLevel, zh ? 'zh' : 'en')} · {model.thinkingControl.defaultLevel}</p>}
+    {!manual && model.thinkingControl?.defaultLevel && <p className="provider-capability-note">{model.thinkingControl.source === 'official' ? t('官方资料默认强度', 'Documented default effort') : t('接口声明默认强度', 'Declared default effort')}: {effortLabel(model.thinkingControl.defaultLevel, zh ? 'zh' : 'en')} · {model.thinkingControl.defaultLevel}</p>}
     <details className="provider-thinking-override" open={manual || undefined}>
       <summary><DisclosureChevron/>{t('自定义思考控制', 'Customize thinking control')}</summary>
       <div className="provider-thinking-edit">
@@ -54,7 +68,7 @@ export function ProviderThinkingSettings({ model, api, index, language, onChange
         </div>)}
         <div className="provider-thinking-add">{levels.filter(level => !selected.includes(level)).map(level => <button type="button" key={level}
           aria-label={`${t('添加档位', 'Add level')} ${index + 1} ${level}`} onClick={() => apply([...selected, level], { ...mapping, [level]: level })}><Plus size={12}/>{effortLabel(level, zh ? 'zh' : 'en')}</button>)}</div>
-        <button type="button" className="provider-thinking-reset" onClick={reset}>{model.declaredThinkingLevels ? t('恢复上游声明', 'Restore provider declaration') : t('使用服务默认', 'Use service default')}</button>
+        <button type="button" className="provider-thinking-reset" onClick={reset}>{model.declaredThinkingSource === 'official' ? t('恢复官方资料', 'Restore official metadata') : model.declaredThinkingSource === 'catalog' ? t('恢复目录资料', 'Restore catalog metadata') : model.declaredThinkingLevels ? t('恢复上游声明', 'Restore provider declaration') : t('使用服务默认', 'Use service default')}</button>
       </div>
     </details>
   </section>;

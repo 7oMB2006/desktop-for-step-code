@@ -2,7 +2,7 @@ import { assertFocusVisible } from './assert-focus-visible.mjs';
 import assert from 'node:assert/strict';
 import { fixtureRuntimeChildren } from './fixture-runtime-children.mjs';
 import { _electron as electron } from 'playwright';
-import { mkdir, readFile, realpath, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, realpath, rename, writeFile } from 'node:fs/promises';
 import { mkdtemp } from './test-profile.mjs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -455,6 +455,125 @@ try {
     assert.equal((await page.evaluate(() => window.desktop.snapshot())).runtimes.length, 0);
     assert.equal(fixture.requests.length, 0);
     results.push('Opt-in startup and idle-host crash recovery reuse the reviewed conversation in Ask with zero model calls; revocation survives relaunch');
+
+    const replacementId = 'cron-recovery-replacement';
+    const replacementName = '同项目承接会话';
+    const timestamp = new Date().toISOString();
+    await writeFile(join(profile, 'step-runtime', 'sessions', `${replacementId}.jsonl`), [
+      { type: 'session', version: 3, id: replacementId, cwd: fixture.workspace, timestamp },
+      { type: 'message', id: 'replacement-user', parentId: null, timestamp,
+        message: { role: 'user', content: replacementName, timestamp: Date.now() } },
+    ].map(record => JSON.stringify(record)).join('\n') + '\n');
+    await page.evaluate(async key => {
+      const preview = await window.desktop.cronRecoveryPreview(key, 'queue-demo');
+      await window.desktop.cronRecover(preview.token, true);
+      await window.desktop.preferences({ archivedSessionIds: ['queue-demo'] });
+    }, resumed.tasks[0].key);
+    const preArchiveRestart = (await page.evaluate(() => window.desktop.cronList())).tasks[0];
+    assert.equal(preArchiveRestart.automatic.state, 'enabled');
+    const blockedCount = entries => (entries ?? []).filter(row => row.state === 'recovery_blocked').length;
+    await close();
+    page = await launch();
+    const blocked = await until(async () => {
+      const state = await page.evaluate(() => window.desktop.cronList());
+      const task = state.tasks.find(row => row.key === resumed.tasks[0].key);
+      return task?.automatic?.state === 'blocked' && blockedCount(task.history) > blockedCount(preArchiveRestart.history)
+        ? { task, hosts: state.hosts } : undefined;
+    }, 'archived target blocks startup recovery');
+    assert.equal(blocked.task.association.sessionId, 'queue-demo');
+    assert.equal(blocked.hosts.length, 0);
+    assert.equal((await page.evaluate(() => window.desktop.snapshot())).runtimes.length, 0);
+    await assert.rejects(page.evaluate(key => window.desktop.cronRecoveryPreview(key, 'queue-demo'), blocked.task.key),
+      /available conversation/i);
+
+    await openManager();
+    await page.locator('.scheduled-row').filter({ hasText: '重启后的离线任务' }).click();
+    await page.getByText('队列交互示例（本地模拟）（已归档）', { exact: true }).waitFor();
+    await page.getByText(/在「设置 → 已归档」取消归档，或选择另一个同项目会话接手/).waitFor();
+    await screenshot('archived-recovery-narrow', 560, 850, 'light');
+    await page.getByRole('button', { name: '恢复项目调度 Beta', exact: true }).click();
+    const recoveryPanel = page.locator('#scheduled-recovery');
+    await settleLayout(recoveryPanel);
+    await recoveryPanel.getByRole('button', { name: '承接会话', exact: true }).click();
+    const menu = page.getByRole('menu', { name: '承接会话', exact: true });
+    await menu.waitFor();
+    assert.equal(await menu.getByText('队列交互示例（本地模拟）', { exact: true }).count(), 0);
+    await menu.getByText(replacementName, { exact: true }).click();
+    await recoveryPanel.getByRole('button', { name: '核对恢复配置', exact: true }).click();
+    const confirm = recoveryPanel.getByRole('button', { name: '确认恢复调度', exact: true });
+    await confirm.waitFor();
+    assert.equal(await recoveryPanel.getByRole('checkbox', { name: /授权应用启动/ }).isChecked(), false);
+    await confirm.click();
+    await page.getByText('调度宿主在线', { exact: true }).waitFor();
+    const reassigned = await page.evaluate(() => window.desktop.cronList());
+    assert.deepEqual(reassigned.hosts.map(host => host.sessionId), [replacementId]);
+    assert.equal(reassigned.tasks[0].association.sessionId, replacementId);
+    assert.equal(reassigned.tasks[0].automatic.state, 'blocked');
+    assert.equal((await page.evaluate(() => window.desktop.snapshot())).runtimes.length, 1);
+    assert.equal(fixture.requests.length, 0);
+    results.push('Archived recovery target stays offline after relaunch; another saved conversation can take over without inheriting authorization');
+    await page.evaluate(() => window.desktop.preferences({ archivedSessionIds: [] }));
+
+    const replacementPath = join(profile, 'step-runtime', 'sessions', `${replacementId}.jsonl`);
+    const replacementContents = await readFile(replacementPath, 'utf8');
+    const movedWorkspace = join(profile, 'relocated-conversation-workspace');
+    await mkdir(movedWorkspace, { recursive: true });
+    const configPath = join(profile, 'step-runtime', 'config.toml');
+    const config = await readFile(configPath, 'utf8');
+    const modelPath = join(profile, 'step-runtime', 'models.json');
+    const models = await readFile(modelPath, 'utf8');
+    const trustPath = join(agent, 'trust.json');
+    const trust = await readFile(trustPath, 'utf8');
+    await close();
+    page = await launch();
+    const assertStartupBlocked = async (label, change, restore, taskVisible = true) => {
+      const before = (await page.evaluate(() => window.desktop.cronList())).tasks.find(task => task.key === blocked.task.key);
+      await page.evaluate(async ({ key, replacementId }) => {
+        const review = await window.desktop.cronRecoveryPreview(key, replacementId);
+        await window.desktop.cronRecover(review.token, true);
+      }, { key: before.key, replacementId });
+      assert.equal((await page.evaluate(() => window.desktop.cronList())).tasks.find(task => task.key === before.key)?.automatic?.state, 'enabled');
+      await close();
+      await change();
+      page = await launch();
+      const after = await until(async () => {
+        const overview = await page.evaluate(() => window.desktop.cronList());
+        const count = blockedCount(overview.history.find(row => row.workspace === before.workspace)?.entries);
+        return count > blockedCount(before.history) ? overview : undefined;
+      }, `startup rejects recovery with ${label}`);
+      assert.equal(after.hosts.length, 0, label);
+      assert.equal((await page.evaluate(() => window.desktop.snapshot())).runtimes.length, 0, label);
+      const offlineTask = after.tasks.find(task => task.key === before.key);
+      if (taskVisible) {
+        assert.equal(offlineTask?.association.sessionId, replacementId, label);
+        assert.equal(offlineTask?.automatic?.state, 'blocked', label);
+      } else {
+        assert.equal(offlineTask, undefined, label);
+        assert.ok(after.issues.some(issue => issue.workspace === before.workspace && issue.reason === 'untrusted'), label);
+      }
+      assert.equal(fixture.requests.length, 0, label);
+      await close();
+      await restore();
+      page = await launch();
+    };
+    await assertStartupBlocked('a missing saved conversation',
+      () => rename(replacementPath, `${replacementPath}.missing`), () => rename(`${replacementPath}.missing`, replacementPath));
+    await assertStartupBlocked('a conversation in a different project', () => {
+      const [header, ...rest] = replacementContents.split('\n');
+      return writeFile(replacementPath, [JSON.stringify({ ...JSON.parse(header), cwd: movedWorkspace }), ...rest].join('\n'));
+    }, () => writeFile(replacementPath, replacementContents));
+    await assertStartupBlocked('an unavailable configured model', async () => {
+      await writeFile(configPath, config.replace('defaultModel = "queue-demo"', 'defaultModel = "unavailable-cron-model"'));
+      await writeFile(modelPath, '{"providers":{}}');
+    }, async () => {
+      await writeFile(configPath, config);
+      await writeFile(modelPath, models);
+    });
+    await assertStartupBlocked('revoked project trust', () => writeFile(trustPath, '{}'), () => writeFile(trustPath, trust), false);
+    assert.equal((await page.evaluate(() => window.desktop.snapshot())).runtimes.length, 0);
+    assert.equal((await page.evaluate(() => window.desktop.cronList())).tasks
+      .find(task => task.key === blocked.task.key)?.automatic?.state, 'blocked', 'Restoring trust cannot revive a consumed authorization');
+    results.push('Startup blocks stale authorization for a missing or moved conversation, unavailable model, and revoked trust without using a model');
   }
   await close();
   await writeFile(join(agent, 'trust.json'), '{}');

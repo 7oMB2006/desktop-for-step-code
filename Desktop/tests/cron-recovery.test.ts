@@ -3,13 +3,19 @@ import { test } from 'node:test';
 import { mkdtemp, readFile, readdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { CronRecovery, assertRecoveryJobs, assertRecoveryQueues, resumeCronHost, type CronRecoveryPlan } from '../electron/cron-recovery';
+import { CronRecovery, assertCronRecoveryAccount, assertRecoveryJobs, assertRecoveryQueues, resumeCronHost, type CronRecoveryPlan } from '../electron/cron-recovery';
 import { RpcCommandError } from '../electron/runtime';
 import { CronBindings } from '../electron/cron-bindings';
 import type { CronJobData } from '../src/contracts';
 
 const job: CronJobData = { id: 'one', cron: '* * * * *', prompt: 'Check', durable: true,
   recurring: true, createdAt: 100, nextFireAt: 200 };
+test('Recovery rejects missing or explicitly invalid Step credentials without treating network uncertainty as rejection', () => {
+  assert.throws(() => assertCronRecoveryAccount(undefined), /sign in/i);
+  assert.throws(() => assertCronRecoveryAccount({ loggedIn: false, validity: 'missing' }), /sign in/i);
+  assert.throws(() => assertCronRecoveryAccount({ loggedIn: true, validity: 'invalid' }), /rejected.*sign in again/i);
+  for (const validity of ['valid', 'unavailable']) assertCronRecoveryAccount({ loggedIn: true, validity });
+});
 test('Recovery never retires a conversation with unsent messages, including disconnected hosts', () => {
   const queued = { state: { sessionId: 'chat', isStreaming: false }, queued: true };
   assert.throws(() => assertRecoveryQueues([queued], 'chat'), /pending messages/);

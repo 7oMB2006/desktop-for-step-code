@@ -29,6 +29,8 @@ assert.ok(manifest.patches.includes('desktop-cron-state'), 'Stage the Cron obser
 const baseline = Date.now();
 const errors = [];
 let requests = 0;
+let rejectedCredentials = 0;
+const rejectedCredentialPrompt = 'CRON FIXTURE REJECTED CREDENTIAL';
 const chunk = (delta, finish_reason = null) => `data: ${JSON.stringify({
   id: 'cron-fixture', object: 'chat.completion.chunk', created: 1, model: 'fixture',
   choices: [{ index: 0, delta, finish_reason }],
@@ -47,6 +49,11 @@ const server = createServer(async (req, res) => {
     requests++;
     const last = payload.messages.at(-1);
     const content = text(last.content);
+    if (content.includes(`[cron] ${rejectedCredentialPrompt}`)) {
+      rejectedCredentials++;
+      res.writeHead(401, { 'content-type': 'application/json' }).end(JSON.stringify({ error: { message: 'Fixture credential rejected' } }));
+      return;
+    }
     res.writeHead(200, { 'content-type': 'text/event-stream' });
     if (last.role === 'user' && content.startsWith('CRON-FIXTURE|')) {
       const { name, args } = JSON.parse(content.slice('CRON-FIXTURE|'.length));
@@ -308,6 +315,27 @@ try {
       await writeFile(f.clock, String(job.nextFireAt + 1));
       await until(() => f.worker.messages.some(message => message.customType === 'step-cron')
         && !f.pool.isBusy(f.worker) && f.worker.cron?.jobs.length === 0, 'reopened native fire');
+    } finally { await f.close(); }
+  });
+  await check('credential rejected on scheduled delivery is recorded as a failed run', async () => {
+    const f = await fixture('credential-rejected');
+    try {
+      const { value: job } = await tool(f, 'cron_create', { cron: '* * * * *', prompt: rejectedCredentialPrompt, recurring: false, durable: true });
+      const previous = await f.worker.rpc.request('get_state');
+      await f.pool.remove(f.worker);
+      f.worker = await f.pool.prepare(node, entry, f.cwd,
+        { ...f.env, DESKTOP_CRON_RECOVERY: '1', STEP_PERMISSION_PRESET: 'ask' }, previous.sessionFile);
+      await f.worker.rpc.request('set_model', { provider: 'fixture', modelId: 'fixture' });
+      await f.pool.read(f.worker);
+      assert.equal(f.worker.permissionPreset, 'ask');
+      await f.worker.rpc.request('desktop_cron_resume');
+      const before = requests;
+      await writeFile(f.clock, String(job.nextFireAt + 1));
+      await until(() => !f.pool.isBusy(f.worker) && f.history.list(f.cwd).at(-1)?.state === 'failed', 'rejected scheduled model request');
+      assert.equal(rejectedCredentials, 1);
+      assert.equal(requests - before, 1, 'Credential rejection cannot switch route or send a second request');
+      assert.equal(f.history.list(f.cwd).at(-1)?.jobId, job.id);
+      assert.equal(f.worker.permissionPreset, 'ask');
     } finally { await f.close(); }
   });
   for (const missed of [false, true]) {

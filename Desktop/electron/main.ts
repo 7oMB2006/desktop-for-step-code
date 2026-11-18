@@ -41,7 +41,7 @@ import { isProjectTrustInput, trustProject } from './project-trust';
 import { CronManagement, cronJobs } from './cron-management';
 import { hasScheduledCron } from './cron-state';
 import { CronBindings } from './cron-bindings';
-import { CronRecovery, assertRecoveryJobs, assertRecoveryQueues, resumeCronHost } from './cron-recovery';
+import { CronRecovery, assertCronRecoveryAccount, assertRecoveryJobs, assertRecoveryQueues, resumeCronHost } from './cron-recovery';
 import { CronAutoRecovery } from './cron-auto-recovery';
 import { CronHistory } from './cron-history';
 import { PendingMessages, promptNeedsQueue } from './pending-messages';
@@ -951,7 +951,7 @@ const inspectCronRecovery = async (key: string, sessionId: string) => {
   if (!model) throw new Error('No configured model is available for recovery');
   const settings = await admin.request('settings', { cwd: workspace });
   const official = options.officialModel === true;
-  if (official && !settings.account?.loggedIn) throw new Error('Sign in before recovering scheduled tasks');
+  if (official) assertCronRecoveryAccount(settings.account);
   const profile = settings.profiles?.find((profile: { id: string }) => profile.id === settings.account?.profile);
   const account = official ? `${profile?.title ?? settings.account?.profile ?? 'Step'}${settings.account?.userId ? ` · ${settings.account.userId}` : ''}`
     : `${providerModelNames([model], appliedAuthData)[0]?.providerName ?? model.provider} · 当前供应商配置`;

@@ -66,7 +66,8 @@
   margin: 0 0 10px; padding: 10px 12px; background: var(--side);
   white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13px; line-height: 1.65; tab-size: 2;
 }
-.permission-approval-disclosure { display: flex; min-height: 30px; padding: 5px 0; border: 0; background: transparent; gap: 6px; font-size: 12px; }
+.permission-approval-disclosure { display: flex; min-height: 30px; padding: 5px 8px; border: 0; border-radius: 6px; background: transparent; gap: 6px; font-size: 12px; }
+.permission-approval-disclosure:focus-visible { background: var(--surface); outline: 2px solid var(--primary); outline-offset: -2px; }
 .permission-approval-disclosure svg { transform: rotate(-90deg); }
 .permission-approval-disclosure[aria-expanded="true"] svg { transform: none; }
 .permission-approval-choices { margin: 0 0 10px; padding-left: 20px; font-size: 13px; line-height: 1.65; }

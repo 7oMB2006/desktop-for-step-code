@@ -8,8 +8,9 @@
 .session-import-settings input[type=checkbox] { accent-color: var(--primary); width: 15px; height: 15px; flex-shrink: 0; }
 .session-import-settings .import-checkbox { display: flex; gap: 8px; align-items: center; margin: 12px 0; }
 .import-sources { border-bottom: 1px solid var(--border); padding: 10px 0 14px; }
-.session-import-settings .import-sources-trigger { justify-content: flex-start; padding: 4px 0; min-height: 30px; border: 0; background: transparent; font-size: 12px; color: var(--muted); }
-.import-sources-trigger:hover { color: var(--ink); }
+.session-import-settings .import-sources-trigger { justify-content: flex-start; padding: 4px 8px; min-height: 30px; border: 0; border-radius: 6px; background: transparent; font-size: 12px; color: var(--muted); }
+.session-import-settings .import-sources-trigger:is(:hover, :focus-visible) { background: var(--surface); color: var(--ink); }
+.import-sources-trigger:focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; }
 .import-sources-chevron { display: flex; flex-shrink: 0; transform: rotate(-90deg); transition: transform 280ms cubic-bezier(.215,.61,.355,1); }
 .import-sources-trigger[aria-expanded=true] .import-sources-chevron { transform: rotate(0); }
 .import-sources-details { display: grid; grid-template-rows: 0fr; opacity: 0; transition: grid-template-rows 280ms cubic-bezier(.215,.61,.355,1), opacity 280ms cubic-bezier(.215,.61,.355,1); }
@@ -66,7 +67,9 @@
 .import-job header strong { font-weight: 500; }
 .import-job header span { color: var(--muted); font-variant-numeric: tabular-nums; }
 .import-job header > button:not(.import-job-trigger) { margin-left: auto; }
-.session-import-settings .import-job-trigger { justify-content: flex-start; flex-wrap: wrap; padding: 0; min-height: 28px; border: 0; background: transparent; color: var(--ink); font-size: 12px; }
+.session-import-settings .import-job-trigger { justify-content: flex-start; flex-wrap: wrap; padding: 0 8px; min-height: 28px; border: 0; border-radius: 6px; background: transparent; color: var(--ink); font-size: 12px; }
+.session-import-settings .import-job-trigger:is(:hover, :focus-visible) { background: var(--surface); }
+.import-job-trigger:focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; }
 .import-job-trigger[aria-expanded=true] .import-sources-chevron { transform: rotate(0); }
 .import-job-summary { display: flex; align-items: center; gap: 6px 16px; flex-wrap: wrap; margin-top: 4px; font-size: 11px; color: var(--muted); }
 .import-job-summary .import-error { font-size: inherit; }

@@ -80,10 +80,10 @@
 .context-message-list { position: relative; }
 .context-message-row { position: absolute; top: 0; left: 0; width: 100%; }
 .context-message { border-bottom: 1px solid var(--border); }
-.context-message summary { display: grid; grid-template-columns: 22px minmax(0, 1fr) 13px; gap: 8px; padding: 12px 0; cursor: pointer; list-style: none; align-items: center; }
+.context-message summary { display: grid; grid-template-columns: 22px minmax(0, 1fr) 13px; gap: 8px; padding: 12px 8px; border-radius: 6px; cursor: pointer; list-style: none; align-items: center; }
 .context-message summary::-webkit-details-marker { display: none; }
-.context-message summary:hover { background: var(--surface); }
-.context-message summary:focus-visible { outline: 2px solid var(--primary); outline-offset: 1px; }
+.context-message summary:is(:hover, :focus-visible) { background: var(--surface); }
+.context-message summary:focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; }
 .context-message-number { align-self: start; padding-top: 2px; font-family: "Cascadia Code", Consolas, monospace; font-size: 10px; color: var(--muted); }
 .context-message-caption { min-width: 0; display: grid; gap: 5px; }
 .context-message-caption > span:first-child { display: flex; align-items: center; gap: 8px; }

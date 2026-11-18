@@ -94,10 +94,11 @@ h1,h2,p{margin:0}h1{font-size:21px;font-weight:600}h2{font-size:14px;font-weight
 .daily-chart-scroll{overflow-x:auto;scrollbar-width:thin}.daily-hour-chart{display:block;width:100%;min-width:620px;margin-top:8px}
 .daily-hour-chart text{fill:var(--muted);font-size:10px;font-family:inherit}.hour-bar{outline:none}.hour-bar:hover rect:not(.chart-hit-area),.hour-bar:focus-visible rect:not(.chart-hit-area){stroke:var(--ink);stroke-width:.5}
 .daily-hours{--cache-rate-color:color-mix(in srgb,var(--primary) 55%,#6b80d7)}
-.cache-rate-toggle{display:inline-flex;align-items:center;gap:6px;border:0;background:transparent;padding:3px 0;font-size:11px;color:var(--cache-rate-color)}
+.cache-rate-toggle{display:inline-flex;align-items:center;gap:6px;border:0;border-radius:6px;background:transparent;padding:3px 8px;font-size:11px;color:var(--cache-rate-color)}
 .cache-rate-toggle>i{width:16px;height:0;border-top:2px dashed currentColor}
-.cache-rate-toggle[aria-pressed=false]{color:var(--muted);opacity:.65}
-.cache-rate-toggle:hover{background:transparent}
+.cache-rate-toggle[aria-pressed=false]{color:var(--muted)}
+.cache-rate-toggle:is(:hover,:focus-visible){background:var(--surface)}
+.cache-rate-toggle:focus-visible{outline:2px solid var(--primary);outline-offset:-2px}
 .cache-rate-line{fill:none;stroke:var(--cache-rate-color);stroke-width:1.7;stroke-dasharray:4 4;stroke-linejoin:round}
 .cache-rate-point{fill:var(--bg);stroke:var(--cache-rate-color);stroke-width:1.5}
 .daily-hour-chart .cache-rate-axis{fill:var(--cache-rate-color)}

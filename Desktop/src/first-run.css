@@ -63,7 +63,8 @@
 .first-run-footer { display: flex; align-items: center; justify-content: space-between; gap: 16px; border-top: 1px solid var(--border); margin-top: 28px; padding-top: 20px; }
 .first-run-footer-actions { display: flex; align-items: center; gap: 10px; }
 .first-run-next { min-height: 39px; padding: 9px 17px; font-size: 12px; }
-.first-run-later, .first-run-back { border: 0; padding-left: 0; font-size: 12px; color: var(--muted); background: transparent; }
+.first-run-later, .first-run-back { border: 0; border-radius: 6px; padding-inline: 8px; font-size: 12px; color: var(--muted); background: transparent; }
+:is(.first-run-later, .first-run-back):focus-visible { background: var(--surface); outline: 2px solid var(--primary); outline-offset: -2px; }
 .first-run-bottom { display: flex; justify-content: space-between; gap: 12px; padding-top: 36px; font-size: 10px; color: var(--muted); line-height: 1.5; }
 .first-run-skip-motion { position: fixed; bottom: 22px; right: 24px; border: 0; color: var(--muted); background: var(--bg); font-size: 12px; }
 .first-run-issue { display: flex; align-items: flex-start; gap: 10px; padding: 15px 0 0; margin-top: 15px; border-top: 1px solid var(--border); color: var(--danger); }

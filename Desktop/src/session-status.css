@@ -14,7 +14,8 @@
 .session-status-pending { display: grid; gap: 6px; border-left: 2px solid var(--primary); padding: 8px 12px; margin-top: 12px; font-size: 12px; background: var(--surface); }
 .session-status-pending span, .session-status-pending small { font-size: 11px; color: var(--muted); }
 .session-status-pending strong { font-weight: 500; overflow-wrap: anywhere; }
-.session-status-detail-toggle { width: 100%; min-height: 32px; border: 0; background: transparent; padding: 0; justify-content: space-between; font-size: 12px; }
+.session-status-detail-toggle { width: 100%; min-height: 32px; border: 0; border-radius: 6px; background: transparent; padding: 0 8px; justify-content: space-between; font-size: 12px; }
+.session-status-detail-toggle:focus-visible { background: var(--surface); outline: 2px solid var(--primary); outline-offset: -2px; }
 .session-status-detail-toggle svg { transform: rotate(-90deg); transition: transform .22s cubic-bezier(.22, 1, .36, 1); }
 .session-status-detail-toggle[aria-expanded=true] svg { transform: rotate(0); }
 .session-status-details { display: grid; grid-template-rows: 0fr; opacity: 0; transition: grid-template-rows .22s cubic-bezier(.22, 1, .36, 1), opacity .22s cubic-bezier(.22, 1, .36, 1); }

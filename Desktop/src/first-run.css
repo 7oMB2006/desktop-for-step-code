@@ -28,11 +28,10 @@
 .first-run-wordmark { display: block; width: 240px; max-width: calc(100% - 56px); height: auto; min-width: 0; object-fit: contain; }
 .first-run-workspace-header .first-run-wordmark { width: 168px; }
 .first-run-flow { margin-top: 38px; }
-.first-run-steps { display: grid; grid-template-columns: repeat(3, 1fr); border-bottom: 1px solid var(--border); gap: 12px; }
-.first-run-steps button { justify-content: flex-start; padding: 0 0 15px; min-height: 42px; border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: transparent; font-size: 12px; color: var(--muted); }
+.first-run-steps { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); border-bottom: 1px solid var(--border); gap: 8px; padding-bottom: 5px; --tab-indicator-bottom: -6px; --tab-selected-ink: var(--primary); }
+.first-run-steps button { justify-content: flex-start; min-width: 0; font-size: 12px; text-align: left; overflow-wrap: anywhere; }
 .first-run-steps button:disabled { opacity: 1; cursor: default; }
-.first-run-steps button[aria-current] { color: var(--primary); border-bottom-color: var(--primary); }
-.first-run-steps button > span { width: 21px; height: 21px; border: 1px solid var(--border); display: grid; place-items: center; border-radius: 50%; font-size: 10px; font-variant-numeric: tabular-nums; }
+.first-run-steps button > span { flex: 0 0 21px; width: 21px; height: 21px; border: 1px solid var(--border); display: grid; place-items: center; border-radius: 50%; font-size: 10px; font-variant-numeric: tabular-nums; }
 .first-run-steps button[aria-current] > span { border-color: var(--primary); }
 .first-run-stage { min-height: 382px; padding-top: 30px; animation: first-run-enter 240ms cubic-bezier(.215,.61,.355,1); }
 .first-run-heading { display: flex; gap: 12px; align-items: baseline; justify-content: space-between; margin-bottom: 24px; }
@@ -149,7 +148,7 @@
 @media (max-width: 380px) {
   .first-run-service-name { font-size: 12px; }
   .first-run-service-detail { font-size: 10px; }
-  .first-run-steps { gap: 8px; }
+  .first-run-steps { gap: 4px; --tab-padding-inline: 5px; }
   .first-run-steps button { font-size: 11px; gap: 5px; }
 }
 @media (prefers-reduced-motion: reduce) {

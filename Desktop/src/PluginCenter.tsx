@@ -21,6 +21,7 @@ import { PluginUpdateDialog, pluginUpdateChangeText, type PluginUpdatePanel } fr
 import type { PluginUpdateBridge, PluginUpdateOperation, PluginUpdatePreflight } from './plugin-update';
 import './capability-settings.css';
 import './plugin-center.css';
+import './text-tabs.css';
 
 export type PluginCenterBridge = CapabilityBridge & BvrSettingsBridge & Pick<import('./contracts').DesktopBridge,
   'pluginDocument' | 'pluginRepositoryInfo' | 'pluginConfiguration' | 'pluginSaveConfiguration' | 'pluginChoosePath'

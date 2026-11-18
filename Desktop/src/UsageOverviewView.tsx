@@ -8,6 +8,7 @@ import { usageRange, type UsageRange } from './usage-range';
 import { formatUsageTotal, type UsageUnit } from './usage-unit';
 import { UsageUnitButton } from './UsageUnitButton';
 import { btwUsageTotals, type UsageDay, type UsageOverview } from './usage-overview';
+import './text-tabs.css';
 import './usage-overview.css';
 
 type Source = 'all' | 'official' | 'custom';
@@ -74,7 +75,7 @@ export function UsageOverviewView({ embedded = false, overview, pending = false,
       <div className="usage-title"><img src={new URL('../public/StepCode.svg', import.meta.url).href} alt="" width="27" height="27"/><h1>{t('用量', 'Usage')}</h1><span className="usage-badge"><HardDrive size={12}/>{t('仅本机', 'Local only')}</span></div>
       {controls && <div className="preview-actions">{controls}</div>}
     </header>
-    <nav className="usage-tabs" aria-label={t('用量页面', 'Usage pages')}><span aria-current="page">{t('统计总览', 'Overview')}</span>{!embedded && <a href="./usage-account.html?state=token">{t('套餐与余额', 'Plan and balance')}<ArrowUpRight size={12}/></a>}</nav>
+    <nav className="usage-tabs" aria-label={t('用量页面', 'Usage pages')}><span aria-current="page">{t('统计总览', 'Overview')}</span>{!embedded && <a className="text-tab" href="./usage-account.html?state=token">{t('套餐与余额', 'Plan and balance')}<ArrowUpRight size={12}/></a>}</nav>
     <div className="usage-toolbar"><div className="segmented" role="group" aria-label={t('统计来源', 'Usage source')}>{sources.map(([key, label]) =>
       <button key={key} aria-pressed={source === key} onClick={() => setSource(key)}>{label}</button>)}</div>
       <div className="scan-state" role="status"><span>{pending ? t('正在扫描本机记录…', 'Scanning local records...') : overview.scannedAt ? `${t('更新于 ', 'Updated at ')}${new Date(overview.scannedAt).toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' })}` : t('尚未读取', 'Not loaded')}</span><button className="icon-button" aria-label={t('刷新统计', 'Refresh usage')} data-tooltip={t('刷新本机统计', 'Refresh local usage')} disabled={pending} onClick={onRefresh}><RefreshCw size={14}/></button></div>

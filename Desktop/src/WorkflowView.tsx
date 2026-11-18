@@ -7,6 +7,7 @@ import { TurnStatusTrigger } from './TurnStatusTrigger';
 import { elapsedTime } from './elapsed-time';
 import { useEffect, useState } from 'react';
 import './workflow-view.css';
+import './text-tabs.css';
 
 export function WorkflowElapsed({ startedAt, finishedAt, running }: { startedAt?: number; finishedAt?: number; running: boolean }) {
   const [now, setNow] = useState(Date.now());
@@ -62,7 +63,7 @@ export function WorkflowBlock({ flow, language, onOpen }: { flow: WorkflowState;
     {roles.size > 0 && <div className="workflow-inline-roles" role="group" aria-label={zh ? '代理角色' : 'Agent roles'}>
       {[...roles].slice(0, 6).map(([agentType, count]) => {
         const label = agentType ? roleFor(agentType).name[zh ? 0 : 1] : zh ? '角色未提供' : 'Role not reported';
-        return <button type="button" key={agentType} onClick={() => onOpen(flow.toolCallId)} aria-controls="subagent-panel"
+        return <button className="text-tab" type="button" key={agentType} onClick={() => onOpen(flow.toolCallId)} aria-controls="subagent-panel"
           aria-label={zh ? `查看编排：${label}，${count} 个代理` : `Open orchestration: ${label}, ${count} ${count === 1 ? 'agent' : 'agents'}`}>
           <AgentRoleIcon agent={agentType || undefined} language={language}/><span>{label}</span>
           <span className="workflow-role-count">{count}</span>

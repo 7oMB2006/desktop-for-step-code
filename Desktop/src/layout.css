@@ -141,23 +141,6 @@ select:disabled { cursor: not-allowed; opacity: .45; }
 .window-menu { position: relative; display: flex; align-items: center; height: 100%; }
 .window-menu > button { border: 0; background: transparent; padding: 4px 10px; min-height: 30px; font-size: 13px; }
 .window-menu > button.active { background: var(--surface); }
-:is(.text-tabs > button[role="tab"], .text-tab[role="tab"]) {
-  position: relative; min-height: 30px; margin: 0; border: 0; border-radius: 6px;
-  padding: 4px var(--tab-padding-inline, 10px); background: transparent; color: var(--muted);
-}
-:is(.text-tabs > button[role="tab"], .text-tab[role="tab"]):hover:not(:disabled),
-:is(.text-tabs > button[role="tab"], .text-tab[role="tab"]):focus-visible {
-  background: var(--surface); color: var(--ink);
-}
-:is(.text-tabs > button[role="tab"], .text-tab[role="tab"]):focus-visible {
-  outline: 2px solid var(--primary); outline-offset: -2px;
-}
-.text-tabs > button[aria-selected="true"] { color: var(--tab-selected-ink, var(--ink)); }
-.text-tabs > button[aria-selected="true"]::after {
-  content: ''; position: absolute; inset-inline: var(--tab-padding-inline, 10px);
-  bottom: var(--tab-indicator-bottom, -4px); height: 2px; border-radius: 1px;
-  background: var(--tab-indicator, var(--primary)); pointer-events: none;
-}
 .window-menu-popover { position: absolute; top: calc(100% - 2px); left: 0; width: max-content; min-width: 206px; max-width: min(300px, calc(100vw - 20px)); padding: 5px; background: var(--bg); color: var(--ink); border: 1px solid var(--border); border-radius: 6px; box-shadow: var(--shadow); }
 .window-menu-popover button { display: flex; width: 100%; justify-content: flex-start; text-align: left; border: 0; background: transparent; min-height: 34px; padding: 7px 10px; font-size: 12px; }
 .window-menu-popover button:hover:not(:disabled), .window-menu-popover button:focus-visible { background: var(--surface); }

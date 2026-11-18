@@ -7,6 +7,7 @@ import { PluginConnectionPanel, type PluginConnectionBridge } from './PluginConn
 import { pluginDesktopDefaultPage, type PluginDesktopEntry } from './plugin-desktop';
 import './plugin-center.css';
 import './plugin-workspace.css';
+import './text-tabs.css';
 
 export function PluginWorkspace({ entry, bridge, language, onBack, onClose, closeLabel, onConfigure, active = true }: {
   entry: PluginDesktopEntry; bridge: Pick<DesktopBridge, 'pluginDocument'> & PluginConnectionBridge; language: 'zh' | 'en';

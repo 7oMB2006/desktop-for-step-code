@@ -29,7 +29,8 @@
     "step-code-desktop-ultra.patch": "9f21a1d3bbb492c44c81387ec2e5898829407b47",
     "step-code-desktop-workflow-role.patch": "e5df93cafbabbad797a8663e8468a1da294a5660",
     "step-code-desktop-startup.patch": "c9e913d0a1c04a8a78f8d6f705ac30c0d9c5d6ed",
-    "step-code-desktop-optional-mcp.patch": "45dd887f5f3ca3a995b1c3e3b5c998fd8aa183f4"
+    "step-code-desktop-optional-mcp.patch": "45dd887f5f3ca3a995b1c3e3b5c998fd8aa183f4",
+    "step-code-desktop-plugin-mcp-reload.patch": "245626289a63aac6fc2e099aebef6a107a918d3e"
   },
   "sources": {
     "packages/coding-agent/src/step/mcp-environment.ts": "d46ee0c3e07fbcd2432b43bd355080e52e3aca50",
@@ -98,7 +99,7 @@
   },
   "patchedSources": {
     "packages/coding-agent/src/step/mcp-environment.ts": "322aae08a9223421d936ac50e420f8599a3a796c",
-    "packages/coding-agent/src/step/mcp.test.ts": "2c9b7dabd1f9fac013d959427fda2abd8527c5ee",
+    "packages/coding-agent/src/step/mcp.test.ts": "e890742992633b56b258bc2e4cb3f2a4c3078e97",
     "packages/coding-agent/src/step/plugins.ts": "23d2d63ab6a30698371b2b4dd756079a766154b1",
     "packages/coding-agent/test/step-plugins.test.ts": "6568fa6648df747f2612f208e19ddb422d8cb797",
     "packages/coding-agent/docs/session-import.md": "c1ec33543cde4f61a187469474cda92e312fbf77",
@@ -127,10 +128,10 @@
     "packages/coding-agent/src/index.ts": "88a6fa66fbcb23d623d164ebd7620fbb54aff08c",
     "packages/coding-agent/src/modes/rpc/desktop-btw.ts": "0d9656fb61e93fecee1a602d17b30d5d668017f5",
     "packages/coding-agent/src/modes/rpc/desktop-completion-review.ts": "072dc370724cfc0d2ac9e81b35063ac04885f2a9",
-    "packages/coding-agent/src/modes/rpc/rpc-mode.ts": "b230ce2d6d2d9d42a060dfde4a9083984c992622",
-    "packages/coding-agent/src/modes/rpc/rpc-types.ts": "a53c1c792569efebb2ddc1bfc359386b83fdb645",
-    "packages/coding-agent/src/step/mcp.ts": "1b047f51cb0e0124e2b2dfe37a3a2eb6863c21d8",
-    "packages/coding-agent/src/step/desktop-startup.ts": "a283014cfb84a190439a39e6cae31998ea1df4c6",
+    "packages/coding-agent/src/modes/rpc/rpc-mode.ts": "7397f2adc9e7a37e9cf0a2cdaab17568f408bd14",
+    "packages/coding-agent/src/modes/rpc/rpc-types.ts": "338844e0c3ac1258d7e01d909c45ba5f422e0db3",
+    "packages/coding-agent/src/step/mcp.ts": "f353bb9d7b0639a0006b5b07ada835e7b951c78d",
+    "packages/coding-agent/src/step/desktop-startup.ts": "3e8961785a4b9c8afc6adb0aca181b0389257e5f",
     "packages/coding-agent/src/step/usage/recording.ts": "069045cda51c11b0fb642c4ebc5fddecfe91be1a",
     "packages/coding-agent/src/utils/shell.ts": "34a10c2fcd947c4951e1fb85bea3de9ae3d6a365",
     "packages/coding-agent/test/desktop-background-replies.test.ts": "ea7fa101b0c61628c812e744b360cb204dd09132",

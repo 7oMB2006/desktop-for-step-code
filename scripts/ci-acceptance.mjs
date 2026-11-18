@@ -98,6 +98,7 @@ export const acceptanceGroups = {
     'verify-electron.mjs',
     'verify-profile-lifecycle.mjs',
     'verify-plugin-update-electron.mjs',
+    'verify-plugin-reload-electron.mjs',
     'verify-cron-runtime.mjs',
     'verify-cron-management.mjs',
     'verify-cron-transcript-electron.mjs',
@@ -166,6 +167,8 @@ export const localOnly = [
   'verify-plugin-center-preview.mjs',
   // Interactive local web preview requires its explicitly started preview server.
   'verify-tool-status-web.mjs',
+  'verify-plugin-reload-web.mjs',
+  'verify-plugin-lifecycle-preview.mjs',
   // Local theme visual matrix; optional geometry comparison uses a captured baseline.
   'verify-theme-materials.mjs',
   'verify-stellar-chrome.mjs',

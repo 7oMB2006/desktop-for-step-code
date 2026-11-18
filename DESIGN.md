@@ -1,5 +1,32 @@
 # Design System
 
+## Plugin Reload
+
+Recorded installed MCP plugins expose an icon-only reload action on the catalog
+card and detail header, independent of the selected conversation. The first
+click starts without confirmation. Clicking again while running opens the same
+operation; the card's ring also opens details after the operation finishes.
+Details use a native dialog with focus return and a collapsed instance list.
+The card grid stays put, and waiting and failures never open the dialog by
+themselves. Completion gives a brief success or failure toast. The ring
+counts failures explicitly and does not carry results to a replacement package.
+Keep keyboard focus on the trigger while starting the operation.
+
+The ring distinguishes ready, occupied (hatched), unknown (dim), loading,
+loaded, failed and cancelled targets. The count says ready before execution
+and loaded once execution begins. Stable segments animate between states and
+close their gaps on full success. Respect reduced-motion preferences.
+
+Reload changes only existing eligible connections of the target MCP plugin.
+An in-flight call or a pending approval for that plugin delays its instance,
+while other instances can proceed. Unrelated tools and conversation processes
+remain running.
+Waiting can be cancelled; started replacements finish. Unsupported ownership,
+hosted authorization and service-topology changes do not fall back to
+restarting the session. Closing details does not cancel pending work, which
+is tied to the package/configuration, runtime generation and session identity.
+Do not wake disconnected sessions or show a chat/composer banner.
+
 ## Plugin Update And Removal
 
 Update and uninstall share host-owned preflight and a secondary confirmation

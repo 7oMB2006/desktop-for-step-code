@@ -85,6 +85,7 @@ try {
     await settle(removal);
     await page.screenshot({ path: join(output, `uninstall-${mode}.png`) });
     if (mode === 'busy') {
+      await removal.locator('summary').click();
       await removal.getByRole('button', { name: '查看会话 每周资料整理', exact: true }).click();
       await page.getByText('每周资料整理', { exact: true }).waitFor();
       await page.getByRole('button', { name: '插件市场', exact: true }).click();

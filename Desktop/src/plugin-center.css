@@ -211,9 +211,15 @@
 .pc-status.is-ready { color: var(--green); }
 .pc-status.is-pending { color: var(--primary); }
 .pc-auth-state { display: flex; align-items: center; gap: 5px; font-size: 11px; color: var(--muted); }
-.pc-detail-tabs { position: sticky; top: 0; z-index: 1; isolation: isolate; gap: 25px; margin: 0 4px; padding-top: 4px; background: var(--bg); }
+.pc-detail-tabs { position: sticky; top: 0; z-index: 1; isolation: isolate; gap: 4px; margin: 0 4px; padding: 4px 0 5px; background: var(--bg); }
 .pc-detail-tabs::before { content: ''; position: absolute; inset: 0 -4px; z-index: -1; background: var(--bg); pointer-events: none; }
-.pc-detail-tabs button { font-size: 12px; }
+.pc-detail-tabs > button { position: relative; min-height: 30px; margin: 0; border: 0; border-radius: 6px; padding: 4px 10px; font-size: 12px; }
+.pc-detail-tabs > button:is(:hover, :focus-visible) { background: var(--surface); color: var(--ink); }
+.pc-detail-tabs > button:focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; }
+.pc-detail-tabs > button[aria-selected="true"]::after {
+  content: ''; position: absolute; inset-inline: 10px; bottom: -6px; height: 2px;
+  border-radius: 1px; background: var(--primary); pointer-events: none;
+}
 .pc-detail-workspace { display: flex; position: relative; flex: 1; min-height: 0; min-width: 0; }
 .pc-detail-scroll { overflow-y: auto; flex: 1; min-height: 0; min-width: 0; padding: 0 12px 0 4px; scroll-padding: 58px 8px 8px; scrollbar-width: none; }
 .pc-detail-scroll::-webkit-scrollbar { display: none; }

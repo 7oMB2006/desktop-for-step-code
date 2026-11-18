@@ -601,7 +601,7 @@ export function PluginCenter({ bridge, language, busy, active, runtimeId, curren
     {!!warnings.length && <ul className="cap-notes">{warnings.map((value, index) => <li key={index}>{capabilityWarningText(value, language === 'zh')}</li>)}</ul>}
     {!entry ? <div className="pc-catalog-page">
       <div className="pc-catalog-toolbar">
-        <div className="cap-tabs pc-catalog-tabs" role="tablist" aria-label={t('插件目录', 'Plugin catalog')} onKeyDown={tabKeyboard}>
+        <div className="text-tabs pc-catalog-tabs" role="tablist" aria-label={t('插件目录', 'Plugin catalog')} onKeyDown={tabKeyboard}>
           {tabs.map(([value, label]) => <button key={value} role="tab" id={`${id}-${value}`} aria-selected={tab === value}
             tabIndex={tab === value ? 0 : -1} aria-controls={`${id}-catalog`} onClick={() => setTab(value)}>{label}
             {value === 'installed' && catalog && <span>{installed.length}</span>}</button>)}
@@ -690,7 +690,7 @@ export function PluginCenter({ bridge, language, busy, active, runtimeId, curren
         {(entry.available?.blocked || entry.package?.provenance === 'conflict') && <p className="cap-error" role="status">
           {t('存在重复的包名、运行时 ID 或不同来源的安装。请先核对市场和已安装副本，相关操作已阻止。',
             'A package name, runtime ID or installation source conflicts. Review the marketplaces and installed copies; ambiguous actions are blocked.')}</p>}
-        <div className="cap-tabs pc-detail-tabs" role="tablist" aria-label={t('插件详情', 'Plugin details')} onKeyDown={tabKeyboard}>
+        <div className="text-tabs pc-detail-tabs" role="tablist" aria-label={t('插件详情', 'Plugin details')} onKeyDown={tabKeyboard}>
           {detailTabs.map(([value, title]) =>
             <button key={value} role="tab" id={`${id}-detail-${value}`} aria-selected={detailTab === value} tabIndex={detailTab === value ? 0 : -1}
               aria-controls={`${id}-${value}-panel`} onClick={() => setDetailTab(value)}>{title}</button>)}

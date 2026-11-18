@@ -64,7 +64,7 @@ export function PluginWorkspace({ entry, bridge, language, onBack, onClose, clos
       {onClose && <button type="button" className="icon-button" aria-label={dismissLabel}
         data-tooltip={dismissLabel} onClick={onClose}><X size={18}/></button>}
     </header>
-    <nav ref={tabs} className="plugin-workspace-tabs" role="tablist" aria-label={entry.desktop.title}
+    <nav ref={tabs} className="plugin-workspace-tabs text-tabs" role="tablist" aria-label={entry.desktop.title}
       onKeyDown={event => {
         if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
         event.preventDefault();

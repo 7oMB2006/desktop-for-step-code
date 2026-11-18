@@ -25,7 +25,7 @@
 .terminal-tabs { display: flex; align-items: center; gap: 4px; padding: 0 10px; min-height: 41px; overflow-x: auto; border-bottom: 1px solid var(--border); }
 .terminal-tab { display: flex; align-items: center; flex-shrink: 0; border-bottom: 2px solid transparent; min-height: 40px; }
 .terminal-tab.is-active { border-bottom-color: var(--primary); }
-.terminal-tab > button[role="tab"] { border: 0; background: transparent; border-radius: 0; font-size: 11px; padding: 8px; color: var(--muted); }
+.terminal-tab > .text-tab { font-size: 11px; --tab-padding-inline: 8px; }
 .terminal-tab.is-active > button[role="tab"] { color: var(--ink); }
 .terminal-tab .icon-button { width: 20px; height: 22px; }
 .terminal-toolbar { display: flex; gap: 4px; align-items: center; padding: 5px 12px; min-height: 35px; }

@@ -9,6 +9,11 @@ plugin-authored prose. Acknowledgement grants no permissions. Never gate stop,
 revoke or unrelated work behind a risk prompt. Connection associations are
 explicit selects, not inferred names; preserve four-pixel form focus gutters.
 
+Text tabs use the titlebar's compact rounded hit target with horizontal padding
+and themed hover and keyboard focus. Keep the selection underline separate from
+the hover surface; browser and terminal close buttons remain separate targets.
+Compact inspectors can reduce horizontal padding without removing the focus ring.
+
 ## Form Focus Visibility
 
 Inputs, textareas and composite fields reuse the shared theme focus treatment.

@@ -27,8 +27,9 @@ const root = join(profile, 'step-runtime'), market = join(profile, 'market');
 const id = 'dfsc-config-example', name = 'DFSC Configuration Example', service = `${id}__notes`;
 const eventPath = join(profile, 'mcp-events.jsonl'), release = join(profile, 'release-call'), fail = join(profile, 'fail-connect');
 const fixtureServer = join(desktop, 'scripts/fixture-plugin-reload-mcp.mjs');
-const node = join(executablePath ? join(dirname(executablePath), 'resources') : executionRoot,
-  'runtime/node', process.platform === 'win32' ? 'node.exe' : 'node');
+const resources = executablePath ? (process.platform === 'darwin'
+  ? resolve(dirname(executablePath), '../Resources') : join(dirname(executablePath), 'resources')) : executionRoot;
+const node = join(resources, 'runtime/node', process.platform === 'win32' ? 'node.exe' : 'node');
 await access(node);
 await cp(resolve(desktop, '../examples/plugins/config-starter'), market, { recursive: true });
 const manifestPath = join(market, 'plugins', id, 'step.plugin.json');

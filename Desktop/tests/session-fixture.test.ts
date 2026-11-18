@@ -901,7 +901,7 @@ test('native host settings acceptance launches the selected source or packaged t
     });
   }
   for (const script of ['verify-plugin-host-settings-electron.mjs', 'verify-session-plugin-cold-start.mjs',
-    'verify-session-plugin-startup.mjs', 'verify-plugin-target-reads.mjs']) {
+    'verify-session-plugin-startup.mjs', 'verify-plugin-target-reads.mjs', 'verify-plugin-reload-electron.mjs']) {
     const text = await readFile(new URL(`../scripts/${script}`, import.meta.url), 'utf8');
     const parsed = ts.createSourceFile(script, text, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
     const resources = parsed.statements.filter(ts.isVariableStatement)
@@ -914,7 +914,7 @@ test('native host settings acceptance launches the selected source or packaged t
       const target = platform === 'win32' ? 'C:\\package\\App.exe' : '/package/App.app/Contents/MacOS/App';
       for (const executablePath of [undefined, target]) {
         const actual = runInNewContext(`(${resources.getText(parsed)})`, {
-          executablePath, process: { platform }, dirname: paths.dirname, join: paths.join,
+          executablePath, executionRoot: cwd, process: { platform }, dirname: paths.dirname, join: paths.join,
           resolve: (...parts: string[]) => paths.resolve(cwd, ...parts),
         });
         const expected = executablePath ? platform === 'win32'

@@ -1,0 +1,538 @@
+diff --git a/packages/coding-agent/src/modes/rpc/rpc-mode.ts b/packages/coding-agent/src/modes/rpc/rpc-mode.ts
+index b230ce2d6d2d9d42a060dfde4a9083984c992622..7397f2adc9e7a37e9cf0a2cdaab17568f408bd14 100644
+--- a/packages/coding-agent/src/modes/rpc/rpc-mode.ts
++++ b/packages/coding-agent/src/modes/rpc/rpc-mode.ts
+@@ -37,7 +37,7 @@ import {
+ 	prepareDesktopStartup,
+ 	withStartupSubmission,
+ } from "../../step/desktop-startup.ts";
+-import { getStepMcpStatuses } from "../../step/mcp.ts";
++import { desktopPluginReload, getStepMcpStatuses } from "../../step/mcp.ts";
+ import { STEPCODE_VERSION } from "../../step/version.ts";
+ import { type Theme, theme } from "../../theme/theme.ts";
+ import { killTrackedDetachedChildren } from "../../utils/shell.ts";
+@@ -505,6 +505,12 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntimeHost, options:
+ 			}
+ 			case "desktop_plugin_host":
+ 				return success(id, command.type, await desktopPluginHostCommand(session.sessionManager, command));
++			case "desktop_plugin_reload":
++				return success(
++					id,
++					command.type,
++					await desktopPluginReload(session.sessionManager, session.sessionId, command),
++				);
+ 			case "desktop_completion_review_skip":
+ 				review.skip("input");
+ 				return success(id, command.type);
+diff --git a/packages/coding-agent/src/modes/rpc/rpc-types.ts b/packages/coding-agent/src/modes/rpc/rpc-types.ts
+index a53c1c792569efebb2ddc1bfc359386b83fdb645..338844e0c3ac1258d7e01d909c45ba5f422e0db3 100644
+--- a/packages/coding-agent/src/modes/rpc/rpc-types.ts
++++ b/packages/coding-agent/src/modes/rpc/rpc-types.ts
+@@ -69,6 +69,14 @@ export type RpcCommand =
+ 	// State
+ 	| { id?: string; type: "get_state" }
+ 	| { id?: string; type: "get_desktop_summary" }
++	| {
++			id?: string;
++			type: "desktop_plugin_reload";
++			action: "inspect" | "reload";
++			sessionId: string;
++			pluginId: string;
++			root: string;
++	  }
+ 	| {
+ 			id?: string;
+ 			type: "desktop_subagents";
+diff --git a/packages/coding-agent/src/step/desktop-startup.ts b/packages/coding-agent/src/step/desktop-startup.ts
+index a283014cfb84a190439a39e6cae31998ea1df4c6..3e8961785a4b9c8afc6adb0aca181b0389257e5f 100644
+--- a/packages/coding-agent/src/step/desktop-startup.ts
++++ b/packages/coding-agent/src/step/desktop-startup.ts
+@@ -187,7 +187,7 @@ export class DesktopStartup {
+ 		this.state.discovery = "failed";
+ 		this.publish(true);
+ 	}
+-	update(name: string, value: Partial<DesktopToolStartup>) {
++	update(name: string, value: Partial<DesktopToolStartup>, afterStartup = false) {
+ 		if (value.cleanupConfirmed === false) this.markUnsafe();
+ 		const tool = this.state.tools.find((item) => item.name === name);
+ 		if (!tool || this.disposed) return;
+@@ -196,7 +196,8 @@ export class DesktopStartup {
+ 		if (cleanupUnconfirmed) tool.cleanupConfirmed = false;
+ 		if (cleanupUnconfirmed) this.markUnsafe();
+ 		if (!["connecting", "pending"].includes(tool.status)) tool.settledAt = Date.now();
+-		this.publish(true);
++		// An optional, post-startup reconnection must not invalidate in-flight admissions.
++		this.publish(!afterStartup);
+ 	}
+ 	private markUnsafe() {
+ 		unsafeRuntimes.add(this.state.runtimeId);
+diff --git a/packages/coding-agent/src/step/mcp.test.ts b/packages/coding-agent/src/step/mcp.test.ts
+index 2c9b7dabd1f9fac013d959427fda2abd8527c5ee..e890742992633b56b258bc2e4cb3f2a4c3078e97 100644
+--- a/packages/coding-agent/src/step/mcp.test.ts
++++ b/packages/coding-agent/src/step/mcp.test.ts
+@@ -2,12 +2,38 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
+ import os from "node:os";
+ import path from "node:path";
+ import { UnauthorizedError } from "@modelcontextprotocol/sdk/client/auth.js";
+-import { StreamableHTTPError } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
++import { StreamableHTTPClientTransport, StreamableHTTPError } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+ import { afterEach, expect, test } from "vitest";
+-import { appendStepPageManagementHint, describeMcpStartFailure, resolveStepMcpEnvironment } from "./mcp.ts";
++import {
++	appendStepPageManagementHint,
++	closeMcpForReload,
++	describeMcpStartFailure,
++	resolveStepMcpEnvironment,
++} from "./mcp.ts";
+ 
+ const roots: string[] = [];
+ 
++test.each([204, 405, 404, 500, undefined])(
++	"HTTP reload closes the old transport after terminating its session (%s)",
++	async (status) => {
++		const events: string[] = [];
++		const transport = new StreamableHTTPClientTransport(new URL("http://127.0.0.1/mcp"), {
++			sessionId: status === undefined ? undefined : "old-session",
++			fetch: async (_url, init) => {
++				events.push(String(init?.method));
++				expect(new Headers(init?.headers).get("mcp-session-id")).toBe("old-session");
++				return new Response(null, { status });
++			},
++		});
++		await transport.start();
++		transport.onclose = () => events.push("closed");
++		const closing = closeMcpForReload({ transport, client: transport });
++		if (status === 500) await expect(closing).rejects.toThrow("Failed to terminate session");
++		else await closing;
++		expect(events).toEqual(status === undefined ? ["closed"] : ["DELETE", "closed"]);
++	},
++);
++
+ test.each([
+ 	new StreamableHTTPError(401, "Error POSTing to endpoint: Unauthorized"),
+ 	new StreamableHTTPError(401, "Credentials expired"),
+diff --git a/packages/coding-agent/src/step/mcp.ts b/packages/coding-agent/src/step/mcp.ts
+index 1b047f51cb0e0124e2b2dfe37a3a2eb6863c21d8..f353bb9d7b0639a0006b5b07ada835e7b951c78d 100644
+--- a/packages/coding-agent/src/step/mcp.ts
++++ b/packages/coding-agent/src/step/mcp.ts
+@@ -1,6 +1,6 @@
+-import { readFile } from "node:fs/promises";
++import { lstat, readFile } from "node:fs/promises";
+ import path from "node:path";
+-import { setImmediate as yieldToEventLoop } from "node:timers/promises";
++import { setImmediate as yieldToEventLoop, setTimeout as delay } from "node:timers/promises";
+ import { UnauthorizedError } from "@modelcontextprotocol/sdk/client/auth.js";
+ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+@@ -40,6 +40,8 @@ const STEPPAGE_MANAGEMENT_URL = "https://platform.stepfun.com/sites";
+ 
+ interface ConnectedServer {
+ 	pluginId?: string;
++	activeCalls?: number;
++	retiring?: boolean;
+ 	readonly name: string;
+ 	readonly client: Client;
+ 	readonly transport: StdioClientTransport | StreamableHTTPClientTransport;
+@@ -90,6 +92,32 @@ export interface StepMcpStatus {
+ 
+ let currentMcpStatuses: StepMcpStatus[] = [];
+ const currentMcpToolOwners = new WeakMap<object, Map<string, string>>();
++export type DesktopPluginReloadResult =
++	| "ready"
++	| "busy"
++	| "absent"
++	| "unsupported"
++	| "unavailable"
++	| "applied"
++	| "failed";
++type ReloadRequest = { action: "inspect" | "reload"; sessionId: string; pluginId: string; root: string };
++const pluginReloaders = new WeakMap<object, (request: ReloadRequest) => Promise<DesktopPluginReloadResult>>();
++
++export async function desktopPluginReload(owner: object, sessionId: string, input: ReloadRequest) {
++	if (
++		!desktopStartupEnabled("rpc") ||
++		input.sessionId !== sessionId ||
++		!["inspect", "reload"].includes(input.action) ||
++		typeof input.pluginId !== "string" ||
++		!/^[a-z][a-z0-9_-]{0,127}$/u.test(input.pluginId) ||
++		typeof input.root !== "string" ||
++		input.root.length > 4096 ||
++		!path.isAbsolute(input.root)
++	)
++		throw new Error("Invalid desktop plugin reload target");
++	return { status: (await pluginReloaders.get(owner)?.(input)) ?? "unavailable" };
++}
++
+ export function getStepMcpToolOwner(toolName: string, session: object): string | undefined {
+ 	return currentMcpToolOwners.get(session)?.get(toolName);
+ }
+@@ -131,6 +159,22 @@ export function createStepMcpExtension(): ExtensionFactory {
+ 		let desktopHost: DesktopPluginHost | undefined;
+ 		let desktopStartup: DesktopStartup | undefined;
+ 		const cleanupOperations = new Set<Promise<unknown>>();
++		const hotReloads = new Map<string, Promise<DesktopPluginReloadResult>>();
++		const admittedCalls = new Map<string, string>();
++
++		// The agent binds a tool before permission checks, including prepared
++		// calls waiting for other approvals in the same batch.
++		pi.on("tool_execution_start", (event) => {
++			if (!desktopStartup) return;
++			const pluginId = owners.get(event.toolName);
++			if (pluginId) admittedCalls.set(event.toolCallId, pluginId);
++		});
++		pi.on("tool_execution_end", (event) => {
++			admittedCalls.delete(event.toolCallId);
++		});
++		pi.on("agent_end", () => {
++			admittedCalls.clear();
++		});
+ 
+ 		pi.on("session_start", async (_event, ctx) => {
+ 			if (startup) return;
+@@ -202,17 +246,21 @@ export function createStepMcpExtension(): ExtensionFactory {
+ 						index: number,
+ 						launchContext?: string,
+ 						attemptSignal = controller.signal,
++						hot = false,
+ 					) => {
++						const updateReadiness = (value: Partial<DesktopToolStartup>) =>
++							readiness?.update(item.name, value, hot);
+ 						let connected: ConnectedServer | undefined;
+ 						let published = false;
+ 						let pending = false;
+ 						let refreshing = false;
+ 						const refreshCatalog = async () => {
+-							if (refreshing || !published || !connected || connected.signal.aborted) return;
++							if (refreshing || !published || !connected || connected.retiring || connected.signal.aborted)
++								return;
+ 							const server = connected;
+ 							refreshing = true;
+ 							try {
+-								while (pending && !server.signal.aborted) {
++								while (pending && !server.retiring && !server.signal.aborted) {
+ 									// Coalesce a notification burst before listing, with at most one
+ 									// more pass when notifications arrive during an in-flight list.
+ 									await yieldToEventLoop();
+@@ -224,14 +272,14 @@ export function createStepMcpExtension(): ExtensionFactory {
+ 										);
+ 										const remoteTools = tools.map((tool) => createRemoteTool(server, tool));
+ 										await yieldToEventLoop();
+-										if (server.signal.aborted || !published) return;
++										if (server.signal.aborted || server.retiring || !published) return;
+ 										pi.registerTools(remoteTools, {
+ 											remove: server.tools.map((tool) => remoteToolName(server, tool)),
+ 										});
+ 										publishMcpToolOwners(sessionOwners, server, tools, server.tools);
+ 										server.tools = tools;
+ 										statuses[index] = { name: item.name, status: "connected", toolCount: tools.length };
+-										readiness?.update(item.name, { status: "connected", toolCount: tools.length });
++										updateReadiness({ status: "connected", toolCount: tools.length });
+ 									} catch (error) {
+ 										if (server.signal.aborted || !published) return;
+ 										ctx.ui.notify(
+@@ -249,7 +297,13 @@ export function createStepMcpExtension(): ExtensionFactory {
+ 							void refreshCatalog();
+ 						};
+ 						try {
+-							const server = await connectStepMcpServer(item, attemptSignal, onToolsChanged, launchContext);
++							const server = await connectStepMcpServer(
++								item,
++								attemptSignal,
++								onToolsChanged,
++								launchContext,
++								hot ? 30000 : undefined,
++							);
+ 							server.pluginId = item.pluginId;
+ 							connected = server;
+ 							const remoteTools = server.tools.map((tool) => createRemoteTool(server, tool));
+@@ -258,6 +312,11 @@ export function createStepMcpExtension(): ExtensionFactory {
+ 							// the loop was busy cannot preempt input or rendering.
+ 							await yieldToEventLoop();
+ 							server.signal.throwIfAborted();
++							if (hot) {
++								const names = new Set(pi.getAllTools().map((tool) => tool.name));
++								if (remoteTools.some((tool) => names.has(tool.name)))
++									throw new Error("MCP tool name is already registered");
++							}
+ 							pi.registerTools(remoteTools);
+ 							publishMcpToolOwners(sessionOwners, server, server.tools);
+ 							published = true;
+@@ -266,11 +325,16 @@ export function createStepMcpExtension(): ExtensionFactory {
+ 								"abort",
+ 								() => {
+ 									published = false;
++									if (server.retiring) return;
+ 									publishMcpToolOwners(sessionOwners, server, [], server.tools);
+ 									if (controller.signal.aborted) return;
+ 									pi.registerTools([], { remove: server.tools.map((tool) => remoteToolName(server, tool)) });
+ 									statuses[index] = { name: item.name, status: "failed", toolCount: 0 };
+-									readiness?.update(item.name, { status: "failed", toolCount: 0, cleanupConfirmed: false });
++									updateReadiness({
++										status: "failed",
++										toolCount: 0,
++										...(hot ? {} : { cleanupConfirmed: false }),
++									});
+ 								},
+ 								{ once: true },
+ 							);
+@@ -279,7 +343,7 @@ export function createStepMcpExtension(): ExtensionFactory {
+ 								status: "connected",
+ 								toolCount: server.tools.length,
+ 							};
+-							readiness?.update(item.name, { status: "connected", toolCount: server.tools.length });
++							updateReadiness({ status: "connected", toolCount: server.tools.length });
+ 							void refreshCatalog();
+ 							return true;
+ 						} catch (error) {
+@@ -295,10 +359,10 @@ export function createStepMcpExtension(): ExtensionFactory {
+ 								status: "failed",
+ 								toolCount: 0,
+ 							};
+-							readiness?.update(item.name, {
++							updateReadiness({
+ 								status: "failed",
+ 								toolCount: 0,
+-								cleanupConfirmed: !(error instanceof McpCleanupUnconfirmed),
++								...(hot ? {} : { cleanupConfirmed: !(error instanceof McpCleanupUnconfirmed) }),
+ 							});
+ 							ctx.ui.notify(
+ 								describeMcpStartFailure({
+@@ -309,19 +373,21 @@ export function createStepMcpExtension(): ExtensionFactory {
+ 								}),
+ 								"warning",
+ 							);
+-							return false;
++							return error instanceof McpCleanupUnconfirmed ? "unconfirmed" : false;
+ 						}
+ 					};
+ 					const initial: DesktopToolStartup[] = disabled.map((item) => ({ ...item, startedAt: Date.now() }));
+ 					const ordinary: Array<() => Promise<unknown>> = [];
++					const hosted = new Set<string>();
+ 					for (const [index, item] of discovered.entries()) {
+ 						if (
+ 							await desktopHost?.defer(
+ 								item,
+-								(context, signal) => connect(item, index, context, signal).then(Boolean),
++								(context, signal) => connect(item, index, context, signal).then((result) => result === true),
+ 								() => statuses[index]?.status === "connected",
+ 							)
+ 						) {
++							hosted.add(item.name);
+ 							statuses[index] = { name: item.name, status: "disabled", toolCount: 0 };
+ 							const record = desktopHost
+ 								?.list()
+@@ -340,6 +406,111 @@ export function createStepMcpExtension(): ExtensionFactory {
+ 					}
+ 					readiness?.discovered(initial);
+ 					await Promise.all(ordinary.map((connect) => connect()));
++					if (!readiness || controller.signal.aborted || !readiness.snapshot().cleanupConfirmed) return;
++					const blocked = new Set<string>();
++					const sessionId = ctx.sessionManager.getSessionId();
++					const current = () => !controller.signal.aborted && ctx.sessionManager.getSessionId() === sessionId;
++					pluginReloaders.set(ctx.sessionManager, async (request) => {
++						const { pluginId, root } = request;
++						const slots = discovered.flatMap((item, index) =>
++							item.pluginId === pluginId ? [{ item, index }] : [],
++						);
++						const assess = (): DesktopPluginReloadResult => {
++							if (!current() || request.sessionId !== sessionId) return "unavailable";
++							if (!slots.length) return "absent";
++							if (
++								slots.some(
++									({ item }) =>
++										!item.pluginRoot ||
++										path.relative(root, item.pluginRoot) !== "" ||
++										item.hostConflict ||
++										hosted.has(item.name),
++								) ||
++								blocked.has(pluginId)
++							)
++								return "unsupported";
++							if (
++								[...admittedCalls.values()].includes(pluginId) ||
++								servers.some((server) => server.pluginId === pluginId && server.activeCalls)
++							)
++								return "busy";
++							return "ready";
++						};
++						if (hotReloads.has(pluginId)) return "busy";
++						const status = assess();
++						if (request.action === "inspect" || status !== "ready") return status;
++						const operation = (async (): Promise<DesktopPluginReloadResult> => {
++							const fresh = (await discoverStepMcpServers(ctx.cwd, ctx.isProjectTrusted())).filter(
++								(item) => item.pluginId === pluginId,
++							);
++							if (
++								fresh.length !== slots.length ||
++								fresh.some(
++									(item) =>
++										!item.pluginRoot || path.relative(root, item.pluginRoot) !== "" || item.hostConflict,
++								)
++							)
++								return "unsupported";
++							const updates = slots.map(({ item, index }) => ({
++								item: fresh.find((next) => next.name === item.name),
++								index,
++							}));
++							if (updates.some(({ item }) => !item)) return "unsupported";
++							// A sidecar added since startup must not bypass the native hosted launch.
++							if (
++								await lstat(path.join(root, "dfsc.host.json")).then(
++									() => true,
++									(error: NodeJS.ErrnoException) => error.code !== "ENOENT",
++								)
++							)
++								return "unsupported";
++							const checked = assess();
++							if (checked !== "ready") return checked;
++							const previous = servers.filter((server) => server.pluginId === pluginId);
++							if (
++								previous.some((server) =>
++									server.tools.some((tool) => sessionOwners.get(remoteToolName(server, tool)) !== pluginId),
++								)
++							)
++								return "unsupported";
++							// Check calls and retire in the same event-loop turn. Old model snapshots
++							// may still reference these wrappers, but may not enter a closing server.
++							for (const server of previous) {
++								server.retiring = true;
++								publishMcpToolOwners(sessionOwners, server, [], server.tools);
++							}
++							servers = servers.filter((server) => server.pluginId !== pluginId);
++							pi.registerTools([], {
++								remove: previous.flatMap((server) => server.tools.map((tool) => remoteToolName(server, tool))),
++							});
++							for (const { index, item } of slots)
++								statuses[index] = { name: item.name, status: "connecting", toolCount: 0 };
++							const cleanup = await Promise.allSettled(previous.map(closeMcpForReload));
++							if (!current()) return "unavailable";
++							if (cleanup.some((result) => result.status === "rejected")) {
++								blocked.add(pluginId);
++								for (const { item, index } of slots) {
++									statuses[index] = { name: item.name, status: "failed", toolCount: 0 };
++									readiness.update(item.name, { status: "failed", toolCount: 0 }, true);
++								}
++								return "failed";
++							}
++							const results = await Promise.all(
++								updates.map(({ item, index }) => connect(item!, index, undefined, controller.signal, true)),
++							);
++							if (results.includes("unconfirmed")) blocked.add(pluginId);
++							return current() && results.every((result) => result === true) ? "applied" : "failed";
++						})();
++						hotReloads.set(pluginId, operation);
++						try {
++							return await operation;
++						} finally {
++							hotReloads.delete(pluginId);
++						}
++					});
++					controller.signal.addEventListener("abort", () => pluginReloaders.delete(ctx.sessionManager), {
++						once: true,
++					});
+ 				})().catch((error: unknown) => {
+ 					if (!controller.signal.aborted) readiness?.discoveryFailed();
+ 					if (!controller.signal.aborted)
+@@ -362,8 +533,10 @@ export function createStepMcpExtension(): ExtensionFactory {
+ 		pi.on("session_shutdown", async () => {
+ 			desktopStartup?.dispose();
+ 			desktopStartup = undefined;
++			admittedCalls.clear();
+ 			cancellation?.abort();
+ 			await startup;
++			await Promise.allSettled([...hotReloads.values()]);
+ 			await desktopHost?.settled();
+ 			await Promise.allSettled([...cleanupOperations]);
+ 			desktopHost = undefined;
+@@ -380,7 +553,9 @@ export function createStepMcpExtension(): ExtensionFactory {
+ 	};
+ }
+ 
+-async function closeStepMcpServer(server: Pick<ConnectedServer, "client" | "transport">): Promise<void> {
++type McpConnection = { client: Pick<Client, "close">; transport: ConnectedServer["transport"] };
++
++async function closeStepMcpServer(server: McpConnection): Promise<void> {
+ 	try {
+ 		await server.client.close();
+ 	} catch {
+@@ -388,6 +563,41 @@ async function closeStepMcpServer(server: Pick<ConnectedServer, "client" | "tran
+ 	}
+ }
+ 
++export async function closeMcpForReload(server: McpConnection): Promise<void> {
++	if (server.transport instanceof StreamableHTTPClientTransport) {
++		const timeout = new AbortController();
++		try {
++			await Promise.race([
++				server.transport.terminateSession(),
++				delay(2000, undefined, { signal: timeout.signal, ref: false }).then(() => {
++					throw new Error("MCP session termination timed out");
++				}),
++			]);
++		} catch (error) {
++			// The SDK handles 405; 404 means this session is already gone.
++			if (!(error instanceof StreamableHTTPError && error.code === 404)) throw error;
++		} finally {
++			timeout.abort();
++			await closeStepMcpServer(server);
++		}
++		return;
++	}
++	const pid = server.transport instanceof StdioClientTransport ? server.transport.pid : null;
++	await server.client.close();
++	if (!pid) return;
++	const deadline = Date.now() + 2000;
++	do {
++		try {
++			process.kill(pid, 0);
++		} catch (error) {
++			if ((error as NodeJS.ErrnoException).code === "ESRCH") return;
++			throw error;
++		}
++		await new Promise((resolve) => setTimeout(resolve, 50));
++	} while (Date.now() < deadline);
++	throw new Error("MCP child still running");
++}
++
+ /** The server name a plugin declared, stripped of the plugin qualifier. */
+ export function bareServerName(published: string): string {
+ 	// The plugin qualifier is the *first* segment; a declared server name may
+@@ -676,9 +886,12 @@ export async function connectStepMcpServer(
+ 	abortSignal?: AbortSignal,
+ 	onToolsChanged?: () => void,
+ 	launchContext?: string,
++	maxStartupMs = Infinity,
+ ): Promise<ConnectedServer> {
+ 	const deadline = AbortSignal.any([
+-		AbortSignal.timeout(timeoutMs(input.declaration.startup_timeout_sec, MCP_STARTUP_TIMEOUT_SEC)),
++		AbortSignal.timeout(
++			Math.min(maxStartupMs, timeoutMs(input.declaration.startup_timeout_sec, MCP_STARTUP_TIMEOUT_SEC)),
++		),
+ 		...(abortSignal ? [abortSignal] : []),
+ 	]);
+ 	let abort!: () => void;
+@@ -931,12 +1144,18 @@ function createRemoteTool(server: ConnectedServer, remote: McpTool) {
+ 			params: unknown,
+ 			signal: AbortSignal | undefined,
+ 		): Promise<AgentToolResult<unknown>> => {
+-			const result = await call(isRecord(params) ? params : {}, {
+-				timeout: server.callTimeoutMs,
+-				resetTimeoutOnProgress: true,
+-				signal: signal ? AbortSignal.any([signal, server.signal]) : server.signal,
+-			});
+-			return convertMcpCallResult(server.name, remote.name, result);
++			if (server.retiring) throw new Error("MCP plugin is reloading; retry after it is ready");
++			server.activeCalls = (server.activeCalls ?? 0) + 1;
++			try {
++				const result = await call(isRecord(params) ? params : {}, {
++					timeout: server.callTimeoutMs,
++					resetTimeoutOnProgress: true,
++					signal: signal ? AbortSignal.any([signal, server.signal]) : server.signal,
++				});
++				return convertMcpCallResult(server.name, remote.name, result);
++			} finally {
++				server.activeCalls--;
++			}
+ 		},
+ 	};
+ }

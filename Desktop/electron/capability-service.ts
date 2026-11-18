@@ -494,6 +494,23 @@ export class CapabilityService {
     const frozen = structuredClone(input);
     return this.enqueue(() => this.removalExpected(frozen));
   }
+  reloadTarget(input: { id: string; ref: string }) {
+    return this.enqueue(() => this.withTarget(input.ref, true, async ({ catalog, plugin, descriptor, scope }) => {
+      if (descriptor.kind !== 'installed' || descriptor.id !== input.id || descriptor.provenance !== 'recorded')
+        throw new Error('capability:stale');
+      const services = catalog.mcp.filter(server => server.source === 'plugin' && server.pluginId === input.id);
+      if (!services.length) throw new Error('capability:reload-unsupported');
+      const configuration = plugin.package?.configurationAvailable
+        ? (await this.configurations.read(descriptor, scope)).revision : undefined;
+      const binding = plugin.package?.hostSettingsAvailable
+        ? await this.hostBindings.current(descriptor, scope) : undefined;
+      return { name: plugin.name, root: descriptor.root, services: services.map(item => item.name),
+        stamp: digest(JSON.stringify([descriptor.root, descriptor.id, descriptor.instance, descriptor.fingerprint,
+          services, configuration, binding, await optionalFile(this.options.root, 'config.toml', 1024 * 1024),
+          ...(input.id === 'bilibili-video-research'
+            ? [await optionalFile(this.options.root, 'bvr/config.json', 1024 * 1024)] : [])])) };
+    }));
+  }
   remove(input: PluginRemovalRequest, guard: CapabilityGuard, checked: { stamp: string; identity: string }) {
     return this.mutate({ action: 'plugin-remove', id: input.id }, guard, { ...checked, removal: { ...input } });
   }

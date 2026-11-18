@@ -64,6 +64,7 @@ import { StepPagePreparer } from './steppage-prepare';
 import { CapabilityService, assertPluginUnused } from './capability-service';
 import { CapabilityGate } from './capability-gate';
 import { PluginUpdateCoordinator } from './plugin-update-coordinator';
+import { PluginReloadCoordinator } from './plugin-reload-coordinator';
 import type { PluginRemovalRequest } from '../src/plugin-update';
 import { diagnoseCapabilityMutation, type CapabilityPhaseMarker } from './capability-diagnostics';
 import { capabilityFailureDetails } from './capability-failure.mjs';
@@ -731,6 +732,21 @@ const pluginHosts = new PluginHostLauncher({ root: dataRoot, pool: runtimes, cap
   available: () => runtimeManifest.patches?.includes('desktop-plugin-host-launch') === true
     && capabilityService.available && capabilityService.runtimeAvailable
     && !settingsMutation && !providerSettingsPending && !providerApplyFailed && !quitting && !quitPending });
+const pluginReloads = new PluginReloadCoordinator({
+  pool: runtimes, gate: capabilityGate,
+  check: input => capabilityService.reloadTarget(input),
+  assertAvailable: () => {
+    if (settingsMutation || speechSaving || undoBusy || transition || updateInstalling || quitting || quitPending
+      || providerSettingsPending || providerApplyFailed || miniNavigation.busy)
+      throw new Error('capability:busy');
+    if (!runtimeManifest.patches?.includes('desktop-plugin-mcp-reload'))
+      throw new Error('capability:reload-unsupported');
+    if (!capabilityService.available || !capabilityService.runtimeAvailable)
+      throw new Error('capability:management-unavailable');
+  },
+  external: worker => externallyOwned(worker),
+});
+setInterval(() => { void pluginReloads.tick().catch(() => {}); }, 1000).unref();
 const btw = new BtwRequests(runtimes, emit);
 const pendingMessages = new PendingMessages(worker => {
   worker.revision++;
@@ -1748,11 +1764,12 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
           await sessionImports.close();
           await remote.shutdown();
           await externalConnectors.shutdown();
+          await pluginReloads.close();
           await Promise.all([runtimes.stopAll(), admin.stop(), capabilityService.stop(), collaboration.stop(), pluginHosts.close()]);
           await externalTasks.flush().catch(() => crashLog.record('external-connectors', new Error('External task state could not be saved')));
         });
         success = true;
-      } finally { if (!success) updateInstalling = false; }
+      } finally { if (!success) { updateInstalling = false; pluginReloads.resume(); } }
       return;
     }
     case 'browserOpenLink': return browser!.open(text(args[0], 4096));
@@ -2994,6 +3011,11 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
     case 'pluginRemovalPreflight': return pluginRemovals.preflight(args[0]);
     case 'pluginRemovalOperation': return pluginRemovals.latest(args[0]?.pluginId);
     case 'pluginRemovalApply': return pluginRemovals.apply(args[0]);
+    case 'pluginReloadStart': return pluginReloads.start(args[0]);
+    case 'pluginReloadPreview': return pluginReloads.preview(args[0]);
+    case 'pluginReloadApply': return pluginReloads.apply(args[0]);
+    case 'pluginReloadState': return pluginReloads.state(args[0]);
+    case 'pluginReloadCancel': return pluginReloads.cancel(args[0]);
     case 'pluginWindowOpen': {
       if (quitting || quitPending || settingsMutation) throw new Error('capability:busy');
       const plugin = await capabilityService.desktop(args[0]?.ref);
@@ -3339,6 +3361,7 @@ app.on('before-quit', event => {
       quitStage = 'external-connectors';
       await externalConnectors.shutdown();
       quitStage = 'services';
+      await pluginReloads.close();
       await Promise.all([historyReaders.close(), runtimes.stopAll(), admin.stop(), capabilityService.stop(), collaboration.stop(), bvrBridge.stop(), pluginHosts.close()]);
       await network.stop();
       quitStage = 'persistence';
@@ -3352,6 +3375,7 @@ app.on('before-quit', event => {
       app.quit();
     } catch (error) {
       quitPending = false;
+      pluginReloads.resume();
       quitReview.reset();
       if (!sessionEnding) showMainWindow();
       void crashLog.record('quit-failure', error, { stage: quitStage });
@@ -3590,6 +3614,7 @@ else app.whenReady().then(async () => {
       const capabilityMutation = ['capabilityMutate', 'pluginUpdateApply', 'pluginRemovalApply', 'capabilityImportSkill', 'bvrSaveConfiguration', 'pluginSaveConfiguration', 'pluginSaveHostSettings', 'saveCompactionSettings'].includes(method);
       const capabilityRead = ['capabilityCatalog', 'pluginDesktopCatalog', 'pluginDocument', 'pluginRepositoryInfo', 'pluginConfiguration', 'pluginHostSettings', 'pluginWindowOpen',
         'pluginUpdatePreflight', 'pluginUpdateOperation', 'pluginRemovalPreflight', 'pluginRemovalOperation',
+        'pluginReloadStart', 'pluginReloadPreview', 'pluginReloadApply', 'pluginReloadState', 'pluginReloadCancel',
         'pluginConnectionState', 'pluginConnectionChooseProfile', 'pluginConnectionForgetProfile',
         'pluginChoosePath', 'themeScene', 'themePoster', 'themeImage', 'customBackgroundState', 'customBackgroundImage',
         'customBackgroundImport', 'customBackgroundSave', 'customBackgroundRemove',
@@ -3684,5 +3709,5 @@ else app.whenReady().then(async () => {
   startupWindow?.destroy();
   await crashLog.record('startup-failure', error, (error as { details?: Record<string, unknown> }).details ?? {});
   if (!backgroundAcceptance) dialog.showErrorBox('Desktop for Step Code', String(error));
-  quitting = true; void Promise.all([historyReaders.close(), remote.shutdown(), externalConnectors.shutdown(), sessionImports.close(), runtimes.stopAll(), admin.stop(), capabilityService.stop(), collaboration.stop(), terminals.stopAll(), pluginHosts.close()]).finally(() => app.quit());
+  quitting = true; void pluginReloads.close().then(() => Promise.all([historyReaders.close(), remote.shutdown(), externalConnectors.shutdown(), sessionImports.close(), runtimes.stopAll(), admin.stop(), capabilityService.stop(), collaboration.stop(), terminals.stopAll(), pluginHosts.close()])).finally(() => app.quit());
 });

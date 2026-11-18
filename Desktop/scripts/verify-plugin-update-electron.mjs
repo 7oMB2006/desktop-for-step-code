@@ -451,6 +451,7 @@ try {
     await app.evaluate(({ BrowserWindow }, width) => BrowserWindow.getAllWindows()[0].setSize(width, 960), width);
     await shot(`uninstall-${theme}-${width}.png`, 'Uninstall plugin');
   }
+  await uninstall.locator('summary').click();
   await uninstall.getByRole('button', { name: `View session ${historyFixtures[0].name}`, exact: true }).click();
   await until(snapshot, value => value.state?.sessionId === historyFixtures[0].id,
     'The uninstall dialog did not navigate directly to the owning session');

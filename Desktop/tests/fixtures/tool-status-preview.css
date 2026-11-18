@@ -13,6 +13,8 @@
 .web-preview-sidebar-bottom { display: flex; align-items: center; gap: 9px; padding: 12px 6px 0; margin-top: auto; font-size: 11px; color: var(--muted); }
 .web-preview-main { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
 .web-preview-main > .plugin-center { flex: 1; min-height: 0; }
+.web-preview-lifecycle { display: flex; flex: 1; min-height: 0; min-width: 0; }
+.web-preview-lifecycle[hidden] { display: none; }
 .web-preview-chat { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 .web-preview-chat-heading { padding: 20px 28px; border-bottom: 1px solid var(--border); font-size: 13px; }
 .web-preview-messages { flex: 1; min-height: 0; overflow: auto; padding: 32px max(24px, calc((100% - 780px) / 2)); }

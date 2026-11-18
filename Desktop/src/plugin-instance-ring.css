@@ -1,0 +1,20 @@
+.lc-instance-ring { display: block; width: 24px; height: 24px; flex: 0 0 24px; }
+.lc-instance-ring circle { fill: none; stroke: var(--muted); stroke-width: 4; transform: rotate(-90deg); transform-origin: center; transition: stroke 260ms cubic-bezier(.25,1,.5,1), stroke-opacity 260ms cubic-bezier(.25,1,.5,1), stroke-dasharray 260ms cubic-bezier(.25,1,.5,1), stroke-dashoffset 260ms cubic-bezier(.25,1,.5,1), opacity 220ms cubic-bezier(.25,1,.5,1); }
+.lc-instance-ring circle[data-phase=done] { stroke: var(--green); }
+.lc-instance-ring circle[data-phase=failed] { stroke: var(--danger); }
+.lc-instance-ring circle[data-phase=loading] { stroke: oklch(.5 .13 75); }
+:root[data-theme=dark] .lc-instance-ring circle[data-phase=loading] { stroke: oklch(.8 .14 85); }
+.lc-instance-ring circle[data-phase=unknown] { stroke-opacity: .45; }
+.lc-ring-activity { transition: opacity 220ms cubic-bezier(.25,1,.5,1); }
+.lc-instance-ring .lc-ring-activity circle { stroke: var(--bg); animation: lc-ring-working 1200ms ease-in-out infinite; animation-play-state: paused; }
+.lc-ring-segment[data-phase=loading] .lc-ring-activity circle { animation-play-state: running; }
+.lc-ring-hatch rect { fill: var(--muted); }
+.lc-ring-hatch path { stroke: var(--bg); stroke-width: 1.6; }
+.lc-instance-count { min-width: 3ch; font-size: 11px; font-variant-numeric: tabular-nums; color: var(--muted); white-space: nowrap; animation: lc-count-in 180ms cubic-bezier(.25,1,.5,1); }
+@keyframes lc-ring-working { 0%, 100% { stroke-opacity: .08; } 50% { stroke-opacity: .38; } }
+@keyframes lc-count-in { from { opacity: .45; transform: translateY(2px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) {
+  .lc-instance-count, .lc-instance-ring .lc-ring-activity circle { animation: none; }
+  .lc-instance-ring circle, .lc-ring-activity { transition: none; }
+  .lc-ring-activity { display: none; }
+}

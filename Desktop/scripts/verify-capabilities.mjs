@@ -119,12 +119,14 @@ try {
       await page.locator('.settings-dialog').waitFor({ state: 'detached' });
     } else if (await page.locator('.plugin-center').isVisible()) await page.locator('.plugin-center').getByRole('button', { name: '返回会话', exact: true }).click();
   };
-  const restartSession = async (footer = '.cap-footer') => {
+  const restartSession = async (footer = '.cap-footer', { hidesRestart = false } = {}) => {
     const before = await page.evaluate(() => window.desktop.snapshot());
-    await page.locator(footer).getByRole('button', { name: '重启当前会话', exact: true }).click();
+    const restart = page.locator(footer).getByRole('button', { name: '重启当前会话', exact: true, includeHidden: true });
+    await restart.click();
     await waitForSessionFixtureSnapshot(page, snapshot => snapshot.runtimeId && snapshot.runtimeId !== before.runtimeId
       && snapshot.status === 'connected', 'the replacement capability runtime to connect');
-    await page.waitForFunction(footer => document.querySelector(`${footer} button:last-child`)?.disabled === false, footer);
+    if (hidesRestart) await restart.waitFor({ state: 'detached' });
+    else await restart.and(page.locator('button:enabled')).waitFor({ state: 'visible' });
   };
   await page.emulateMedia({ reducedMotion: 'no-preference' });
   page.on('pageerror', error => errors.push(error.message));
@@ -586,7 +588,7 @@ try {
     { jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'format_note', arguments: { text: 'hello' } } },
   ].map(value => JSON.stringify(value)).join('\n') + '\n', timeout: 15000 });
   assert.match(consumer, /Electron HELLO/); assert.doesNotMatch(consumer, /isolated-ui-secret/);
-  await restartSession('.pc-detail-footer');
+  await restartSession('.pc-detail-footer', { hidesRestart: true });
   let connected;
   await waitForSessionFixtureSnapshot(page, async snapshot => {
     connected = await page.evaluate(runtimeId => window.desktop.summary(runtimeId), snapshot.runtimeId);

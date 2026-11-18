@@ -643,7 +643,7 @@ try {
     assert.equal(await race.getByRole('button', { name: '查看 StepPage 使用说明', exact: true }).locator('.pc-category-tags').count(), 0,
       'Legacy plugins without classification metadata remain usable and do not receive inferred tags');
     await race.getByRole('button', { name: '配置 StepPage', exact: true }).click();
-    assert.match(await race.locator('.pc-save-state').innerText(), /已保存.*重启/);
+    assert.equal(await race.locator('.pc-save-state').innerText(), '已保存，运行实例待应用');
     assert.deepEqual(await race.evaluate(() => {
       const { saves, restarts } = window.pluginCenterTest.counts(); return { saves, restarts };
     }), { saves: 0, restarts: 0 }, 'Preparation refresh must not save the unrelated draft or restart automatically');

@@ -21,12 +21,15 @@ import { pluginCategoryLabel, pluginClassificationText, pluginPresentation, plug
 import { PluginUpdateAction, PluginUpdateBadge, PluginUpdateRow, pluginUpdatePending, type PluginUpdatesPresentation, type PluginUpdateState } from './PluginUpdatePresentation';
 import { PluginUpdateDialog, pluginUpdateChangeText, type PluginUpdatePanel } from './PluginUpdateDialog';
 import type { PluginRemovalBridge, PluginUpdateBridge, PluginUpdateOperation, PluginUpdatePreflight } from './plugin-update';
+import { PluginReloadControl } from './PluginReloadControl';
+import { NoticeToast, type NoticeToastItem } from './NoticeToast';
+import type { PluginReloadBridge } from './plugin-reload';
 import './capability-settings.css';
 import './plugin-center.css';
 
 export type PluginCenterBridge = CapabilityBridge & BvrSettingsBridge & Pick<import('./contracts').DesktopBridge,
   'pluginDocument' | 'pluginRepositoryInfo' | 'pluginConfiguration' | 'pluginSaveConfiguration' | 'pluginChoosePath'
-  | 'pluginHostSettings' | 'pluginSaveHostSettings'> & Partial<PluginUpdateBridge & PluginRemovalBridge>;
+  | 'pluginHostSettings' | 'pluginSaveHostSettings'> & Partial<PluginUpdateBridge & PluginRemovalBridge & PluginReloadBridge>;
 type Entry = { key: string; name: string; description?: string; version?: string; repository?: string;
   icon?: CapabilityPlugin['icon']; source?: string; installed?: CapabilityPlugin; available?: MarketplacePlugin; package?: PluginPackage };
 function PluginCategoryTags({ pkg, language, compact = false }: { pkg?: PluginPackage; language: string; compact?: boolean }) {
@@ -71,6 +74,7 @@ export function PluginCenter({ bridge, language, busy, active, runtimeId, curren
   const [selected, setSelected] = useState<string>();
   const [detailTab, setDetailTab] = useState('config');
   const [changed, setChanged] = useState(false);
+  const [reloadNotice, setReloadNotice] = useState<NoticeToastItem | null>(null);
   const [observationRevision, setObservationRevision] = useState(0);
   const [configurationRevision, setConfigurationRevision] = useState(0);
   const [mcpRevision, setMcpRevision] = useState(0);
@@ -525,6 +529,27 @@ export function PluginCenter({ bridge, language, busy, active, runtimeId, curren
     acceptCatalog(next);
   };
   const servers = (plugin: CapabilityPlugin) => catalog?.mcp.filter(server => server.pluginId === plugin.id) ?? [];
+  const nativeReloads = Boolean(bridge.pluginReloadStart && bridge.pluginReloadState && bridge.pluginReloadCancel);
+  const canReload = (plugin: CapabilityPlugin) => nativeReloads && plugin.package?.provenance === 'recorded' && servers(plugin).length > 0;
+  const reloadControl = (plugin: CapabilityPlugin) => canReload(plugin) && plugin.package
+    ? <PluginReloadControl bridge={bridge as PluginCenterBridge & PluginReloadBridge}
+      plugin={{ id: plugin.id, name: plugin.name, ref: plugin.package.ref }} language={language} active={active}
+      disabled={operationLocked || bvrState.dirty}
+      disabledReason={bvrState.dirty ? t('请先保存或放弃配置更改', 'Save or discard configuration edits first')
+        : operationLocked ? t('插件操作处理中，请稍候', 'A plugin operation is in progress') : undefined}
+      onFinished={state => {
+        const failed = state.sessions.filter(item => item.phase === 'failed').length;
+        const loaded = state.sessions.filter(item => item.phase === 'applied').length;
+        if (failed) setReloadNotice({ id: Date.now(), type: 'warning',
+          message: t(`${plugin.name} 有 ${failed} 个实例重载失败`, `${plugin.name}: ${failed} instance${failed === 1 ? '' : 's'} failed to reload`) });
+        else if (loaded && loaded === state.sessions.length)
+          setReloadNotice({ id: Date.now(), type: 'success', message: t(`${plugin.name} 已重载`, `${plugin.name} reloaded`) });
+        if (!failed && !loaded) return;
+        setLive(undefined); setObservationRevision(value => value + 1);
+        void onChanged().catch(error => setError(capabilityErrorText(error, language === 'zh')));
+      }} onError={message => setReloadNotice({ id: Date.now(), type: 'warning', message })}
+      onSession={onOpenSession ? sessionId => navigate(() => { void onOpenSession(sessionId); }) : undefined}/>
+    : null;
   const toggle = (plugin: CapabilityPlugin) => {
     if (plugin.package?.hostConfiguration === 'custom-background-v1') return null;
     const owned = servers(plugin);
@@ -732,6 +757,7 @@ export function PluginCenter({ bridge, language, busy, active, runtimeId, curren
                   {item.installed && <PluginUpdateAction state={updates?.items[item.installed.id]} name={item.name}
                     language={language} disabled={updateLocked(item.installed)} onUpdate={() => updatePlugin(item.installed!.id)}
                     onRestart={runtimeId && !locked ? () => void restart().catch(error => setError(capabilityErrorText(error, language === 'zh'))) : undefined}/>}
+                  {item.installed && reloadControl(item.installed)}
                   <ProjectLink entry={item} language={language}/>
                   {item.installed && <button className="icon-button pc-danger-button" disabled={nativeRemovals ? operationLocked : mutationLocked({ action: 'plugin-remove', id: item.installed.id })}
                     aria-label={t(`卸载 ${item.name}`, `Uninstall ${item.name}`)} data-tooltip={t('卸载插件', 'Uninstall plugin')}
@@ -739,7 +765,7 @@ export function PluginCenter({ bridge, language, busy, active, runtimeId, curren
                   <button className="icon-button pc-card-settings" aria-label={t(`配置 ${item.name}`, `Configure ${item.name}`)} onClick={event => choose(item, event.currentTarget)}><Settings size={16}/></button></div></footer>
             </article>)}</div>
             {!shown.length && <div className="pc-list-empty">{t('没有匹配的插件', 'No matching plugins')}{tab === 'installed' && <button onClick={() => { setTab('discover'); setQuery(''); }}>{t('浏览插件', 'Browse plugins')}</button>}</div>}
-            <p className="pc-list-footer">{t('开关控制插件 MCP 服务；技能与指令仍由运行时加载。现有会话需重启后应用。', 'Switches control plugin MCP services; skills and commands remain runtime-managed. Restart existing sessions to apply changes.')}</p>
+            <p className="pc-list-footer">{t('开关控制插件 MCP 服务；技能与指令仍由运行时加载。更改已保存，现有实例待应用。', 'Switches control plugin MCP services; skills and commands remain runtime-managed. Saved changes await application to live instances.')}</p>
             <ul className="cap-notes">{catalog.warnings.map((value, index) => <li key={index}>{value}</li>)}</ul>
             {tab === 'installed' && !catalog.plugins.some(plugin => plugin.id === 'steppage') && <CapabilityDisclosure className="cap-preparation" label={<>StepPage · {t('内置准备', 'Built-in setup')}</>}>
               <StepPageSettings bridge={bridge} language={language} config={settings?.mcp.steppage__steppage} busy={locked}
@@ -764,7 +790,7 @@ export function PluginCenter({ bridge, language, busy, active, runtimeId, curren
             {onOpenDesktop && entry.installed.package?.provenance === 'recorded' && entry.installed.package.desktop &&
               <button type="button" disabled={operationLocked} onClick={() => navigate(() => onOpenDesktop(entry.installed!))}>
                 <ExternalLink size={15}/>{t('打开', 'Open')} {entry.installed.package.desktop.title}</button>}
-            {toggle(entry.installed)}<button className="icon-button pc-danger-button" disabled={nativeRemovals ? operationLocked : mutationLocked({ action: 'plugin-remove', id: entry.installed.id })} aria-label={t('卸载插件', 'Uninstall plugin')}
+            {toggle(entry.installed)}{reloadControl(entry.installed)}<button className="icon-button pc-danger-button" disabled={nativeRemovals ? operationLocked : mutationLocked({ action: 'plugin-remove', id: entry.installed.id })} aria-label={t('卸载插件', 'Uninstall plugin')}
               onClick={() => navigate(() => void requestRemoval(entry.installed!))}><Trash2 size={16}/></button></>
             : <button className="primary" disabled={installLocked(entry) || entry.available?.installed || entry.available?.blocked} onClick={() => confirmInstall(entry)}>
               <ArrowDownToLine size={15}/>{entry.available?.installed ? t('已安装', 'Installed') : t('安装', 'Install')}</button>}</div></header>
@@ -841,13 +867,16 @@ export function PluginCenter({ bridge, language, busy, active, runtimeId, curren
       </div></div><ScrollThumb scrollRef={scroll} language={language === 'zh' ? 'zh' : 'en'} sessionId={`${entry.key}-${detailTab}`} messageCount={1}
         scrollId={`${id}-scroll`} label={t('插件详情滚动', 'Scroll plugin details')} className="pc-detail-scroll-track" contentSelector=".pc-detail-document" compact/></div>
       <footer className="pc-detail-footer" hidden={isCustomBackground || ['about', 'updates'].includes(detailTab) && !bvrState.dirty && !changed}><span className="pc-save-state" role="status">{hasConfigurationForm && bvrState.dirty ? t('有未保存的更改', 'Unsaved changes')
-        : changed ? t('已保存，现有会话需重启后应用', 'Saved; restart existing sessions to apply') : t('Desktop 独立配置', 'Desktop profile')}</span>
+        : changed ? t('已保存，运行实例待应用', 'Saved; live instances await application') : t('Desktop 独立配置', 'Desktop profile')}</span>
         <div>{hasConfigurationForm && detailTab === 'config' && <button className="primary" type="submit" form={formId}
           disabled={!canEditBvr || !bvrState.dirty || configurationLocked}
           title={busy && (isBvr || configurationPackage?.hostSettingsAvailable)
             ? t('宿主授权变更需等待任务结束，未保存内容会保留', 'Wait for the task to finish before changing host authorization; edits are preserved') : undefined}><Save size={14}/>{t('保存配置', 'Save configuration')}</button>}
-          <button disabled={locked || !runtimeId || bvrState.dirty} onClick={() => void restart().catch(error => setError(capabilityErrorText(error, language === 'zh')))}><RotateCcw size={14}/>{t('重启当前会话', 'Restart current session')}</button></div></footer>
+          {(changed || !(entry.installed && canReload(entry.installed))) &&
+            <button disabled={locked || !runtimeId || bvrState.dirty} onClick={() => void restart().catch(error => setError(capabilityErrorText(error, language === 'zh')))}><RotateCcw size={14}/>{t('重启当前会话', 'Restart current session')}</button>}</div></footer>
     </section>}
+    {active && reloadNotice && <div className="pc-reload-notice"><NoticeToast notice={reloadNotice}
+      language={language === 'zh' ? 'zh' : 'en'} onDismiss={() => setReloadNotice(null)} onDetails={() => {}}/></div>}
     <PluginUpdateDialog panel={removalPanel} open={active && removalOpen} language={language}
       onClose={() => setRemovalOpen(false)} onApply={() => void applyRemoval()}
       onCheck={() => {

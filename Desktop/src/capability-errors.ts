@@ -44,6 +44,7 @@ export function capabilityErrorText(error: unknown, zh: boolean) {
     'removal-operation-interrupted': ['上次卸载被中断，插件与会话恢复结果需要核对。请保留现场，不要重复卸载。', 'The previous removal was interrupted. Review the plugin and session recovery; preserve the files and do not repeat removal.'],
     'removal-operation-record-failed': ['卸载进度记录未能保存，请核对插件和会话状态，勿重复卸载。', 'Removal progress could not be saved. Review the plugin and sessions; do not repeat removal.'],
     'removal-operation-record-invalid': ['卸载记录无法读取或格式无效。请保留现场并核对插件和会话状态，不要重复卸载。', 'The removal record is unreadable or invalid. Preserve the files and review the plugin and sessions; do not repeat removal.'],
+    'reload-unsupported': ['此插件没有可重载的 MCP 服务。', 'This plugin has no reloadable MCP services.'],
     'busy': ['共享设置、撤销或更新操作尚未结束，请完成后重试。', 'A shared settings, undo or update operation is still in progress. Finish it and retry.'],
     'workspace-busy': ['工作区正在切换，请等待切换完成后重试。', 'The workspace is changing. Wait for it to finish and retry.'],
     'session-busy': ['有会话仍在执行任务、整理上下文或变更状态，请结束后重试。', 'A session is running, compacting or changing state. Wait for it to finish and retry.'],

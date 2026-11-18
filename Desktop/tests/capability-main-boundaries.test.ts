@@ -150,6 +150,7 @@ test('actual main passive capability reads never trigger pending provider applic
     'customBackgroundState', 'customBackgroundImage', 'customBackgroundImport', 'customBackgroundSave', 'customBackgroundRemove',
     'bvrConfiguration', 'bvrCheckEnvironment', 'bvrChoosePath', 'capabilityMutate',
     'pluginUpdatePreflight', 'pluginUpdateOperation', 'pluginUpdateApply',
+    'pluginRemovalPreflight', 'pluginRemovalOperation', 'pluginRemovalApply',
   ]) assert.equal(await f.read(method), method);
   assert.equal(f.state.applications, 0);
   await f.read('beginSession');

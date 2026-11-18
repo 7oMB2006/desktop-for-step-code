@@ -74,6 +74,63 @@ for (const kind of ['startup', 'status'] as const) {
   });
 }
 
+for (const streamingBehavior of [undefined, 'steer', 'followUp'] as const) {
+  test(`optional MCP failure admits ${streamingBehavior ?? 'normal'} submission without a confirmation`, async () => {
+    const { pool, open, transports, events } = fixture();
+    try {
+      const worker = await open();
+      const state: RuntimeStartup = { protocol: 1, runtimeId: worker.id, sessionId: worker.state!.sessionId!,
+        startupEpoch: randomUUID(), configurationRevision: randomUUID(), catalogRevision: 1,
+        targetBound: true, modelReady: true, cleanupConfirmed: true, discovery: 'ready', coreReadyAt: 1,
+        tools: [{ name: 'optional', status: 'failed', toolCount: 0, startedAt: 1 }] };
+      worker.startup = state;
+      worker.startupConfigurationRevision = state.configurationRevision;
+      const calls: { type: string; args?: Record<string, unknown> }[] = [];
+      transports[0].request = async (type, args) => {
+        calls.push({ type, args });
+        if (type === 'desktop_startup' && args?.action === 'state') return state;
+        assert.notEqual(type, 'desktop_startup', 'degraded submissions need no authorization RPC');
+        return {};
+      };
+      await pool.assertExecutionReady(worker);
+      await pool.submitPrompt(worker, { message: 'continue without the failed MCP', ...(streamingBehavior ? { streamingBehavior } : {}) });
+      assert.equal(calls.filter(call => call.type === 'prompt').length, 1);
+      assert.equal(calls.at(-1)?.args?.streamingBehavior, streamingBehavior);
+      assert.equal(calls.at(-1)?.args?.startupApproval, undefined);
+      assert.equal(events.some(event => event.type === 'extension_ui_request'), false);
+      assert.equal(worker.startup.tools[0].status, 'failed');
+    } finally { await pool.stopAll(); }
+  });
+}
+
+for (const change of ['abort', 'epoch', 'disconnect'] as const) {
+  test(`degraded admission rechecks ${change} after reading startup state`, async () => {
+    const { pool, open, transports } = fixture();
+    try {
+      const worker = await open();
+      const state: RuntimeStartup = { protocol: 1, runtimeId: worker.id, sessionId: worker.state!.sessionId!,
+        startupEpoch: randomUUID(), configurationRevision: randomUUID(), catalogRevision: 1,
+        targetBound: true, modelReady: true, cleanupConfirmed: true, discovery: 'ready', coreReadyAt: 1,
+        tools: [{ name: 'optional', status: 'failed', toolCount: 0, startedAt: 1 }] };
+      worker.startup = state;
+      worker.startupConfigurationRevision = state.configurationRevision;
+      let valid = true, prompts = 0;
+      transports[0].request = async (type, args) => {
+        if (args?.action === 'state') {
+          if (change === 'abort') valid = false;
+          if (change === 'epoch') worker.startup = { ...state, startupEpoch: randomUUID() };
+          if (change === 'disconnect') worker.status = 'disconnected';
+          return state;
+        }
+        if (type === 'prompt') prompts++;
+        return {};
+      };
+      await assert.rejects(pool.submitPrompt(worker, { message: 'stale' }, false, 1000, () => valid), /STARTUP_NOT_READY|not connected/);
+      assert.equal(prompts, 0);
+    } finally { await pool.stopAll(); }
+  });
+}
+
 for (const kind of ['message', 'compaction', 'unknown', 'manual revision'] as const) {
   test(`${kind} events still prevent stale history from overwriting a live snapshot`, async () => {
     let emitDuringRead = false;
@@ -96,6 +153,24 @@ for (const kind of ['message', 'compaction', 'unknown', 'manual revision'] as co
       if (kind === 'message') assert.equal(worker.messages.at(-1)?.content, 'Newer message');
       else assert.equal(worker.messages, current);
       if (kind === 'compaction') assert.equal(worker.state?.isCompacting, true);
+    } finally { await pool.stopAll(); }
+  });
+}
+
+for (const unsafe of ['cleanup', 'discovery', 'model', 'connecting'] as const) {
+  test(`optional failure does not bypass the ${unsafe} safety gate`, async () => {
+    const { pool, open, transports } = fixture();
+    try {
+      const worker = await open();
+      const state: RuntimeStartup = { protocol: 1, runtimeId: worker.id, sessionId: worker.state!.sessionId!,
+        startupEpoch: randomUUID(), configurationRevision: randomUUID(), catalogRevision: 1,
+        targetBound: true, modelReady: unsafe !== 'model', cleanupConfirmed: unsafe !== 'cleanup',
+        discovery: unsafe === 'discovery' ? 'failed' : 'ready', coreReadyAt: 1,
+        tools: [{ name: 'optional', status: unsafe === 'connecting' ? 'connecting' : 'failed', toolCount: 0, startedAt: 1 }] };
+      worker.startup = state; worker.startupConfigurationRevision = state.configurationRevision;
+      transports[0].request = async type => { assert.equal(type, 'desktop_startup'); return state; };
+      await assert.rejects(pool.assertExecutionReady(worker), /STARTUP_NOT_READY/);
+      await assert.rejects(pool.submitPrompt(worker, { message: 'unsafe' }), /STARTUP_NOT_READY/);
     } finally { await pool.stopAll(); }
   });
 }

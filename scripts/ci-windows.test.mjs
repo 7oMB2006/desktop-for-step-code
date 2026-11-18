@@ -33,6 +33,9 @@ test('every acceptance script is assigned exactly once or explicitly remains out
   assert.ok(!localOnly.includes('verify-plugin-update-electron.mjs'));
   assert.ok(acceptanceGroups.runtime.includes('verify-profile-lifecycle.mjs'));
   assert.ok(!localOnly.includes('verify-profile-lifecycle.mjs'));
+  assert.ok(acceptanceGroups.interface.includes('verify-runtime-startup-status.mjs'));
+  assert.ok(acceptanceGroups.sessions.includes('verify-optional-mcp-loop.mjs'));
+  assert.ok(localOnly.includes('verify-tool-status-web.mjs'));
   for (const script of ['verify-model-catalog.mjs', 'verify-network-settings.mjs', 'verify-provider-proxy.mjs']) {
     assert.ok(acceptanceGroups.runtime.includes(script));
     assert.ok(!localOnly.includes(script));

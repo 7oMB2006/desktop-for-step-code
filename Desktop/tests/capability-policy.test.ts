@@ -18,9 +18,10 @@ const actions: CapabilityMutation['action'][] = [
 test('every action has a fail-closed trusted scope; only verified package operations can become themes', () => {
   for (const action of actions) {
     const discovery = action.startsWith('marketplace-') || action === 'plugin-check-updates';
-    assert.equal(capabilityPolicy(action).scope, discovery ? 'discovery' : 'runtime');
+    const expected = discovery ? 'discovery' : ['plugin-toggle', 'mcp-toggle'].includes(action) ? 'next-start' : 'runtime';
+    assert.equal(capabilityPolicy(action).scope, expected);
     assert.equal(capabilityPolicy(action, 'theme').scope,
-      ['plugin-install', 'plugin-remove', 'plugin-update'].includes(action) ? 'theme' : discovery ? 'discovery' : 'runtime');
+      ['plugin-install', 'plugin-remove', 'plugin-update'].includes(action) ? 'theme' : expected);
     assert.equal(Object.isFrozen(capabilityPolicy(action)), true);
   }
   for (const action of ['constructor', '__proto__', 'future-action', undefined])
@@ -133,8 +134,6 @@ test('unproven executable operations ignore renderer-supplied exemption flags', 
   const f = await fixture(t);
   for (const input of [
     { action: 'plugin-install', name: 'theme', marketplace: 'fixture' },
-    { action: 'plugin-toggle', id: 'theme', enabled: false },
-    { action: 'mcp-toggle', name: 'theme__server', enabled: false },
     { action: 'skill-remove', id: 'fixture' },
   ]) {
     const sentinel = new Error('protected');
@@ -152,13 +151,25 @@ test('admitted executable writes revoke host leases only after ownership checks 
   f.setRequest(async type => {
     if (type === 'mutate') assert.equal(f.invalidations(), 1);
   });
-  await f.service.mutate({ action: 'mcp-toggle', name: 'example', enabled: false }, async policy => {
+  await f.service.mutate({ action: 'skill-remove', id: 'example' }, async policy => {
     assert.equal(policy.scope, 'runtime');
     assert.equal(f.invalidations(), 0);
   });
   assert.equal(f.invalidations(), 1);
   await f.service.catalog();
   assert.equal(f.invalidations(), 1, 'passive catalog reads do not revoke leases');
+});
+
+test('next-start service switches preserve host leases and are not renderer scope exemptions', async t => {
+  const f = await fixture(t);
+  for (const input of [
+    { action: 'plugin-toggle', id: 'example', enabled: false },
+    { action: 'mcp-toggle', name: 'example__tools', enabled: true },
+  ] as const) {
+    await f.service.mutate(input, async policy => { assert.equal(policy.scope, 'next-start'); });
+  }
+  assert.equal(f.invalidations(), 0);
+  assert.equal(f.calls.filter(call => call.type === 'mutate').every(call => call.args.input.preserveRuntime), true);
 });
 
 test('mutation input is frozen before queued discovery can await', async t => {

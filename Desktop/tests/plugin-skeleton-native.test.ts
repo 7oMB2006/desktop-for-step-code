@@ -254,16 +254,16 @@ for (const mode of ['follow', 'independent'] as const) test(`native update prese
     await service.mutate({ action: 'marketplace-add', source: market });
     await service.mutate({ action: 'plugin-install', name: 'dfsc-config-example', marketplace: 'dfsc-config-example-local' });
     const plugin = (await service.catalog()).plugins[0], ref = plugin.package!.ref;
-    const initial = await service.configuration({ ref });
-    const configured = await service.configuration({ ref }, { ref, revision: initial.revision,
-      values: { ...initial.values, prefix: 'Preserved ' }, secrets: {
+    const initial = await service.hostSettings({ ref });
+    const independent = { ref, revision: initial.independent!.revision,
+      values: { ...initial.independent!.values, prefix: 'Preserved ' }, secrets: {
         key: { action: 'replace', value: 'retained-main-secret' }, asr_key: { action: 'replace', value: 'retained-asr-secret' },
-      } });
-    const selected = await service.hostSettings({ ref }, { ref, revision: 'unconfigured', mode,
-      ...(mode === 'follow' ? { models: { 'model.asr': 'old-asr' } } : {
-        configuration: { ref, revision: configured.revision, values: configured.values,
-          secrets: { key: { action: 'keep' }, asr_key: { action: 'keep' } } },
-      }) });
+      } } as const;
+    await assert.rejects(service.configuration({ ref }, independent), /host-unavailable/);
+    const configured = await service.hostSettings({ ref }, { ref, revision: initial.revision,
+      mode: 'independent', configuration: independent });
+    const selected = mode === 'independent' ? configured : await service.hostSettings({ ref },
+      { ref, revision: configured.revision, mode, models: { 'model.asr': 'old-asr' } });
     const receiptPath = join(root, 'desktop-plugins/installations.json');
     const previous = JSON.parse(await readFile(receiptPath, 'utf8')).installations[0];
     const pointerPath = join(root, 'desktop-plugins/host/bindings', `${previous.instance}.json`);

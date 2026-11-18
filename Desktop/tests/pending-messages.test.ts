@@ -239,6 +239,37 @@ test('queued drafts are worker scoped, bounded and expose neither image bytes no
   assert.throws(() => queue.enqueue(worker, '21', {}), /limit/);
   assert.equal(worker.queued, true);
 });
+for (const change of ['pause-resume', 'clear', 'recover'] as const) {
+  test(`startup admission cannot send cancelled queued input after ${change}`, async () => {
+    const { worker, requests } = fixture();
+    worker.busy = false;
+    let release!: () => void;
+    const waiting = new Promise<void>(resolve => { release = resolve; });
+    const events: string[] = [], errors: unknown[] = [];
+    const queue = new PendingMessages(() => {}, (_worker, error) => errors.push(error), undefined, undefined,
+      (_worker, _id, event) => events.push(event), async (target, payload, valid, dispatched) => {
+        await waiting;
+        if (!valid()) throw new Error('cancelled before prompt');
+        dispatched();
+        return target.rpc.request('prompt', payload);
+      });
+    const id = queue.enqueue(worker, 'not sent', { message: 'not sent' });
+    const draining = queue.drain(worker);
+    await tick();
+    if (change === 'clear') queue.clear(worker);
+    else if (change === 'recover') { worker.interrupted = true; queue.recover(worker); }
+    else { queue.pause(worker); queue.resumed(worker); }
+    release();
+    await draining;
+    assert.deepEqual(requests, []);
+    assert.equal(events.includes('dispatching'), false);
+    assert.equal(events.includes('unknown'), false);
+    assert.equal(errors.length, 1);
+    if (change !== 'clear') assert.equal(queue.withdraw(worker, id), true);
+    assert.equal(worker.submissions, 0);
+    assert.equal(worker.operations, 0);
+  });
+}
 test('editing retains attachment payload and queue position; stale edits and withdrawn IDs fail closed', async () => {
   const { worker, queue, requests } = fixture();
   const first = queue.enqueue(worker, 'first', { message: 'first', images: [{ data: 'image' }] }, ['a']);

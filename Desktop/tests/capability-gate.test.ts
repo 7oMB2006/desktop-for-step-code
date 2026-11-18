@@ -30,6 +30,16 @@ function fixture() {
   return { gate, hooks, events, locked: () => locked };
 }
 
+test('next-start settings do not acquire or disturb the running session', async () => {
+  const f = fixture();
+  await f.gate.run(async () => {
+    const release = await f.gate.guard({ scope: 'next-start' }, f.hooks);
+    assert.equal(f.locked(), false);
+    assert.deepEqual(f.events, ['available']);
+    release();
+  });
+});
+
 test('run reserves synchronously and remains active through proof, mutation and theme refresh', async () => {
   const f = fixture(), proof = deferred(), guarded = deferred(), mutation = deferred(), refresh = deferred(), finish = deferred();
   const operation = f.gate.run(async () => {

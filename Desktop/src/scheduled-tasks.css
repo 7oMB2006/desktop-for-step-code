@@ -3,6 +3,8 @@
 .sidebar-primary-actions > button { width:100%; min-width:0; height:38px; margin:0; padding:7px 6px; gap:6px; justify-content:center; font-size:12px; background:color-mix(in srgb,var(--bg) 76%,var(--surface)); transition:background .24s cubic-bezier(.215,.61,.355,1),border-color .24s cubic-bezier(.215,.61,.355,1); }
 .sidebar-primary-actions > button > span { min-width:0; white-space:nowrap; }
 .sidebar-primary-actions > button > svg { color:var(--primary); }
+.sidebar-plugins-entry { position:relative; }
+.sidebar-plugins-dot { position:absolute; top:7px; right:7px; width:5px; height:5px; border-radius:50%; background:var(--danger); pointer-events:none; }
 .sidebar-primary-actions > .new-chat > svg { transition:transform .24s cubic-bezier(.215,.61,.355,1); }
 .sidebar-primary-actions > button:hover:not(:disabled) { border-color:color-mix(in srgb,var(--primary) 42%,var(--border)); }
 .sidebar-primary-actions > .new-chat:hover:not(:disabled) > svg { transform:rotate(90deg); }

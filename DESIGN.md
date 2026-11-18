@@ -1,5 +1,15 @@
 # Design System
 
+## Plugin Update And Removal
+
+Update and uninstall share host-owned preflight and a secondary confirmation
+listing affected sessions. Idle owners can be explicitly released and restored
+after the mutation; busy or unknown sessions offer direct navigation, never a
+force-stop action. Uninstall remains destructive even without runtime owners and
+always requires confirmation. Keep conversation history, unrelated MCP settings
+and production profiles outside removal scope. A failed release blocks deletion;
+an uncertain result offers review instead of an automatic retry.
+
 ## Plugin Risk Confirmation
 
 Plugin-declared risks use a host-owned native warning dialog before a supported
@@ -84,6 +94,25 @@ Live connection counts remain runtime-owned. Saved changes show Restart pending
 until an explicit idle-session restart applies them; running work and scheduled
 hosts keep their existing restart guards. Switches have no tooltip, retain their
 compact footprint and expose a larger invisible hit target.
+
+Runtime tool startup never reserves a transcript banner or auto-opens details.
+Only failures or unconfirmed cleanup mark the existing sidebar Plugins entry
+with a static dot, without changing its size or accessible name. Connecting and
+healthy states never add chat controls. The plugin catalog contains current-session
+tool status, settings and explicit guarded reconnect as an unframed section.
+This section defaults to a single collapsed summary; its existing disclosure
+chevron reveals service rows and actions in place. Hidden actions are inert,
+and motion uses the shared disclosure animation with reduced-motion support.
+Resolution removes the dot. A settled optional MCP failure is a local degradation,
+not a confirmation gate for sending, queuing or steering. Keep identity, model,
+pending startup and unconfirmed-cleanup guards. Stop remains independent.
+
+Plugin browsing stays available during running tasks. Verified new installations,
+service switches and generic configuration saves do not revoke live host leases.
+New services and changed settings require a service restart, without forcing one
+during the running task. Keep current-session restart
+guarded. Host authorization/BVR binding changes and occupied package replacement
+still require their specific safe-application checks; editable drafts remain usable.
 
 Plugins use a main-view catalog and a separate detail level, not a split sidebar
 or a small settings modal. Installed, Discover and Marketplaces share existing

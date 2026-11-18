@@ -9,6 +9,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { closeDesktopFixture } from './close-desktop-fixture.mjs';
 import { sampleMotion } from './sample-motion.mjs';
+import { waitForSessionFixtureSnapshot } from './session-fixture.mjs';
 
 const profile = await realpath(await mkdtemp(join(tmpdir(), 'step-summary-runtime-')));
 const workspace = join(profile, 'summary-board');
@@ -90,6 +91,15 @@ try {
     return (await window.desktop.summary(snapshot.runtimeId)).mcp;
   });
   assert.ok(services.some(server => server.name === 'reference-library' && server.status === 'disabled'));
+  const degraded = await waitForSessionFixtureSnapshot(page, snapshot => {
+    const startup = snapshot.state?.desktopStartup;
+    return snapshot.status === 'connected' && startup?.targetBound && startup.modelReady
+      && startup.discovery === 'ready' && startup.cleanupConfirmed
+      && startup.tools.some(tool => tool.name === 'local-search' && tool.status === 'failed')
+      && startup.tools.every(tool => tool.cleanupConfirmed !== false
+        && (tool.name === 'local-search' ? tool.status === 'failed' : ['connected', 'disabled'].includes(tool.status)));
+  }, 'the intended optional MCP failure to settle safely');
+  assert.equal(calls, 0, 'Readiness and Summary inspection must not invoke the model');
   assert.equal(await board.locator('.sb-mcp-count').textContent(), `${services.filter(server => server.status === 'connected').length} / ${services.length}`);
   assert.equal(await board.locator('.sb-repository h3').textContent(), 'summary-board');
   await board.getByRole('button', { name: /已完成 1 项/ }).click();
@@ -123,12 +133,14 @@ try {
     // Keep the actual RPC/local-provider path; observe its resulting DOM commit.
     await page.locator('.composer > .composer-input').fill('完成第二项');
     await page.locator('.composer > .composer-input').press('Enter');
-    const confirmation = page.getByRole('dialog', { name: '工具不可用', exact: true });
-    await confirmation.waitFor();
-    assert.ok((await confirmation.textContent()).includes('local-search'));
-    assert.equal(calls, 0, 'the intentionally failed MCP requires explicit per-submission consent');
-    await confirmation.getByRole('button', { name: '确认', exact: true }).click();
   });
+  const completed = await waitForSessionFixtureSnapshot(page, snapshot =>
+    calls === 2 && !snapshot.state?.isStreaming, 'the degraded session to finish its real tool loop');
+  assert.equal(completed.runtimeId, degraded.runtimeId, 'Optional failure must not replace the runtime');
+  assert.equal(completed.state.sessionId, degraded.state.sessionId);
+  assert.equal(completed.state.desktopStartup.tools.find(tool => tool.name === 'local-search')?.status, 'failed');
+  assert.equal(await page.getByRole('dialog', { name: '工具不可用', exact: true }).count(), 0,
+    'One submission must complete without per-message consent for the optional failure');
   await board.getByRole('button', { name: /已完成 2 项/ }).waitFor();
   await board.locator('.sb-task-history').getByRole('button', { name: /已完成任务.*1 项/ }).waitFor();
   await page.waitForFunction(() => window.summaryEntrance.some(frame => frame.height >= 34 && frame.opacity === 1));

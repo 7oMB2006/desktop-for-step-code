@@ -9,7 +9,9 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { readingHistory } from '../tests/fixtures/session-reading-history.mjs';
 import { closeDesktopFixtureAndWait } from './close-desktop-fixture.mjs';
 
-const profile = await mkdtemp(join(tmpdir(), 'desktop-session-startup-'));
+const scratch = resolve(process.env.DESKTOP_TEST_SCRATCH ?? tmpdir());
+await mkdir(scratch, { recursive: true });
+const profile = await mkdtemp(join(scratch, 'desktop-session-startup-'));
 const project = join(profile, 'project'), root = join(profile, 'step-runtime');
 const sessions = join(root, 'sessions'), file = join(sessions, 'large.jsonl');
 const started = join(profile, 'mcp-started.log');
@@ -57,6 +59,9 @@ await writeFile(join(root, 'models.json'), JSON.stringify({ providers: { fixture
 const env = { ...process.env, DESKTOP_TEST_USER_DATA: profile, DESKTOP_TEST_NO_FOCUS: '1' };
 delete env.ELECTRON_RUN_AS_NODE;
 const executablePath = process.env.DESKTOP_VERIFY_EXE;
+const entry = process.env.DESKTOP_VERIFY_ENTRY;
+const executionRoot = resolve(process.env.DESKTOP_VERIFY_ROOT ?? '.');
+assert.ok(!executablePath || !entry, 'Choose an executable or a main entry, not both');
 const errors = [], results = {};
 let app;
 let phase = 'startup';
@@ -68,7 +73,8 @@ const until = async (condition, timeout = 15000) => {
   }
 };
 try {
-  app = await electron.launch({ ...(executablePath ? { executablePath } : { args: [resolve('.')] }), env, timeout: 60000 });
+  app = await electron.launch({ ...(executablePath ? { executablePath } : { args: [entry ?? executionRoot] }),
+    cwd: executionRoot, env, timeout: 60000 });
   const page = await app.firstWindow();
   page.on('pageerror', error => errors.push(error.message));
   await app.evaluate(({ BrowserWindow, dialog }) => {
@@ -103,13 +109,24 @@ try {
     appendedEntries: boundHistory.subarray(before.length).toString().trim().split('\n').filter(Boolean)
       .map(line => JSON.parse(line).type) }));
   const input = () => page.getByRole('textbox', { name: /^(消息|Message)$/ });
+  const openPlugins = async () => {
+    if (await page.locator('.window-sidebar-toggle').getAttribute('aria-expanded') === 'false')
+      await page.locator('.window-sidebar-toggle').click();
+    await page.locator('.sidebar-plugins-entry').click();
+  };
   await input().fill('Draft retained while tools connect');
   await input().press('Enter');
   assert.equal(await input().evaluate(element => element.value), 'Draft retained while tools connect');
   assert.ok(await page.locator('.composer-action-button').isDisabled());
   await assert.rejects(page.evaluate(() => window.desktop.command('prompt', { message: 'MUST_NOT_EXECUTE' })), /STARTUP_NOT_READY/);
   assert.ok((await readFile(file)).equals(boundHistory), 'Rejected execution must not append or repair history');
+  assert.equal(await page.locator('.runtime-startup-trigger').count(), 0, 'No tool status control in the composer');
+  assert.equal(await page.locator('.sidebar-plugins-dot').count(), 0, 'Connecting is not an error');
+  assert.ok(!await page.locator('.runtime-startup-status').isVisible(), 'Tool details stay outside the conversation');
+  await openPlugins();
   assert.ok(await page.locator('.runtime-startup-status').isVisible());
+  assert.equal(await page.locator('.runtime-startup-status summary').getAttribute('aria-expanded'), 'false');
+  await page.locator('.runtime-startup-status summary').click();
   await page.screenshot({ path: join(output, 'connecting-light.png') });
   phase = 'narrow dark English pending status and editable draft';
   await page.evaluate(() => window.desktop.preferences({ theme: 'dark', language: 'en' }));
@@ -128,6 +145,7 @@ try {
   }), 85000);
   results.toolsConnectedMs = performance.now() - start;
   assert.ok(results.toolsConnectedMs >= 70000);
+  await page.getByRole('button', { name: 'Back to conversation', exact: true }).click();
   await page.waitForFunction(() => !document.querySelector('.runtime-startup-status')
     && !document.querySelector('.composer-action-button')?.disabled);
   assert.equal(await input().evaluate(element => element.value), 'Draft retained while tools connect');
@@ -137,13 +155,16 @@ try {
   await writeFile(join(root, 'config.toml'), config('never'));
   await page.getByRole('button', { name: process.platform === 'darwin' ? 'Application menu' : 'View', exact: true }).click();
   await page.getByRole('menuitem', { name: 'Restart runtime', exact: true }).click();
-  await page.waitForFunction(() => document.querySelector('.runtime-startup-status')?.textContent.includes('cleanup unconfirmed'),
+  await page.waitForFunction(() => Boolean(document.querySelector('.sidebar-plugins-dot')),
     undefined, { timeout: 15000 });
   assert.ok(await page.locator('.composer-action-button').isDisabled());
   assert.equal(await input().evaluate(element => element.value), 'Draft retained while tools connect');
   const failed = await page.evaluate(() => window.desktop.snapshot());
   assert.equal(failed.state.desktopStartup.cleanupConfirmed, false);
   await assert.rejects(page.evaluate(() => window.desktop.command('prompt', { message: 'MUST_NOT_BYPASS_CLEANUP' })), /STARTUP_NOT_READY/);
+  await openPlugins();
+  await page.locator('.runtime-startup-status summary').click();
+  await page.waitForFunction(() => document.querySelector('.runtime-startup-status')?.textContent.includes('cleanup unconfirmed'));
   await page.screenshot({ path: join(output, 'cleanup-unconfirmed.png') });
   phase = 'explicit reconnect applies a corrected fixture without losing draft or history';
   await writeFile(join(root, 'config.toml'), config('fast'));
@@ -156,11 +177,12 @@ try {
   }), 20000);
   snapshot = await page.evaluate(() => window.desktop.snapshot());
   assert.notEqual(snapshot.runtimeId, failed.runtimeId);
+  await page.getByRole('button', { name: 'Back to conversation', exact: true }).click();
   assert.equal(snapshot.state.sessionId, 'reading-large');
   assert.equal(await input().evaluate(element => element.value), 'Draft retained while tools connect');
   assert.ok((await readFile(file)).subarray(0, before.length).equals(before));
   assert.equal(payloads.length, 0);
-  phase = 'settled optional failure requires explicit confirmation and cancellation preserves the draft';
+  phase = 'settled optional failure permits degraded execution without confirmation';
   await writeFile(join(root, 'config.toml'), config('missing'));
   await page.getByRole('button', { name: process.platform === 'darwin' ? 'Application menu' : 'View', exact: true }).click();
   await page.getByRole('menuitem', { name: 'Restart runtime', exact: true }).click();
@@ -173,22 +195,10 @@ try {
   assert.ok(exclusionHistory.subarray(0, before.length).equals(before));
   await input().press('Enter');
   const confirmation = page.getByRole('dialog', { name: 'Unavailable tools', exact: true });
-  await confirmation.waitFor();
-  assert.ok((await confirmation.textContent()).includes('startup_fixture'));
-  assert.equal(payloads.length, 0);
-  assert.ok((await readFile(file)).equals(exclusionHistory));
-  await page.screenshot({ path: join(output, 'explicit-exclusion.png') });
-  await confirmation.getByRole('button', { name: 'Cancel', exact: true }).click();
-  await page.waitForFunction(() => document.querySelector('.composer-input')?.value === 'Draft retained while tools connect'
-    && !document.querySelector('.composer-action-button')?.disabled);
-  assert.equal(payloads.length, 0);
-  assert.ok((await readFile(file)).equals(exclusionHistory));
-  phase = 'one confirmed submission reaches the local provider exactly once';
-  await input().press('Enter');
-  await confirmation.waitFor();
-  await confirmation.getByRole('button', { name: 'Confirm', exact: true }).click();
   await page.waitForFunction(() => document.querySelector('.messages')?.textContent.includes('One explicitly accepted task.'),
     undefined, { timeout: 15000 });
+  assert.equal(await confirmation.count(), 0);
+  await page.screenshot({ path: join(output, 'degraded-execution.png') });
   assert.equal(payloads.length, 1);
   assert.equal((await input().evaluate(element => element.value)), '');
   const after = await readFile(file);

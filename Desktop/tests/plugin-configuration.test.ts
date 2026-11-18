@@ -5,6 +5,7 @@ import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { tmpdir } from 'node:os';
 import { PluginConfigurationStore, parseConfigurationSchema } from '../electron/plugin-configuration.mjs';
+import { CapabilityService } from '../electron/capability-service';
 import type { PluginConfigurationInput } from '../src/capabilities';
 
 const helpers = await import(pathToFileURL(resolve('electron/plugin-files.mjs')).href);
@@ -42,6 +43,25 @@ test('a zero-connection plugin saves real values and its installed reader refuse
   assert.equal((await fresh.current()).values.prefix, 'New ');
   await store.revoke(descriptor.id);
   await assert.rejects(fresh.current(), /restart/);
+});
+test('generic configuration saves do not revoke unrelated running host leases', async t => {
+  const f = await fixture(t);
+  let invalidations = 0;
+  const service = new CapabilityService({ root: f.root, runtime: '', node: '', environment: () => ({}),
+    beforePluginMutation: () => { invalidations++; } });
+  const raw = { plugins: [{ id: f.descriptor.id, name: 'Example', mcpServers: ['notes'], warnings: [],
+    packageDescriptor: f.descriptor }], available: [], marketplaces: [], skills: [], warnings: [],
+    mcp: [{ name: `${f.descriptor.id}__notes`, source: 'plugin', pluginId: f.descriptor.id,
+      transport: 'stdio', enabled: true, configurable: true }] };
+  (service as unknown as { request(type: string): Promise<unknown> }).request = async type => {
+    assert.ok(['catalog', 'target-catalog'].includes(type)); return raw;
+  };
+  const ref = (await service.catalog()).plugins[0].package!.ref;
+  const current = await service.configuration({ ref });
+  const saved = await service.configuration({ ref }, { ref, revision: current.revision,
+    values: { prefix: 'Next configuration ', limit: 60 }, secrets: {} });
+  assert.equal(saved.values.prefix, 'Next configuration ');
+  assert.equal(invalidations, 0);
 });
 test('one and multiple independent connections retain, replace and delete secrets without renderer readback', async t => {
   for (const count of [1, 2]) {

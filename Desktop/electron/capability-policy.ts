@@ -1,6 +1,6 @@
 import type { CapabilityMutation } from '../src/capabilities';
 
-export type CapabilityScope = 'discovery' | 'theme' | 'runtime';
+export type CapabilityScope = 'discovery' | 'theme' | 'next-start' | 'runtime';
 export interface CapabilityPolicy {
   scope: CapabilityScope;
   pluginId?: string;
@@ -15,8 +15,8 @@ const policies = {
   'plugin-install': 'runtime',
   'plugin-update': 'runtime',
   'plugin-remove': 'runtime',
-  'plugin-toggle': 'runtime',
-  'mcp-toggle': 'runtime',
+  'plugin-toggle': 'next-start',
+  'mcp-toggle': 'next-start',
   'skill-create': 'runtime',
   'skill-toggle': 'runtime',
   'skill-remove': 'runtime',

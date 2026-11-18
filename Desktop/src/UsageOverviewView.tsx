@@ -7,7 +7,7 @@ import { UsageDateRange } from './UsageDateRange';
 import { usageRange, type UsageRange } from './usage-range';
 import { formatUsageTotal, type UsageUnit } from './usage-unit';
 import { UsageUnitButton } from './UsageUnitButton';
-import type { UsageDay, UsageOverview } from './usage-overview';
+import { btwUsageTotals, type UsageDay, type UsageOverview } from './usage-overview';
 import './usage-overview.css';
 
 type Source = 'all' | 'official' | 'custom';
@@ -55,6 +55,12 @@ export function UsageOverviewView({ embedded = false, overview, pending = false,
   const trend = filteredTrend.length ? filteredTrend : data.slice(-period);
   const currentRange = { start: trend[0].date, end: trend.at(-1)!.date };
   const trendTotal = trend.reduce((sum, day) => sum + tokens(day, source), 0);
+  const yearBtw = btwUsageTotals(data, source);
+  const rangeBtw = btwUsageTotals(trend, source);
+  const btwBreakdown = ({ tokens, unreported }: typeof yearBtw) => [
+    tokens ? t(`含旁问 ${number(tokens)} Token`, `Includes ${number(tokens)} side-question tokens`) : '',
+    unreported ? t(`${number(unreported)} 次旁问用量未知`, `Usage unknown for ${number(unreported)} side request(s)`) : '',
+  ].filter(Boolean).join(' · ');
   const trendLabel = customRange ? `${currentRange.start}${t(' 至 ', ' to ')}${currentRange.end}` : t(`近${period}天`, `Last ${period} days`);
   const max = Math.max(1, ...data.map(day => tokens(day, source)));
   const trendMax = Math.max(1, ...trend.map(day => tokens(day, source)));
@@ -76,7 +82,8 @@ export function UsageOverviewView({ embedded = false, overview, pending = false,
     {error ? <section className="usage-error" role="alert"><Activity size={24}/><h2>{t('暂时无法读取本机记录', 'Unable to read local records')}</h2><p>{t('会话文件没有改变，请重新扫描。', 'Session files are unchanged. Please scan again.')}</p><button disabled={pending} onClick={onRefresh}>{t('重新扫描', 'Scan again')}</button></section> :
       <div className={pending ? 'usage-body is-loading' : 'usage-body'} aria-busy={pending}>
         <section className="usage-summary" aria-label={t('近一年统计', 'Past year summary')}>
-          <div><span><Database size={14}/>{t('Token 总量', 'Total tokens')}</span><strong>{compact(total)}</strong><small>{t('近 365 天', 'Last 365 days')}</small></div>
+          <div><span><Database size={14}/>{t('Token 总量', 'Total tokens')}</span><strong>{compact(total)}</strong><small>{t('近 365 天', 'Last 365 days')}</small>
+            {(yearBtw.tokens > 0 || yearBtw.unreported > 0) && <small>{btwBreakdown(yearBtw)}</small>}</div>
           <div><span><CalendarDays size={14}/>{t('活跃天数', 'Active days')}</span><strong>{active}<small>{t('天', ' days')}</small></strong><small>{t('有用量的本地日期', 'Local dates with usage')}</small></div>
           <div><span><Activity size={14}/>{t('会话数', 'Sessions')}</span><strong>{number(chats)}</strong><small>{t('主会话', 'Main sessions')}</small></div>
           <div><span>{t('活跃日均', 'Active-day average')}</span><strong>{compact(active ? total / active : 0)}</strong><small>{t('Token / 天', 'Tokens / day')}</small></div>
@@ -111,7 +118,7 @@ export function UsageOverviewView({ embedded = false, overview, pending = false,
               })}</div>
             </div>
           </div>
-          <div className="heat-footer"><span>{!total ? t('还没有本机用量记录', 'No local usage records yet') : t(`一年里，${active} 天与你一起工作`, `${active} active days together this year`)}</span><div className="heat-legend"><span>{t('少', 'Less')}</span>{[0, 1, 2, 3, 4].map(level => <i key={level} className={`level-${level}`}/>)}<span>{t('多', 'More')}</span></div></div>
+          <div className="heat-footer"><span>{!total ? (yearBtw.unreported ? t('暂无已报告的 Token 用量', 'No reported token usage yet') : t('还没有本机用量记录', 'No local usage records yet')) : t(`一年里，${active} 天与你一起工作`, `${active} active days together this year`)}</span><div className="heat-legend"><span>{t('少', 'Less')}</span>{[0, 1, 2, 3, 4].map(level => <i key={level} className={`level-${level}`}/>)}<span>{t('多', 'More')}</span></div></div>
         </section>
         <DailyUsage key={`${daily.date}:${source}`} day={daily} source={source} preview={chartPreview.bind} language={language}/>
         <section className="usage-trends" aria-labelledby="trend-title">
@@ -127,6 +134,7 @@ export function UsageOverviewView({ embedded = false, overview, pending = false,
             </div>
             <span>{currentRange.start}{t(' 至 ', ' to ')}{currentRange.end}<i/>{t(`共 ${trend.length} 天`, `${trend.length} days`)}</span>
           </div>
+          {(rangeBtw.tokens > 0 || rangeBtw.unreported > 0) && <p className="chart-note">{btwBreakdown(rangeBtw)}</p>}
           <div className="chart-legend">{chart === 'line' ? <span><i className="official-dot"/>{sources.find(([key]) => key === source)?.[1]}{t('合计', ' total')}</span> : <>{source !== 'custom' && <span><i className="official-dot"/>{t('阶跃官方', 'Step official')}</span>}{source !== 'official' && <span><i className="custom-dot"/>{t('自定义第三方', 'Custom providers')}</span>}{source === 'all' && data.some(d => d.unknown) && <span>{t('未识别来源', 'Unknown source')}</span>}</>}<span className="chart-unit">Token</span></div>
           <div className="chart-scroll"><svg className="usage-chart" viewBox="0 0 980 205" role="img" aria-label={`${trendLabel} ${sources.find(([key]) => key === source)?.[1]} Token ${chart === 'bar' ? t('柱状图', 'bar chart') : t('折线图', 'line chart')}`}>
             {[0, 1, 2, 3].map(i => <g key={i}><line x1="34" y1={28 + i * 146 / 3} x2="966" y2={28 + i * 146 / 3} className="chart-gridline"/><text x="0" y={32 + i * 146 / 3}>{compact(trendMax * (1 - i / 3))}</text></g>)}
@@ -178,8 +186,9 @@ export function UsageOverviewView({ embedded = false, overview, pending = false,
         </section> : <p className="third-party-note"><CircleHelp size={14}/>{t('第三方仅统计 Token，不提供费用估算。', 'Custom providers track tokens only, without cost estimates.')}</p>}
         <footer className="usage-footnote"><span><Check size={13}/>{t('社区版仅保存在本机，暂不支持随账户云端保存或跨设备同步。', 'Community edition data stays on this device; account cloud storage and cross-device sync are not supported.')}</span><span>{t('不含其他设备记录与官网账单', 'Excludes other devices and official bills')}</span></footer>
         {overview.limited.length > 0 && <p className="coverage-note" role="status">{t('部分历史记录缺少统计元数据，当前结果覆盖不完整。无法识别来源的用量仅计入「全部」，不归入官方或第三方。', 'Some historical records lack usage metadata, so coverage is incomplete. Unknown sources count toward All only, not official or custom providers.')}</p>}
-        <p className="chart-note">{t('主会话去重计数；Token 包含已记录的子代理、分支与上下文压缩用量。按本机日期统计。', 'Main sessions are deduplicated. Tokens include recorded subagents, branches and context compaction. Grouped by local date.')}</p>
-        {source !== 'custom' && <p className="chart-note">{t('费用仅累计 Desktop 已保存的估算记录，沿用请求发生时的计费模式与规则；未记录的历史显示「—」，不追溯套用当前账户。', 'Costs sum saved Desktop estimates using the billing mode and rules at request time. Unrecorded history shows a dash; current account rules are not applied retroactively.')}
+        {overview.btwLimited && <p className="coverage-note" role="status">{t('部分旁问用量未能保存或读取。', 'Some side-question usage records could not be saved or read.')}</p>}
+        <p className="chart-note">{t('主会话去重计数；Token 包含已记录的子代理、分支、上下文压缩和旁问用量。按本机日期统计。', 'Main sessions are deduplicated. Tokens include recorded subagents, branches, context compaction and side questions. Grouped by local date.')}</p>
+        {source !== 'custom' && <p className="chart-note">{t('费用仅累计 Desktop 已保存的估算记录，不含旁问；沿用请求发生时的计费模式与规则，未记录的历史显示「—」。', 'Costs sum saved Desktop estimates, excluding side questions. Estimates use the billing mode and rules at request time; unrecorded history shows a dash.')}
           {overview.estimates && t(` 已记录 ${overview.estimates.recorded} 次请求${overview.estimates.unknown ? `，其中 ${overview.estimates.unknown} 次无法估算` : ''}。`, ` ${number(overview.estimates.recorded)} recorded requests${overview.estimates.unknown ? `; ${number(overview.estimates.unknown)} could not be estimated` : ''}.`)}
           {overview.estimates?.limited && t('部分估算文件未能读取。', ' Some estimate files could not be read.')}</p>}
       </div>}

@@ -222,9 +222,10 @@ below the editor. The side composer also reuses the shared context-action row
 and upper gradient veil, without a separate horizontal divider. Its bottom edge
 aligns with the main composer by reserving the measured main footer space,
 including when performance metrics wrap or are hidden; fullscreen uses its own
-normal bottom gutter. Drafts still grow independently. Per-answer reported Tokens remain visible, with the missing
-local-total integration disclosed in their tooltip; opening the panel does not
-imply free requests.
+normal bottom gutter. Drafts still grow independently. Per-answer reported Tokens
+remain visible. Usage shows the side-question contribution to local totals and
+counts requests with unknown usage separately; neither changes the main session
+count or implies a billing amount.
 The message selection toolbar offers Ask in side alongside Quote and Annotate.
 It opens BTW with the shared compact quote-count entry and focuses its editor,
 without submitting a request or moving the main draft/references. Pending

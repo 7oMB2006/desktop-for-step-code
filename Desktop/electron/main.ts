@@ -16,6 +16,7 @@ import { inspectProjectInstructions, projectInstructionsMessage } from './projec
 import { isProjectInstructionsCommand, projectInstructionsInput } from '../src/project-instructions';
 import { hasBackgroundWork } from './background-work';
 import { BtwRequests } from './btw';
+import { BtwUsageLedger } from './btw-usage';
 import { questionnaire, serializeAnswers } from '../src/questionnaire';
 import { LaunchControls } from './launch-controls';
 import { draftLaunchChanges, emptyLaunch, type LaunchState } from '../src/launch-state';
@@ -415,6 +416,8 @@ let authData: Record<string, unknown> = {};
 let appliedAuthData: Record<string, unknown> = {};
 const usageEstimates = new UsageEstimates(join(app.getPath('userData'), 'usage-estimates'), () => appliedAuthData,
   error => { void crashLog.record('usage-estimates', error); });
+const btwUsageLedger = new BtwUsageLedger(join(app.getPath('userData'), 'btw-usage'),
+  () => { void crashLog.record('btw-usage', new Error('Side question usage could not be saved')); });
 let usageOverviewPending: Promise<import('../src/usage-overview').UsageOverview> | undefined;
 const accountAllowance = new AccountAllowanceService(() => appliedAuthData,
   (input, init) => net.fetch(input instanceof URL ? input.href : input, init),
@@ -707,7 +710,7 @@ const pluginHosts = new PluginHostLauncher({ root: dataRoot, pool: runtimes, cap
   available: () => runtimeManifest.patches?.includes('desktop-plugin-host-launch') === true
     && capabilityService.available && capabilityService.runtimeAvailable
     && !settingsMutation && !providerSettingsPending && !providerApplyFailed && !quitting && !quitPending });
-const btw = new BtwRequests(runtimes, emit);
+const btw = new BtwRequests(runtimes, emit, record => btwUsageLedger.record(record));
 const pendingMessages = new PendingMessages(worker => {
   worker.revision++;
   emit({ type: 'desktop_queue', runtimeId: worker.id, runtimeRevision: worker.revision, pendingMessages: pendingMessages.list(worker) });
@@ -1725,6 +1728,7 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
           await remote.shutdown();
           await externalConnectors.shutdown();
           await Promise.all([runtimes.stopAll(), admin.stop(), capabilityService.stop(), collaboration.stop(), pluginHosts.close()]);
+          await btwUsageLedger.flush();
           await externalTasks.flush().catch(() => crashLog.record('external-connectors', new Error('External task state could not be saved')));
         });
         success = true;
@@ -2806,6 +2810,7 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
       // The native scan has a 28s deadline; allow bounded cache/projection/IPC headroom.
       usageOverviewPending ??= admin.request('usage_overview', {}, 60000)
         .then(result => usageEstimates.overview(result as import('../src/usage-overview').UsageOverview))
+        .then(result => btwUsageLedger.overview(result))
         .finally(() => { usageOverviewPending = undefined; });
       return usageOverviewPending;
     }
@@ -3320,6 +3325,7 @@ app.on('before-quit', event => {
       await conversationTiming.flush();
       await modelSelections.flush();
       await usageEstimates.flush();
+      await btwUsageLedger.flush();
       await workflowBindings.flush();
       browser?.dispose();
       quitting = true;

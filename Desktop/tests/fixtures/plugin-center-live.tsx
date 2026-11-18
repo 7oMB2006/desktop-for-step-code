@@ -13,6 +13,7 @@ import exampleConsumer from '../../../examples/plugins/config-starter/plugins/df
 import exampleSchema from '../../../examples/plugins/config-starter/plugins/dfsc-config-example/dfsc.settings.json?raw';
 import type { BvrConfiguration } from '../../src/bvr-settings';
 import { applyTheme } from '../../src/theme';
+import { stepHostUnavailable } from '../../src/step-host-catalog';
 import bvrLogo from './plugin-center-assets/bvr.png?inline';
 import bvrUpdateLogo from './plugin-center-assets/bvr-update.png?inline';
 import { PluginUpdatePreviewControls, usePluginUpdatePreview } from './plugin-update-preview';
@@ -259,7 +260,7 @@ let hostSaves = 0, hostReads = 0, hostFailure = false, hostReadFailure = false, 
 let hostHeld: Promise<void> | undefined, releaseHost: (() => void) | undefined;
 let hostConfiguration: PluginHostSettings = {
   ref: 'fixture-host', revision: 'unconfigured', mode: null, consumer: 'example',
-  capabilities: ['model.text', 'model.video', 'model.asr', 'model.tts'], models: {}, configurationCurrent: false,
+  capabilities: ['model.text', 'model.video', 'model.asr', 'model.tts', 'model.image'], models: {}, configurationCurrent: false,
   runtime: { status: 'unconfigured' },
   independent: { ref: 'fixture-host', revision: 'unconfigured', configured: false, values: { endpoint: 'https://api.stepfun.com/v1', model: 'step-5-preview' },
     hasSecret: {}, schema: { schemaVersion: 1, consumer: { kind: 'json-file-v1', server: 'example' }, groups: [
@@ -281,14 +282,16 @@ if (hostPreview) {
   catalog.mcp.unshift({ name: 'dfsc-host-example__example', source: 'plugin', pluginId: 'dfsc-host-example',
     transport: 'stdio', enabled: true, configurable: true });
 }
+let hostChannel: 'plan' | 'api' = 'plan';
 const hostConnected = () => {
+  const source = { channel: hostChannel, region: 'cn' as const };
   hostConfiguration.runtime = hostConfiguration.mode === 'independent' ? { status: 'connected' }
-    : { status: 'connected', capabilities: hostConfiguration.capabilities.map(id => {
+    : { status: 'connected', source, capabilities: hostConfiguration.capabilities.map(id => {
       const model = id === 'model.asr' ? hostConfiguration.models[id] ?? 'stepaudio-2.5-asr'
         : id === 'model.tts' ? hostConfiguration.models[id] ?? 'stepaudio-2.5-tts' : 'step-5-preview';
-      const available = id === 'model.asr' ? model === 'stepaudio-2.5-asr'
-        : id === 'model.tts' ? ['stepaudio-2.5-tts', 'stepaudio-3-tts', 'step-tts-2', 'step-tts-mini'].includes(model) : true;
-      return { id, available, ...(available ? { model, channel: 'plan' as const, region: 'cn' as const } : {}),
+      const unavailable = stepHostUnavailable(id, source, model, true);
+      const available = !unavailable;
+      return { id, available, unavailable, ...(available ? { model, ...source } : {}),
         authorization: available ? 'required' as const : 'unavailable' as const };
     }) };
 };
@@ -519,6 +522,7 @@ Object.assign(window, { pluginCenterTest: { configuration: () => structuredClone
 Object.assign(window, { pluginHostTest: {
   snapshot: () => ({ value: structuredClone(hostConfiguration), saves: hostSaves, reads: hostReads, restarts }),
   connected: hostConnected,
+  channel: (value: 'plan' | 'api') => { hostChannel = value; hostConnected(); },
   approve: () => { for (const capability of hostConfiguration.runtime.capabilities ?? [])
     if (capability.available) capability.authorization = 'approved'; },
   fail: () => { hostFailure = true; },

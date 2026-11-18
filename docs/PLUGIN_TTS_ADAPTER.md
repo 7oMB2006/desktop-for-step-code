@@ -8,8 +8,10 @@
 
 - 只使用当前调用会话的官方 Step 登录账户，凭据留在主进程。
 - 按当前账户的国内/海外、Step Plan/API 路由调用 `/audio/speech`，不跨渠道回退。
-- 默认 `stepaudio-2.5-tts`；允许 `stepaudio-3-tts`，国内额外允许
-  `step-tts-2`、`step-tts-mini`。专用模型由用户在插件设置中选择，不由插件逐次覆盖。
+- 国内外 Step Plan 均使用已确认的 `stepaudio-2.5-tts`。开放平台另允许
+  `stepaudio-3-tts`，国内开放平台另允许 `step-tts-2`、`step-tts-mini`。
+  专用模型由用户在插件设置中选择，不由插件逐次覆盖。旧配置不自动改写；
+  换渠道后不适用的模型会停用，用户可选择恢复默认。
 - 逐能力首次确认、账户/会话/模型/模式变化失效、取消、超时、并发和结果大小限制。
 - 将提供商二进制音频规范化为 `{ type: 'audio', mimeType, data }`，`data` 为 base64。
 

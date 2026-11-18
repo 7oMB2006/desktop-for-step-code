@@ -5,15 +5,15 @@
   } },
   { "name": "separate media capabilities", "valid": true, "value": {
     "schemaVersion": 1, "hostApiVersion": 1, "consumer": { "kind": "mcp-stdio", "server": "example" },
-    "capabilities": ["model.video", "model.asr", "model.tts"]
+    "capabilities": ["model.text", "model.image", "model.video", "model.asr", "model.tts"]
   } },
   { "name": "unknown major", "valid": false, "value": {
     "schemaVersion": 1, "hostApiVersion": 2, "consumer": { "kind": "mcp-stdio", "server": "example" },
     "capabilities": ["model.text"]
   } },
-  { "name": "future image is not granted", "valid": false, "value": {
+  { "name": "experimental music is not granted", "valid": false, "value": {
     "schemaVersion": 1, "hostApiVersion": 1, "consumer": { "kind": "mcp-stdio", "server": "example" },
-    "capabilities": ["model.image"]
+    "capabilities": ["model.music"]
   } },
   { "name": "duplicate capabilities", "valid": false, "value": {
     "schemaVersion": 1, "hostApiVersion": 1, "consumer": { "kind": "mcp-stdio", "server": "example" },

@@ -19,8 +19,8 @@
       }
     },
     "capabilities": {
-      "type": "array", "minItems": 1, "maxItems": 4, "uniqueItems": true,
-      "items": { "enum": ["model.text", "model.video", "model.asr", "model.tts"] }
+      "type": "array", "minItems": 1, "maxItems": 5, "uniqueItems": true,
+      "items": { "enum": ["model.text", "model.video", "model.asr", "model.tts", "model.image"] }
     }
   }
 }

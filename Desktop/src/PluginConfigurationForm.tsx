@@ -8,13 +8,15 @@ import type { PluginConfiguration, PluginConfigurationField, PluginConfiguration
 
 type Bridge = Pick<DesktopBridge, 'pluginConfiguration' | 'pluginSaveConfiguration' | 'pluginChoosePath'>;
 export function PluginConfigurationEnumField({ field, value, disabled, onChange }: {
-  field: Pick<PluginConfigurationField, 'label' | 'options'>; value: string; disabled: boolean; onChange(value: string): void;
+  field: { label: string; options?: { value: string; label: string; disabled?: boolean }[] };
+  value: string; disabled: boolean; onChange(value: string): void;
 }) {
   const anchor = useRef<HTMLButtonElement>(null), [open, setOpen] = useState(false);
   return <span className="scheduled-select"><button type="button" ref={anchor} disabled={disabled} aria-label={field.label}
     aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen(!open)}>
     {field.options?.find(item => item.value === value)?.label ?? field.label}<DisclosureChevron/></button>
-    <AppMenu anchor={anchor} open={open} label={field.label} selected={value} items={(field.options ?? []).map(item => ({ id: item.value, label: item.label }))}
+    <AppMenu anchor={anchor} open={open} label={field.label} selected={value}
+      items={(field.options ?? []).map(item => ({ id: item.value, label: item.label, disabled: item.disabled }))}
       onSelect={onChange} onClose={() => setOpen(false)} maxVisibleItems={8}/></span>;
 }
 export function editablePluginConfiguration(value: PluginConfiguration): PluginConfigurationInput {

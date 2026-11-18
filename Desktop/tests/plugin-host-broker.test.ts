@@ -213,10 +213,10 @@ test('TTS crosses the real broker and client on all four account routes with a d
       fixture.descriptor, fixture.worker)) as FollowLaunch)]), /fixture-main-private-key|Bearer/);
   }
 });
-test('TTS model selection is region-bound, does not follow the chat model and revokes earlier grants', async t => {
+test('TTS model selection is channel- and region-bound and revokes earlier grants', async t => {
   for (const [profile, model, available] of [
-    ['step_plan', 'stepaudio-3-tts', true], ['platform_oversea', 'stepaudio-3-tts', true],
-    ['platform_cn', 'step-tts-2', true], ['step_plan', 'step-tts-mini', true],
+    ['step_plan', 'stepaudio-3-tts', false], ['platform_oversea', 'stepaudio-3-tts', true],
+    ['platform_cn', 'step-tts-2', true], ['step_plan', 'step-tts-mini', false],
     ['step_plan_oversea', 'step-tts-2', false], ['platform_oversea', 'step-tts-mini', false],
     ['platform_cn', 'step-5-preview', false],
   ] as const) {
@@ -239,6 +239,74 @@ test('TTS model selection is region-bound, does not follow the chat model and re
     assert.equal(fixture.calls.length, available ? 1 : 0);
     assert.equal(fixture.state.confirmations.length, available ? 1 : 0);
   }
+});
+test('image understanding uses the exact session route and gets separate consent from video', async t => {
+  for (const [model, profile, endpoint] of [
+    ['step-5-preview', 'step_plan', 'https://api.stepfun.com/step_plan/v1'],
+    ['step-3.7-flash', 'platform_oversea', 'https://api.stepfun.ai/v1'],
+  ]) {
+    const fixture = await hostService(t, { model, profile, capabilities: ['model.video', 'model.image'] });
+    const { client, launch } = await clientFor(t, fixture);
+    const context = await client.context();
+    const messages = [{ role: 'user' as const, content: 'inspect' }];
+    const data = 'aW1hZ2U=';
+    await client.invoke({ requestId: newRequestId(), revision: context.revision, capability: 'model.video',
+      input: { messages, video: { mimeType: 'video/mp4', data } } });
+    assert.equal((await fixture.broker.status(launch)).capabilities?.find(item => item.id === 'model.image')?.authorization, 'required');
+    const result = await client.invoke({ requestId: newRequestId(), revision: context.revision, capability: 'model.image',
+      input: { messages, image: { mimeType: 'image/png', data } } });
+    assert.equal(result.text, 'host result');
+    assert.equal(fixture.calls[1].url, `${endpoint}/chat/completions`);
+    assert.deepEqual(JSON.parse(String(fixture.calls[1].init?.body)), { model, messages: [{
+      role: 'user', content: [{ type: 'image_url', image_url: { url: `data:image/png;base64,${data}` } }, { type: 'text', text: 'inspect' }],
+    }] });
+    assert.match(fixture.state.confirmations[1], /model\.image/);
+    assert.equal(fixture.state.confirmations.length, 2);
+  }
+});
+test('image handling rejects unlisted session models without authorizing, calling or choosing another model', async t => {
+  const fixture = await hostService(t, { model: 'step-3.5-flash', capabilities: ['model.image'] });
+  const { client, launch } = await clientFor(t, fixture);
+  const context = await client.context();
+  assert.equal(context.capabilities[0].available, false);
+  assert.equal((await fixture.broker.status(launch)).capabilities?.[0].unavailable, 'session-model-unsupported');
+  await assert.rejects(client.invoke({ requestId: newRequestId(), revision: context.revision, capability: 'model.image',
+    input: { messages: [{ role: 'user', content: 'inspect' }], image: { mimeType: 'image/png', data: 'aW1hZ2U=' } } }), /CAPABILITY_UNAVAILABLE/);
+  assert.equal(fixture.calls.length + fixture.state.confirmations.length, 0);
+});
+test('image provider failures keep the public error and record only bounded diagnostic metadata', async t => {
+  const upstreamRequestId = '4bd4da31-9ecf-42a3-879a-5196f4de8df4';
+  const cases = [
+    { stage: 'network', request: async () => { throw new Error('private network diagnostic'); } },
+    { stage: 'http', status: 400, upstreamRequestId, request: async () =>
+      new Response('private upstream response', { status: 400, headers: { 'x-request-id': upstreamRequestId } }) },
+    { stage: 'response-body', status: 200, request: async () =>
+      new Response(new ReadableStream({ start(controller) { controller.error(new Error('private body diagnostic')); } })) },
+    { stage: 'response-json', status: 200, request: async () =>
+      new Response('private non-JSON response', { headers: { 'x-request-id': 'Bearer private-request-header' } }) },
+    { stage: 'response-content', status: 200, request: async () =>
+      Response.json({ choices: [{ message: { content: '', reasoning_content: 'private reasoning' } }] }) },
+  ];
+  for (const scenario of cases) await t.test(scenario.stage, async subtest => {
+    const diagnostics: unknown[] = [];
+    const fixture = await hostService(subtest, { capabilities: ['model.image'], request: scenario.request,
+      recordImageFailure: async details => {
+        diagnostics.push(details);
+        throw new Error('diagnostic writer unavailable');
+      } });
+    const { client } = await clientFor(subtest, fixture);
+    const context = await client.context();
+    const requestId = newRequestId();
+    await assert.rejects(client.invoke({ requestId, revision: context.revision, capability: 'model.image',
+      input: { messages: [{ role: 'user', content: 'private prompt' }],
+        image: { mimeType: 'image/png', data: 'aW1hZ2U=' } } }),
+    { message: 'dfsc-host:PROVIDER_FAILED' });
+    assert.deepEqual(diagnostics, [{ capability: 'model.image', model: 'step-5-preview', requestId,
+      channel: 'plan', region: 'cn', stage: scenario.stage,
+      ...(scenario.status === undefined ? {} : { httpStatus: scenario.status }),
+      ...(scenario.upstreamRequestId ? { upstreamRequestId: scenario.upstreamRequestId } : {}) }]);
+    assert.equal(fixture.calls.length, 1);
+  });
 });
 test('TTS needs its own foreground consent and never falls back after a provider failure', async t => {
   const fixture = await hostService(t, { capabilities: ['model.text', 'model.tts'], request: async url =>

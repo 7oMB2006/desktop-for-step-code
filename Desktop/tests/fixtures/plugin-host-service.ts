@@ -4,14 +4,16 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { PluginHostBroker } from '../../electron/plugin-host-broker';
-import { StepPluginHostProvider } from '../../electron/plugin-host-step';
+import { StepPluginHostProvider, type ImageFailureDiagnostic } from '../../electron/plugin-host-step';
 import { PluginHostBindingStore } from '../../electron/plugin-host-contract.mjs';
 import { installationReceipt, packageFingerprint, writeReceipts } from '../../electron/plugin-files.mjs';
 import type { SessionRuntime, SessionRuntimes } from '../../electron/session-runtimes';
+import type { Capability } from '../../../examples/plugins/host-client/protocol.mjs';
 
 export async function hostService(t: Pick<TestContext, 'after'>, options: {
-  capabilities?: Array<'model.text' | 'model.video' | 'model.asr' | 'model.tts'>;
+  capabilities?: Capability[]; model?: string;
   profile?: string; configured?: boolean; settings?: boolean; request?: typeof fetch;
+  recordImageFailure?: (details: ImageFailureDiagnostic) => void | Promise<void>;
   packageDirectory?: string;
   command?: string;
   serverWrapper?: string;
@@ -49,7 +51,7 @@ export async function hostService(t: Pick<TestContext, 'after'>, options: {
     changing: false, transportAllowed: true, approved: true, confirmations: [] as string[],
     confirm: undefined as ((signal?: AbortSignal) => Promise<boolean>) | undefined };
   const worker = { id: randomUUID(), status: 'connected', state: { sessionId: randomUUID(),
-    model: { provider: 'step', id: 'step-5-preview', input: ['text', 'image'] } },
+    model: { provider: 'step', id: options.model ?? 'step-5-preview', input: ['text', 'image'] } },
     rpc: { request: async () => worker.state } } as unknown as SessionRuntime;
   const pool = { workers: new Map([[worker.id, worker]]), activeId: worker.id,
     confirm: async (_worker: SessionRuntime, _title: string, message: string, signal?: AbortSignal) => {
@@ -60,7 +62,7 @@ export async function hostService(t: Pick<TestContext, 'after'>, options: {
   const provider = new StepPluginHostProvider(pool, () => state.auth, () => state.changing, async (url, init) => {
     calls.push({ url: String(url), init });
     return options.request ? options.request(url, init) : Response.json({ choices: [{ message: { content: 'host result' } }] });
-  });
+  }, options.recordImageFailure);
   const store = new PluginHostBindingStore(root);
   if (options.configured !== false) await store.select(descriptor, { revision: 'unconfigured', mode: 'follow' });
   broker = new PluginHostBroker({ root, pool, provider, language: () => 'zh',

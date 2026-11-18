@@ -63,12 +63,14 @@ export interface PluginConfigurationInput {
   ref: string; revision: string; values: Record<string, string | number | boolean>;
   secrets: Record<string, { action: 'keep' | 'replace' | 'delete'; value?: string }>;
 }
-export type PluginHostCapability = 'model.text' | 'model.video' | 'model.asr' | 'model.tts';
+export type PluginHostCapability = import('../../examples/plugins/host-client/protocol.mjs').Capability;
 export type PluginHostModels = Partial<Record<'model.asr' | 'model.tts', string>>;
 export interface PluginHostRuntime {
   status: 'unsupported' | 'no-session' | 'unconfigured' | 'disabled' | 'restart-required' | 'connected' | 'unavailable';
+  source?: import('./step-host-catalog').StepHostRoute;
   capabilities?: { id: PluginHostCapability; available: boolean; model?: string; channel?: 'plan' | 'api';
-    region?: 'cn' | 'oversea'; authorization: 'required' | 'approved' | 'unavailable' }[];
+    region?: 'cn' | 'oversea'; unavailable?: import('./step-host-catalog').StepHostUnavailable;
+    authorization: 'required' | 'approved' | 'unavailable' }[];
 }
 export interface PluginHostSettings {
   ref: string; revision: string; mode: 'follow' | 'independent' | null; consumer: string;

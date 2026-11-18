@@ -4,13 +4,17 @@ import { PluginHostBindingStore, type HostBinding } from './plugin-host-contract
 import type { ConfigurationDescriptor } from './plugin-configuration.mjs';
 import type { SessionRuntime, SessionRuntimes } from './session-runtimes';
 import type { PluginHostRuntime } from '../src/capabilities';
+import type { StepHostRoute, StepHostUnavailable } from '../src/step-host-catalog';
 import { HostClientError, LIMITS, boundedJson, keys, parseContext, parseInvoke, parseResult } from '../../examples/plugins/host-client/protocol.mjs';
 import type { Capability, FollowLaunch, HostContext, Invocation, LaunchContext, ModelSelection, Results } from '../../examples/plugins/host-client/protocol.mjs';
 
 export interface HostProviderSnapshot {
   revision: string; expiresAt: number; capabilities: HostContext['capabilities'];
+  source?: StepHostRoute;
+  unavailable?: Partial<Record<Capability, StepHostUnavailable>>;
 }
 export interface HostProvider {
+  source?(worker: SessionRuntime): StepHostRoute | undefined;
   read(worker: SessionRuntime, models: ModelSelection): Promise<HostProviderSnapshot>;
   invoke(snapshot: HostProviderSnapshot, input: Invocation, signal: AbortSignal): Promise<Results[Capability]>;
 }
@@ -154,10 +158,11 @@ export class PluginHostBroker {
       return { status: lease.controller.signal.aborted || Date.now() >= lease.launch.broker.expiresAt
         || !this.sameRuntime(lease.worker, lease.rpc, lease.launch.sessionId) ? 'restart-required' : 'unavailable' };
     }
-    return { status: 'connected', capabilities: lease.snapshot.capabilities
+    return { status: 'connected', source: lease.snapshot.source, capabilities: lease.snapshot.capabilities
       .filter(item => launch.capabilities.includes(item.id)).map(item => ({
         id: item.id, available: item.available,
         ...(item.available ? { model: item.model, channel: item.channel, region: item.region } : {}),
+        ...(lease.snapshot.unavailable?.[item.id] ? { unavailable: lease.snapshot.unavailable[item.id] } : {}),
         authorization: !item.available ? 'unavailable' : lease.grants.has(item.id) ? 'approved' : 'required',
       })) };
   }
@@ -230,8 +235,8 @@ export class PluginHostBroker {
       const zh = this.options.language() === 'zh';
       const selected = lease.snapshot.capabilities.find(item => item.id === capability)!;
       const message = zh
-        ? `${lease.launch.pluginId} 申请 ${capability}，模型 ${selected.model}。\n渠道：${selected.channel === 'plan' ? 'Step Plan 套餐' : '直调 API'}；地区：${selected.region}。\n文字、音频或视频将发送给阶跃并可能消耗额度。仅授权本次启动、此会话的当前账户、模型及本项能力。失败不会切换计费渠道；取消不保证免除已产生的费用。`
-        : `${lease.launch.pluginId} requests ${capability} with ${selected.model}.\nChannel: ${selected.channel === 'plan' ? 'Step Plan' : 'direct API'}; region: ${selected.region}.\nText, audio or video is sent to Step and may consume quota. Approval covers only this launch, session, account, model and capability. No billing fallback. Cancellation may not prevent charges already incurred.`;
+        ? `${lease.launch.pluginId} 申请 ${capability}，模型 ${selected.model}。\n渠道：${selected.channel === 'plan' ? 'Step Plan 套餐' : '直调 API'}；地区：${selected.region}。\n文字、图片、音频或视频将发送给阶跃并可能消耗额度。仅授权本次启动、此会话的当前账户、模型及本项能力。失败不会切换计费渠道；取消不保证免除已产生的费用。`
+        : `${lease.launch.pluginId} requests ${capability} with ${selected.model}.\nChannel: ${selected.channel === 'plan' ? 'Step Plan' : 'direct API'}; region: ${selected.region}.\nText, images, audio or video are sent to Step and may consume quota. Approval covers only this launch, session, account, model and capability. No billing fallback. Cancellation may not prevent charges already incurred.`;
       confirmation = { controller, users: 0, settled: false, promise: undefined! };
       const record = confirmation;
       record.promise = wait(this.options.pool.confirm(lease.worker,

@@ -98,12 +98,16 @@ runtime 重启、插件配置/管理操作和全局 MCP 保存接入主动失效
 | --- | --- |
 | `model.text` | 当前会话官方 Step 模型，`/chat/completions` |
 | `model.video` | 同一模型及渠道，仅已知视频模型或 runtime 明确声明 video 输入时开放 |
+| `model.image` | 同一模型及渠道，首版仅 `step-5-preview` / `step-3.7-flash`；单张 JPEG/PNG/WebP，内联 base64，解码后最多 10 MiB；单独授权 |
 | `model.asr` | 专用 `stepaudio-2.5-asr`，同渠道 `/audio/asr/sse`；本适配器仅接受 WAV |
 | `model.tts` | 专用模型，沿用同账户、同地区、同 Plan/API 渠道的 `/audio/speech`；MP3/WAV/PCM 内联结果 |
 
 TTS 默认使用 `stepaudio-2.5-tts`，也允许显式选择 `stepaudio-3-tts`；
 国内额外适配 `step-tts-2`、`step-tts-mini`，海外不开放这两个未列入当地文档的模型。
 设置页使用通用模型菜单保存到原 `models['model.tts']` 修订，不继承聊天模型或新增付费授权。
+模型菜单和宿主调用共用 `Desktop/src/step-host-catalog.ts`。新渠道或模型须按官方
+文档及具体路由更新目录与回归；允许调用不代表已验证该用户的权益或额度。
+
 单次最多 1000 个 Unicode 字符、音色 ID 最多 128 字符，拒绝空白及音色控制字符；
 不自动拆分长文本、转换格式、上传音频、复刻/管理音色或请求下载 URL。
 提供商返回音频流按 16 MiB 上限读取，核对响应 MIME 后转为规范 base64；
@@ -122,7 +126,9 @@ TTS 默认使用 `stepaudio-2.5-tts`，也允许显式选择 `stepaudio-3-tts`�
 `available` 表示存在受限适配路径，不是实时余额、套餐权益或成功调用保证。
 非 Step 账户、过期账户和未知专用模型不自动回退。
 没有重试、任意 URL、任意 header、输出路径、计费渠道切换或偷偷调用独立 Key。
-`model.image` 仍未加入协议，未来须另补能力声明、请求/结果类型和 provider 验收。
+
+流式 TTS、实时双向语音、音色复刻和音乐生成不属于本轮，不开放宿主能力，
+也不继承普通 TTS 的授权。
 
 ## 请求预算
 
@@ -133,6 +139,8 @@ TTS 默认使用 `stepaudio-2.5-tts`，也允许显式选择 `stepaudio-3-tts`�
 - 排队 30 秒、确认 60 秒、provider 180 秒；租约到期独立生效。
 - 请求 JSON 32 MiB；Step 文本/ASR 原始响应上限 2 MiB，TTS 音频上限 16 MiB；通用结果另按候选协议校验。
 - 提供商错误与非预期异常规范化，不向插件转发原始响应体、账户资料或请求头。
+- 图片提供商失败会在本机日志中记录失败阶段、渠道、地区、模型及请求 ID；
+  HTTP 状态码和符合格式的上游请求 ID 在可用时记录。不记录密钥、图片、提示词或响应正文。
 - 以上是资源预算，不是插件金额/Token 消费硬上限，也不是账单对账或剩余额度查询。
 
 ## 验证边界
@@ -151,5 +159,10 @@ TTS 默认使用 `stepaudio-2.5-tts`，也允许显式选择 `stepaudio-3-tts`�
 
 TTS 另有生产适配器及真实 broker/client/SDK 子进程的离线回归，提供商音频为合成 fixture；
 不证明真实音色、音质、账户权限或实际扣费。
-通用设置已接入候选源码；完整 Electron/实包付费确认、真实账户/权益、
-BVR 迁移和跨仓库发布仍是后续门槛，不能把计划 [Ⅲ] 标为完成。
+
+2026-11-18 在独立 Windows Electron 源码验收环境中，以中国区 Step Plan 账户验证：
+StepAudio 非流式 TTS 返回有效 WAV；图片插件通过 `model.image` 调用
+`step-5-preview` 返回与测试图片一致的描述，并核对了渠道、模型及图片哈希。
+图片首次请求返回 `PROVIDER_FAILED`，单次复测通过；首次失败原因未确认。
+这些结果不覆盖正式安装包、其他地区或模型、开放平台 API，也不验证账单或套餐额度。
+BVR 迁移和跨仓库发布不在本轮范围。

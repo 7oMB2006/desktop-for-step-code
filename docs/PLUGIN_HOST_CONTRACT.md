@@ -47,8 +47,10 @@
 ```
 
 声明最大 64 KiB、每包一个消费者、1–4 个不重复能力。
-首版能力为 `model.text`、`model.video`、`model.asr`、`model.tts`。
-`model.image` 尚未纳入；未知能力或主版本不能获得部分授权。
+当前能力为 `model.text`、`model.image`、`model.video`、`model.asr`、`model.tts`。
+图片理解是宿主 v1 的扩展能力：旧宿主不接受包含 `model.image` 的声明。
+插件升级前请核对目标宿主并使用新版协议客户端，不把图片声明当作已授权。
+未知能力或主版本不能获得部分授权。
 JSON Schema 在 `plugin-schemas/dfsc.host.schema.json`，
 有效/无效公共样例在 `examples/plugins/host-client/declaration-cases.json`。
 Schema 只做结构检查，运行时还要核对实际原生服务、安装来源与 transport。

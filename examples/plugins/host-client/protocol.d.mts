@@ -1,11 +1,11 @@
-export type Capability = 'model.text' | 'model.video' | 'model.asr' | 'model.tts';
+export type Capability = 'model.text' | 'model.video' | 'model.asr' | 'model.tts' | 'model.image';
 export type ErrorCode = 'HOST_UNAVAILABLE' | 'UNSUPPORTED_VERSION' | 'INVALID_REQUEST' | 'CAPABILITY_UNAVAILABLE'
   | 'AUTHORIZATION_REQUIRED' | 'DENIED' | 'STALE_CONTEXT' | 'CANCELLED' | 'TIMEOUT' | 'TOO_LARGE'
   | 'PROVIDER_FAILED' | 'BUSY' | 'CLOSED';
 export const HOST_ENV: 'DFSC_LAUNCH_CONTEXT';
 export const CAPABILITIES: readonly Capability[];
 export const ERROR_CODES: readonly ErrorCode[];
-export const LIMITS: Readonly<Record<'manifest' | 'launch' | 'request' | 'text' | 'response' | 'audio'
+export const LIMITS: Readonly<Record<'manifest' | 'launch' | 'request' | 'text' | 'response' | 'audio' | 'image'
   | 'lease' | 'provider' | 'confirmation' | 'queue' | 'perPluginConcurrency' | 'globalConcurrency', number>>;
 export class HostClientError extends Error { constructor(code: string); code: ErrorCode; }
 export interface HostDeclaration {
@@ -36,12 +36,14 @@ export interface Media { mimeType: string; data: string; }
 export interface Inputs {
   'model.text': { messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>; temperature?: number; maxTokens?: number };
   'model.video': Inputs['model.text'] & { video: Media };
+  'model.image': Inputs['model.text'] & { image: Media };
   'model.asr': { audio: Media };
   'model.tts': { text: string; voice: string; format: 'mp3' | 'wav' | 'pcm' };
 }
 export interface Results {
   'model.text': { type: 'text'; text: string };
   'model.video': Results['model.text']; 'model.asr': Results['model.text'];
+  'model.image': Results['model.text'];
   'model.tts': { type: 'audio'; mimeType: string; data: string };
 }
 export type Invocation<C extends Capability = Capability> = {

@@ -1,6 +1,6 @@
 import type { StepAccount } from './step-model-account';
-
-export const STEP_ASR_MODEL = 'stepaudio-2.5-asr';
+import { STEP_ASR_MODEL } from '../src/step-host-catalog';
+export { STEP_ASR_MODEL };
 export class StepAsrError extends Error {
   constructor(readonly code: 'unavailable' | 'failed' | 'too-large', readonly status?: number) {
     super('Step audio recognition failed');

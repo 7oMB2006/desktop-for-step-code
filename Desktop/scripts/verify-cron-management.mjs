@@ -2,7 +2,7 @@ import { assertFocusVisible } from './assert-focus-visible.mjs';
 import assert from 'node:assert/strict';
 import { fixtureRuntimeChildren } from './fixture-runtime-children.mjs';
 import { _electron as electron } from 'playwright';
-import { mkdir, readFile, realpath, rename, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, realpath, rename, unlink, writeFile } from 'node:fs/promises';
 import { mkdtemp } from './test-profile.mjs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -70,11 +70,19 @@ const launch = async () => {
     const handlers = ipcMain._invokeHandlers, original = handlers.get('desktop');
     if (typeof original !== 'function') throw new Error('Desktop IPC handler unavailable');
     globalThis.cronPreviewCalls = [];
+    globalThis.cronUpdateCalls = 0;
+    globalThis.dropNextCronUpdateReply = false;
     handlers.set('desktop', async (...args) => {
+      const update = args[1] === 'cronUpdate';
+      if (update) globalThis.cronUpdateCalls++;
       const row = args[1] === 'cronRecoveryPreview' ? { time: Date.now(), outcome: 'pending' } : undefined;
       if (row && globalThis.cronPreviewCalls.length < 16) globalThis.cronPreviewCalls.push(row);
       try {
         const result = await original(...args);
+        if (update && globalThis.dropNextCronUpdateReply) {
+          globalThis.dropNextCronUpdateReply = false;
+          throw new Error('Fixture lost the confirmed Cron update reply');
+        }
         if (row) row.outcome = 'resolved';
         return result;
       } catch (error) {
@@ -254,6 +262,19 @@ try {
     await page.waitForFunction(() => !document.querySelector('.scheduled-page')?.inert);
     assert.equal((await records())[0].schemaVersion, 2);
     const createdAt = stored[0].createdAt, expiry = stored[0].autoExpireAt;
+    const resumeButton = page.getByRole('button', { name: '恢复任务 Beta', exact: true });
+    const failure = page.locator('.scheduled-failure[role="alert"]');
+    let calls = await app.evaluate(() => globalThis.cronUpdateCalls);
+    await writeFile(`${file}.lock`, 'fixture lock', { flag: 'wx' });
+    try {
+      await resumeButton.click();
+      await failure.waitFor();
+      assert.match(await failure.textContent(), /未能确认操作结果.*刷新/);
+      assert.equal(await resumeButton.isVisible(), true);
+      assert.equal((await records())[0].schemaVersion, 2);
+      assert.equal(await app.evaluate(() => globalThis.cronUpdateCalls), calls + 1);
+    } finally { await unlink(`${file}.lock`); }
+
     await page.getByRole('button', { name: '编辑 Beta', exact: true }).click();
     const editForm = page.getByRole('form', { name: '编辑定时任务' });
     const originalCron = await editForm.getByLabel('执行时间（本机时区）', { exact: true }).inputValue();
@@ -275,6 +296,23 @@ try {
     assert.equal((await records())[0].id, stored[0].id);
     assert.equal((await records())[0].createdAt, createdAt);
     assert.equal((await records())[0].autoExpireAt, expiry);
+    await page.getByRole('button', { name: '编辑 Beta', exact: true }).click();
+    const unconfirmedPrompt = '隔离 Cron 管理验收\n写入成功但确认丢失';
+    await editForm.getByLabel('任务指令', { exact: true }).fill(unconfirmedPrompt);
+    calls = await app.evaluate(() => {
+      globalThis.dropNextCronUpdateReply = true;
+      return globalThis.cronUpdateCalls;
+    });
+    await page.getByRole('button', { name: '保存修改', exact: true }).click();
+    await failure.waitFor();
+    assert.match(await failure.textContent(), /未能确认操作结果.*刷新/);
+    assert.equal(await editForm.isVisible(), true, 'The success path must not close the editor');
+    assert.equal(await editForm.getByLabel('任务指令', { exact: true }).inputValue(), unconfirmedPrompt);
+    assert.equal((await records())[0].prompt, unconfirmedPrompt);
+    await page.locator('.scheduled-instructions').getByText('写入成功但确认丢失', { exact: false }).waitFor();
+    assert.equal(await app.evaluate(() => globalThis.cronUpdateCalls), calls + 1);
+    assert.equal(fixture.requests.length, 0);
+    results.push('A native write rejection preserves pause; a lost reply shows uncertainty and reloads the committed edit without retrying');
     await close();
     page = await launch();
     await openManager();
@@ -330,6 +368,8 @@ try {
   await offline.click();
   await page.getByRole('heading', { name: '重启后的离线任务', exact: true }).waitFor();
   assert.equal(await page.getByRole('button', { name: '删除任务', exact: true }).isDisabled(), true);
+  assert.equal(await page.getByRole('button', { name: '编辑 Beta', exact: true }).isDisabled(), true);
+  assert.equal(await page.getByRole('button', { name: '暂停任务 Beta', exact: true }).isDisabled(), true);
   assert.equal(await page.getByRole('button', { name: '前往宿主会话', exact: true }).isDisabled(), true);
   await assert.rejects(page.evaluate(runtimeId => window.desktop.cronOpenHost(runtimeId), originalHost), /session|Disconnected|runtime/i);
   assert.equal((await page.evaluate(() => window.desktop.snapshot())).runtimes.length, 0);

@@ -9,6 +9,7 @@ import { applyTheme } from '../../src/theme';
 import '../../src/style.css';
 import '../../src/layout.css';
 import '../../src/theme.css';
+import '../../src/text-tabs.css';
 
 const params = new URLSearchParams(location.search);
 const language = params.get('lang') === 'en' ? 'en' : 'zh';

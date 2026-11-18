@@ -34,8 +34,41 @@
   min-height: 56px;
   flex-shrink: 0;
   padding: 12px 20px;
+  gap: 14px;
 }
-.settings-dialog > header h2 { font-size: 16px; }
+.settings-dialog > header h2 { font-size: 16px; flex: 0 0 164px; }
+.settings-dialog > header > .icon-button { flex-shrink: 0; }
+.settings-dialog > header .settings-search {
+  display: flex;
+  align-items: center;
+  flex: 1 1 0;
+  min-width: 0;
+  height: 32px;
+  gap: 8px;
+  padding-inline: 10px 4px;
+  color: var(--muted);
+  background: var(--side);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+.settings-search > svg, .settings-search > button { flex-shrink: 0; }
+.settings-search:focus-within { outline: 2px solid var(--primary); outline-offset: 2px; }
+.settings-dialog .settings-search > input {
+  flex: 1;
+  width: 0;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  outline: none;
+  box-shadow: none;
+  color: var(--ink);
+  background: transparent;
+  font-size: 13px;
+}
+.settings-search > input::placeholder { color: var(--muted); opacity: 1; }
+.settings-search > input::-webkit-search-cancel-button { appearance: none; }
+.settings-search > .icon-button { width: 24px; height: 24px; min-height: 24px; }
 .settings-dialog .settings-layout { overflow: hidden; }
 .settings-dialog .settings-layout > nav {
   width: 190px;
@@ -63,6 +96,36 @@
   animation: settings-content-enter 160ms ease-out;
 }
 .settings-dialog .settings-content > label { max-width: 560px; }
+.settings-dialog .settings-content[hidden] { display: none; }
+.settings-search-results > h3 { margin: 0 0 14px; }
+.settings-search-results > ul { list-style: none; margin: 0; padding: 4px; max-width: 580px; }
+.settings-search-results li + li { border-top: 1px solid var(--border); }
+.settings-dialog .settings-search-results li > button {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  padding: 7px 8px;
+  border: 0;
+  background: transparent;
+  text-align: start;
+}
+.settings-dialog .settings-search-results li > button:hover,
+.settings-dialog .settings-search-results li > button:focus-visible { background: var(--side); }
+.settings-search-results li > button > span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.settings-search-results li > button > small { max-width: 44%; overflow-wrap: anywhere; color: var(--muted); }
+.settings-search-results li > button > svg { flex-shrink: 0; color: var(--muted); }
+.settings-content [data-settings-anchor] { scroll-margin: 10px; }
+.settings-content [data-settings-located] {
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--primary) 15%, transparent);
+  animation: settings-locate 1.8s ease-out forwards;
+}
+@keyframes settings-locate {
+  0%, 55% { background: color-mix(in srgb, var(--primary) 15%, transparent); }
+  100% { background: transparent; }
+}
 .settings-dialog .settings-content::-webkit-scrollbar,
 .settings-dialog .settings-layout > nav::-webkit-scrollbar { width: 6px; }
 .settings-dialog .settings-content::-webkit-scrollbar-thumb,
@@ -86,6 +149,8 @@
 @keyframes settings-content-enter { from { opacity: .5; } to { opacity: 1; } }
 @media (max-width: 740px) {
   .settings-backdrop { padding: 12px; }
+  .settings-dialog > header { padding-inline: 12px; gap: 10px; }
+  .settings-dialog > header h2 { flex-basis: auto; }
   .settings-backdrop .settings-dialog {
     height: min(740px, calc(100dvh - 24px));
   }
@@ -96,6 +161,7 @@
   .settings-dialog .settings-content { padding: 20px; }
 }
 @media (prefers-reduced-motion: reduce) {
+  .settings-content [data-settings-located] { animation: none; }
   .settings-backdrop, .settings-backdrop .settings-dialog,
   .settings-backdrop.is-closing, .settings-backdrop.is-closing .settings-dialog,
   .settings-dialog .settings-content, .project-removal-backdrop .project-removal-dialog,

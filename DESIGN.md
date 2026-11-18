@@ -420,6 +420,15 @@ Full Access uses the native risk acknowledgment with localized presentation and 
 
 Settings use one centered, fixed-size secondary window: 1060 by 740 pixels, bounded by the application viewport. All categories, including providers and archived sessions, share this shell instead of resizing it. The full application, including its titlebar and window controls, sits behind a softly blurred backdrop with a low-opacity black tint that never becomes a white veil in dark mode. The form surface stays opaque for readability. The titlebar is inert until settings finish closing. Navigation and content scroll independently. Narrow windows retain icon navigation and bounded content. The selected category has a restrained rose tint, content changes fade without moving the frame, and matching entrance/exit effects preserve the blocking layer until dismissal ends. Reduced motion bypasses dismissal animation. Switching categories keeps navigation focus and resets the content scroll position.
 
+Settings search fills the header span from the category rail to the close
+button, without resizing the dialog or clipping the shared focus outline.
+It matches built-in category names and indexed option labels and aliases in
+both languages, never configuration values or instruction contents. Results
+occupy the existing content area while keeping the current category mounted.
+Clearing the query restores that category. Opening an option moves focus and
+scrolls to its stable target with a brief highlight, without applying the
+setting. Reduced motion keeps the highlight static until it clears.
+
 Artifact and web-reference entry points also close the right panel when it already shows that target. External application actions and explicit file refresh remain commands. Hiding a panel preserves its reading state, browser tabs and terminal processes. Local HTML reactivation selects its existing browser tab without reloading it; the browser refresh command remains available.
 
 Resizable inspectors share a subtle single-line grip centered on their left boundary, with a larger invisible pointer target and no tooltip. Drag geometry follows the pointer and release snaps to existing presets; a long drag may cross multiple presets. Closing requires dragging at least 100px beyond standard width. Browser, file and terminal use standard/wide/fullscreen; context, changes and subagent use standard/fullscreen. Conversation navigation is excluded. Click opens an anchored in-app size menu; keyboard left/right expands/contracts. The browser yields its native surface while the menu is open. Reduced-motion preferences disable the settling transition.

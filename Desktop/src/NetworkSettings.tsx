@@ -37,7 +37,7 @@ export function NetworkSettings({ bridge, language, busy }: { bridge: DesktopBri
   };
   const route = result?.route === 'proxy' ? t('代理', 'Proxy') : result?.route === 'direct' ? t('直连', 'Direct') : t('未知', 'Unknown');
   return <section className="network-settings" aria-labelledby="network-settings-title">
-    <h3 id="network-settings-title">{t('网络', 'Network')}</h3>
+    <h3 id="network-settings-title" data-settings-anchor="network">{t('网络', 'Network')}</h3>
     {!config ? <p role="status">{error || t('加载中…', 'Loading…')}</p> : <>
       <fieldset disabled={working || busy}>
         <label>{t('代理模式', 'Proxy mode')}<select aria-label={t('代理模式', 'Proxy mode')} value={config.mode} onChange={event => change({ mode: event.target.value as NetworkConfig['mode'], proxyUrl: config.proxyUrl })}>

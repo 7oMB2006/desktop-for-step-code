@@ -132,7 +132,7 @@ try {
     `https://github.com/7oMB2006/desktop-for-step-code/releases/tag/v${nextVersion}`,
   ]);
   await assert.rejects(page.evaluate(() => window.desktop.openUpdate('https://evil.example')), /No verified update download/);
-  await page.getByRole('button', { name: 'Close', exact: true }).click();
+  await page.locator('.settings-dialog > header').getByRole('button', { name: /^(?:Close|\u5173\u95ed)$/u }).click();
   await page.screenshot({ path: 'test-results/app-updates-sidebar-badge.png' });
   await mode('network');
   const backgroundFailure = await page.evaluate(() => window.desktop.checkUpdates());

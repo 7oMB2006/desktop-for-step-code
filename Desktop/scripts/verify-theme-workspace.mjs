@@ -87,7 +87,7 @@ try {
   await shot('workspace-original-light');
   await page.locator('.theme-pack-select').click();
   await page.getByLabel('星海动态背景').uncheck();
-  await page.getByRole('button', { name: 'Close', exact: true }).click();
+  await page.locator('.settings-dialog > header').getByRole('button', { name: /^(?:Close|\u5173\u95ed)$/u }).click();
   await page.waitForTimeout(800);
   // Hide foregrounds only for pixel comparisons; the real canvas remains visible.
   const foregrounds = page.locator('.app > :not(.stellar-workspace-scene)');

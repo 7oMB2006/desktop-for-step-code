@@ -53,7 +53,7 @@ try {
     await page.getByRole('button', { name: '外观', exact: true }).click();
   };
   const closeSettings = async () => {
-    await page.getByRole('button', { name: 'Close', exact: true }).click();
+    await page.locator('.settings-dialog > header').getByRole('button', { name: /^(?:Close|\u5173\u95ed)$/u }).click();
     await page.locator('.settings-dialog').waitFor({ state: 'detached' });
   };
   await page.goto(base); await ready();

@@ -30,7 +30,7 @@ async function openSettings(page) {
   await settings(page).waitFor();
 }
 async function closeSettings(page) {
-  await page.getByRole('dialog', { name: '设置', exact: true }).getByRole('button', { name: 'Close', exact: true }).click();
+  await page.getByRole('dialog', { name: '设置', exact: true }).getByRole('button', { name: /^(?:Close|\u5173\u95ed)$/u }).click();
   await page.locator('.settings-backdrop').waitFor({ state: 'detached' });
 }
 async function preset(page, name) {

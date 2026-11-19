@@ -160,7 +160,7 @@ try {
   assert.equal(await page.getByLabel('Task completion notifications', { exact: true }).isChecked(), true);
   assert.equal(await page.getByLabel('Completion sound', { exact: true }).isChecked(), true);
   await preferences({ language: 'zh' });
-  await page.getByRole('dialog').getByRole('button', { name: 'Close', exact: true }).click();
+  await page.locator('.settings-dialog > header').getByRole('button', { name: /^(?:Close|\u5173\u95ed)$/u }).click();
   await page.locator('.settings-backdrop').waitFor({ state: 'hidden' });
   checks.push('defaults, independent controls, persistence/reload, keyboard, dark/narrow English focus');
   await page.evaluate(() => {

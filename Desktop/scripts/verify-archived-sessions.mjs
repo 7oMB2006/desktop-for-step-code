@@ -151,7 +151,7 @@ try {
   await page.getByRole('button', { name: '暗', exact: true }).click();
   await page.getByRole('button', { name: '已归档', exact: true }).click();
   await screenshot(page, 'test-results/archives-settings-dark.png');
-  await page.getByRole('button', { name: 'Close', exact: true }).click();
+  await page.locator('.settings-dialog > header').getByRole('button', { name: /^(?:Close|\u5173\u95ed)$/u }).click();
   await page.screenshot({ path: 'test-results/navigation-turn-dates-dark.png' });
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(680, 800));
   await page.waitForFunction(() => document.querySelector('.app').classList.contains('sidebar-compact'));
@@ -169,7 +169,7 @@ try {
   await page.getByRole('dialog').getByLabel(/^(语言|Language)$/).selectOption('en');
   await page.getByRole('button', { name: 'Archived', exact: true }).click();
   await page.getByRole('button', { name: 'Unarchive', exact: true }).first().waitFor();
-  await page.getByRole('button', { name: 'Close', exact: true }).click();
+  await page.locator('.settings-dialog > header').getByRole('button', { name: /^(?:Close|\u5173\u95ed)$/u }).click();
   await page.getByRole('button', { name: 'Conversation navigation', exact: true }).click();
   assert.deepEqual(await dates.allTextContents(), ['10/03 14:41', '10/03 14:50', '10/03 14:59']);
   console.log('Archive actions, light/dark/narrow layouts and bilingual dates passed; checking delete guards and restart.');
@@ -194,7 +194,7 @@ try {
   assert.ok(await readFile(join(sessionDir, 'archive-8.jsonl'), 'utf8'));
   assert.equal(await readFile(sentinel, 'utf8'), 'Project files must survive deleting conversation history.');
   assert.deepEqual(await app.evaluate(() => globalThis.archiveDialogs), []);
-  await page.getByRole('button', { name: 'Close', exact: true }).click();
+  await page.locator('.settings-dialog > header').getByRole('button', { name: /^(?:Close|\u5173\u95ed)$/u }).click();
   await app.close(); app = null;
   page = await launch();
   assert.equal((await page.evaluate(() => window.desktop.snapshot())).sessions.some(session => session.id === 'archive-0'), false);

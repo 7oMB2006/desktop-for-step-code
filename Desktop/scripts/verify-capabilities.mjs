@@ -115,7 +115,7 @@ try {
   };
   const closeSurface = async () => {
     if (await page.locator('.settings-dialog').isVisible()) {
-      await page.getByRole('button', { name: 'Close', exact: true }).click();
+      await page.locator('.settings-dialog > header').getByRole('button', { name: /^(?:Close|\u5173\u95ed)$/u }).click();
       await page.locator('.settings-dialog').waitFor({ state: 'detached' });
     } else if (await page.locator('.plugin-center').isVisible()) await page.locator('.plugin-center').getByRole('button', { name: '返回会话', exact: true }).click();
   };
@@ -174,7 +174,7 @@ try {
   await page.getByRole('option', { name: /MCP/ }).click();
   await page.locator('.cap-heading').getByRole('heading', { name: 'MCP', exact: true }).waitFor();
   assert.equal((await page.evaluate(() => window.desktop.snapshot())).runtimeId, undefined, 'Local MCP navigation does not start a runtime');
-  await page.getByRole('button', { name: 'Close', exact: true }).click();
+  await page.locator('.settings-dialog > header').getByRole('button', { name: /^(?:Close|\u5173\u95ed)$/u }).click();
   await page.locator('.settings-dialog').waitFor({ state: 'detached' });
   const host = await page.evaluate(() => window.desktop.newIndependentSession());
   assert.ok(host.runtimeId);
@@ -501,7 +501,7 @@ try {
     await page.getByRole('textbox', { name: '消息', exact: true }).press('Enter');
     await page.locator(heading === '插件' ? '.pc-page-header' : '.cap-heading').getByRole('heading', { name: heading, exact: true }).waitFor();
   }
-  await page.getByRole('button', { name: 'Close', exact: true }).click();
+  await page.locator('.settings-dialog > header').getByRole('button', { name: /^(?:Close|\u5173\u95ed)$/u }).click();
   await page.locator('.settings-dialog').waitFor({ state: 'detached' });
   const composer = page.getByRole('textbox', { name: '消息', exact: true });
   await composer.fill('/plugin install filter-only-for-plugins');

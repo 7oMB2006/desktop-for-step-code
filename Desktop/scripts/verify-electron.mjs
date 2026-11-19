@@ -458,13 +458,13 @@ try {
   await page.screenshot({ path: 'test-results/notice-toast-wide.png' });
   await toast.getByRole('button', { name: '查看 MCP' }).click();
   await page.getByRole('region', { name: '本次窗口的 MCP 警告' }).getByText(mcpMessage).waitFor();
-  await page.getByRole('button', { name: 'Close', exact: true }).click();
+  await page.locator('.settings-dialog > header').getByRole('button', { name: /^(?:Close|\u5173\u95ed)$/u }).click();
   await sendNotice('warning-again', 'warning', mcpMessage);
   assert.equal(await toast.count(), 0);
   await page.locator('.sidebar-settings').click();
   await page.getByRole('button', { name: 'MCP', exact: true }).click();
   await page.getByRole('region', { name: '本次窗口的 MCP 警告' }).locator('.resource-row').filter({ hasText: 'example_mcp' }).getByText('出现 2 次').waitFor();
-  await page.getByRole('button', { name: 'Close', exact: true }).click();
+  await page.locator('.settings-dialog > header').getByRole('button', { name: /^(?:Close|\u5173\u95ed)$/u }).click();
   await sendNotice('warning-generic', 'warning', 'Another optional service is unavailable');
   await toast.getByText('Another optional service is unavailable').waitFor();
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(640, 620));
@@ -605,7 +605,7 @@ try {
   assert.equal(await page.locator('.permission-trigger span').textContent(), 'Ask');
   assert.equal(await page.getByRole('meter', { name: 'Context usage' }).getAttribute('title'), null);
   assert.equal(await page.locator('.model-effort-level').textContent(), 'off');
-  await page.getByRole('button', { name: 'Close', exact: true }).click();
+  await page.locator('.settings-dialog > header').getByRole('button', { name: /^(?:Close|\u5173\u95ed)$/u }).click();
   await page.evaluate(data => {
     const transfer = new DataTransfer();
     transfer.items.add(new File([Uint8Array.from(atob(data), char => char.charCodeAt(0))], 'locale.png', { type: 'image/png' }));
@@ -634,7 +634,7 @@ try {
   await languagePicker.click();
   await page.screenshot({ path: 'test-results/select-dark.png' });
   await page.keyboard.press('Escape');
-  await page.getByRole('button', { name: 'Close', exact: true }).click();
+  await page.locator('.settings-dialog > header').getByRole('button', { name: /^(?:Close|\u5173\u95ed)$/u }).click();
   const composerTools = page.locator('.composer-tools');
   assert.equal(await composerTools.getByRole('button', { name: '添加附件' }).locator('svg.lucide-plus').count(), 1);
   const attachButton = composerTools.getByRole('button', { name: '添加附件' });
@@ -1008,7 +1008,7 @@ try {
   assert.equal(await page.locator('.archived-group').count(), 0);
   await toast.getByRole('button', { name: '查看', exact: true }).click();
   await page.locator('[data-archived-session-id="fixture-1"]').getByRole('button', { name: '取消归档', exact: true }).click();
-  await page.getByRole('button', { name: 'Close', exact: true }).click();
+  await page.locator('.settings-dialog > header').getByRole('button', { name: /^(?:Close|\u5173\u95ed)$/u }).click();
   await secondGroup.getByRole('button', { name: 'Second session', exact: true }).waitFor();
   assert.equal(await firstGroup.getByRole('button', { name: 'Second session', exact: true }).count(), 0);
   await firstGroup.getByRole('button', { name: '中文项目 with spaces', exact: true }).click();
@@ -1053,7 +1053,7 @@ try {
   await modal.waitFor({ state: 'hidden' });
   await page.getByText('disabled-test', { exact: true }).waitFor();
   await page.screenshot({ path: 'test-results/settings-mcp.png' });
-  await page.getByRole('button', { name: 'Close', exact: true }).click();
+  await page.locator('.settings-dialog > header').getByRole('button', { name: /^(?:Close|\u5173\u95ed)$/u }).click();
   const resizeCompact = () => app.evaluate(({ BrowserWindow }) => {
     const window = BrowserWindow.getAllWindows()[0];
     if (window.isMaximized()) window.unmaximize();
@@ -1217,7 +1217,7 @@ try {
     await page.locator('.sidebar-settings').click();
     await page.getByRole('button', { name: '外观', exact: true }).click();
     await page.getByRole('button', { name: theme === 'dark' ? '暗' : '亮', exact: true }).click();
-    await page.getByRole('button', { name: 'Close', exact: true }).click();
+    await page.locator('.settings-dialog > header').getByRole('button', { name: /^(?:Close|\u5173\u95ed)$/u }).click();
     await mathMessage.getByText('数学排版', { exact: true }).scrollIntoViewIfNeeded();
     await page.evaluate(() => document.fonts.ready);
     assert.equal(await page.evaluate(() => document.fonts.check('16px KaTeX_Main')), true);
@@ -1325,7 +1325,7 @@ try {
     await page.locator('.sidebar-settings').click();
     await page.getByRole('button', { name: '外观', exact: true }).click();
     await page.getByRole('button', { name: theme === 'dark' ? '暗' : '亮', exact: true }).click();
-    await page.getByRole('button', { name: 'Close', exact: true }).click();
+    await page.locator('.settings-dialog > header').getByRole('button', { name: /^(?:Close|\u5173\u95ed)$/u }).click();
     await presentationUser.scrollIntoViewIfNeeded();
     await page.mouse.move(10, 10);
     await page.screenshot({ path: `test-results/transcript-${theme}-overview.png` });

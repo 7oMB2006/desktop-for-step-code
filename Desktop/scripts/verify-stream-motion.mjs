@@ -64,7 +64,7 @@ try {
   await page.evaluate(() => window.desktop.preferences({ theme: 'dark' }));
   await page.waitForFunction(() => document.documentElement.dataset.palette === 'dark');
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1200, 850));
-  await page.locator('.settings-dialog').getByRole('button', { name: 'Close', exact: true }).click();
+  await page.locator('.settings-dialog').getByRole('button', { name: /^(?:Close|\u5173\u95ed)$/u }).click();
   await page.locator('.settings-dialog').waitFor({ state: 'detached' });
   await page.keyboard.press(`${primary}+Shift+f`);
   await page.locator('.fulltext-panel').waitFor({ state: 'visible' });

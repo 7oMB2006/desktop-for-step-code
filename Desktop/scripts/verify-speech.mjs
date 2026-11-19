@@ -422,7 +422,7 @@ const configure = async () => {
   await page.locator('.speech-settings').getByLabel('识别服务', { exact: true }).waitFor();
 };
 const closeSettings = async () => {
-  await page.locator('.settings-dialog').getByRole('button', { name: 'Close', exact: true }).click();
+  await page.locator('.settings-dialog').getByRole('button', { name: /^(?:Close|\u5173\u95ed)$/u }).click();
   await page.locator('.settings-dialog').waitFor({ state: 'hidden' });
 };
 const permission = () => page.evaluate(async () => {

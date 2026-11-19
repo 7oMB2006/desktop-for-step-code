@@ -101,7 +101,7 @@ const assertPath = async (name, copyLabel) => {
   await assertFocusVisible(page, page.getByRole('button', { name: copyLabel, exact: true }), 'Instruction path copy');
 };
 const closeSettings = async () => {
-  await page.getByRole('button', { name: 'Close', exact: true }).click();
+  await page.locator('.settings-dialog > header').getByRole('button', { name: /^(?:Close|\u5173\u95ed)$/u }).click();
   await page.getByRole('dialog').waitFor({ state: 'hidden' });
 };
 const send = async (label, runtimeId) => {

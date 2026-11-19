@@ -118,7 +118,7 @@ try {
     await page.getByRole('button', { name: '外观', exact: true }).click();
     await page.getByRole('button', { name: theme, exact: true }).click();
     await page.getByRole('button', { name: accent, exact: true }).click();
-    await page.getByRole('dialog').getByRole('button', { name: 'Close', exact: true }).click();
+    await page.locator('.settings-dialog > header').getByRole('button', { name: /^(?:Close|\u5173\u95ed)$/u }).click();
     let primary;
     try {
       // Root color transitions do not establish dismissal of the animated settings

@@ -3,9 +3,8 @@
 .cap-heading { display:flex; align-items:center; justify-content:space-between; gap:12px; flex-shrink:0; margin-bottom:16px; }
 .cap-heading h3 { margin:0; }
 .cap-heading > div { display:flex; gap:4px; }
-.cap-tabs { display:flex; gap:16px; border-bottom:1px solid var(--border); flex-shrink:0; margin-bottom:14px; }
-.cap-tabs button { border:0; border-radius:0; background:none; padding:9px 1px; margin-bottom:-1px; color:var(--muted); border-bottom:2px solid transparent; gap:6px; }
-.cap-tabs button[aria-selected="true"] { color:var(--text); border-bottom-color:var(--primary); }
+.cap-tabs { display:flex; gap:4px; padding-bottom:3px; border-bottom:1px solid var(--border); flex-shrink:0; margin-bottom:14px; }
+.cap-tabs button { gap:6px; }
 .cap-tabs button span { font-size:10px; color:var(--muted); font-variant-numeric:tabular-nums; }
 .cap-search { display:flex; align-items:center; gap:8px; border:1px solid var(--border); border-radius:6px; padding:0 9px; margin:0 0 10px; min-height:34px; flex-shrink:0; color:var(--muted); }
 .cap-search:focus-within { border-color:var(--primary); }
@@ -66,7 +65,7 @@
 .cap-preparation > summary { cursor:pointer; font-size:12px; color:var(--muted); }
 .capability-settings .steppage-settings { margin-top:14px; }
 @media(max-width:560px) {
-  .cap-tabs { gap:10px; }
+  .cap-tabs { --tab-padding-inline: 6px; }
   .cap-tabs button { font-size:11px; }
   .cap-row, .cap-resource summary { gap:7px; }
   .cap-row > .icon-button { width:25px; min-width:25px; }

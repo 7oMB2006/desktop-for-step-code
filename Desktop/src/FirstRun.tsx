@@ -174,8 +174,8 @@ export function FirstRun({ bridge, snapshot, onSnapshot }: {
         <div className="first-run-language-controls"><Menu label={t('语言', 'Language')} value={language} disabled={pending || providerBusy} items={[
           { id: 'zh', label: '简体中文' }, { id: 'en', label: 'English' },
         ]} onChange={value => void act(async () => { await bridge.preferences({ language: value as 'zh' | 'en' }); await refresh(); })}/></div>
-        <nav className="first-run-steps" aria-label={t('初次设置', 'Initial setup')}>{labels.map((label, index) =>
-          <button type="button" key={index} disabled={pending || providerBusy || index > stage} aria-current={index === stage ? 'step' : undefined}
+        <nav className="first-run-steps text-tabs" aria-label={t('初次设置', 'Initial setup')}>{labels.map((label, index) =>
+          <button className="text-tab" type="button" key={index} disabled={pending || providerBusy || index > stage} aria-current={index === stage ? 'step' : undefined}
             onClick={() => { setStage(index); setError(''); }}><span>{index < stage ? <Check size={13}/> : index + 1}</span>{label}</button>)}</nav>
         <section className="first-run-stage" key={stage} aria-labelledby="first-run-heading">
           <div className="first-run-heading"><h1 ref={title} id="first-run-heading" tabIndex={-1}>

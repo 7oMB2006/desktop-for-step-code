@@ -11,17 +11,19 @@ function owner(value: any): asserts value is BtwOwner {
 export function btwUsage(raw: any): Usage | undefined {
   const keys = ['input', 'output', 'cacheRead', 'cacheWrite'] as const;
   if (!raw || keys.some(key => !Number.isSafeInteger(raw[key]) || raw[key] < 0)) return;
-  if (keys.every(key => raw[key] === 0) || !Number.isSafeInteger(raw.input + raw.cacheRead + raw.cacheWrite)) return;
+  if (keys.every(key => raw[key] === 0) || !Number.isSafeInteger(raw.input + raw.output + raw.cacheRead + raw.cacheWrite)) return;
   const value: Usage = { input: raw.input, output: raw.output, cacheRead: raw.cacheRead, cacheWrite: raw.cacheWrite };
   for (const key of ['reasoning', 'totalTokens'] as const)
     if (Number.isSafeInteger(raw[key]) && raw[key] >= 0) value[key] = raw[key];
   return value;
 }
-type Active = { worker: SessionRuntime; input: BtwInput; timer: ReturnType<typeof setTimeout> };
+export type BtwUsageRecord = BtwOwner & { requestId: string; at: number; model?: BtwEvent['model']; usage?: Usage };
+type Active = { worker: SessionRuntime; input: BtwInput; timer: ReturnType<typeof setTimeout>; startedAt?: number; model?: BtwEvent['model'] };
 
 export class BtwRequests {
   private active = new Map<string, Active>();
-  constructor(private runtimes: Pick<SessionRuntimes, 'require' | 'publish'>, private emit: (event: BtwEvent) => void) {}
+  constructor(private runtimes: Pick<SessionRuntimes, 'require' | 'publish'>, private emit: (event: BtwEvent) => void,
+    private recordUsage: (record: BtwUsageRecord) => void = () => {}, private now = Date.now) {}
   async ask(value: unknown) {
     owner(value);
     const input = value as BtwInput;
@@ -87,11 +89,15 @@ export class BtwRequests {
     if (raw.kind === 'start' && raw.model && ['id', 'provider', 'name'].every(key =>
       typeof raw.model[key] === 'string' && raw.model[key].length <= 300))
       event.model = { id: raw.model.id, provider: raw.model.provider, name: raw.model.name };
+    if (raw.kind === 'start' && pending.startedAt === undefined) {
+      pending.startedAt = this.now();
+      pending.model = event.model;
+    }
     event.usage = btwUsage(raw.usage);
     if (raw.kind === 'error' && raw.reason === 'tools_unavailable') event.reason = raw.reason;
     if (raw.truncated === true) event.truncated = true;
     this.emit(event);
-    if (['done', 'error', 'cancelled'].includes(raw.kind)) this.finish(pending);
+    if (['done', 'error', 'cancelled'].includes(raw.kind)) this.finish(pending, event.usage);
   }
   dispose(worker: SessionRuntime) {
     const pending = this.active.get(worker.id);
@@ -100,11 +106,15 @@ export class BtwRequests {
     this.emit({ type: 'desktop_btw', runtimeId, sessionId, scopeId, requestId, kind: 'error' });
     this.finish(pending);
   }
-  private finish(pending: Active) {
+  private finish(pending: Active, usage?: Usage) {
     if (this.active.get(pending.worker.id) !== pending) return;
     clearTimeout(pending.timer);
     this.active.delete(pending.worker.id);
     pending.worker.operations--; pending.worker.btwActive = false;
+    if (pending.startedAt !== undefined || usage) {
+      const { runtimeId, sessionId, requestId, scopeId } = pending.input;
+      this.recordUsage({ runtimeId, sessionId, requestId, scopeId, at: pending.startedAt ?? this.now(), model: pending.model, usage });
+    }
     this.runtimes.publish();
   }
 }

@@ -332,7 +332,7 @@ try {
   await page.locator('.sidebar-settings').click();
   await page.getByRole('button', { name: '外观', exact: true }).click();
   await page.getByRole('button', { name: '暗', exact: true }).click();
-  await page.getByRole('dialog').getByRole('button', { name: 'Close', exact: true }).click();
+  await page.getByRole('dialog', { name: '设置', exact: true }).getByRole('button', { name: '关闭', exact: true }).click();
   await page.waitForFunction(() => document.documentElement.dataset.theme === 'dark');
   await report.getByRole('button', { name: `预览变更 ${paths[0]}`, exact: true }).click();
   await report.evaluate(element => element.scrollIntoView({ block: 'center' }));

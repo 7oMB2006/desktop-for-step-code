@@ -136,7 +136,7 @@ try {
   await page.getByRole('button', { name: '通用', exact: true }).click();
   assert.equal(await page.getByRole('button', { name: '创建变更与撤销示例', exact: true }).count(), 0);
   assert.equal(await page.evaluate(() => 'createChangeDemo' in window.desktop), false);
-  await page.getByRole('dialog').getByRole('button', { name: 'Close', exact: true }).click();
+  await page.locator('.settings-dialog > header').getByRole('button', { name: /^(?:Close|\u5173\u95ed)$/u }).click();
   async function fixtureSession() {
     await ready();
     const next = await page.evaluate(() => window.desktop.newIndependentSession());

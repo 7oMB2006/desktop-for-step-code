@@ -65,10 +65,9 @@
 .remote-status > i { width: 6px; height: 6px; border-radius: 50%; background: var(--muted); flex: 0 0 6px; }
 .remote-status.is-online { color: var(--green); }
 .remote-status.is-online > i { background: var(--green); }
-.remote-tabs { display: flex; align-items: stretch; gap: 25px; margin-top: 24px; padding: 0 4px; border-bottom: 1px solid var(--border); }
-.remote-tabs > button { border: 0; border-bottom: 2px solid transparent; margin-bottom: -1px; padding: 0 0 13px; min-height: 32px; border-radius: 0; background: transparent; color: var(--muted); font-size: 12px; white-space: nowrap; gap: 6px; }
-.remote-tabs > button:hover:not(:disabled) { background: transparent; color: var(--ink); }
-.remote-tabs > button[aria-selected=true] { color: var(--primary); border-bottom-color: var(--primary); font-weight: 600; }
+.remote-tabs { display: flex; align-items: stretch; gap: 4px; margin-top: 24px; padding: 0 4px 3px; border-bottom: 1px solid var(--border); --tab-selected-ink: var(--primary); }
+.remote-tabs > button { font-size: 12px; white-space: nowrap; gap: 6px; }
+.remote-tabs > button[aria-selected=true] { font-weight: 600; }
 .remote-tabs > button > span { display: grid; place-items: center; min-width: 17px; height: 17px; padding: 0 3px; font-size: 10px; background: var(--surface); border-radius: 4px; font-variant-numeric: tabular-nums; }
 .remote-tab-content { padding-top: 27px; min-width: 0; }
 .remote-channel-overview { max-width: 740px; margin: 12px auto 0; }
@@ -233,7 +232,7 @@
   .remote-page { padding: 20px 16px; }
   .remote-header { gap: 8px; flex-wrap: wrap; }
   .remote-page h1 { font-size: 20px; }
-  .remote-tabs { gap: 18px; margin-top: 21px; }
+  .remote-tabs { --tab-padding-inline: 6px; margin-top: 21px; }
   .remote-tabs > button { font-size: 11px; }
   .remote-channel-options { grid-template-columns: minmax(0, 1fr); gap: 12px; }
   .remote-page .remote-channel-option { min-height: 172px; padding: 18px; gap: 16px 10px; }

@@ -228,7 +228,7 @@ try {
   await page.screenshot({ path: 'test-results/custom-providers-narrow.png' });
   assert.equal(await page.locator('.settings-content').evaluate(e => e.scrollWidth > e.clientWidth), false);
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1360, 900));
-  await page.getByRole('button', { name: 'Close', exact: true }).click();
+  await page.locator('.settings-dialog > header').getByRole('button', { name: /^(?:Close|\u5173\u95ed)$/u }).click();
   await page.locator('.settings-backdrop').waitFor({ state: 'detached' });
   await page.getByRole('button', { name: '模型与思考强度' }).click();
   await page.getByRole('button', { name: '模型参数', exact: true }).click();
@@ -295,7 +295,7 @@ try {
     await window.desktop.logout();
     if (!(await window.desktop.settings()).providers[0].hasKey) throw new Error('Step logout erased provider key');
   });
-  await page.getByRole('button', { name: 'Close', exact: true }).click();
+  await page.locator('.settings-dialog > header').getByRole('button', { name: /^(?:Close|\u5173\u95ed)$/u }).click();
   await page.locator('.settings-backdrop').waitFor({ state: 'detached' });
   await closeDesktopFixtureAndWait(app); app = undefined;
   await launch();
@@ -303,7 +303,7 @@ try {
   const restored = await page.evaluate(async () => (await window.desktop.settings()).providers[0]);
   assert.equal(restored.name, '重新命名的供应商');
   assert.equal(restored.hasKey, true);
-  await page.getByRole('button', { name: 'Close', exact: true }).click();
+  await page.locator('.settings-dialog > header').getByRole('button', { name: /^(?:Close|\u5173\u95ed)$/u }).click();
   await page.locator('.settings-backdrop').waitFor({ state: 'detached' });
   await page.locator(`.session-row[data-reorder-id="${sessionId}"] > button:first-child`).click();
   state = await waitFor(s => s.state?.sessionId === sessionId && s.status === 'connected');
@@ -350,7 +350,7 @@ try {
   assert.equal(applied.models.find(m => m.provider === provider.id)?.providerName, '运行中再次保存的供应商');
   assert.ok(applied.messages.some(m => textOfMessage(m).includes('Custom provider fixture reply.')),
     'the held response finishes normally and survives reload');
-  await page.getByRole('button', { name: 'Close', exact: true }).click();
+  await page.locator('.settings-dialog > header').getByRole('button', { name: /^(?:Close|\u5173\u95ed)$/u }).click();
   await page.locator('.settings-backdrop').waitFor({ state: 'detached' });
   await settings();
   const beforeDisable = await snapshot();
@@ -383,7 +383,7 @@ try {
     await page.getByRole('button', { name: '收起诊断', exact: true }).click();
     await page.getByRole('button', { name: '保存', exact: true }).click();
     await page.getByText('已保存', { exact: true }).waitFor();
-    await page.getByRole('button', { name: 'Close', exact: true }).click();
+    await page.locator('.settings-dialog > header').getByRole('button', { name: /^(?:Close|\u5173\u95ed)$/u }).click();
     await page.locator('.settings-backdrop').waitFor({ state: 'detached' });
     await page.getByRole('textbox', { name: '消息', exact: true }).fill(promptText);
     await submitSessionFixture(page, () => page.getByRole('textbox', { name: '消息', exact: true }).press('Enter'));
@@ -413,7 +413,7 @@ try {
     await page.getByRole('button', { name: '保存', exact: true }).click();
     await page.getByText('已保存', { exact: true }).waitFor();
     assert.equal((await page.evaluate(() => window.desktop.settings())).providers[0].hasKey, true, 'keyless keeps the saved real key');
-    await page.getByRole('button', { name: 'Close', exact: true }).click();
+    await page.locator('.settings-dialog > header').getByRole('button', { name: /^(?:Close|\u5173\u95ed)$/u }).click();
     await page.locator('.settings-backdrop').waitFor({ state: 'detached' });
     const before = await snapshot();
     const beforeReplies = before.messages.filter(m => m.role === 'assistant' && m.stopReason === 'stop').length;
@@ -446,7 +446,7 @@ try {
   await page.getByText('收到有效模型回复', { exact: true }).waitFor();
   assert.equal(requests.at(-1).keyMatches, true, 'leaving keyless mode restores the saved credential');
   await page.getByRole('button', { name: '收起诊断', exact: true }).click();
-  await page.getByRole('button', { name: 'Close', exact: true }).click();
+  await page.locator('.settings-dialog > header').getByRole('button', { name: /^(?:Close|\u5173\u95ed)$/u }).click();
   await page.locator('.settings-backdrop').waitFor({ state: 'detached' });
   const configured = await page.evaluate(async () => (await window.desktop.settings()).providers[0]);
   const generate = async message => {
@@ -506,7 +506,7 @@ try {
   assert.equal(manualControl.mapping.high, 'medium');
   assert.equal(manualControl.mapping.ultra, 'ultra');
   assert.deepEqual(manualControl.levels, ['high', 'ultra']);
-  await page.getByRole('button', { name: 'Close', exact: true }).click();
+  await page.locator('.settings-dialog > header').getByRole('button', { name: /^(?:Close|\u5173\u95ed)$/u }).click();
   await page.locator('.settings-backdrop').waitFor({ state: 'detached' });
   for (const api of ['openai-completions', 'openai-responses', 'anthropic-messages']) {
     await page.evaluate(p => window.desktop.saveProvider(p), { ...configured, api, models: [{ ...configured.models[0], reasoning: true, thinkingLevels: ['high', 'ultra'], thinkingControl: { source: 'manual', levels: ['high', 'ultra'], ...(api === 'anthropic-messages' ? { adaptive: true } : {}), mapping: { high: 'medium', ultra: 'ultra' } } }] });

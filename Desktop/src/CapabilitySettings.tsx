@@ -162,7 +162,7 @@ export function CapabilitySettings({ page, bridge, language, busy, runtimeId, se
       </>}
       {page === 'plugins' && tab === 'sources' && <IconButton title={t('添加市场', 'Add marketplace')} disabled={operationLocked} onClick={() => setForm(form === 'market' ? null : 'market')}><Plus size={17}/></IconButton>}
     </div></header>
-    {page === 'plugins' && <div className="cap-tabs" role="tablist" aria-label={t('插件分类', 'Plugin categories')}
+    {page === 'plugins' && <div className="cap-tabs text-tabs" role="tablist" aria-label={t('插件分类', 'Plugin categories')}
       onKeyDown={event => {
         if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
         event.preventDefault();

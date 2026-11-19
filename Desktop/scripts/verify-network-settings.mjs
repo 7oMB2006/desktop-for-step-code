@@ -153,7 +153,7 @@ try {
   await page.getByRole('dialog').getByLabel('Language', { exact: true }).selectOption('zh');
   await page.getByRole('heading', { name: '网络', exact: true }).waitFor();
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1360, 900));
-  await page.getByRole('button', { name: 'Close', exact: true }).click();
+  await page.locator('.settings-dialog > header').getByRole('button', { name: /^(?:Close|\u5173\u95ed)$/u }).click();
   assert.equal((await page.evaluate(({ provider, key }) => window.desktop.discoverProviderModels(provider, key), { provider, key }))[0].id, 'network-model');
   assert.equal((await page.evaluate(({ provider, key }) => window.desktop.testProvider(provider, 'network-model', key), { provider, key })).outcome, 'reply');
   await page.evaluate(({ provider, key }) => window.desktop.saveProvider(provider, key), { provider, key });

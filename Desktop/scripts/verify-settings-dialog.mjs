@@ -136,8 +136,8 @@ try {
   assert.equal(await page.locator('.settings-backdrop').evaluate(element => getComputedStyle(element).backgroundColor), lightTint, 'Dark theme must not introduce a pale ink-color veil');
   await page.getByRole('button', { name: '外观', exact: true }).click();
   await capture('settings-fixed-appearance-dark');
-  await page.getByRole('button', { name: 'Close', exact: true }).focus();
-  await page.getByRole('button', { name: 'Close', exact: true }).click();
+  await page.getByRole('button', { name: '\u5173\u95ed', exact: true }).focus();
+  await page.getByRole('button', { name: '\u5173\u95ed', exact: true }).click();
   await page.locator('.settings-backdrop.is-closing').waitFor();
   const exitKeyboard = await page.evaluate(() => {
     const blocked = ['Tab', 'Enter', ' '].map(key => !document.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true })));

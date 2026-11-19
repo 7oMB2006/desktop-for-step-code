@@ -7,6 +7,7 @@ import { PluginConnectionPanel, type PluginConnectionBridge } from './PluginConn
 import { pluginDesktopDefaultPage, type PluginDesktopEntry } from './plugin-desktop';
 import './plugin-center.css';
 import './plugin-workspace.css';
+import './text-tabs.css';
 
 export function PluginWorkspace({ entry, bridge, language, onBack, onClose, closeLabel, onConfigure, active = true }: {
   entry: PluginDesktopEntry; bridge: Pick<DesktopBridge, 'pluginDocument'> & PluginConnectionBridge; language: 'zh' | 'en';
@@ -64,7 +65,7 @@ export function PluginWorkspace({ entry, bridge, language, onBack, onClose, clos
       {onClose && <button type="button" className="icon-button" aria-label={dismissLabel}
         data-tooltip={dismissLabel} onClick={onClose}><X size={18}/></button>}
     </header>
-    <nav ref={tabs} className="plugin-workspace-tabs" role="tablist" aria-label={entry.desktop.title}
+    <nav ref={tabs} className="plugin-workspace-tabs text-tabs" role="tablist" aria-label={entry.desktop.title}
       onKeyDown={event => {
         if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
         event.preventDefault();

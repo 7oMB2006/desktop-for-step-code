@@ -127,7 +127,7 @@ export function BrowserPanel({ open, replaced, overlay, expanded, blocked, langu
       </header>
       <div className="browser-tabs" role="tablist" aria-label={t('网页标签', 'Browser tabs')}>
         {snapshot.tabs.map(tab => <div className={`browser-tab${tab.id === selected?.id ? ' is-active' : ''}`} key={tab.id}>
-          <button role="tab" aria-selected={tab.id === selected?.id} aria-controls="browser-page" title={tab.title || tab.url}
+          <button className="text-tab" role="tab" aria-selected={tab.id === selected?.id} aria-controls="browser-page" title={tab.title || tab.url}
             onClick={() => void run(() => window.desktop!.browserSelect(tab.id))}>
             <Globe size={12}/><span>{tab.title || (tab.url === 'about:blank' ? t('新标签页', 'New tab') : tab.url)}</span>
           </button>

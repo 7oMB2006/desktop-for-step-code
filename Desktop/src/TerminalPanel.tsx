@@ -286,7 +286,7 @@ export function TerminalPanel({ open, replaced, overlay, expanded, runtimeId, cw
       </header>
       <div className="terminal-tabs" role="tablist" aria-label={t('终端标签', 'Terminal tabs')}>
         {tabs.map(info => <div className={`terminal-tab${selected?.id === info.id ? ' is-active' : ''}`} key={info.id}>
-          <button role="tab" aria-selected={selected?.id === info.id} aria-controls="terminal-output"
+          <button className="text-tab" role="tab" aria-selected={selected?.id === info.id} aria-controls="terminal-output"
             onClick={() => setActive(value => ({ ...value, [scope]: info.id }))}>{info.title}</button>
           <button className="icon-button" aria-label={`${t('结束', 'End')} ${info.title}`} data-tooltip={t('结束终端', 'End terminal')}
             onClick={() => void window.desktop?.terminalClose(info.id).catch(report)}><X size={12}/></button>

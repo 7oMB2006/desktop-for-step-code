@@ -1,5 +1,6 @@
 import { normalizedWorkspaceKey } from './workspace-key';
 import { UsageOverviewPanel } from './UsageOverviewPanel';
+import { searchSettings } from './settings-search';
 import { RemoteAccessPanel } from './RemoteAccessPanel';
 import { RemoteNavigationEntry } from './RemoteNavigationEntry';
 import { remoteNavigationWait, type RemoteNavigationWait } from './remote-navigation';
@@ -24,12 +25,15 @@ import { questionnaire, type QuestionDraft } from './questionnaire';
 import 'katex/dist/katex.min.css';
 import './style.css';
 import './layout.css';
+import './text-tabs.css';
 import './model-picker-list.css';
 import { applyMessageEvent, applyToolResult } from './message-events';
 import { MessageRevision } from './message-revision';
 import { SessionReadingCache, captureReadingPosition, restoreReadingPosition, type ReadingPosition, type SessionReading } from './session-reading';
 import { ScrollToBottomButton } from './ScrollToBottomButton';
 import { MiniChatFrame } from './MiniChatFrame';
+import { appShortcut, shortcutLabel } from './app-shortcuts';
+import { DisclosureChevron } from './DisclosureChevron';
 import { MINI_INDEPENDENT_PROJECT, miniChatCatalog } from './mini-chat-sessions';
 import { ConversationDisclosureMemory, type ConversationDisclosureState } from './ConversationDisclosureState';
 import { useWindowComposer } from './use-window-composer';
@@ -351,6 +355,29 @@ function App() {
   const [searchLocation, setSearchLocation] = useState<SearchLocation>();
   const [searchLocateRequest, setSearchLocateRequest] = useState(0);
   const [tab, setTab] = useState('account');
+  const [settingsQuery, setSettingsQuery] = useState('');
+  const [settingsLocation, setSettingsLocation] = useState<{ category: string; anchor: string }>();
+  const settingsDialog = useRef<HTMLElement>(null);
+  const settingsSearchInput = useRef<HTMLInputElement>(null);
+  const settingsContent = useRef<HTMLDivElement>(null);
+  const settingsReady = Boolean(settings);
+  useLayoutEffect(() => {
+    if (!settingsOpen || settingsClosing || !settingsReady || settingsLocation?.category !== tab) return;
+    const { anchor } = settingsLocation;
+    const target = anchor
+      ? settingsContent.current?.querySelector<HTMLElement>(`[data-settings-anchor="${anchor}"]`)
+      : settingsDialog.current?.querySelector<HTMLElement>('nav [aria-current="page"]');
+    if (!target) return;
+    const focusTarget = target.matches('label')
+      ? target.querySelector<HTMLElement>('input:not(:disabled), select:not(:disabled)') ?? target : target;
+    if (focusTarget === target && !target.matches('button, input, select')) target.tabIndex = -1;
+    focusTarget.focus({ preventScroll: true });
+    target.scrollIntoView({ block: 'nearest' });
+    if (!anchor) return;
+    target.dataset.settingsLocated = '';
+    const timer = window.setTimeout(() => { delete target.dataset.settingsLocated; }, 1900);
+    return () => { window.clearTimeout(timer); delete target.dataset.settingsLocated; };
+  }, [settingsLocation, settingsOpen, settingsClosing, settingsReady, tab]);
   const globalInstructionsEditor = useGlobalInstructionsEditor(bridge, settingsOpen && tab === 'instructions');
   const [capabilityTarget, setCapabilityTarget] = useState<CapabilityTarget>();
   const [capabilityRevision, setCapabilityRevision] = useState(0);
@@ -840,6 +867,7 @@ function App() {
     const position = navigationPosition ?? value.windowPresentation?.position;
     if (position) {
       follow.current = position.follow;
+      scrollIntent.current = position.follow ? undefined : 'backward';
       readingRestore.current = { runtimeId: value.runtimeId, position };
       setAwayFromBottom(!position.follow);
     }
@@ -1229,7 +1257,8 @@ function App() {
     observer.observe(content);
     observer.observe(viewport);
     return () => observer.disconnect();
-  }, [data.messages.length > 0, followLayout]);
+  }, [data.runtimeId, data.state?.sessionId, data.messages.length > 0, navigationTarget?.session.id,
+    Boolean(navigationTarget?.reading), hasPendingReceipt, followLayout]);
   useLayoutEffect(() => {
     const viewport = scroll.current, content = transcript.current;
     if (viewport && content) return observeConversationLayout(viewport, content, () => follow.current);
@@ -1363,6 +1392,8 @@ function App() {
     closeMcpEdit();
     setSettingsOpen(false);
     setSettingsClosing(false);
+    setSettingsQuery('');
+    setSettingsLocation(undefined);
     setKey('');
     setCapabilityRevision(value => value + 1);
   }, [closeMcpEdit]);
@@ -1400,6 +1431,25 @@ function App() {
     setDesktopMainId(undefined); setDesktopSideId(undefined);
     setCapabilityTarget(target); setPluginsVisited(true); setPluginsOpen(true);
     void bridge.settings().then(setSettings).catch(() => setError(t('无法读取插件设置', 'Could not read plugin settings')));
+  };
+  const settingsCategories = [
+    ['account', StepPlatformIcon, '账户', 'Account'], ['providers', ProviderIcon, '供应商', 'Providers'],
+    ['plugins', Plug, '插件', 'Plugins'], ['mcp', McpIcon, 'MCP', 'MCP'], ['skills', BookOpen, 'Skills', 'Skills'],
+    ['instructions', FileText, '全局指令', 'Global instructions'], ['general', SunMoon, '通用', 'General'],
+    ['interface', SlidersHorizontal, '界面复杂度', 'Interface complexity'], ['appearance', Pencil, '外观', 'Appearance'],
+    ['updates', Download, '版本更新', 'Updates'], ['import', ArrowRightLeft, '会话迁移', 'Session migration'],
+    ['archived', Archive, '已归档', 'Archived'],
+  ] as const;
+  const searchingSettings = Boolean(settingsQuery.trim());
+  const settingsResults = searchingSettings ? searchSettings(settingsQuery,
+    settingsCategories.map(([id, , zh, en]) => [id, t(zh, en), t(en, zh)]), data.preferences.language) : [];
+  const selectSettingsTab = (id: string, anchor?: string) => {
+    setSettingsQuery('');
+    if (id === 'plugins') { openPlugins(); return; }
+    mcpEditRequestRevision.current++;
+    setCapabilityTarget(undefined);
+    setTab(id);
+    setSettingsLocation(anchor === undefined ? undefined : { category: id, anchor });
   };
   const openPluginDesktop = (entry: PluginDesktopEntry, toggle = true) => {
     if (!bridge) return;
@@ -1617,6 +1667,7 @@ function App() {
       setAttachments(value => { const restored = [...attached, ...value]; attachmentsRef.current = restored; return restored; });
       return true;
     };
+    readingRestore.current = undefined;
     attachmentsRef.current = []; scrollIntent.current = undefined; follow.current = true; setAwayFromBottom(false);
     await run(async () => {
       try {
@@ -1830,10 +1881,46 @@ function App() {
   };
   const confirmRemoveProject = (path: string) => { setError(''); setRemoveProject(path); };
   const toggleSidebar = () => compactSidebar ? setCompactSidebarOpen(open => !open) : setSidebar(open => !open);
+  const toggleTerminal = () => {
+    setRemoteOpen(false); setPluginsOpen(false); setUsageOpen(false); setScheduledOpen(false); setFulltextOpen(false);
+    setDetails('');
+    if (terminalDock === 'bottom') {
+      setBottomTerminalOpen(value => !value);
+      setExpandedRightPanel(null);
+    } else setRightPanel(!details && visibleRightPanel === 'terminal' ? null : 'terminal');
+  };
+  const openSearch = (text = '', anchor?: HTMLButtonElement) => {
+    fulltextAnchor.current = anchor ?? document.querySelector<HTMLButtonElement>('.window-sidebar-toggle');
+    setFulltextRequest(previous => ({ id: (previous?.id ?? 0) + 1, text }));
+    setRemoteOpen(false); setPluginsOpen(false); setUsageOpen(false); setScheduledOpen(false);
+    setFulltextOpen(true); setCompactSidebarOpen(false);
+  };
+  const keyLabel = (action: Parameters<typeof shortcutLabel>[0]) => shortcutLabel(action, bridge?.platform);
+  useEffect(() => {
+    const handler = (event: KeyboardEvent) => {
+      const action = appShortcut(event, bridge?.platform);
+      if (!action || !bridge || event.target instanceof Element && event.target.closest('.xterm, .user-message-editor, [role="dialog"], [role="menu"]')
+        || settingsOpen || preview || renaming || removeProject || imageMenu || windowMenuOpen
+        || requests.length && approvalOpen || speechConsentOpen || projectPickerOpen) return;
+      if (isMini && !['new-session', 'settings'].includes(action)) return;
+      if (loading && action !== 'sidebar') return;
+      event.preventDefault();
+      if (action === 'sidebar') toggleSidebar();
+      if (action === 'new-session') void newSession();
+      if (action === 'open-project') void openProject();
+      if (action === 'settings') void openSettings();
+      if (action === 'search') openSearch();
+      if (action === 'terminal') toggleTerminal();
+    };
+    // The plain-text composer suppresses native Mod+B even without bold marks.
+    window.addEventListener('keydown', handler, true);
+    return () => window.removeEventListener('keydown', handler, true);
+  });
   const menus: WindowMenu[] = [
     { id: 'file', label: t('文件', 'File'), items: [
+      { label: t('新建会话', 'New session'), shortcut: keyLabel('new-session'), disabled: !bridge || loading, action: () => void newSession() },
       { label: t('新建独立会话', 'New independent session'), disabled: !bridge || loading, action: () => { setRemoteOpen(false); setPluginsOpen(false); setScheduledOpen(false); void applySnapshot(() => bridge!.beginSession()); } },
-      { label: t('打开项目…', 'Open project...'), disabled: !bridge || loading, action: () => void openProject() },
+      { label: t('打开项目…', 'Open project...'), shortcut: keyLabel('open-project'), disabled: !bridge || loading, action: () => void openProject() },
       { label: t('打开会话文件夹', 'Open session folder'), disabled: !bridge || !data.runtimeId || loading || Boolean(navigationTarget), action: () => void run(() => bridge!.openSessionFolder()) },
       { label: t('退出应用', 'Quit application'), disabled: !bridge, action: () => void run(() => bridge!.windowControl('quit')) },
     ] },
@@ -1842,12 +1929,14 @@ function App() {
       { label: t('停止生成', 'Stop response'), disabled: !busy || stopping || Boolean(navigationTarget), action: () => void stop() },
     ] },
     { id: 'view', label: t('视图', 'View'), items: [
-      { label: sidebarVisible ? t('隐藏侧栏', 'Hide sidebar') : t('显示侧栏', 'Show sidebar'), action: toggleSidebar },
+      { label: sidebarVisible ? t('隐藏侧栏', 'Hide sidebar') : t('显示侧栏', 'Show sidebar'), shortcut: keyLabel('sidebar'), action: toggleSidebar },
+      { label: t('全文搜索', 'Full-text search'), shortcut: keyLabel('search'), action: openSearch },
+      { label: t('终端', 'Terminal'), shortcut: keyLabel('terminal'), action: toggleTerminal },
       { label: t('会话统计', 'Session statistics'), disabled: !data.runtimeId || Boolean(navigationTarget), action: () => void run(async () => setDetails(JSON.stringify(await bridge!.command('get_session_stats', undefined, viewId.current), null, 2))) },
       { label: t('重启运行时', 'Restart runtime'), disabled: !data.runtimeId || busy || loading || Boolean(navigationTarget), action: () => void applySnapshot(() => bridge!.restart()) },
     ] },
     { id: 'help', label: t('帮助', 'Help'), items: [
-      { label: t('设置', 'Settings'), disabled: !bridge, action: () => void openSettings() },
+      { label: t('设置', 'Settings'), shortcut: keyLabel('settings'), disabled: !bridge, action: () => void openSettings() },
       { label: t('导出脱敏诊断', 'Export redacted diagnostics'), disabled: !bridge, action: () => void run(() => bridge!.diagnostics()) },
     ] },
   ];
@@ -2078,11 +2167,7 @@ function App() {
         pluginsAttention={!navigationTarget && startupNeedsAttention(data.state?.desktopStartup)}
         onSearchChange={setSessionQuery}
         fulltextOpen={fulltextOpen}
-        onFulltextSearch={(text, anchor) => {
-          fulltextAnchor.current = anchor;
-          setFulltextRequest(previous => ({ id: (previous?.id ?? 0) + 1, text }));
-          setRemoteOpen(false); setPluginsOpen(false); setUsageOpen(false); setScheduledOpen(false); setFulltextOpen(true); setCompactSidebarOpen(false);
-        }}
+        onFulltextSearch={openSearch}
         onScheduledTasks={() => { if (scheduledOpen) setScheduledOpen(false); else openScheduled(); }}
         onPlugins={() => { if (pluginsOpen && !desktopMainId) setPluginsOpen(false); else openPlugins(); }}/>
       <SidebarTree sessions={data.sessions} preferences={sidebarPreferences} platform={bridge?.platform ?? 'win32'}
@@ -2224,10 +2309,12 @@ function App() {
       </div>}
       <div className="conversation-shell"
           onWheelCapture={event => {
+            if ((event.target as HTMLElement).closest('.thinking-scroll')) return;
             readingRestore.current = undefined;
             if (!event.ctrlKey && event.deltaY) handleScrollIntent(event.deltaY < 0 ? 'backward' : 'forward');
           }}
           onKeyDown={event => {
+            if ((event.target as HTMLElement).closest('.thinking-scroll')) return;
             readingRestore.current = undefined;
             if (event.defaultPrevented || (event.target as HTMLElement).closest('input, textarea, select, [contenteditable="true"]')) return;
             if (event.key === ' ' && (event.target as HTMLElement).closest('button, summary, a')) return;
@@ -2236,6 +2323,7 @@ function App() {
           }}
           onTouchStart={event => { touchY.current = event.touches[0]?.clientY; }}
           onTouchMove={event => {
+            if ((event.target as HTMLElement).closest('.thinking-scroll')) return;
             const y = event.touches[0]?.clientY;
             if (y !== undefined && touchY.current !== undefined && Math.abs(y - touchY.current) > 2) {
               handleScrollIntent(y > touchY.current ? 'backward' : 'forward');
@@ -2610,13 +2698,7 @@ function App() {
         }}><MessageCircleQuestion size={18}/></IconButton>
       <IconButton title={t('变更', 'Changes')} data-tooltip-side="left" aria-controls="review-panel" aria-pressed={!details && visibleRightPanel === 'review'} onClick={() => { setDetails(''); setRightPanel(!details && visibleRightPanel === 'review' ? null : 'review'); }}><FileDiff size={18} strokeWidth={1.5}/></IconButton>
       <IconButton title={t('终端', 'Terminal')} data-tooltip-side="left" aria-controls="terminal-panel" aria-pressed={terminalOpen}
-        onClick={() => {
-          setDetails('');
-          if (terminalDock === 'bottom') {
-            setBottomTerminalOpen(value => !value);
-            setExpandedRightPanel(null);
-          } else setRightPanel(!details && visibleRightPanel === 'terminal' ? null : 'terminal');
-        }}><Terminal size={18}/></IconButton>
+        onClick={toggleTerminal}><Terminal size={18}/></IconButton>
       <IconButton title={t('浏览器', 'Browser')} data-tooltip-side="left" aria-controls="browser-panel" aria-pressed={!details && visibleRightPanel === 'browser'} onClick={() => { setDetails(''); setRightPanel(!details && visibleRightPanel === 'browser' ? null : 'browser'); }}><Globe size={18}/></IconButton>
       <IconButton title={t('文件预览', 'File preview')} data-tooltip-side="left" aria-controls="file-panel" aria-pressed={!details && visibleRightPanel === 'file'} onClick={() => { setDetails(''); setRightPanel(!details && visibleRightPanel === 'file' ? null : 'file'); }}><FileText size={18}/></IconButton>
         <IconButton title={t('子代理', 'Subagents')} data-workflow-running={Boolean(runningWorkflow || data.runtimes?.some(runtime => runtime.runtimeId === data.runtimeId && runtime.backgroundCount)) || undefined} data-tooltip-side="left" aria-controls="subagent-panel" aria-pressed={!details && visibleRightPanel === 'subagent'} disabled={!selectedSubagent && !latestWorkflow && !connected} onClick={() => {
@@ -2662,8 +2744,57 @@ function App() {
         </div>
       </div>
     </div>}
-    {settingsOpen && <div className={`modal-backdrop settings-backdrop${settingsClosing ? ' is-closing' : ''}`} onAnimationEnd={event => { if (event.target === event.currentTarget && event.animationName === 'settings-backdrop-exit') finishSettingsClose(); }}><section className="settings-dialog" inert={settingsClosing} role="dialog" aria-modal="true" aria-label={t('设置', 'Settings')}><header><h2>{t('设置', 'Settings')}</h2><IconButton title="Close" onClick={closeSettings}><X size={19}/></IconButton></header><div className="settings-layout"><nav aria-label={t('设置分类', 'Settings categories')}>{[['account', StepPlatformIcon, t('账户', 'Account')], ['providers', ProviderIcon, t('供应商', 'Providers')], ['plugins', Plug, t('插件', 'Plugins')], ['mcp', McpIcon, 'MCP'], ['skills', BookOpen, 'Skills'], ['instructions', FileText, t('全局指令', 'Global instructions')], ['general', SunMoon, t('通用', 'General')], ['interface', SlidersHorizontal, t('界面复杂度', 'Interface complexity')], ['appearance', Pencil, t('外观', 'Appearance')], ['updates', Download, t('版本更新', 'Updates')], ['import', ArrowRightLeft, t('会话迁移', 'Session migration')], ['archived', Archive, t('已归档', 'Archived')]].map(([id, Icon, title]: any) => <button key={id} aria-label={title} aria-current={tab === id ? 'page' : undefined} className={`${tab === id ? 'selected' : ''}${id === 'import' ? ' settings-group-start' : ''}`} onClick={() => { if (id === 'plugins') { openPlugins(); return; } mcpEditRequestRevision.current++; setCapabilityTarget(undefined); setTab(id); }}><Icon size={17}/>{title}</button>)}</nav>
-      <div key={tab} className="settings-content">
+    {settingsOpen && <div className={`modal-backdrop settings-backdrop${settingsClosing ? ' is-closing' : ''}`} onAnimationEnd={event => { if (event.target === event.currentTarget && event.animationName === 'settings-backdrop-exit') finishSettingsClose(); }}>
+      <section ref={settingsDialog} className="settings-dialog" inert={settingsClosing} role="dialog" aria-modal="true" aria-label={t('设置', 'Settings')} onKeyDown={event => {
+        if (event.key !== 'Escape' || !settingsQuery || event.nativeEvent.isComposing || event.keyCode === 229) return;
+        event.preventDefault();
+        event.stopPropagation();
+        setSettingsQuery('');
+        settingsSearchInput.current?.focus();
+      }}>
+        <header>
+          <h2>{t('设置', 'Settings')}</h2>
+          <div className="settings-search">
+            <Search size={15} aria-hidden="true"/>
+            <input ref={settingsSearchInput} type="search" maxLength={120}
+              aria-label={t('搜索设置', 'Search settings')} placeholder={t('搜索设置…', 'Search settings…')} value={settingsQuery}
+              onChange={event => { setSettingsQuery(event.target.value); setSettingsLocation(undefined); }}
+              onKeyDown={event => {
+                if (event.nativeEvent.isComposing || event.keyCode === 229 || !settingsResults.length) return;
+                if (event.key === 'Enter' || event.key === 'ArrowDown') {
+                  event.preventDefault();
+                  if (event.key === 'Enter') selectSettingsTab(settingsResults[0].category, settingsResults[0].anchor);
+                  else settingsDialog.current?.querySelector<HTMLButtonElement>('.settings-search-results button')?.focus();
+                }
+              }}/>
+            {settingsQuery && <button type="button" className="icon-button" aria-label={t('清除搜索', 'Clear search')} data-tooltip={t('清除搜索', 'Clear search')} onClick={() => {
+              setSettingsQuery(''); settingsSearchInput.current?.focus();
+            }}><X size={14}/></button>}
+          </div>
+          <IconButton title={t('关闭', 'Close')} onClick={closeSettings}><X size={19}/></IconButton>
+        </header>
+        <div className="settings-layout">
+          <nav aria-label={t('设置分类', 'Settings categories')}>{settingsCategories.map(([id, Icon, zh, en]) =>
+            <button key={id} aria-label={t(zh, en)} aria-current={tab === id ? 'page' : undefined} className={`${tab === id ? 'selected' : ''}${id === 'import' ? ' settings-group-start' : ''}`} onClick={() => selectSettingsTab(id)}><Icon size={17}/>{t(zh, en)}</button>
+          )}</nav>
+          {searchingSettings && <div className="settings-content settings-search-results">
+            <h3 role="status">{settingsResults.length ? t(`搜索结果（${settingsResults.length}）`, `Search results (${settingsResults.length})`) : t('没有匹配的设置', 'No matching settings')}</h3>
+            <ul>{settingsResults.map(({ category, categoryLabel, anchor, label }) => <li key={`${category}:${anchor}`}>
+              <button type="button" onClick={() => selectSettingsTab(category, anchor)} onKeyDown={event => {
+                if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
+                event.preventDefault();
+                const row = event.currentTarget.parentElement;
+                const next = event.key === 'ArrowDown' ? row?.nextElementSibling : row?.previousElementSibling;
+                if (next) next.querySelector('button')?.focus();
+                else if (event.key === 'ArrowUp') settingsSearchInput.current?.focus();
+              }}>
+                <span>{label}</span>
+                {anchor && <small>{categoryLabel}</small>}
+                <ChevronRight size={14} aria-hidden="true"/>
+              </button>
+            </li>)}</ul>
+          </div>}
+      <div key={tab} ref={settingsContent} hidden={searchingSettings} className="settings-content">
       {tab === 'instructions' ? <GlobalInstructionsSettings editor={globalInstructionsEditor} language={data.preferences.language}/> : tab === 'interface' ? <InterfaceSettings value={interfaceSettings} language={data.preferences.language} onChange={interfaceSettings => setPreference({ interfaceSettings })}/> : tab === 'appearance' ? <>
         <ThemeSettings preferences={data.preferences} systemDark={systemDark} language={data.preferences.language} packs={data.themePacks}
           loadScene={bridge?.themeScene} loadPoster={bridge?.themePoster} onChange={patch => void setPreference(patch)}/>
@@ -2687,16 +2818,16 @@ function App() {
       {settings && tab === 'general' && <>
         <NotificationSettings preferences={data.preferences} onChange={setPreference}/>
         <h3>{t('左栏', 'Sidebar')}</h3>
-        <label>{t('会话排序', 'Session order')}
-          <select aria-label={t('会话排序', 'Session order')} value={data.preferences.sessionSort ?? 'manual'} onChange={e => void setPreference({ sessionSort: e.target.value })}>
+        <label data-settings-anchor="session-order">{t('会话排序', 'Session order')}
+          <span className="appearance-select"><select aria-label={t('会话排序', 'Session order')} value={data.preferences.sessionSort ?? 'manual'} onChange={e => void setPreference({ sessionSort: e.target.value })}>
             <option value="manual">{t('固定顺序', 'Manual order')}</option>
             <option value="updated">{t('最新在前', 'Recently updated first')}</option>
-          </select>
+          </select><DisclosureChevron/></span>
         </label>
       </>}
       {tab === 'import' && bridge ? <SessionImportSettings bridge={bridge} language={data.preferences.language}
         onOpen={async id => { const session = (await bridge.sessions()).find(item => item.id === id); if (!session) throw new Error('Imported session is unavailable'); finishSettingsClose(); await navigateSession(session); }}/>
-      : tab === 'updates' ? <><h3>{t('版本更新', 'Updates')}</h3><AppUpdates bridge={bridge} state={appUpdate} preferences={data.preferences} onPreferences={setPreference}/></> : tab === 'general' ? <>{bridge && <><CompactionSettings bridge={bridge} language={data.preferences.language} models={data.models} model={data.state?.model}/><SpeechSettings bridge={bridge} language={data.preferences.language}/><NetworkSettings bridge={bridge} language={data.preferences.language} busy={anyBusy || busy}/></>}<h3>{t('语言', 'Language')}</h3><label>{t('语言', 'Language')}<select aria-label={t('语言', 'Language')} value={data.preferences.language} onChange={e => void setPreference({ language: e.target.value })}><option value="zh">简体中文</option><option value="en">English</option></select></label><h3>{t('诊断', 'Diagnostics')}</h3><button onClick={() => void run(() => bridge!.diagnostics())}><Download size={15}/>{t('导出脱敏诊断', 'Export diagnostics')}</button></> : !settings ? <p>{t('加载中…', 'Loading…')}</p> : tab === 'providers' ? <ProviderSettings language={data.preferences.language} providers={settings.providers ?? []} pending={data.providerSettingsPending}
+      : tab === 'updates' ? <><h3>{t('版本更新', 'Updates')}</h3><AppUpdates bridge={bridge} state={appUpdate} preferences={data.preferences} onPreferences={setPreference}/></> : tab === 'general' ? <>{bridge && <><CompactionSettings bridge={bridge} language={data.preferences.language} models={data.models} model={data.state?.model}/><SpeechSettings bridge={bridge} language={data.preferences.language}/><NetworkSettings bridge={bridge} language={data.preferences.language} busy={anyBusy || busy}/></>}<h3>{t('语言', 'Language')}</h3><label data-settings-anchor="language">{t('语言', 'Language')}<span className="appearance-select"><select aria-label={t('语言', 'Language')} value={data.preferences.language} onChange={e => void setPreference({ language: e.target.value })}><option value="zh">简体中文</option><option value="en">English</option></select><DisclosureChevron/></span></label><h3>{t('诊断', 'Diagnostics')}</h3><button data-settings-anchor="diagnostics" onClick={() => void run(() => bridge!.diagnostics())}><Download size={15}/>{t('导出脱敏诊断', 'Export diagnostics')}</button></> : !settings ? <p>{t('加载中…', 'Loading…')}</p> : tab === 'providers' ? <ProviderSettings language={data.preferences.language} providers={settings.providers ?? []} pending={data.providerSettingsPending}
         onDiscover={(provider, key) => bridge!.discoverProviderModels(provider, key)}
         onTest={(provider, modelId, key) => bridge!.testProvider(provider, modelId, key)}
         onCancelTest={() => bridge!.cancelProviderTest()}
@@ -2708,7 +2839,7 @@ function App() {
         allowance={<><AccountAllowancePanel bridge={bridge!} account={settings.account} language={data.preferences.language} active={!settingsClosing}/>
           <EstimateRules key={`${settings.account.profile}:${settings.account.userId ?? ''}`} bridge={bridge!} account={settings.account}
             language={data.preferences.language} disabled={loggingIn || anyBusy} onChanged={async () => { await applySnapshot(() => bridge!.snapshot()); }}/></>}/>
-          <button onClick={openUsage}><BarChart3 size={15}/>{t('用量统计', 'Usage overview')}</button></>
+          <button data-settings-anchor="usage" onClick={openUsage}><BarChart3 size={15}/>{t('用量统计', 'Usage overview')}</button></>
       : (tab === 'plugins' || tab === 'mcp' || tab === 'skills') ? <CapabilitySettings
         key={`${tab}:${capabilityRevision}`} page={tab} bridge={bridge!} language={data.preferences.language}
         busy={anyBusy || busy} runtimeId={data.runtimeId} settings={settings} target={capabilityTarget?.page === tab ? capabilityTarget : undefined} commands={commands}

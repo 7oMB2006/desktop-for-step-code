@@ -24,6 +24,89 @@ try {
   });
   await page.getByText('Step Code 已连接', { exact: true }).waitFor({ timeout: 60000 });
   const snapshot = await prepareSessionFixture(page);
+  const sidebar = page.locator('.window-sidebar-toggle');
+  const beforeSidebar = await sidebar.getAttribute('aria-expanded');
+  await page.locator('main .composer-input').fill('Keep draft across shortcuts');
+  const primary = process.platform === 'darwin' ? 'Meta' : 'Control';
+  await page.keyboard.press(`${primary}+b`);
+  await page.waitForFunction(previous => document.querySelector('.window-sidebar-toggle')?.getAttribute('aria-expanded') !== previous, beforeSidebar);
+  assert.equal(await page.locator('main .composer-input').textContent(), 'Keep draft across shortcuts');
+  await page.keyboard.press(`${primary}+b`);
+  await page.waitForFunction(previous => document.querySelector('.window-sidebar-toggle')?.getAttribute('aria-expanded') === previous, beforeSidebar);
+  await page.keyboard.press(`${primary}+,`);
+  await page.locator('.settings-dialog').waitFor();
+  await page.keyboard.press(`${primary}+b`);
+  assert.equal(await sidebar.getAttribute('aria-expanded'), beforeSidebar, 'Settings cannot toggle the background sidebar');
+  await page.locator('.settings-dialog nav').getByRole('button', { name: '通用', exact: true }).click();
+  for (const name of ['会话排序', '语言']) {
+    const select = page.getByRole('combobox', { name, exact: true });
+    assert.equal(await select.evaluate(element => getComputedStyle(element, '::picker-icon').display), 'none');
+    assert.equal(await select.locator('..').locator('svg path').getAttribute('d'), 'M3.5 5.25 7 8.75 10.5 5.25');
+  }
+  const sort = page.getByRole('combobox', { name: '会话排序', exact: true });
+  await sort.click();
+  await page.waitForFunction(() => document.querySelector('select[aria-label="会话排序"]')?.matches(':open'));
+  await page.waitForTimeout(250);
+  assert.equal(await sort.locator('..').locator('svg').evaluate(element => getComputedStyle(element).transform), 'matrix(-1, 0, 0, -1, 0, 0)');
+  await page.screenshot({ path: 'test-results/general-select-dark.png' });
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('Enter');
+  await page.waitForFunction(() => document.querySelector('select[aria-label="会话排序"]')?.value === 'updated');
+  await sort.selectOption('manual');
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(640, 760));
+  await page.evaluate(() => window.desktop.preferences({ theme: 'light' }));
+  await page.waitForFunction(() => document.documentElement.dataset.palette === 'light');
+  await page.waitForTimeout(300);
+  await sort.evaluate(element => element.scrollIntoView({ block: 'center' }));
+  await sort.focus();
+  await page.screenshot({ path: 'test-results/general-select-light-narrow.png' });
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+  await page.evaluate(() => window.desktop.preferences({ theme: 'dark' }));
+  await page.waitForFunction(() => document.documentElement.dataset.palette === 'dark');
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1200, 850));
+  await page.locator('.settings-dialog').getByRole('button', { name: /^(?:Close|\u5173\u95ed)$/u }).click();
+  await page.locator('.settings-dialog').waitFor({ state: 'detached' });
+  await page.keyboard.press(`${primary}+Shift+f`);
+  await page.locator('.fulltext-panel').waitFor({ state: 'visible' });
+  await page.locator('.fulltext-panel').getByRole('button', { name: '返回会话', exact: true }).click();
+  await page.keyboard.press(`${primary}+j`);
+  await page.locator('#terminal-panel[aria-hidden="false"]').waitFor();
+  await page.locator('#terminal-panel .xterm-helper-textarea').focus();
+  await page.keyboard.press(`${primary}+b`);
+  assert.equal(await sidebar.getAttribute('aria-expanded'), beforeSidebar, 'Terminal keeps ownership of its shortcuts');
+  await page.locator('.window-sidebar-toggle').focus();
+  await page.keyboard.press(`${primary}+j`);
+  await page.locator('#terminal-panel[aria-hidden="true"]').waitFor({ state: 'attached' });
+  await app.evaluate(({ ipcMain }, snapshot) => {
+    const handler = ipcMain._invokeHandlers.get('desktop');
+    globalThis.shortcutCalls = [];
+    globalThis.shortcutHandler = handler;
+    ipcMain.removeHandler('desktop');
+    ipcMain.handle('desktop', (event, method, ...args) => {
+      if (['chooseSessionProject', 'beginSession'].includes(method)) {
+        globalThis.shortcutCalls.push(method);
+        return snapshot;
+      }
+      return handler(event, method, ...args);
+    });
+  }, snapshot);
+  const waitForShortcut = method => app.evaluate(async (_electron, method) => {
+    const deadline = Date.now() + 5000;
+    while (!globalThis.shortcutCalls.includes(method)) {
+      if (Date.now() >= deadline) throw new Error(`Shortcut did not reach IPC: ${method}`);
+      await new Promise(resolve => setTimeout(resolve, 20));
+    }
+  }, method);
+  await page.keyboard.press(`${primary}+o`);
+  await waitForShortcut('chooseSessionProject');
+  await page.locator('main .composer-input[contenteditable="true"]').waitFor();
+  await page.keyboard.press(`${primary}+n`);
+  await waitForShortcut('beginSession');
+  assert.deepEqual(await app.evaluate(({ ipcMain }) => {
+    ipcMain.removeHandler('desktop'); ipcMain.handle('desktop', globalThis.shortcutHandler);
+    return globalThis.shortcutCalls;
+  }), ['chooseSessionProject', 'beginSession']);
+  await page.locator('main .composer-input').fill('');
   await app.evaluate(({ ipcMain }, snapshot) => {
     globalThis.motionSnapshot = snapshot;
     globalThis.motionDesktopHandler = ipcMain._invokeHandlers.get('desktop');
@@ -79,10 +162,14 @@ try {
   };
   await emit([
     { type: 'agent_start' },
-    { type: 'message_start', message: { role: 'user', content: '检查这一版文字淡入和思考折叠。', timestamp: Date.now() } },
+    { type: 'message_start', message: { role: 'user', content: '检查这一版文字淡入和思考折叠。\n\n'
+      + '以下是用户明确附加的本地文件路径。它们不是已解析的模型输入；如需内容，请按当前权限使用工具读取。不要假定 Word/PPT 等格式能直接解析：\n'
+      + '- "C:\\\\fixture\\\\实验二.doc" ("实验二.doc")', timestamp: Date.now() } },
     { type: 'message_start', message: { role: 'assistant', content: [{ type: 'thinking', thinking: '逐项检查组件状态与流式事件，保留可见内容与实际执行过程。\n\n'.repeat(12) }] } },
   ]);
   const thinking = page.locator('.thinking').last();
+  await page.locator('.sent-attachment').getByText('实验二.doc', { exact: true }).waitFor();
+  assert.equal(await page.locator('.message.user').last().textContent().then(text => text.includes('不是已解析')), false);
   // Standard now starts folded; explicitly open it to exercise the same animation.
   await thinking.locator('summary').click();
   await thinking.locator('.thinking-body').waitFor({ state: 'visible' });
@@ -91,6 +178,21 @@ try {
   });
   const fullHeight = await thinking.boundingBox();
   assert.ok(fullHeight.height > 250);
+  assert.ok(fullHeight.height <= 320, 'Thinking stays bounded even with long content');
+  const thinkingScroll = thinking.locator('.thinking-scroll');
+  assert.ok(await thinkingScroll.evaluate(element => element.scrollHeight > element.clientHeight),
+    'Complete reasoning remains available in an internal scroller');
+  await thinkingScroll.evaluate(element => { element.scrollTop = element.scrollHeight; });
+  assert.ok(await thinkingScroll.evaluate(element => element.scrollTop > 0));
+  await thinkingScroll.hover(); await page.mouse.wheel(0, -120);
+  await page.waitForTimeout(180);
+  const thoughtTop = await thinkingScroll.evaluate(element => element.scrollTop);
+  await emit([{ type: 'message_update', assistantMessageEvent: { type: 'thinking_delta', contentIndex: 0,
+    delta: '\n\n思考视窗追加内容，保持内部阅读位置。\n\n' } }]);
+  await thinkingScroll.getByText('思考视窗追加内容，保持内部阅读位置。', { exact: true }).waitFor({ state: 'attached' });
+  assert.ok(Math.abs(await thinkingScroll.evaluate(element => element.scrollTop) - thoughtTop) <= 1,
+    'Reading inside thinking cannot steal the internal position or pause outer tail following');
+  await page.screenshot({ path: 'test-results/stream-thinking-bounded.png' });
   await delta('正文开始出现，思考区会平滑收起。');
   await page.waitForFunction(() => document.querySelector('.thinking')?.dataset.expanded === 'false');
   await thinking.evaluate(element => {
@@ -211,6 +313,21 @@ try {
   assert.ok(await page.locator('.conversation').evaluate(element => element.scrollTop < 5), 'disclosure resize must not resume follow while reading history');
   await emit([{ type: 'agent_end' }]);
   await page.locator('.working').waitFor({ state: 'hidden' });
+  for (const [theme, language, width] of [['light', 'en', 560], ['dark', 'zh', 1200]]) {
+    await app.evaluate(({ BrowserWindow }, { theme, language, width }) => {
+      const window = BrowserWindow.getAllWindows()[0];
+      window.setSize(width, 760);
+      globalThis.motionSnapshot.preferences = { ...globalThis.motionSnapshot.preferences, theme, language };
+      window.webContents.send('runtime-event', { type: 'desktop_preferences', preferences: globalThis.motionSnapshot.preferences });
+    }, { theme, language, width });
+    const panel = page.locator('.thinking').first();
+    if (await panel.getAttribute('data-expanded') !== 'true') await panel.locator('summary').evaluate(element => element.click());
+    await page.waitForTimeout(300);
+    assert.ok((await panel.boundingBox()).height <= 320);
+    assert.equal(await page.locator('.sent-attachment').first().textContent(), '实验二.doc');
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+    await page.screenshot({ path: `test-results/conversation-ux-${theme}-${language}.png` });
+  }
   assert.deepEqual(errors, []);
   console.log('Stream motion acceptance passed: real intermediate fold heights, reversal, manual reopening, new-text-only fade, Markdown/math/code, frame-stable prose/thinking/fold, resize, history reading, reduced motion and completion.');
 } finally {

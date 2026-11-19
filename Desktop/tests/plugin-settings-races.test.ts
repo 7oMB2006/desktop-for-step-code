@@ -45,7 +45,7 @@ function harness(reducedMotion = false) {
   const state = { edit: null as Edit | null, error: '', open: false, closing: false, tab: '' };
   // Execute the production closures and JSX callbacks, not copies of the request guards.
   const runtime = declarations.filter(node => ts.isIdentifier(node.name) && (
-    ['run', 'closeMcpEdit', 'finishSettingsClose', 'closeSettings', 'openSettings'].includes(node.name.text)
+    ['run', 'closeMcpEdit', 'finishSettingsClose', 'closeSettings', 'openSettings', 'selectSettingsTab'].includes(node.name.text)
     || ts.isCallExpression(node.initializer!) && node.initializer.expression.getText(source) === 'useRef'
       && node.initializer.arguments[0]?.getText(source) === '0'
   )).map(node => `const ${node.getText(source)};`).join('\n');
@@ -59,6 +59,8 @@ function harness(reducedMotion = false) {
     const setError = value => { state.error = value; };
     const setSettingsOpen = value => { state.open = value; };
     const setSettingsClosing = value => { state.closing = value; };
+    const setSettingsQuery = () => {};
+    const setSettingsLocation = () => {};
     const setTab = value => { state.tab = value; };
     const setSettings = () => {};
     const setLoginProfile = () => {};
@@ -84,6 +86,7 @@ function harness(reducedMotion = false) {
         return false;
       })},
       category: id => (${jsxCallback('button', 'onClick', node => attributeText(node, 'aria-current') === "aria-current={tab === id ? 'page' : undefined}")})(),
+      searchResult: (category, anchor) => (${jsxCallback('button', 'onClick', node => attributeText(node, 'onClick') === 'onClick={() => selectSettingsTab(category, anchor)}')})(),
       openSettings, closeSettings, finishSettingsClose,
     };
   `, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
@@ -92,7 +95,8 @@ function harness(reducedMotion = false) {
     state, settings(), reducedMotion,
   ) as {
     manage(name?: string): void; edit(name?: string): void; typeArgs(event: { target: { value: string } }): void;
-    closeEditor(): void; category(id: string): void; openSettings(): Promise<void>; closeSettings(): void; finishSettingsClose(): void;
+    closeEditor(): void; category(id: string): void; searchResult(category: string, anchor: string): void;
+    openSettings(): Promise<void>; closeSettings(): void; finishSettingsClose(): void;
   };
   return { ...handlers, state, reads };
 }
@@ -178,11 +182,12 @@ for (const reduced of [false, true]) {
     assert.equal(h.state.error, 'newer feedback');
   });
 }
-for (const action of ['finishSettingsClose', 'closeEditor', 'category', 'openSettings'] as const) {
+for (const action of ['finishSettingsClose', 'closeEditor', 'category', 'searchResult', 'openSettings'] as const) {
   test(`${action} invalidates a pending named MCP editor request`, async () => {
     const h = harness();
     const response = await startNamedRead(h);
     if (action === 'category') h.category('general');
+    else if (action === 'searchResult') h.searchResult('general', 'completionSound');
     else void h[action]();
     response.resolve(settings()); await settle();
     assert.equal(h.state.edit, null);

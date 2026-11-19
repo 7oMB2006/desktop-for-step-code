@@ -151,13 +151,18 @@ input (including cache) and output are shown per answer. An all-zero provider
 default, such as an aborted request without final usage, is unknown and not
 presented as a free request.
 
-**Local Usage overview, session cost estimates, context totals and the main
-performance strip do not yet include BTW usage.** No durable usage ledger or
-account-charge estimate is added here. Official account allowance/balance remains
-the authority for account-level consumption, subject to its normal refresh delay.
-This implementation must not be described as complete local billing coverage.
-The panel does not repeat permanent explanatory notes below the editor; the
-per-answer Token tooltip discloses the missing local-total integration.
+Desktop stores settled BTW usage in a separate local ledger, without questions,
+answers or credentials. Usage adds valid reported tokens (including from
+cancelled or failed requests) to the local totals and daily, hourly and model
+breakdowns. It deduplicates requests and counts started requests without valid
+reported usage separately. An unrecognized source only appears under All.
+Older BTW usage is not backfilled, and an abrupt exit before settlement can
+leave a request unrecorded.
+
+Main session counts, transcript, context totals, performance strip and local
+cost estimates do not change. The runtime's provider and model are not proof
+of billing-account attribution. Official account allowance/balance remains the
+authority for account-level consumption, subject to its normal refresh delay.
 
 ## Ownership And UI
 

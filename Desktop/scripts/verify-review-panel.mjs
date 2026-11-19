@@ -228,7 +228,7 @@ try {
   await page.locator('.sidebar-settings').click();
   await page.getByRole('button', { name: '外观', exact: true }).click();
   await page.getByRole('button', { name: '暗', exact: true }).click();
-  await page.getByRole('dialog').getByRole('button', { name: 'Close', exact: true }).click();
+  await page.locator('.settings-dialog > header').getByRole('button', { name: /^(?:Close|\u5173\u95ed)$/u }).click();
   await page.waitForFunction(() => document.documentElement.dataset.theme === 'dark');
   await panel.getByRole('button', { name: '预览变更 src/stream.ts', exact: true }).click();
   await panel.locator('.turn-diff-table').waitFor();

@@ -148,7 +148,7 @@ try {
   await sort.selectOption('updated');
   await page.waitForFunction(() => document.querySelector('[data-reorder-id="sidebar-0"]').parentElement.firstElementChild.dataset.reorderId === 'sidebar-0');
   assert.deepEqual(await projectOrder(page), [key(projects[1]), key(projects[0]), key(projects[2])]);
-  await page.getByRole('button', { name: 'Close', exact: true }).click();
+  await page.locator('.settings-dialog > header').getByRole('button', { name: /^(?:Close|\u5173\u95ed)$/u }).click();
   await page.locator('.settings-backdrop').waitFor({ state: 'detached' });
   const beforeUpdatedDrag = await rows(project(page, 0));
   await drag(page, session(page, 2), session(page, 0));
@@ -169,7 +169,7 @@ try {
   await page.screenshot({ path: 'test-results/sidebar-order-settings.png' });
   await page.getByRole('button', { name: '外观', exact: true }).click();
   await page.getByRole('button', { name: '暗', exact: true }).click();
-  await page.getByRole('button', { name: 'Close', exact: true }).click();
+  await page.locator('.settings-dialog > header').getByRole('button', { name: /^(?:Close|\u5173\u95ed)$/u }).click();
   await page.screenshot({ path: 'test-results/sidebar-order-dark.png' });
   await page.locator('.sidebar').screenshot({ path: 'test-results/sidebar-order-dark-detail.png' });
   mark('reload');

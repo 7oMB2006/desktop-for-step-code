@@ -50,7 +50,7 @@ try {
   assert.equal(active.preferences.themeMotion, false);
   assert.equal(active.preferences.themeBrightness, 65);
   assert.ok((await page.evaluate(() => window.desktop.themeScene('plugin:stellar-cruise'))).dragons.groups.length === 2);
-  await page.getByRole('button', { name: 'Close', exact: true }).click();
+  await page.locator('.settings-dialog > header').getByRole('button', { name: /^(?:Close|\u5173\u95ed)$/u }).click();
   await page.waitForTimeout(1000);
   await page.waitForFunction(() => (document.querySelector('.terminal-heading-output')?.textContent?.trim().length ?? 0) > 3);
   await page.screenshot({ path: join(output, 'electron-welcome.png') });

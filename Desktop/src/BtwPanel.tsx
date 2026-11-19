@@ -254,7 +254,7 @@ export function BtwPanel({ runtimeId, sessionId, language, disabled, modelName, 
                   copyLabel={t('复制旁问回答', 'Copy side answer')} timestamp={item.endedAt}
                   timing={item.startedAt === undefined ? undefined : { startedAt: item.startedAt, endedAt: item.endedAt }}/>}
                 {item.usage && <span className="btw-tokens"
-                  data-tooltip={t('输入（含缓存）／输出 Token；暂未计入本地用量总览', 'Input (including cache) / output Tokens; not yet included in local usage totals')}>
+                  data-tooltip={t('输入（含缓存）／输出 Token', 'Input (including cache) / output tokens')}>
                   ↑ {(item.usage.input + item.usage.cacheRead + item.usage.cacheWrite).toLocaleString()} · ↓ {item.usage.output.toLocaleString()}
                 </span>}
               </div>

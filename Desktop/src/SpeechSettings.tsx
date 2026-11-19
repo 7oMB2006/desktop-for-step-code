@@ -44,7 +44,7 @@ export function SpeechSettings({ bridge, language }: { bridge: SpeechBridge; lan
     } finally { saving.current = false; if (alive.current) setBusy(false); }
   };
   return <section className="speech-settings" aria-labelledby="speech-settings-title">
-    <h3 id="speech-settings-title">{t('语音听写', 'Voice dictation')}</h3>
+    <h3 id="speech-settings-title" data-settings-anchor="speech">{t('语音听写', 'Voice dictation')}</h3>
     {!value ? <><p className="muted" role="status">{error ? t('无法读取听写设置。', 'Could not load dictation settings.') : t('加载中…', 'Loading…')}</p>
       {error && <button disabled={busy} onClick={() => void reload()}><RotateCcw size={15}/>{t('重试', 'Retry')}</button>}</> : <>
       <fieldset disabled={busy}>

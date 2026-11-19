@@ -532,6 +532,7 @@ for (const exitConfirmed of [true, false]) {
       const historyReaders = stop, collaboration = stop, bvrBridge = stop, pluginHosts = stop, conversationTiming = stop, modelSelections = stop;
       const usageEstimates = stop, workflowBindings = stop, pluginReloads = stop, miniChat = undefined, pluginWindows = undefined, browser = undefined;
       const capabilityGate = { async whenIdle() {} };
+      const btwUsageLedger = stop;
       const externalConnectors = { async shutdown() { state.externalShutdowns++; } };
       const externalTasks = { async flush() { state.externalFlushes++; } };
       const quitReasons = () => ({}), needsQuitReview = () => false, showMainWindow = () => {};
@@ -578,6 +579,7 @@ for (const failExternalShutdown of [false, true]) {
       const network = { async stop() { events.push('network-stopped'); } };
       const historyReaders = stop, collaboration = stop, bvrBridge = stop, pluginHosts = stop, conversationTiming = stop, modelSelections = stop;
       const usageEstimates = stop, workflowBindings = stop, pluginReloads = stop, miniChat = undefined, pluginWindows = undefined, browser = undefined;
+      const btwUsageLedger = { async flush() { events.push('btw-usage-flushed'); } };
       const capabilityService = { async stop() { events.push('service-stopped'); } };
       const externalConnectors = { async shutdown() {
         events.push('external-stopped');
@@ -601,7 +603,7 @@ for (const failExternalShutdown of [false, true]) {
     await Promise.all([operation, settled]);
     assert.deepEqual(events, failExternalShutdown
       ? ['write-finished', 'external-stopped', 'quit-failure:external-connectors', 'error']
-      : ['write-finished', 'external-stopped', 'service-stopped', 'network-stopped', 'external-flushed', 'quit']);
+      : ['write-finished', 'external-stopped', 'service-stopped', 'network-stopped', 'external-flushed', 'btw-usage-flushed', 'quit']);
     assert.equal(f.pending(), !failExternalShutdown);
     assert.equal(f.quitting(), !failExternalShutdown);
   });

@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Minus, Square, Copy, X, PanelLeft, Ellipsis, PictureInPicture2 } from 'lucide-react';
+import { shortcutLabel } from './app-shortcuts';
 
-export type WindowMenu = { id: string; label: string; items: { label: string; action: () => void; disabled?: boolean }[] };
+export type WindowMenu = { id: string; label: string; items: { label: string; action: () => void; disabled?: boolean; shortcut?: string }[] };
 
 export function WindowBar({ language, sidebarVisible, toggleSidebar, menus, sessionTitle, onMenuOpenChange, miniChat, pluginActions, showSidebarToggle = true, inert = false }: { language: 'zh' | 'en'; sidebarVisible: boolean; toggleSidebar: () => void; menus: WindowMenu[]; sessionTitle?: string; onMenuOpenChange?: (open: boolean) => void; miniChat?: { open: boolean; disabled?: boolean; onOpen: () => void }; pluginActions?: ReactNode; showSidebarToggle?: boolean; inert?: boolean }) {
   const [maximized, setMaximized] = useState(false);
@@ -37,7 +38,7 @@ export function WindowBar({ language, sidebarVisible, toggleSidebar, menus, sess
   };
   return <header inert={inert} className={`window-bar ${mac ? 'window-bar-macos' : ''} ${mac && fullscreen ? 'window-fullscreen' : ''} ${focused ? '' : 'window-inactive'}`}>
     <div className="window-tools" ref={mac ? undefined : menuRef}>
-      {showSidebarToggle && <button type="button" className="window-sidebar-toggle" data-tooltip={zh ? '侧栏' : 'Sidebar'} aria-label={zh ? '侧栏' : 'Sidebar'} aria-expanded={sidebarVisible} onClick={() => { setOpenMenu(null); toggleSidebar(); }}><PanelLeft size={18}/></button>}
+      {showSidebarToggle && <button type="button" className="window-sidebar-toggle" data-tooltip={`${zh ? '侧栏' : 'Sidebar'} (${shortcutLabel('sidebar', bridge?.platform)})`} aria-keyshortcuts={`${mac ? 'Meta' : 'Control'}+B`} aria-label={zh ? '侧栏' : 'Sidebar'} aria-expanded={sidebarVisible} onClick={() => { setOpenMenu(null); toggleSidebar(); }}><PanelLeft size={18}/></button>}
       {!mac && <nav className="window-menu-list" aria-label={zh ? '应用菜单' : 'Application menu'}>
         {menus.map(menu => <div className="window-menu" key={menu.id}>
           <button type="button" data-menu={menu.id} aria-haspopup="menu" aria-expanded={openMenu === menu.id} className={openMenu === menu.id ? 'active' : ''} onClick={() => setOpenMenu(current => current === menu.id ? null : menu.id)} onMouseEnter={() => { if (openMenu && openMenu !== menu.id) setOpenMenu(menu.id); }}>{menu.label}</button>
@@ -48,7 +49,7 @@ export function WindowBar({ language, sidebarVisible, toggleSidebar, menus, sess
             const index = items.indexOf(document.activeElement as HTMLButtonElement);
             items[(index + (event.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length]?.focus();
           }}>
-            {menu.items.map(item => <button type="button" role="menuitem" key={item.label} disabled={item.disabled} onClick={() => { setOpenMenu(null); item.action(); }}>{item.label}</button>)}
+            {menu.items.map(item => <button type="button" role="menuitem" key={item.label} disabled={item.disabled} onClick={() => { setOpenMenu(null); item.action(); }}>{item.label}{item.shortcut && <kbd className="menu-shortcut">{item.shortcut}</kbd>}</button>)}
           </div>}
         </div>)}
       </nav>}
@@ -70,7 +71,7 @@ export function WindowBar({ language, sidebarVisible, toggleSidebar, menus, sess
       }}>
         {menus.map(menu => <div className="window-macos-menu-group" key={menu.id} role="group" aria-label={menu.label}>
           <span className="window-macos-menu-label">{menu.label}</span>
-          {menu.items.map(item => <button type="button" role="menuitem" key={item.label} disabled={item.disabled} onClick={() => { setOpenMenu(null); item.action(); }}>{item.label}</button>)}
+          {menu.items.map(item => <button type="button" role="menuitem" key={item.label} disabled={item.disabled} onClick={() => { setOpenMenu(null); item.action(); }}>{item.label}{item.shortcut && <kbd className="menu-shortcut">{item.shortcut}</kbd>}</button>)}
         </div>)}
       </div>}
     </div>}

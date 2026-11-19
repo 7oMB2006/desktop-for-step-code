@@ -46,6 +46,11 @@ plugin-authored prose. Acknowledgement grants no permissions. Never gate stop,
 revoke or unrelated work behind a risk prompt. Connection associations are
 explicit selects, not inferred names; preserve four-pixel form focus gutters.
 
+Text tabs use the titlebar's compact rounded hit target with horizontal padding
+and themed hover and keyboard focus. Keep the selection underline separate from
+the hover surface; browser and terminal close buttons remain separate targets.
+Compact inspectors can reduce horizontal padding without removing the focus ring.
+
 ## Form Focus Visibility
 
 Inputs, textareas and composite fields reuse the shared theme focus treatment.
@@ -278,9 +283,10 @@ below the editor. The side composer also reuses the shared context-action row
 and upper gradient veil, without a separate horizontal divider. Its bottom edge
 aligns with the main composer by reserving the measured main footer space,
 including when performance metrics wrap or are hidden; fullscreen uses its own
-normal bottom gutter. Drafts still grow independently. Per-answer reported Tokens remain visible, with the missing
-local-total integration disclosed in their tooltip; opening the panel does not
-imply free requests.
+normal bottom gutter. Drafts still grow independently. Per-answer reported Tokens
+remain visible. Usage shows the side-question contribution to local totals and
+counts requests with unknown usage separately; neither changes the main session
+count or implies a billing amount.
 The message selection toolbar offers Ask in side alongside Quote and Annotate.
 It opens BTW with the shared compact quote-count entry and focuses its editor,
 without submitting a request or moving the main draft/references. Pending
@@ -474,6 +480,15 @@ The permission menu groups optional task launch controls above three upstream pe
 Full Access uses the native risk acknowledgment with localized presentation and unchanged upstream response values. Cancel is initially focused and Escape cancels. Session-only and remembered grants remain distinct; explicit tool deny/confirm rules still apply. A draft selecting Full Access first adopts its worker so the acknowledgment is visible before the first model request; cancellation restores the composed input without sending it. Unanswered risk requests expire after at most two minutes. Worker reconstruction and branching never replay a Full Access command or inherit a transport-local grant; the new native worker restores only its own authoritative permission state. Retired read-only, bypass and autopilot settings resolve to Ask rather than silently gaining authority. Cross-session delivery retains its separate exact-target/text approval in every tier.
 
 Settings use one centered, fixed-size secondary window: 1060 by 740 pixels, bounded by the application viewport. All categories, including providers and archived sessions, share this shell instead of resizing it. The full application, including its titlebar and window controls, sits behind a softly blurred backdrop with a low-opacity black tint that never becomes a white veil in dark mode. The form surface stays opaque for readability. The titlebar is inert until settings finish closing. Navigation and content scroll independently. Narrow windows retain icon navigation and bounded content. The selected category has a restrained rose tint, content changes fade without moving the frame, and matching entrance/exit effects preserve the blocking layer until dismissal ends. Reduced motion bypasses dismissal animation. Switching categories keeps navigation focus and resets the content scroll position.
+
+Settings search fills the header span from the category rail to the close
+button, without resizing the dialog or clipping the shared focus outline.
+It matches built-in category names and indexed option labels and aliases in
+both languages, never configuration values or instruction contents. Results
+occupy the existing content area while keeping the current category mounted.
+Clearing the query restores that category. Opening an option moves focus and
+scrolls to its stable target with a brief highlight, without applying the
+setting. Reduced motion keeps the highlight static until it clears.
 
 Artifact and web-reference entry points also close the right panel when it already shows that target. External application actions and explicit file refresh remain commands. Hiding a panel preserves its reading state, browser tabs and terminal processes. Local HTML reactivation selects its existing browser tab without reloading it; the browser refresh command remains available.
 

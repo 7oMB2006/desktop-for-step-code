@@ -424,7 +424,7 @@ try {
   await page.locator('.sidebar-settings').click();
   await page.waitForTimeout(100);
   assert.equal((await viewState()).filter(view => view.visible && view.url?.startsWith('http:')).length, 0, 'settings hides the native surface');
-  await page.getByRole('dialog').getByRole('button', { name: 'Close', exact: true }).click();
+  await page.locator('.settings-dialog > header').getByRole('button', { name: /^(?:Close|\u5173\u95ed)$/u }).click();
   await page.locator('.settings-backdrop').waitFor({ state: 'detached' });
   await assert.doesNotReject(async () => {
     const deadline = Date.now() + 5000;

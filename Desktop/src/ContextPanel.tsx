@@ -243,7 +243,7 @@ export function ContextPanel({ messages, stats, state, estimate, title, language
   };
   return <aside className={`context-panel${fullView ? ' is-expanded' : ''}`} aria-label={t('上下文', 'Context')} id="context-panel">
     <header className="context-panel-header right-panel-header">
-      {snapshot && onView ? <div className="context-view-tabs" role="tablist" aria-label={t('会话检查', 'Session inspector')}>
+      {snapshot && onView ? <div className="context-view-tabs text-tabs" role="tablist" aria-label={t('会话检查', 'Session inspector')}>
         {(['context', 'status', 'clm'] as const).map(tab => <button key={tab} type="button" role="tab" id={`inspector-tab-${tab}`}
           aria-selected={view === tab} aria-controls="inspector-content" tabIndex={view === tab ? 0 : -1}
           onClick={() => onView(tab)} onKeyDown={event => {
@@ -300,7 +300,7 @@ export function ContextPanel({ messages, stats, state, estimate, title, language
       </section>
       <section className="context-message-section" aria-label={t('当前消息', 'Current messages')}>
         <div className="context-section-title"><h3>{t('当前消息', 'Current messages')}</h3><span>{number(counts.all)}</span></div>
-        <div className="context-message-tabs" role="tablist" aria-label={t('消息类别', 'Message roles')}>
+        <div className="context-message-tabs text-tabs" role="tablist" aria-label={t('消息类别', 'Message roles')}>
           {(['all', 'user', 'assistant', 'toolResult'] as const).map(value => <button key={value} type="button" role="tab"
             id={`context-tab-${value}`} aria-selected={filter === value} aria-controls="context-message-list" onClick={() => setFilter(value)}
             tabIndex={filter === value ? 0 : -1} onKeyDown={event => {

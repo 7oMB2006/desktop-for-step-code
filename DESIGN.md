@@ -635,6 +635,14 @@ resolved requests, disabled options and new work withdraw obsolete banners.
 Windows Do Not Disturb remains an operating-system choice and is not bypassed.
 The behavior and verification boundary are documented in `docs/NOTIFICATIONS.md`.
 
+The Windows main taskbar icon shows a native numeric overlay for conversations
+with an unread successful completion, independently of banners and sound. A
+selected conversation can still count when its window is unfocused or minimized.
+Viewing that conversation in focused main or MiniChat, archiving it, or starting
+its next turn clears its count. The overlay shows at most `9+`; unread state is
+session-scoped and lasts only until application exit. Do not add a duplicate
+in-app badge or change the tray icon.
+
 Closing the main window hides it to the Windows tray without stopping Agent tasks, queued messages, terminal processes or browser tabs. The tray uses the product icon and supplies Open and Quit in the selected language. Clicking it or launching another instance restores the existing window. File > Quit application and tray Quit perform the existing confirmed shutdown and wait for runtime/terminal cleanup; cancellation keeps the application available. A failed tray creation falls back to the explicit shutdown path instead of hiding an unreachable window. Windows session end does not request interactive task confirmation.
 
 The tray's right-click menu is an application-rendered, transparent utility window, not a Windows native context menu. It reuses AppMenu styling and theme variables with cubic enter/exit, reduced-motion support, keyboard navigation and Escape/blur dismissal. Placement uses Electron's device-independent screen work area to remain within the selected monitor. It never appears in the taskbar. A sandboxed, sender-validated dedicated preload exposes only menu state and Open/Quit/Dismiss, not the main Desktop bridge.

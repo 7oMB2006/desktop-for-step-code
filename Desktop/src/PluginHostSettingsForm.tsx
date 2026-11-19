@@ -5,13 +5,20 @@ import { StepPlatformIcon } from './ProviderBrand';
 import { editablePluginConfiguration, PluginConfigurationEnumField, PluginConfigurationFields } from './PluginConfigurationForm';
 import type { DesktopBridge } from './contracts';
 import type { PluginConfigurationInput, PluginHostCapability, PluginHostModels, PluginHostRuntime, PluginHostSettings, PluginPackage } from './capabilities';
+import { STEP_ASR_MODEL, STEP_TTS_MODEL, stepTtsModels, stepTtsUnavailable, type StepHostUnavailable } from './step-host-catalog';
 
 type Bridge = Pick<DesktopBridge, 'pluginHostSettings' | 'pluginSaveHostSettings' | 'pluginChoosePath'>;
 const labels: Record<PluginHostCapability, [string, string]> = {
   'model.text': ['文本', 'Text'], 'model.video': ['视频理解', 'Video understanding'],
   'model.asr': ['语音识别', 'Speech recognition'], 'model.tts': ['语音合成', 'Speech synthesis'],
+  'model.image': ['图片理解', 'Image understanding'],
 };
-const ttsModels = ['stepaudio-2.5-tts', 'stepaudio-3-tts', 'step-tts-2', 'step-tts-mini'];
+const unavailableLabels: Record<StepHostUnavailable, [string, string]> = {
+  'channel-unconfirmed': ['当前渠道未确认支持', 'Not confirmed for this channel'],
+  'region-unconfirmed': ['当前地区未确认支持', 'Not confirmed for this region'],
+  'model-not-adapted': ['DFSC 尚未适配此模型', 'Model not integrated in DFSC'],
+  'session-model-unsupported': ['当前会话模型不在支持范围', 'Session model not supported'],
+};
 function runtimeLabel(status: PluginHostRuntime['status'], zh: boolean) {
   const values: Record<PluginHostRuntime['status'], [string, string]> = {
     unsupported: ['当前宿主版本不支持', 'Unsupported host version'],
@@ -45,6 +52,11 @@ export function PluginHostSettingsForm({ bridge, pkg, language, busy, visible, f
   const supported = saved?.runtime.status !== 'unsupported';
   const ready = Boolean(saved && mode && supported && (mode !== 'independent' || configuration));
   const locked = busy || pending;
+  const source = runtime?.source;
+  const channel = source?.channel === 'plan' ? 'Step Plan' : t('开放平台 API', 'Open Platform API');
+  const unavailable = (reason: StepHostUnavailable) => unavailableLabels[reason][zh ? 0 : 1];
+  const ttsSelection = models['model.tts'] ?? '';
+  const ttsReason = stepTtsUnavailable(source, ttsSelection || STEP_TTS_MODEL);
   const accept = (value: PluginHostSettings) => {
     setSaved(value); setMode(value.mode); setModels({ ...value.models });
     setConfiguration(value.independent ? editablePluginConfiguration(value.independent) : undefined);
@@ -125,10 +137,11 @@ export function PluginHostSettingsForm({ bridge, pkg, language, busy, visible, f
           {mode === null && <p className="pc-body-copy">{t('选择并保存后，再重启需要使用此插件的会话。安装和启用服务不会自动授权账户。',
             'Select and save a source, then restart the session that will use this plugin. Installation and enabling the service do not authorize account access.')}</p>}
           {mode === 'follow' && <div className="pc-follow pc-entrance">
+            {source && <p className="pc-hint">{t('沿用 DFSC', 'Follow DFSC')} · {channel} · {source.region === 'cn' ? t('中国大陆', 'China') : t('海外', 'Overseas')}</p>}
             <p className="pc-body-copy">{t('使用实际调用插件的会话账户与已应用模型，不读取独立配置中的 Key。Plan 失败不会切换到直调 API。',
               'Uses the invoking session’s account and applied model, not an independent key. Plan failures never switch to direct API.')}</p>
             {saved.capabilities.includes('model.asr') && <div className="pc-field pc-host-speech"><label>{t('语音识别专用模型', 'Dedicated speech recognition model')}
-              <input value={models['model.asr'] ?? ''} placeholder="stepaudio-2.5-asr" maxLength={160} spellCheck={false}
+              <input value={models['model.asr'] ?? ''} placeholder={STEP_ASR_MODEL} maxLength={160} spellCheck={false}
                 onChange={event => setModels(previous => {
                   const next = { ...previous }; if (event.target.value) next['model.asr'] = event.target.value; else delete next['model.asr']; return next;
                 })}/></label><p className="pc-hint">{t('留空使用 stepaudio-2.5-asr。当前仅支持此模型及 WAV 音频；其他值会显示为不可用。',
@@ -137,15 +150,17 @@ export function PluginHostSettingsForm({ bridge, pkg, language, busy, visible, f
               <span className="pc-generic-label">{t('语音合成专用模型', 'Dedicated speech synthesis model')}</span>
               <PluginConfigurationEnumField field={{
                 label: t('语音合成专用模型', 'Dedicated speech synthesis model'), options: [
-                  { value: '', label: t('默认：stepaudio-2.5-tts', 'Default: stepaudio-2.5-tts') },
-                  ...ttsModels.map(value => ({ value, label: value })),
-                  ...(models['model.tts'] && !ttsModels.includes(models['model.tts'])
-                    ? [{ value: models['model.tts'], label: models['model.tts'] }] : []),
-                ] }} value={models['model.tts'] ?? ''} disabled={locked || !supported} onChange={value => setModels(previous => {
+                  { value: '', label: t(`默认：${STEP_TTS_MODEL}`, `Default: ${STEP_TTS_MODEL}`) },
+                  ...[...stepTtsModels.map(item => item.id), ...(ttsSelection && !stepTtsModels.some(item => item.id === ttsSelection) ? [ttsSelection] : [])]
+                    .map(value => {
+                      const reason = stepTtsUnavailable(source, value);
+                      return { value, label: reason && value !== ttsSelection ? `${value} · ${unavailable(reason)}` : value, disabled: Boolean(reason) };
+                    }),
+                ] }} value={ttsSelection} disabled={locked || !supported} onChange={value => setModels(previous => {
                   const next = { ...previous }; if (value) next['model.tts'] = value; else delete next['model.tts']; return next;
                 })}/>
-              <p className="pc-hint">{t('step-tts-2 / mini 仅适配国内渠道。单次最多 1000 字符，支持 MP3 / WAV / PCM；实际权益及费用由账户渠道决定。',
-                'step-tts-2 / mini require China routes. Up to 1,000 characters per request; MP3 / WAV / PCM. Entitlement and charges depend on the account channel.')}</p>
+              <p className="pc-hint">{ttsReason ? unavailable(ttsReason)
+                : t('单次最多 1000 字符，支持 MP3 / WAV / PCM。', 'Up to 1,000 characters per request; MP3 / WAV / PCM.')}</p>
             </div>}
             <div className="pc-permission-row"><ShieldCheck size={17}/><div><strong>{t('逐项调用前确认', 'Per-capability request confirmation')}</strong>
               <p>{t('保存不是付费授权。首次调用每项能力前仍需确认；授权只覆盖本次启动的会话、账户和模型。',
@@ -170,9 +185,9 @@ export function PluginHostSettingsForm({ bridge, pkg, language, busy, visible, f
           const state = runtime?.capabilities?.find(item => item.id === id);
           return <li key={id}><div><strong>{labels[id][zh ? 0 : 1]}</strong>
             <span>{state?.model ?? (saved.mode === 'independent' ? t('由插件独立配置', 'Configured independently')
-              : state && !state.available ? t('当前账户或模型不可用', 'Unavailable for this account or model')
+              : state && !state.available ? state.unavailable ? unavailable(state.unavailable) : t('当前账户或模型不可用', 'Unavailable for this account or model')
                 : t('连接后按实际会话确认', 'Confirmed from the connected session'))}</span></div>
-            <div>{state?.available && <span>{state.channel === 'plan' ? 'Step Plan' : 'API'} · {state.region === 'cn' ? t('中国大陆', 'China') : t('海外', 'Overseas')}</span>}
+            <div>{state?.available && <span>{state.channel === 'plan' ? 'Step Plan' : t('开放平台 API', 'Open Platform API')} · {state.region === 'cn' ? t('中国大陆', 'China') : t('海外', 'Overseas')}</span>}
               <span className={state?.authorization === 'approved' ? 'pc-host-approved' : undefined}>
                 {state ? state.authorization === 'approved' ? t('本次启动已授权', 'Approved for this launch')
                   : state.authorization === 'required' ? t('首次调用需确认', 'First use needs confirmation') : t('不可用', 'Unavailable')

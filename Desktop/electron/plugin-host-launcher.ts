@@ -155,15 +155,20 @@ export class PluginHostLauncher {
     const worker = this.options.pool.workers.get(this.options.pool.activeId ?? '');
     if (!worker || worker.status !== 'connected' || !worker.state?.sessionId || worker.stopping || worker.mutating)
       return { status: 'no-session' };
-    if (!('mode' in binding)) return { status: 'unconfigured' };
-    if (!binding.configurationCurrent) return { status: 'restart-required' };
+    const observed = (status: PluginHostRuntime['status']): PluginHostRuntime => {
+      const source = this.options.available() ? this.options.provider.source?.(worker) : undefined;
+      return source ? { status, source } : { status };
+    };
+    if (!('mode' in binding)) return observed('unconfigured');
+    if (!binding.configurationCurrent) return observed('restart-required');
     const attachment = [...this.attachments.get(worker)?.values() ?? []].find(item =>
       item.launch?.pluginId === binding.pluginId && item.launch.revision === binding.revision
       && item.launch.instance === binding.instance && item.rpc === worker.rpc && item.started);
-    if (!attachment?.launch || !await this.validate(descriptor, binding, worker, true))
-      return { status: 'restart-required' };
+    const valid = attachment?.launch && await this.validate(descriptor, binding, worker, true);
+    if (this.options.pool.activeId !== worker.id || this.options.pool.workers.get(worker.id) !== worker) return { status: 'unavailable' };
+    if (!attachment?.launch || !valid) return observed('restart-required');
     const status = attachment.launch.mode === 'follow' ? await this.broker.status(attachment.launch)
-      : { status: 'connected' as const };
+      : observed('connected');
     if (this.options.pool.activeId !== worker.id || this.attachments.get(worker)?.get(attachment.record.requestId) !== attachment)
       return { status: 'unavailable' };
     return status;

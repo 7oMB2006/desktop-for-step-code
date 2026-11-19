@@ -730,7 +730,8 @@ const pluginRemovals = new PluginUpdateCoordinator<PluginRemovalRequest>({
 const pluginHosts = new PluginHostLauncher({ root: dataRoot, pool: runtimes, capabilities: capabilityService,
   provider: new StepPluginHostProvider(runtimes, () => appliedAuthData,
     () => settingsMutation || providerSettingsPending || providerApplyFailed || quitting || quitPending,
-    (input, init) => net.fetch(input instanceof URL ? input.href : String(input), init)),
+    (input, init) => net.fetch(input instanceof URL ? input.href : String(input), init),
+    details => crashLog.record('plugin-host-image-provider', new Error('Plugin host image provider failed'), details)),
   language: () => preferences.language,
   available: () => runtimeManifest.patches?.includes('desktop-plugin-host-launch') === true
     && capabilityService.available && capabilityService.runtimeAvailable

@@ -21437,7 +21437,7 @@ var StdioServerTransport = class {
 import { randomUUID } from "node:crypto";
 import { isAbsolute } from "node:path";
 var HOST_ENV = "DFSC_LAUNCH_CONTEXT";
-var CAPABILITIES = Object.freeze(["model.text", "model.video", "model.asr", "model.tts"]);
+var CAPABILITIES = Object.freeze(["model.text", "model.video", "model.asr", "model.tts", "model.image"]);
 var LIMITS = Object.freeze({
   manifest: 65536,
   launch: 16384,
@@ -21445,6 +21445,7 @@ var LIMITS = Object.freeze({
   text: 2 * 1024 * 1024,
   response: 24 * 1024 * 1024,
   audio: 16 * 1024 * 1024,
+  image: 10 * 1024 * 1024,
   lease: 30 * 60 * 1e3,
   provider: 18e4,
   confirmation: 6e4,
@@ -21583,10 +21584,12 @@ function takeLaunchContext(environment, expected, now) {
   }
   return parseLaunch(value, expected, now);
 }
-function media(value, types) {
+function media(value, types, max = Infinity) {
   keys(value, ["mimeType", "data"]);
   if (!types.includes(value.mimeType) || typeof value.data !== "string" || value.data.length % 4 !== 0 || !value.data.length) fail();
+  if (value.data.length > 4 * Math.ceil(max / 3)) fail("TOO_LARGE");
   const bytes = Buffer.from(value.data, "base64");
+  if (bytes.length > max) fail("TOO_LARGE");
   if (bytes.toString("base64") !== value.data) fail();
   return bytes;
 }
@@ -21596,8 +21599,13 @@ function parseInvoke(value) {
   keys(value, ["requestId", "revision", "capability", "input"]);
   if (!uuid2(value.requestId) || !hash(value.revision) || !CAPABILITIES.includes(value.capability)) fail();
   const input = value.input;
-  if (value.capability === "model.text" || value.capability === "model.video") {
-    keys(input, ["messages", "video", "temperature", "maxTokens"], ["messages"]);
+  if (value.capability === "model.text" || value.capability === "model.video" || value.capability === "model.image") {
+    const attachment = value.capability === "model.video" ? "video" : value.capability === "model.image" ? "image" : void 0;
+    keys(
+      input,
+      ["messages", "temperature", "maxTokens", ...attachment ? [attachment] : []],
+      ["messages", ...attachment ? [attachment] : []]
+    );
     if (!Array.isArray(input.messages) || !input.messages.length || input.messages.length > 64) fail();
     for (const message of input.messages) {
       keys(message, ["role", "content"]);
@@ -21605,7 +21613,10 @@ function parseInvoke(value) {
     }
     if (input.temperature !== void 0 && (!Number.isFinite(input.temperature) || input.temperature < 0 || input.temperature > 2) || input.maxTokens !== void 0 && (!Number.isSafeInteger(input.maxTokens) || input.maxTokens < 1 || input.maxTokens > 32768)) fail();
     if (value.capability === "model.video") media(input.video, ["video/mp4", "video/webm"]);
-    else if (input.video !== void 0) fail();
+    if (value.capability === "model.image") {
+      if (!input.messages.some((message) => message.role === "user")) fail();
+      media(input.image, ["image/jpeg", "image/png", "image/webp"], LIMITS.image);
+    }
   } else if (value.capability === "model.asr") {
     keys(input, ["audio"]);
     media(input.audio, ["audio/wav", "audio/mpeg", "audio/mp4", "audio/webm"]);

@@ -43,21 +43,24 @@ try {
   assert.equal(await save.isEnabled(), true);
   const tts = form.getByRole('button', { name: '语音合成专用模型', exact: true });
   await tts.click();
-  await page.getByRole('menuitemradio', { name: 'stepaudio-3-tts', exact: true }).click();
-  assert.match(await tts.innerText(), /stepaudio-3-tts/);
+  assert.equal(await page.getByRole('menuitemradio', { name: /stepaudio-3-tts.*当前渠道未确认支持/ }).isDisabled(), true);
+  await page.getByRole('menuitemradio', { name: 'stepaudio-2.5-tts', exact: true }).click();
+  assert.match(await tts.innerText(), /stepaudio-2\.5-tts/);
   await page.screenshot({ path: `${output}/follow-unsaved.png` });
   await save.click();
   await page.waitForFunction(() => window.pluginHostTest.snapshot().value.mode === 'follow');
-  assert.equal((await page.evaluate(() => window.pluginHostTest.snapshot())).value.models['model.tts'], 'stepaudio-3-tts');
+  assert.equal((await page.evaluate(() => window.pluginHostTest.snapshot())).value.models['model.tts'], 'stepaudio-2.5-tts');
   await form.getByRole('status').filter({ hasText: '待重启会话' }).waitFor();
   assert.equal((await page.evaluate(() => window.pluginHostTest.snapshot())).restarts, 0, 'Saving does not restart or approve');
   await page.getByRole('button', { name: '重启当前会话', exact: true }).click();
   await form.getByRole('status').filter({ hasText: '当前会话已连接' }).waitFor();
-  assert.equal(await form.getByText('首次调用需确认', { exact: true }).count(), 4);
+  await form.getByText('沿用 DFSC · Step Plan · 中国大陆', { exact: true }).waitFor();
+  assert.equal(await form.getByText('图片理解', { exact: true }).count(), 1);
+  assert.equal(await form.getByText('首次调用需确认', { exact: true }).count(), 5);
   assert.equal(await form.getByText('不可用', { exact: true }).count(), 0);
   await page.evaluate(() => window.pluginHostTest.approve());
   await form.getByRole('button', { name: '刷新宿主状态', exact: true }).click();
-  await page.waitForFunction(() => document.querySelectorAll('.pc-host-approved').length === 4);
+  await page.waitForFunction(() => document.querySelectorAll('.pc-host-approved').length === 5);
   await page.screenshot({ path: `${output}/follow-approved.png` });
   for (const theme of ['light', 'dark']) {
     await page.evaluate(theme => window.pluginCenterTest.theme(theme), theme);
@@ -84,6 +87,9 @@ try {
   }
   await page.setViewportSize({ width: 1360, height: 900 });
   await page.evaluate(() => window.pluginCenterTest.theme('light'));
+  await page.evaluate(() => window.pluginHostTest.channel('api'));
+  await form.getByRole('button', { name: '刷新宿主状态', exact: true }).click();
+  await form.getByText('沿用 DFSC · 开放平台 API · 中国大陆', { exact: true }).waitFor();
 
   const asr = form.getByLabel('语音识别专用模型', { exact: true });
   await asr.fill('unsaved-asr');
@@ -100,12 +106,12 @@ try {
   assert.equal(await form.locator('.pc-host-approved').count(), 0, 'Re-enabling does not restore old approval');
   await asr.fill('');
   await tts.click();
-  await page.getByRole('menuitemradio', { name: 'stepaudio-3-tts', exact: true }).click();
+  await page.getByRole('menuitemradio', { name: 'stepaudio-2.5-tts', exact: true }).click();
   await page.getByRole('button', { name: '重启当前会话', exact: true }).click();
   await form.getByRole('status').filter({ hasText: '当前会话已连接' }).waitFor();
   await page.evaluate(() => window.pluginHostTest.approve());
   await form.getByRole('button', { name: '刷新宿主状态', exact: true }).click();
-  await page.waitForFunction(() => document.querySelectorAll('.pc-host-approved').length === 4);
+  await page.waitForFunction(() => document.querySelectorAll('.pc-host-approved').length === 5);
   await page.evaluate(() => window.pluginHostTest.hold());
   const beforeHeld = (await page.evaluate(() => window.pluginHostTest.snapshot())).reads;
   await form.getByRole('button', { name: '刷新宿主状态', exact: true }).click();
@@ -128,7 +134,7 @@ try {
   await form.getByRole('status').filter({ hasText: '当前会话已连接' }).waitFor();
   await page.evaluate(() => window.pluginHostTest.approve());
   await form.getByRole('button', { name: '刷新宿主状态', exact: true }).click();
-  await page.waitForFunction(() => document.querySelectorAll('.pc-host-approved').length === 4);
+  await page.waitForFunction(() => document.querySelectorAll('.pc-host-approved').length === 5);
   await form.getByRole('button', { name: '独立配置', exact: true }).click();
   await form.getByLabel('API Key', { exact: true }).fill('preview-private-key');
   await form.getByLabel('模型', { exact: true }).fill('step-independent-model');
@@ -222,7 +228,7 @@ try {
   assert.equal(await form.getByRole('button', { name: 'Follow DFSC session', exact: true }).isDisabled(), true);
   assert.equal(await page.getByRole('button', { name: 'Save configuration', exact: true }).isDisabled(), true);
   assert.deepEqual(errors, []);
-  console.log('Host settings UI passed: TTS model selection/save/draft retention, four capability observations, responsive TTS menu/focus, mode choice, independent secrets, revision conflicts, failed save/read, service toggles, late session response, host-only/unsupported states, restart and reduced motion. Fixture calls are simulated.');
+  console.log('Host settings UI passed: channel labels and TTS model filtering, saved drafts, five capability observations, responsive menu and focus, mode choice, independent secrets, revision conflicts, late session response, restart and reduced motion. Fixture calls are simulated.');
 } finally {
   await browser.close();
   await server.close();

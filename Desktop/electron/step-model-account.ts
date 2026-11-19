@@ -1,4 +1,5 @@
 import type { SessionRuntime } from './session-runtimes';
+import { STEP_VISUAL_MODELS, type StepHostRoute } from '../src/step-host-catalog';
 
 export type StepAccount = {
   key: string; endpoint: string; expires: number;
@@ -7,6 +8,9 @@ export type StepAccount = {
 export type StepModelAccount = StepAccount & { model: string; sessionId: string; video: boolean };
 export class StepModelAccountError extends Error {}
 
+export function stepHostRoute(account: Pick<StepAccount, 'channel' | 'region'>): StepHostRoute {
+  return { channel: account.channel, region: account.region === 'global' ? 'oversea' : 'cn' };
+}
 // Account credentials stay in main. These four routes must never fall back to one another.
 export function stepModelAccount(auth: Record<string, unknown>, worker: SessionRuntime,
   changing = false, now = Date.now()): StepModelAccount {
@@ -17,7 +21,7 @@ export function stepModelAccount(auth: Record<string, unknown>, worker: SessionR
     throw new StepModelAccountError('Follow DFSC currently supports official Step accounts only; choose independent mode for another provider');
   return {
     ...stepAccount(auth, changing, now), model: model.id, sessionId: worker.state.sessionId,
-    video: ['step-3.7-flash', 'step-5-preview'].includes(model.id) || Boolean(model.input?.includes('video')),
+    video: STEP_VISUAL_MODELS.includes(model.id) || Boolean(model.input?.includes('video')),
   };
 }
 

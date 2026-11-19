@@ -1,15 +1,15 @@
-import type { StepAccount } from './step-model-account';
+import { stepHostRoute, type StepAccount } from './step-model-account';
+import { STEP_TTS_MODEL, stepTtsUnavailable } from '../src/step-host-catalog';
 import { HostClientError, LIMITS } from '../../examples/plugins/host-client/protocol.mjs';
 import type { Inputs, Results } from '../../examples/plugins/host-client/protocol.mjs';
 
-export const STEP_TTS_MODEL = 'stepaudio-2.5-tts';
+export { STEP_TTS_MODEL };
 const formats = { mp3: 'audio/mpeg', wav: 'audio/wav', pcm: 'audio/pcm' } as const;
 const fail = (code: ConstructorParameters<typeof HostClientError>[0]): never => { throw new HostClientError(code); };
 
 // These are documented routes, not a probe of the account's paid entitlement.
-export function supportsStepTts(account: Pick<StepAccount, 'region'>, model: string): boolean {
-  return [STEP_TTS_MODEL, 'stepaudio-3-tts'].includes(model)
-    || account.region === 'cn' && ['step-tts-2', 'step-tts-mini'].includes(model);
+export function supportsStepTts(account: Pick<StepAccount, 'channel' | 'region'>, model: string): boolean {
+  return !stepTtsUnavailable(stepHostRoute(account), model);
 }
 
 export async function synthesizeStepSpeech(account: StepAccount, input: Inputs['model.tts'],

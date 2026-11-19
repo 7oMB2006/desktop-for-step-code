@@ -12,14 +12,16 @@ const signal = () => new AbortController().signal;
 const audio = Uint8Array.from([0x52, 0x49, 0x46, 0x46, 4, 0, 0, 0, 0x57, 0x41, 0x56, 0x45]);
 const response = () => new Response(audio, { headers: { 'content-type': 'audio/wav' } });
 
-test('TTS model allowlist follows documented regions without deprecated or guessed model aliases', () => {
+test('TTS model allowlist follows both channel and region without guessed model aliases', () => {
   for (const region of ['cn', 'global'] as const) {
-    for (const model of [STEP_TTS_MODEL, 'stepaudio-3-tts'])
-      assert.equal(supportsStepTts({ region }, model), true);
-    for (const model of ['step-tts-2', 'step-tts-mini'])
-      assert.equal(supportsStepTts({ region }, model), region === 'cn');
-    for (const model of ['step-5-preview', 'step-tts-vivid', 'unknown', ''])
-      assert.equal(supportsStepTts({ region }, model), false);
+    for (const channel of ['plan', 'api'] as const) {
+      assert.equal(supportsStepTts({ region, channel }, STEP_TTS_MODEL), true);
+      assert.equal(supportsStepTts({ region, channel }, 'stepaudio-3-tts'), channel === 'api');
+      for (const model of ['step-tts-2', 'step-tts-mini'])
+        assert.equal(supportsStepTts({ region, channel }, model), channel === 'api' && region === 'cn');
+      for (const model of ['step-5-preview', 'step-tts-vivid', 'unknown', ''])
+        assert.equal(supportsStepTts({ region, channel }, model), false);
+    }
   }
 });
 test('TTS maps only the narrow input to the selected account route and returns unchanged inline bytes', async () => {

@@ -20,6 +20,23 @@ const manifest = { id: 'dfsc-host-example', mcpServers: {
 const identity = { pluginId: manifest.id, consumer: 'example' };
 const invocation = (revision: string) => ({ requestId: newRequestId(), revision,
   capability: 'model.text' as const, input: { messages: [{ role: 'user' as const, content: 'offline fixture' }] } });
+test('image understanding requires bounded inline bytes and a user message', () => {
+  const request = invocation('a'.repeat(64));
+  const image = { mimeType: 'image/png', data: 'aW1hZ2U=' };
+  const value = { ...request, capability: 'model.image', input: { ...request.input, image } };
+  assert.deepEqual(parseInvoke(value), value);
+  for (const input of [
+    { ...request.input, image: { ...image, url: 'https://example.invalid/image.png' } },
+    { ...request.input, image: { ...image, path: 'some-image.png' } },
+    { ...request.input, image: { ...image, mimeType: 'image/svg+xml' } },
+    { ...request.input, image: { ...image, data: 'data:image/png;base64,aW1hZ2U=' } },
+    { messages: [{ role: 'assistant', content: 'not a user message' }], image },
+  ]) assert.throws(() => parseInvoke({ ...value, input }), /INVALID_REQUEST/);
+  assert.throws(() => parseInvoke({ ...value, capability: 'model.text' }), /INVALID_REQUEST/);
+  assert.throws(() => parseInvoke({ ...value, input: { ...value.input, image: {
+    ...image, data: Buffer.alloc(LIMITS.image + 1).toString('base64'),
+  } } }), /TOO_LARGE/);
+});
 async function fixture(t: test.TestContext, settings = false, host = declaration) {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'dfsc-host-contract-')));
   t.after(() => rm(root, { recursive: true, force: true, maxRetries: 5 }));

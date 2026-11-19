@@ -3,6 +3,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { mkdtemp } from './test-profile.mjs';
 import { tmpdir, cpus, totalmem } from 'node:os';
 import { join, resolve } from 'node:path';
+import { setTimeout as delay } from 'node:timers/promises';
 import assert from 'node:assert/strict';
 import { readingHistory } from '../tests/fixtures/session-reading-history.mjs';
 import { closeDesktopFixtureAndWait } from './close-desktop-fixture.mjs';
@@ -83,7 +84,18 @@ try {
       } : null),
     });
   }
-  assert.equal((await readFile(started, 'utf8')).trim().split('\n').length, 1,
+  // A read-only paint can finish before the real legacy MCP child writes its marker.
+  const markerDeadline = performance.now() + 10000;
+  let starts = '';
+  while (!starts && performance.now() < markerDeadline) {
+    starts = (await readFile(started, 'utf8').catch(error => {
+      if (error.code === 'ENOENT') return '';
+      throw error;
+    })).trim();
+    if (!starts) await delay(50);
+  }
+  assert.ok(starts, 'The real legacy MCP must start before testing its timeout');
+  assert.equal(starts.split('\n').length, 1,
     'Preview and renderer reloads must not create agents or additional MCP connections');
   assert.deepEqual(await readFile(file), before, 'Reading cannot append or repair the target history');
   const cold = await page.evaluate(() => window.desktop.snapshot());

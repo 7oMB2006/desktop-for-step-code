@@ -1,13 +1,3 @@
-.sidebar-identity.usage-entry {
-  width: 100%;
-  border: 0;
-  border-radius: 5px;
-  background: transparent;
-  justify-content: flex-start;
-}
-.sidebar-identity.usage-entry[aria-pressed="true"] {
-  background: color-mix(in srgb, var(--primary) 7%, var(--side));
-}
 .usage-overview-preview {
   display: flex;
   flex-direction: column;
@@ -17,23 +7,6 @@
   flex: 1;
   overflow: hidden;
   animation: usage-view-enter 180ms cubic-bezier(.22, 1, .36, 1);
-}
-.usage-overview-preview > header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 12px 20px;
-  border-bottom: 1px solid var(--border);
-}
-.usage-overview-preview > header > button {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-.usage-overview-preview > header > span {
-  color: var(--muted);
-  font-size: 11px;
 }
 .usage-overview-scroll {
   flex: 1;

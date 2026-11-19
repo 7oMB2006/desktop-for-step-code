@@ -25,6 +25,7 @@ import { AgentRoleIcon } from './AgentRole';
 import { WorkflowBlock } from './WorkflowView';
 import { workflowsFromMessages } from './workflow-state';
 import { ElapsedLabel } from './ElapsedLabel';
+import { formatElapsedDuration } from './elapsed-time';
 import { quotePresentation } from './chat-quotes';
 import { ScrollThumb } from './ConversationScrollThumb';
 import { TurnChanges } from './TurnChanges';
@@ -38,7 +39,7 @@ import type { ApprovedPlan, PlanExecutionState } from './plan-execution';
 import { PlanExecution } from './PlanExecution';
 import { normalizeInterfaceSettings, type InterfacePreferences } from './interface-presets';
 import { groupConsecutiveTools, toolGroupLabel, type ToolItem } from './tool-groups';
-import { groupProcesses, hideOrdinaryProcess, liveThinkingKey, processGroupSummary, thinkingPreview, type ProcessGroup as ProcessGroupData } from './process-groups';
+import { groupProcesses, hideOrdinaryProcess, liveThinkingKey, processGroupSummary, settledTurnProcess, thinkingPreview, type ProcessGroup as ProcessGroupData } from './process-groups';
 import './tool-groups.css';
 import { QuestionTool } from './QuestionTool';
 import { useAnimatedDisclosure } from './useAnimatedDisclosure';
@@ -506,7 +507,17 @@ function HistoricalAgents({ count, stateKey, language, children, onLayoutChange 
     const { content, text } = responsePresentation(items);
     const incomplete = incompleteResponse(items.map(item => item.message), active, props.language);
     const liveThought = liveThinkingKey(content, active);
-    const presentation = props.interfaceSettings?.hideProcess ? hideOrdinaryProcess(content, active, props.awaitingToolCalls)
+    const simple = props.interfaceSettings?.preset === 'simple';
+    const round = simple ? settledTurnProcess(items, content, active, props.awaitingToolCalls) : undefined;
+    const turnProcessId = useId();
+    const firstMessage = items[0]?.message;
+    const turnKey = firstMessage?.entryId ?? (firstMessage?.timestamp === undefined ? undefined : `time:${firstMessage.timestamp}`);
+    const searchEntry = searchTarget && items.find(item => item.message.entryId === searchTarget.entryId);
+    const revealMatch = searchEntry && content.some(item => item.index === searchEntry.index && item.type === 'text' && round?.keys.has(item.key));
+    const [roundOpen, setRoundOpen] = useConversationDisclosure(turnKey && `turn-process:${turnKey}`, Boolean(revealMatch),
+      JSON.stringify([props.disclosureReset, revealMatch ? searchTarget?.requestId : null]));
+    const presentation = simple ? content
+      : props.interfaceSettings?.hideProcess ? hideOrdinaryProcess(content, active, props.awaitingToolCalls)
       : props.interfaceSettings?.compactProcess ? groupProcesses(content, active, props.awaitingToolCalls)
       : props.interfaceSettings?.groupTools ? groupConsecutiveTools(content, active, props.awaitingToolCalls) : content;
     const historicalAgents = historical ? content.filter(item => {
@@ -533,8 +544,18 @@ function HistoricalAgents({ count, stateKey, language, children, onLayoutChange 
       const key = disclosureKey(first);
       return key ? `${kind}:${key}` : undefined;
     };
+    const slotId = (key: string) => `${turnProcessId}-${key}`;
+    const slotProps = (item: ResponseItem) => {
+      const foldable = round?.keys.has(item.key);
+      const folded = Boolean(foldable && !roundOpen);
+      return { id: foldable ? slotId(item.key) : undefined, 'data-folded': folded || undefined,
+        inert: folded || undefined, 'aria-hidden': folded || undefined,
+        onTransitionEnd: (event: React.TransitionEvent<HTMLDivElement>) => {
+          if (event.target === event.currentTarget && event.propertyName === 'grid-template-rows') props.onLayoutChange?.();
+        } };
+    };
     const actions = !active && content.length > 0 && <MessageActions text={text} language={props.language} onError={props.onError}
-      timing={[...items].reverse().find(item => item.message.desktopTiming)?.message.desktopTiming?.run} timestamp={stamp}>
+      timing={round ? undefined : [...items].reverse().find(item => item.message.desktopTiming)?.message.desktopTiming?.run} timestamp={stamp}>
       <button type="button" className="icon-button branch-action" aria-label={zh ? '从这里分支' : 'Branch from here'}
         data-tooltip={zh ? '从这里分支' : 'Branch from here'}
         disabled={!canBranch || !items.at(-1)?.message.entryId}
@@ -573,18 +594,27 @@ function HistoricalAgents({ count, stateKey, language, children, onLayoutChange 
             <Text text={item.block.thinking ?? ''} streaming={item.key === liveThought} {...props}/>
           </ThinkingDisclosure>
             : item.type === 'image' ? <Image key={item.key} block={item.block} {...props}/>
-              : <div className="response-text" key={item.key} data-message-index={item.index} data-message-entry-id={items.find(entry => entry.index === item.index)?.message.entryId}><Text text={item.block.text ?? ''} streaming={active} {...props}
-                searchTarget={searchTarget?.entryId && items.some(entry => entry.index === item.index && entry.message.entryId === searchTarget.entryId) ? searchTarget : undefined}/></div>;
+              : <div className={`response-prose${simple ? ' turn-process-slot' : ''}`} key={item.key} {...(simple ? slotProps(item) : {})}>
+                <div><div className="response-text" data-message-index={item.index} data-message-entry-id={items.find(entry => entry.index === item.index)?.message.entryId}><Text text={item.block.text ?? ''} streaming={active} {...props}
+                  searchTarget={searchEntry?.index === item.index ? searchTarget : undefined}/></div></div></div>;
     return <ArtifactContext.Provider value={{ runtimeId, onError: props.onError }}><article className={`message assistant${active ? ' response-active' : ''}`} data-message-index={items[0].index}>
       {modelChange && <ModelChangeNote change={modelChange} language={props.language}/>}
-      <div className="response-content message-body">{presentation.map(item =>
+      <div className="response-content message-body">
+        {round && <button type="button" className="tool-group-trigger turn-process-trigger" aria-expanded={roundOpen}
+          aria-controls={[...round.keys].map(slotId).join(' ')} onClick={() => setRoundOpen(!roundOpen)}>
+          <span>{zh ? '用时 ' : 'Worked for '}{formatElapsedDuration(round.duration, props.language)}</span>
+          <span className="tool-group-chevron"><DisclosureChevron/></span>
+        </button>}
+        {presentation.map(item =>
         historicalKeys.has(item.key) ? item.key === historicalAgents[0]?.key
           ? <HistoricalAgents key={`history:${item.key}`} stateKey={groupDisclosureKey('history', historicalAgents[0])} count={historicalAgents.length} language={props.language} onLayoutChange={props.onLayoutChange}>
             {historicalAgents.map(member => renderItem(member))}
           </HistoricalAgents> : null
         : item.type === 'process-group' ? <ProcessGroup key={item.key} group={item} stateKey={groupDisclosureKey('process', item.items[0])} {...props}>{onExpandedChange => item.items.map(member => renderItem(member, onExpandedChange))}</ProcessGroup>
           : item.type === 'tool-group' ? <ToolGroup key={item.key} items={item.items} active={active} stateKey={groupDisclosureKey('tools', item.items[0])} {...props}/>
-            : renderItem(item))}</div>
+            : simple && (item.type === 'thinking' || item.type === 'tool')
+              ? <div className="turn-process-slot" key={item.key} {...slotProps(item)}><div>{renderItem(item)}</div></div>
+              : renderItem(item))}</div>
       {incomplete && <div className={`client-event-note incomplete-response${active ? '' : ' is-failed'}`} role="status">
         <CircleAlert size={14} aria-hidden="true"/><span>{incomplete}</span>
       </div>}

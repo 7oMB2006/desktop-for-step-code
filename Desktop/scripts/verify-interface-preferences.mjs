@@ -132,7 +132,8 @@ try {
   await preset(page, '简洁');
   await closeSettings(page);
   assert.equal(await page.locator('.composer-wrap .performance-metric').count(), 4);
-  assert.equal(await messages.locator('.thinking, .process-tool-group, .process-tool.done').count(), 0);
+  assert.equal(await messages.locator('.turn-process-trigger').count(), 0, 'history without confirmed settlement stays readable');
+  assert.equal(await messages.locator('.thinking').count(), 1);
   assert.equal(await messages.locator('.process-tool.failed > summary').isVisible(), true);
   assert.equal(await messages.locator('.process-tool.missing > summary').isVisible(), true);
   assert.equal(await page.evaluate(() =>
@@ -173,13 +174,52 @@ try {
   await closeSettings(page);
   await load(history, true);
   await page.locator('.working:not(.working-idle)').waitFor();
-  assert.equal(await messages.locator('.thinking, .process-tool-group, .process-tool.running').count(), 0);
+  assert.equal(await messages.locator('.turn-process-trigger').count(), 0);
+  assert.equal(await messages.locator('.thinking').count(), 1, 'Simple keeps live activity visible');
   await load(history, true, [awaiting]);
   await messages.locator('.process-tool.waiting > summary').waitFor();
   assert.equal(await messages.locator('.process-tool.waiting').locator('xpath=ancestor::*[contains(@class,"tool-group-disclosure")]').count(), 0);
   await load(history, false);
   await page.locator('.permission-approval').waitFor({ state: 'detached' });
+  const run = { startedAt: 1000, endedAt: 17000 };
+  const settled = history.map(message => message.role === 'assistant'
+    ? { ...message, stopReason: 'toolUse', desktopTiming: { run, thinking: {} } } : message)
+    .concat({ role: 'assistant', stopReason: 'stop', desktopTiming: { run, thinking: {}, completed: true }, content: '最终答复：检查已结束。' });
+  await load(settled, true);
+  const final = messages.getByText('最终答复：检查已结束。', { exact: true });
+  const commentary = messages.getByText('正文一：先确认项目结构。', { exact: true });
+  await final.waitFor();
+  assert.equal(await commentary.isVisible(), true, 'streamed final prose does not fold commentary');
+  await page.evaluate(() => { globalThis.simpleFinal = [...document.querySelectorAll('.messages .response-text')].at(-1); });
+  await load(settled);
+  const elapsed = messages.getByRole('button', { name: '用时 16秒' });
+  await elapsed.waitFor();
+  assert.equal(await elapsed.getAttribute('aria-expanded'), 'false');
+  await commentary.waitFor({ state: 'hidden' });
+  assert.equal(await final.isVisible(), true);
+  assert.equal(await messages.locator('.process-tool.failed > summary').isVisible(), true);
+  assert.equal(await messages.locator('.process-tool.missing > summary').isVisible(), true);
+  assert.equal(await page.evaluate(() => globalThis.simpleFinal === [...document.querySelectorAll('.messages .response-text')].at(-1)), true);
+  const foldedHeights = () => {
+    const slots = [...document.querySelectorAll('.messages .turn-process-slot[data-folded]')];
+    return slots.length > 0 && slots.every(slot => slot.offsetHeight === 0 && slot.inert);
+  };
+  await page.waitForFunction(foldedHeights);
+  await elapsed.press('Enter');
+  await commentary.waitFor();
+  assert.equal(await elapsed.getAttribute('aria-expanded'), 'true');
+  assert.equal(await commentary.evaluate((node) =>
+    node.getBoundingClientRect().left === globalThis.simpleFinal.firstElementChild.getBoundingClientRect().left), true);
+  assert.equal(await commentary.evaluate(node =>
+    getComputedStyle(node.closest('.turn-process-slot')).transitionProperty.includes('grid-template-rows')), true);
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  assert.equal(await commentary.evaluate(node =>
+    getComputedStyle(node.closest('.turn-process-slot')).transitionDuration), '0s');
+  await elapsed.press('Enter');
+  await page.waitForFunction(foldedHeights);
+  await page.emulateMedia({ reducedMotion: null });
   await messages.locator('.response-content').screenshot({ path: 'test-results/interface-mapped-simple-detail.png' });
+  await load(history);
   await openSettings(page);
   await preset(page, '标准');
   await enableToolDetails(page);
@@ -324,7 +364,7 @@ try {
     await openSettings(page);
     await preset(page, mode);
     await closeSettings(page);
-    assert.equal(await messages.locator('.thinking').count(), mode === '简洁' ? 0 : 9);
+    assert.equal(await messages.locator('.thinking').count(), 9);
     assert.equal(await messages.locator('.thinking[data-expanded="true"]').count(), 0, 'completed historical thinking remains folded in every preset');
     assert.equal(await messages.locator('.process-tool[open]').count(), 0);
     assert.equal(await page.locator('.jump-to-bottom').isVisible(), true, 'changing presentation must not force an old-history reader to the bottom');

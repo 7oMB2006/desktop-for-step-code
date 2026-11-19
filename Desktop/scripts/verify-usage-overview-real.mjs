@@ -42,9 +42,15 @@ try {
   const draft = page.getByRole('textbox', { name: '消息', exact: true });
   await draft.fill('Usage retains this draft');
   const node = await draft.elementHandle(), count = app.windows().length;
+  const entry = page.locator('.sidebar-utility-links .usage-entry');
+  const panel = page.locator('.usage-overview-preview');
+  assert.equal(await entry.locator('xpath=following-sibling::button[1]').getAttribute('aria-label'), '定时任务');
+  assert.equal(await page.locator('.sidebar-identity').evaluate(el => el.tagName), 'DIV');
   const open = async () => {
-    await page.locator('.sidebar-identity.usage-entry').click();
-    await page.locator('.usage-overview-preview h1').waitFor();
+    await entry.click();
+    await panel.locator('h1').waitFor();
+    assert.equal(await entry.getAttribute('aria-pressed'), 'true');
+    assert.equal(await panel.locator(':scope > header').count(), 0);
   };
   await open();
   assert.equal(app.windows().length, count);
@@ -87,7 +93,8 @@ try {
   await page.getByRole('button', { name: '折线图', exact: true }).click();
   await page.getByRole('button', { name: '刷新统计', exact: true }).click();
   await page.locator('.usage-body[aria-busy=false]').waitFor();
-  await page.locator('.sidebar-identity.usage-entry').click();
+  await entry.click();
+  assert.equal(await entry.getAttribute('aria-pressed'), 'false');
   assert.equal(await node.evaluate(el => el.isConnected), true);
   assert.equal(await draft.innerText(), 'Usage retains this draft');
   await page.locator('.sidebar-settings').click();
@@ -109,6 +116,10 @@ try {
   });
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await page.screenshot({ path: join(evidence, 'real-local-narrow.png') });
+  await page.locator('.window-sidebar-toggle').click();
+  await entry.click();
+  await panel.waitFor({ state: 'detached' });
+  assert.equal(await draft.innerText(), 'Usage retains this draft');
   assert.deepEqual(errors, []);
   assert.equal(createHash('sha256').update(await readFile(sessionFile)).digest('hex'),
     createHash('sha256').update(contents).digest('hex'), 'Statistics must not mutate sessions');

@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { groupProcesses, hideOrdinaryProcess, liveThinkingKey, processGroupSummary, thinkingPreview, type ProcessGroup } from '../src/process-groups';
+import { groupProcesses, hideOrdinaryProcess, liveThinkingKey, processGroupSummary, settledTurnProcess, thinkingPreview, type ProcessGroup } from '../src/process-groups';
 import type { ResponseItem } from '../src/conversation-presentation';
+import type { Message } from '../src/contracts';
 import type { ToolItem } from '../src/tool-groups';
 
 const thought = (key: string): ResponseItem => ({ type: 'thinking', key, index: 0, block: { type: 'thinking', thinking: 'First paragraph.\n\n**Latest thought.**' } });
@@ -10,6 +11,31 @@ const tool = (key: string, completed = true, name = 'read_file'): ToolItem => ({
   ...(completed ? { result: { role: 'toolResult', toolName: name, toolCallId: key, content: 'ok' } } : {}),
 });
 const prose: ResponseItem = { type: 'text', key: 'prose', index: 0, block: { type: 'text', text: 'Actual reply.' } };
+
+test('Simple only folds verified, same-run process and preserves the original answer and exceptional items', () => {
+  const timing = { run: { startedAt: 1000, endedAt: 17000 }, thinking: {} };
+  const earlier: Message = { role: 'assistant', content: 'Independent answer', stopReason: 'stop',
+    desktopTiming: { ...timing, run: { startedAt: 0, endedAt: 500 } } };
+  const narration: Message = { role: 'assistant', content: 'Checking', stopReason: 'toolUse', desktopTiming: timing };
+  const final: Message = { role: 'assistant', content: 'Actual reply', stopReason: 'stop',
+    desktopTiming: { ...timing, completed: true } };
+  const items = [narration, earlier, final].map((message, index) => ({ message, index }));
+  const failed = tool('failed');
+  failed.result!.isError = true;
+  const content = [{ ...prose, key: 'narration' }, thought('thought'), tool('completed'), tool('missing', false), failed,
+    tool('approval', true, 'clarify_user'), { ...prose, index: 1, key: 'earlier' }, { ...prose, index: 2 }];
+  const before = structuredClone(content);
+  assert.deepEqual(settledTurnProcess(items, content, false), {
+    keys: new Set(['narration', 'thought', 'completed']), duration: 16000,
+  });
+  assert.deepEqual(content, before);
+  assert.equal(settledTurnProcess(items, content, true), undefined, 'streaming final text does not settle the turn');
+  assert.equal(settledTurnProcess(items, content, false, ['missing']), undefined);
+  for (const message of [{ ...final, stopReason: 'aborted' }, { ...final, desktopTiming: timing },
+    { ...final, desktopTiming: { ...final.desktopTiming!, run: { startedAt: 1000 } } }]) {
+    assert.equal(settledTurnProcess([...items.slice(0, -1), { message, index: 2 }], content, false), undefined);
+  }
+});
 
 test('hidden process omits routine activity but retains prose, images and exceptional tool records', () => {
   const image: ResponseItem = { type: 'image', key: 'image', index: 0, block: { type: 'image' } };

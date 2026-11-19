@@ -35,7 +35,7 @@ export function InterfaceSettings({ language, value, onChange }: {
     ['performanceVisible', t('显示性能与用量统计', 'Show performance and usage')],
   ];
   const messages: Message[] = [
-    { role: 'assistant', content: [
+    { role: 'assistant', stopReason: 'toolUse', desktopTiming: { run: { startedAt: 0, endedAt: 12000 }, thinking: {} }, content: [
       { type: 'text', text: t('先检查项目结构和验证结果。', 'First, check the project structure and validation results.') },
       { type: 'thinking', thinking: t('先确认页面结构，再实现交互与状态。', 'Check the structure, then implement interactions and state.') },
       { type: 'toolCall', id: 'preview-read', name: 'read_file', arguments: { path: 'src/main.tsx' } },
@@ -43,7 +43,8 @@ export function InterfaceSettings({ language, value, onChange }: {
     ] },
     { role: 'toolResult', toolCallId: 'preview-read', toolName: 'read_file', content: 'export function App() { /* ... */ }' },
     { role: 'toolResult', toolCallId: 'preview-command', toolName: 'run_command', content: 'M src/main.tsx' },
-    { role: 'assistant', content: [{ type: 'text', text: t('页面已准备好，可以开始体验。', 'The page is ready to try.') }] },
+    { role: 'assistant', stopReason: 'stop', desktopTiming: { run: { startedAt: 0, endedAt: 12000 }, thinking: {}, completed: true },
+      content: [{ type: 'text', text: t('页面已准备好，可以开始体验。', 'The page is ready to try.') }] },
   ];
   return <section className="interface-settings" aria-label={t('界面复杂度', 'Interface complexity')}>
     <div className="interface-heading">

@@ -324,6 +324,10 @@ to express execution startup; only unavailable tools are subdued.
 The sidebar Schedules icon toggles its view without replacing the active
 conversation or its draft. Its pressed state and return tooltip reflect the
 current view; explicit `/cron` navigation remains an open action, not a toggle.
+The Usage chart icon sits immediately before Schedules in the same utility row.
+It toggles the local Usage view without replacing the active conversation or
+draft. The brand is non-interactive and the Usage view starts at its own
+heading, with no separate return header. Settings and `/usage` still open it.
 Only a scrolled conversation list fades over its top 18px. At scroll origin or
 while a list control has keyboard-visible focus, the list stays fully opaque.
 The fade belongs to list content, never the fixed sidebar action buttons.
@@ -598,7 +602,7 @@ the reader has not paused it, and nested tool-output scrolling stays native.
 
 User and assistant messages do not show role headings. User message copy/edit controls and the timestamp appear below the bubble on hover or keyboard focus, reserving their layout space. Edit restores a copy of the message and its images into an empty composer for sending as a new message; it does not rewrite, rewind or fork runtime history. Existing drafts are not overwritten.
 
-Responses group consecutive assistant and tool messages until the next user message for a shared footer, not for hiding prose. All assistant narration remains visible in source order during execution and after completion; no last-message heuristic extracts a final answer. Visible tool summaries describe the action in the client language instead of exposing raw tool names and commands. Known built-ins and aliases have localized action labels; unknown tools retain their names without invented descriptions. Running summaries have an oblique label and a left-to-right shimmer; only a tool's final result stops that animation and smoothly restores upright text. Failed summaries are upright and red; missing results are explicitly distinguished from success. Reduced-motion disables shimmer and transition effects. Raw names, targets, inputs, outputs and completion status stay in the individual expanded details, with results matched by tool-call ID rather than completion order. Thinking and tool visibility and disclosure defaults follow Interface Complexity settings, including while streaming; later prose, completion and interruption do not override a manual disclosure choice. The footer has Copy and Branch from here, enabled only for the latest saved assistant reply while its session is idle, with the actual message timestamp shown on hover/focus. Copy includes all response prose, excluding thinking and tool payloads. No per-response model policy or invented duration is implemented.
+Responses group consecutive assistant and tool messages until the next user message for a shared footer. All assistant narration remains in source order. Simple may fold explicitly identified process narration after confirmed settlement; no last-message heuristic extracts a final answer. Visible tool summaries describe the action in the client language instead of exposing raw tool names and commands. Known built-ins and aliases have localized action labels; unknown tools retain their names without invented descriptions. Running summaries have an oblique label and a left-to-right shimmer; only a tool's final result stops that animation and smoothly restores upright text. Failed summaries are upright and red; missing results are explicitly distinguished from success. Reduced-motion disables shimmer and transition effects. Raw names, targets, inputs, outputs and completion status stay in the individual expanded details, with results matched by tool-call ID rather than completion order. Thinking and tool visibility and disclosure defaults follow Interface Complexity settings, including while streaming; later prose, completion and interruption do not override a manual disclosure choice. The footer has Copy and Branch from here, enabled only for the latest saved assistant reply while its session is idle, with the actual message timestamp shown on hover/focus. Copy includes all response prose, excluding thinking and tool payloads. No per-response model policy or invented duration is implemented.
 
 ## Mathematical Notation
 
@@ -707,8 +711,14 @@ child prompt, without silently substituting another model.
 
 Interface complexity is a dedicated Settings category, separate from typography.
 Simple, Standard and Detailed are presentation presets, not permission or model
-capability tiers. Simple omits thinking and ordinary tool rows from the
-transcript without modifying history, prose, artifacts or runtime controls.
+capability tiers. Simple shows live narration, thinking and tools in order.
+After authoritative successful settlement, one elapsed-time control folds
+tool-use narration, thinking and completed ordinary tools in place. Expanding
+restores their original ordering and alignment, without a nested transcript.
+Final prose, approvals, failed or unresolved tools, dedicated interactions and
+deliveries remain visible. Interrupted rounds and history without a reliable
+completion record are never automatically folded. This changes presentation
+only; copy, saved history, artifacts and runtime controls are unchanged.
 Standard folds consecutive thinking and ordinary tools into one process row
 between prose segments. Its live row shows the current tool or latest thinking
 preview; its settled row summarizes the actual tools, with all original records

@@ -35,11 +35,14 @@ try {
   assert.equal(await group.getAttribute('aria-expanded'), 'true');
   await group.press('Enter');
   await modes.getByRole('button', { name: '简洁', exact: true }).click();
-  assert.equal(await modes.locator('.thinking, .process-tool, .process-tool-group').count(), 0);
-  assert.equal(await modes.getByRole('switch', { name: '隐藏思考与普通工具过程' }).isChecked(), true);
+  const elapsed = modes.getByRole('button', { name: '用时 12秒' });
+  assert.equal(await elapsed.getAttribute('aria-expanded'), 'false');
+  await modes.getByText('先检查项目结构和验证结果。', { exact: true }).waitFor({ state: 'hidden' });
+  assert.equal(await modes.locator('.thinking:visible, .process-tool:visible, .process-tool-group:visible').count(), 0);
+  assert.equal(await modes.getByText('页面已准备好，可以开始体验。', { exact: true }).isVisible(), true);
+  assert.equal(await modes.getByRole('switch', { name: '隐藏思考与普通工具过程' }).isChecked(), false);
   assert.equal(await modes.getByRole('switch', { name: '显示性能与用量统计' }).isChecked(), true);
   assert.equal(await modes.locator('.interface-preview-statistics').getAttribute('aria-hidden'), 'false');
-  assert.ok(await proseGap() < standardGap - 20, 'removing process rows must bring neighboring prose closer together');
   await page.mouse.move(0, 0);
   await page.waitForTimeout(250);
   await page.screenshot({ path: 'test-results/interface-simple-light.png' });

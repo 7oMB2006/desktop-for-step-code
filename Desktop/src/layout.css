@@ -571,9 +571,9 @@ main { position: relative; }
 .response-content summary::-webkit-details-marker { display: none; }
 .disclosure-chevron { display: inline-flex; flex-shrink: 0; transform: rotate(-90deg); transition: transform .18s cubic-bezier(.22, 1, .36, 1); }
 details[open] > summary > .disclosure-chevron { transform: rotate(0); }
-.response-content > .thinking { font-size: 13px; margin: 0 0 12px; color: var(--muted); }
-.response-content > .thinking > summary { display: flex; align-items: center; gap: 6px; width: fit-content; min-height: 30px; padding: 3px 0; cursor: pointer; list-style: none; }
-.response-content > .thinking > summary:hover { color: var(--ink); }
+.response-content > .thinking, .turn-process-slot > div > .thinking { font-size: 13px; margin: 0 0 12px; color: var(--muted); }
+:is(.response-content > .thinking, .turn-process-slot > div > .thinking) > summary { display: flex; align-items: center; gap: 6px; width: fit-content; min-height: 30px; padding: 3px 0; cursor: pointer; list-style: none; }
+:is(.response-content > .thinking, .turn-process-slot > div > .thinking) > summary:hover { color: var(--ink); }
 .thinking-body > p { padding: 5px 0; }
 .thinking-body { position: relative; }
 .thinking-body::before, .thinking-body::after {
@@ -605,7 +605,8 @@ details[open] > summary > .disclosure-chevron { transform: rotate(0); }
   .stream-reveal { animation: none; }
 }
 .response-text { margin: 0 0 16px; }
-.response-text:last-child { margin-bottom: 0; }
+.response-prose:not(.turn-process-slot), .response-prose:not(.turn-process-slot) > div { display: contents; }
+.response-prose:last-child > div > .response-text { margin-bottom: 0; }
 .response-text p:last-child { margin-bottom: 0; }
 .response-text > p:has(.katex-display) { max-width: none; }
 .process-tool { margin: 4px 0; min-width: 0; }

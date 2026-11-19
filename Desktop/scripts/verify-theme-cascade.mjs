@@ -79,7 +79,7 @@ try {
   surface = 'usage';
   await checkTheme('jade');
   await page.screenshot({ path: join(evidence, 'usage-jade.png') });
-  await page.getByRole('button', { name: '返回会话', exact: true }).click();
+  await page.locator('.sidebar-utility-links .usage-entry').click();
   surface = 'conversation';
   await checkTheme('paper');
   await page.locator('.sidebar-settings').click();

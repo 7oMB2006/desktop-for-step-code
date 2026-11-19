@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import type { Message, MessageTiming, RuntimeEvent } from '../src/contracts';
 import type { SessionRuntime } from './session-runtimes';
 import { reviewActive } from '../src/completion-review';
+import { taskOutcome } from './task-outcome';
 
 type RecordSet = Record<string, MessageTiming>;
 type LiveRun = { startedAt: number; records: RecordSet };
@@ -27,7 +28,9 @@ export class ConversationTiming {
             const item = timing as MessageTiming;
             const valid = (time: { startedAt?: number; endedAt?: number }) => time
               && Number.isFinite(time.startedAt) && Number.isFinite(time.endedAt) && time.endedAt! >= time.startedAt!;
-            if (valid(item?.run) && item.thinking && Object.values(item.thinking).every(valid)) records[key] = item;
+            if (valid(item?.run) && item.thinking && Object.values(item.thinking).every(valid)) {
+              records[key] = { run: item.run, thinking: item.thinking, ...(item.completed === true ? { completed: true } : {}) };
+            }
           }
         }
       } catch (error) {
@@ -84,8 +87,13 @@ export class ConversationTiming {
     if (event.type === 'agent_end' && !event.desktopReviewPending && !event.desktopRecoveryPending
       || event.desktopRecoverySettled && !reviewActive(worker.launch?.review) || event.type === 'desktop_exit'
       || event.type === 'desktop_completion_review' && !reviewActive(event.review)) {
+      const completed = event.type !== 'desktop_exit' && !worker.failed && !worker.interrupted
+        && (event.type !== 'desktop_completion_review' || event.completed === true)
+        && taskOutcome(worker.messages) === 'completed'
+        ? worker.messages.at(-1)?.timestamp : undefined;
       for (const [key, previous] of Object.entries(live.records)) {
-        const timing = { run: { ...previous.run, endedAt: now }, thinking: { ...previous.thinking } };
+        const timing: MessageTiming = { run: { ...previous.run, endedAt: now }, thinking: { ...previous.thinking },
+          ...(completed !== undefined && key === String(completed) ? { completed: true } : {}) };
         closeThinking(timing);
         records[key] = live.records[key] = timing;
       }

@@ -28,6 +28,27 @@ test('duration formatting covers zero, hours, and clock rollback', () => {
   assert.equal(elapsedTime({ startedAt: 2000 }, 1000), '0s');
 });
 
+test('marks only the final assistant of a successful settled run, not a runtime exit', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'step-turn-completion-'));
+  try {
+    const timing = new ConversationTiming(root);
+    for (const type of ['agent_end', 'desktop_exit']) {
+      const target = worker(type);
+      send(timing, target, { type: 'agent_start' }, 1000);
+      for (const [timestamp, stopReason] of [[1100, 'toolUse'], [1200, 'stop']] as const) {
+        send(timing, target, { type: 'message_start', message: { role: 'assistant', timestamp, stopReason, content: 'reply' } }, timestamp);
+      }
+      assert.equal(target.messages.at(-1)?.desktopTiming?.completed, undefined);
+      send(timing, target, { type }, 2000);
+      assert.equal(target.messages[0].desktopTiming?.completed, undefined);
+      assert.equal(target.messages.at(-1)?.desktopTiming?.completed, type === 'agent_end' ? true : undefined);
+      await timing.flush();
+      assert.deepEqual(await new ConversationTiming(root).decorate(type,
+        target.messages.map(({ desktopTiming: _timing, ...message }) => message)), target.messages);
+    }
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
 test('incomplete recovery freezes timing only at settlement and persists the original start', async () => {
   const root = await mkdtemp(join(tmpdir(), 'step-incomplete-timing-'));
   try {
@@ -200,6 +221,7 @@ test('real RPC thinking events retain timing through authoritative messages and 
     while (!events.some(event => event.type === 'agent_end') && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 20));
     assert.ok(events.some(event => event.type === 'agent_end'));
     const observed = target.messages.find(message => message.role === 'assistant')!.desktopTiming!;
+    assert.equal(observed.completed, true, 'a successful upstream agent_end marks the final reply');
     const thinking = Object.values(observed.thinking)[0];
     assert.ok(thinking, 'upstream thinking events must be recorded');
     assert.ok(thinking.endedAt! - thinking.startedAt >= 200);

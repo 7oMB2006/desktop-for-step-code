@@ -12,6 +12,7 @@ import { applyTheme } from '../../src/theme';
 import type { Model, PermissionPreset } from '../../src/contracts';
 import '../../src/style.css';
 import '../../src/layout.css';
+import '../../src/text-tabs.css';
 import '../../src/model-picker-list.css';
 import '../../src/first-run.css';
 
@@ -202,8 +203,8 @@ function Preview() {
     {stage < 3 ? <main className="first-run-main">
       <header ref={brand} className="first-run-brand"><img ref={mark} className="first-run-mark" src={logoUrl} width="44" height="44" alt=""/><img className="first-run-wordmark" src={dark ? wordmarkDark : wordmarkLight} width="1000" height="151" alt="Desktop for Step Code"/></header>
       <div ref={content} className="first-run-flow" onPointerDown={stopIntro} onKeyDown={stopIntro}>
-        <nav className="first-run-steps" aria-label={t('初次设置', 'Initial setup')}>
-          {labels.map((label, index) => <button type="button" key={label} aria-current={stage === index ? 'step' : undefined}
+        <nav className="first-run-steps text-tabs" aria-label={t('初次设置', 'Initial setup')}>
+          {labels.map((label, index) => <button className="text-tab" type="button" key={label} aria-current={stage === index ? 'step' : undefined}
             disabled={pending || index > stage} onClick={() => enterStage(index)}>
             <span>{index < stage ? <Check size={13}/> : index + 1}</span>{label}
           </button>)}

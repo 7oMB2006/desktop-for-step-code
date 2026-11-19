@@ -87,7 +87,7 @@ try {
   await page.getByRole('button', { name: themes.find(theme => theme.id === 'jade').name[0], exact: true }).click();
   await page.waitForFunction(() => document.documentElement.dataset.palette === 'jade');
   await page.waitForFunction(() => getComputedStyle(document.documentElement).getPropertyValue('--bg').trim() === 'rgb(20, 53, 44)');
-  await page.getByRole('button', { name: 'Close', exact: true }).click();
+  await page.locator('.settings-dialog > header').getByRole('button', { name: /^(?:Close|\u5173\u95ed)$/u }).click();
   await page.getByRole('dialog', { name: '设置', exact: true }).waitFor({ state: 'hidden' });
   await page.screenshot({ path: join(evidence, 'conversation-jade.png') });
   assert.equal((await page.evaluate(() => window.desktop.snapshot())).preferences.theme, 'jade');

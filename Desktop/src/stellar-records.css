@@ -161,10 +161,11 @@
   padding-top: 0; border-top: 0; border-bottom-color: var(--stellar-rule);
 }
 :root[data-theme-material=stellar] .context-usage-list dd { color: var(--stellar-record-ink); }
-:root[data-theme-material=stellar] .context-message-tabs { border-bottom-color: var(--stellar-rule); }
+:root[data-theme-material=stellar] .context-message-tabs {
+  border-bottom-color: var(--stellar-rule); --tab-indicator: var(--stellar-metal);
+}
 :root[data-theme-material=stellar] .context-message-tabs > button[aria-selected=true] {
   color: var(--stellar-record-ink); background: var(--stellar-record-gutter);
-  box-shadow: inset 0 -1px var(--stellar-metal);
 }
 :root[data-theme-material=stellar] .context-message-number { color: var(--stellar-metal); }
 :root[data-theme-material=stellar] .context-message[open] > summary {

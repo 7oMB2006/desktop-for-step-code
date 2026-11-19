@@ -15,7 +15,7 @@ export function NotificationSettings({ preferences, onChange }: {
   ] as const;
   return <section aria-label={t('通知与声音', 'Notifications and sound')}>
     <h3>{t('通知与声音', 'Notifications and sound')}</h3>
-    {options.map(([key, label]) => <label className="checkbox" key={key}>
+    {options.map(([key, label]) => <label className="checkbox" key={key} data-settings-anchor={key}>
       <input type="checkbox" checked={value[key]} disabled={pending !== null} onChange={event => {
         const patch = { [key]: event.target.checked };
         setPending(patch);

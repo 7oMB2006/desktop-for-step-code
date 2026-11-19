@@ -96,7 +96,7 @@ try {
   await page.locator('.sidebar-bottom > button').click();
   const settings = page.getByRole('dialog', { name: '设置', exact: true });
   await settings.waitFor();
-  await settings.getByRole('button', { name: 'Close', exact: true }).click();
+  await settings.getByRole('button', { name: /^(?:Close|\u5173\u95ed)$/u }).click();
   await settings.waitFor({ state: 'detached' });
   assert.equal(await composer.innerText(), draft);
   assert.ok(Math.abs(await page.locator('.conversation').evaluate(e => e.scrollTop) - readingTop) < 2,

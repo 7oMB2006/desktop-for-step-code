@@ -164,7 +164,7 @@ export function ClmPanel({ snapshot, busy, revision, visible = true }: { snapsho
         </button>)}</div>
       {!current ? <p className="clm-note">{t('尚无保存的修订。', 'No saved revisions yet.')}</p> : <>
         <div className={`clm-selection${historical ? ' is-history' : ''}`}><History size={14}/><span><RevisionLabel value={current.revision}/> · {historical ? t('历史只读', 'Read-only history') : t('最近保存版本', 'Latest saved revision')}</span>
-          {historical && <button onClick={back}>{t('回到当前', 'Back to latest')}<ArrowRight size={12}/></button>}</div>
+          {historical && <button className="text-tab" onClick={back}>{t('回到当前', 'Back to latest')}<ArrowRight size={12}/></button>}</div>
         <div className="clm-views" role="group" aria-label={t('修订视图', 'Revision view')}>{(['overview', 'content', 'diff'] as const).map(item =>
           <button key={item} aria-pressed={view === item} onClick={() => setView(item)}>{item === 'overview' ? t('概览', 'Overview') : item === 'content' ? t('工作内容', 'Contents') : t('修改对比', 'Changes')}</button>)}</div>
         {pending && !action ? <p className="clm-note" role="status">{t('读取修订中…', 'Loading revision…')}</p> : view === 'overview' ? <div className="clm-overview">
@@ -173,8 +173,8 @@ export function ClmPanel({ snapshot, busy, revision, visible = true }: { snapsho
           <div className="clm-token-flow"><span>{number(outcome?.beforeTokens)}</span><ArrowRight size={15}/><strong>{number(outcome?.afterTokens)}</strong><small>{t('估算 token', 'Estimated tokens')}</small></div>
           {outcome?.beforeTokens && outcome.afterTokens !== undefined ? <div className="clm-reduction"><i style={{ width: `${Math.min(100, outcome.afterTokens / outcome.beforeTokens * 100)}%` }}/></div> : <p className="clm-note">{t('此修订未提供前后用量，不进行反推。', 'Before/after token counts are unavailable for this revision.')}</p>}
           <div className="clm-section-title"><h3>{t('修订时的工作内容', 'Contents at this revision')}</h3><small>{blocks.length}</small></div>
-          {blocks.slice(0, 8).map(block => <button className="clm-block-link" key={block.id} onClick={() => { setBlockId(block.id); setView('content'); }}>
-            {block.protected ? <LockKeyhole size={14}/> : <FileText size={14}/>}<span><strong>{title(block.text, block.role)}</strong><small>{roleLabel(block.role)}{block.protected ? ` · ${t('受保护', 'Protected')}` : ''}</small><span>{block.text.split('\n').filter(line => line.trim() && !line.startsWith('[[')).slice(1).join(' ').slice(0, 140)}</span></span><ArrowRight size={12}/></button>)}
+          {blocks.slice(0, 8).map(block => <div className="clm-block-row" key={block.id}><button className="clm-block-link text-tab" onClick={() => { setBlockId(block.id); setView('content'); }}>
+            {block.protected ? <LockKeyhole size={14}/> : <FileText size={14}/>}<span><strong>{title(block.text, block.role)}</strong><small>{roleLabel(block.role)}{block.protected ? ` · ${t('受保护', 'Protected')}` : ''}</small><span>{block.text.split('\n').filter(line => line.trim() && !line.startsWith('[[')).slice(1).join(' ').slice(0, 140)}</span></span><ArrowRight size={12}/></button></div>)}
           {blocks.length > 8 && <button onClick={() => setView('content')}>{t('查看全部内容', 'View all contents')}</button>}
         </div> : view === 'content' ? <div className="clm-document">
           {active ? <><label>{t('选择内容', 'Select content')}<span className="clm-select"><select value={active.id} onChange={event => setBlockId(event.target.value)}

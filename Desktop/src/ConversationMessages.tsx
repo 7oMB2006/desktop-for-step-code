@@ -50,6 +50,7 @@ import './auto-resume-message.css';
 import { incompleteResponse } from './incomplete-response';
 import type { PreparedMarkdown } from './markdown-parser';
 import { useConversationDisclosure } from './ConversationDisclosureState';
+import { attachmentPresentation } from './attachment-references';
 
 type Props = {
   preparedMarkdown?: PreparedMarkdown;
@@ -224,6 +225,18 @@ function Body({ blocks, ...props }: { blocks: Content[] } & BodyProps) {
       : block.type === 'image' ? <Image key={index} block={block} {...props}/> : null)}</div>;
 }
 function UserText({ text, ...props }: { text: string } & BodyProps) {
+  const attachments = useMemo(() => attachmentPresentation(text), [text]);
+  if (!attachments) return <UserProse text={text} {...props}/>;
+  return <>
+    {attachments.draft && <UserProse text={attachments.draft} {...props}/>}
+    <div className="sent-attachments" aria-label={props.language === 'zh' ? '附件' : 'Attachments'}>
+      {attachments.files.map((file, index) => <span className="sent-attachment" key={index} data-tooltip={file.path} tabIndex={0}>
+        <FileText size={14} aria-hidden="true"/><span>{file.name}</span>
+      </span>)}
+    </div>
+  </>;
+}
+function UserProse({ text, ...props }: { text: string } & BodyProps) {
   const commands = useContext(CommandCatalog);
   const presentation = useMemo(() => quotePresentation(text), [text]);
   if (!presentation) return <Text text={text} {...props} commands={commands}/>;

@@ -174,7 +174,7 @@ try {
   await page.locator('.sidebar-bottom > button').click();
   await page.getByRole('button', { name: '外观', exact: true }).click();
   await page.getByRole('button', { name: '原版浅色', exact: true }).click();
-  await page.getByRole('button', { name: 'Close', exact: true }).click();
+  await page.locator('.settings-dialog > header').getByRole('button', { name: /^(?:Close|\u5173\u95ed)$/u }).click();
   await page.locator('.settings-dialog').waitFor({ state: 'detached' });
   assert.equal(await page.evaluate(() => document.documentElement.dataset.themeMaterial), undefined);
   assert.deepEqual(await page.locator('.attachment-card').evaluate(e => [e.offsetWidth, e.offsetHeight]), results.attachment);

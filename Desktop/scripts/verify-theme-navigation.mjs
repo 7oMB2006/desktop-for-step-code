@@ -106,7 +106,7 @@ try {
   await page.locator('.sidebar-bottom > button').click();
   await page.getByRole('button', { name: '外观', exact: true }).click();
   await page.getByRole('button', { name: '玫红强调色', exact: true }).click();
-  await page.getByRole('button', { name: 'Close', exact: true }).click();
+  await page.locator('.settings-dialog > header').getByRole('button', { name: /^(?:Close|\u5173\u95ed)$/u }).click();
   await page.locator('.settings-dialog').waitFor({ state: 'detached' });
   await focus(session);
   const active = rail.getByRole('button', { name: '文件预览', exact: true });
@@ -133,7 +133,7 @@ try {
   await page.locator('.sidebar-bottom > button').click();
   await page.getByRole('button', { name: '外观', exact: true }).click();
   await page.getByRole('button', { name: '原版浅色', exact: true }).click();
-  await page.getByRole('button', { name: 'Close', exact: true }).click();
+  await page.locator('.settings-dialog > header').getByRole('button', { name: /^(?:Close|\u5173\u95ed)$/u }).click();
   await page.locator('.settings-dialog').waitFor({ state: 'detached' });
   assert.equal(await page.evaluate(() => document.documentElement.dataset.themeMaterial), undefined);
   assert.equal(await page.locator('#conversation-navigation-panel').evaluate(e => getComputedStyle(e).backgroundImage), 'none');

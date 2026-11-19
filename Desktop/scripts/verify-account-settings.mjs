@@ -117,7 +117,7 @@ try {
   assert.equal(proposedAfter.runtimeId, undefined, 'Authentication must not eagerly create a conversation');
   assert.deepEqual(proposedAfter.state.model.thinkingLevels, ['low', 'medium', 'high']);
   assert.equal(proposedAfter.state.thinkingLevel, 'medium');
-  await page.getByRole('button', { name: 'Close', exact: true }).click();
+  await page.locator('.settings-dialog > header').getByRole('button', { name: /^(?:Close|\u5173\u95ed)$/u }).click();
   assert.equal(await page.getByRole('textbox', { name: '消息', exact: true }).evaluate(element => element.value), 'Keep this unsent draft through login');
   await page.getByRole('button', { name: '模型与思考强度', exact: true }).click();
   const effort = page.getByRole('slider', { name: '思考强度', exact: true });
@@ -226,7 +226,7 @@ try {
   await page.emulateMedia({ reducedMotion: 'reduce' });
   assert.equal(await page.locator('.account-login-area').evaluate(element => getComputedStyle(element).animationName), 'none');
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1200, 800));
-  await page.getByRole('button', { name: 'Close', exact: true }).click();
+  await page.locator('.settings-dialog > header').getByRole('button', { name: /^(?:Close|\u5173\u95ed)$/u }).click();
   await app.evaluate(({ ipcMain }) => {
     const original = ipcMain._invokeHandlers.get('desktop');
     globalThis.accountFixture = { calls: 0, login: undefined, release: undefined, finished: false };
@@ -249,7 +249,7 @@ try {
   });
   await page.locator('.sidebar-settings').click();
   await page.locator('.account-channel.is-selected').filter({ hasText: 'Mainland China' }).waitFor();
-  await page.getByRole('button', { name: 'Close', exact: true }).click();
+  await page.locator('.settings-dialog > header').getByRole('button', { name: /^(?:Close|\u5173\u95ed)$/u }).click();
   await page.locator('.sidebar-settings').click();
   await page.locator('.account-channel').nth(3).click();
   await page.getByLabel('API Key', { exact: true }).fill('overseas-race-fixture');

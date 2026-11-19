@@ -1,0 +1,19 @@
+:is(.text-tabs > button[role="tab"], .text-tab) {
+  position: relative; min-height: 30px; margin: 0; border: 0; border-radius: 6px;
+  padding: 4px var(--tab-padding-inline, 10px); background: transparent; color: var(--muted);
+}
+:is(.text-tabs > button[role="tab"], .text-tab):hover:not(:disabled),
+:is(.text-tabs > button[role="tab"], .text-tab):focus-visible {
+  background: var(--surface); color: var(--ink);
+}
+:is(.text-tabs > button[role="tab"], .text-tab):focus-visible {
+  outline: 2px solid var(--primary); outline-offset: -2px;
+}
+.text-tabs > :is(button[aria-selected="true"], .text-tab[aria-current="step"]) {
+  color: var(--tab-selected-ink, var(--ink));
+}
+.text-tabs > :is(button[aria-selected="true"], .text-tab[aria-current="step"])::after {
+  content: ''; position: absolute; inset-inline: var(--tab-padding-inline, 10px);
+  bottom: var(--tab-indicator-bottom, -4px); height: 2px; border-radius: 1px;
+  background: var(--tab-indicator, var(--primary)); pointer-events: none;
+}

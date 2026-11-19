@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { BtwRequests, btwUsage } from '../electron/btw';
+import { BtwRequests, btwUsage, type BtwUsageRecord } from '../electron/btw';
 import { SessionRuntimes, type SessionRuntime, type WorkerTransport } from '../electron/session-runtimes';
 import { RpcCommandError } from '../electron/runtime';
 import { quitReasons } from '../electron/quit-review';
@@ -19,11 +19,32 @@ function fixture() {
   } } as WorkerTransport;
   const pool = new SessionRuntimes(() => {});
   pool.workers.set(worker.id, worker);
-  const controller = new BtwRequests(pool, event => events.push(event));
+  const records: BtwUsageRecord[] = [];
+  const controller = new BtwRequests(pool, event => events.push(event), record => records.push(record), () => 1000);
   const emit = (value: Partial<BtwEvent> = {}) => controller.event(worker, { ...input, type: 'desktop_btw', kind: 'done', text: 'Answer', ...value });
-  return { controller, worker, pool, calls, events, emit,
+  return { controller, worker, pool, calls, events, records, emit,
     respond: (callback: typeof request) => { request = callback; } };
 }
+
+test('only matching terminal usage is recorded, with the model captured at start', async () => {
+  const { controller, worker, records, emit } = fixture();
+  const model = { id: 'actual', name: 'Actual', provider: 'step' };
+  const usage = { input: 2, output: 3, cacheRead: 4, cacheWrite: 5 };
+  await controller.ask(input);
+  emit({ kind: 'start', model });
+  emit({ kind: 'start', model: { ...model, id: 'other' } });
+  emit({ kind: 'delta', usage });
+  emit({ scopeId: 'foreign', usage });
+  assert.equal(records.length, 0);
+  emit({ kind: 'cancelled', usage });
+  emit({ usage });
+  const { question: _question, ...identity } = input;
+  assert.deepEqual(records, [{ ...identity, at: 1000, model, usage }]);
+  await controller.ask({ ...input, requestId: 'interrupted' });
+  emit({ requestId: 'interrupted', kind: 'start', model });
+  controller.dispose(worker);
+  assert.deepEqual(records[1], { ...identity, requestId: 'interrupted', at: 1000, model, usage: undefined });
+});
 
 test('side question owns host/configuration but leaves foreground task and normal abort independent', async () => {
   const { controller, worker, pool, calls, emit } = fixture();

@@ -22,7 +22,7 @@
 .browser-tabs { display: flex; align-items: center; gap: 4px; padding: 0 10px; min-height: 39px; overflow-x: auto; border-bottom: 1px solid var(--border); }
 .browser-tab { display: flex; align-items: center; flex-shrink: 0; border-bottom: 2px solid transparent; min-height: 38px; }
 .browser-tab.is-active { border-bottom-color: var(--primary); }
-.browser-tab > button[role="tab"] { display: flex; align-items: center; gap: 6px; border: 0; background: transparent; border-radius: 0; font-size: 11px; padding: 8px; color: var(--muted); }
+.browser-tab > .text-tab { gap: 6px; font-size: 11px; --tab-padding-inline: 8px; }
 .browser-tab.is-active > button[role="tab"] { color: var(--ink); }
 .browser-tab > button[role="tab"] > span { max-width: 145px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .browser-tab .icon-button { width: 20px; height: 22px; }

@@ -225,7 +225,7 @@ try {
   await send('/usage account');
   await page.getByRole('dialog', { name: '设置', exact: true }).waitFor();
   assert.equal(await page.getByRole('button', { name: '账户', exact: true }).getAttribute('aria-current'), 'page');
-  await page.getByRole('button', { name: 'Close', exact: true }).click();
+  await page.locator('.settings-dialog > header').getByRole('button', { name: /^(?:Close|\u5173\u95ed)$/u }).click();
   await page.getByRole('dialog', { name: '设置', exact: true }).waitFor({ state: 'detached' });
   await send('/cron');
   await page.locator('.scheduled-tasks').waitFor();

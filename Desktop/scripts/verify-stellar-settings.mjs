@@ -82,7 +82,7 @@ try {
       await toggle.press('Space'); assert.equal(await toggle.isChecked(), checked);
       await focus(toggle, toggle.locator('+ .interface-switch'));
       await shot('interface');
-      await settings.getByRole('button', { name: 'Close', exact: true }).click();
+      await settings.getByRole('button', { name: /^(?:Close|\u5173\u95ed)$/u }).click();
       await settings.waitFor({ state: 'detached' });
       await page.setViewportSize({ width: 1440, height: 960 });
       await page.locator('.workspace-heading.current').click({ button: 'right' });
@@ -117,12 +117,12 @@ try {
         await page.locator('.sidebar-bottom > button').click();
         assert.equal(await settings.evaluate(e => getComputedStyle(e).animationName), 'settings-dialog-enter');
         assert.equal(await settings.evaluate(e => getComputedStyle(e).animationDuration), '0.22s');
-        await settings.getByRole('button', { name: 'Close', exact: true }).click();
+        await settings.getByRole('button', { name: /^(?:Close|\u5173\u95ed)$/u }).click();
         await settings.waitFor({ state: 'detached' });
         await page.emulateMedia({ reducedMotion: 'reduce' });
         await page.locator('.sidebar-bottom > button').click();
         assert.equal(await settings.evaluate(e => getComputedStyle(e).animationName), 'none');
-        await settings.getByRole('button', { name: 'Close', exact: true }).click();
+        await settings.getByRole('button', { name: /^(?:Close|\u5173\u95ed)$/u }).click();
         await settings.waitFor({ state: 'detached' });
       }
       await page.close();

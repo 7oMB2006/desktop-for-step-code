@@ -59,7 +59,7 @@ async function select(id) {
   await page.locator('.sidebar-settings').click();
   await page.getByRole('button', { name: 'Appearance', exact: true }).click();
   await page.getByRole('button', { name: id, exact: true }).click();
-  await page.getByRole('button', { name: 'Close', exact: true }).click();
+  await page.locator('.settings-dialog > header').getByRole('button', { name: /^(?:Close|\u5173\u95ed)$/u }).click();
   await page.waitForFunction(id => document.documentElement.dataset.palette === `plugin:${id}`, id);
 }
 async function imageReady() {
@@ -107,7 +107,7 @@ try {
   await page.locator('.theme-pack.is-selected').getByLabel('Animate theme', { exact: true }).click();
   await page.waitForFunction(async () => (await window.desktop.snapshot()).preferences.themeMotion === false);
   await page.waitForFunction(() => document.querySelector('.theme-pack.is-selected input[type=checkbox]')?.checked === false);
-  await page.getByRole('button', { name: 'Close', exact: true }).click();
+  await page.locator('.settings-dialog > header').getByRole('button', { name: /^(?:Close|\u5173\u95ed)$/u }).click();
   assert.equal((await page.evaluate(() => window.desktop.snapshot())).preferences.themeMotion, false);
   assert.equal(await page.evaluate(async () => {
     try { await window.desktop.themeImage('../../outside'); return false; } catch { return true; }

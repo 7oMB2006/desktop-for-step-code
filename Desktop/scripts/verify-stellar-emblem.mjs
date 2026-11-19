@@ -18,7 +18,7 @@ const settings = async () => {
   await page.locator('.sidebar-bottom > button').click();
   await page.getByRole('button', { name: '外观', exact: true }).click();
 };
-const closeSettings = () => page.getByRole('button', { name: 'Close', exact: true }).click();
+const closeSettings = () => page.locator('.settings-dialog > header').getByRole('button', { name: /^(?:Close|\u5173\u95ed)$/u }).click();
 const freeze = async () => {
   await page.waitForTimeout(300);
   const before = await canvas.screenshot();

@@ -85,7 +85,7 @@ export function RemoteAccessPanel({ bridge, language, onBack }: { bridge: Deskto
     <div className="remote-scroll"><div className="remote-page">
       <header className="remote-header"><div className="remote-page-title"><Smartphone size={23}/><h1>{t('远程访问', 'Remote access')}</h1><span className="remote-tag">Beta</span></div>
         <span className={`remote-status ${connected ? 'is-online' : ''}`}><i/>{status}</span></header>
-      <nav className="remote-tabs" role="tablist" aria-label={t('远程访问页面', 'Remote access pages')}>
+      <nav className="remote-tabs text-tabs" role="tablist" aria-label={t('远程访问页面', 'Remote access pages')}>
         {pages.map((item, index) => <button ref={element => { tabs.current[index] = element; }} key={item.id} role="tab" aria-label={item.label}
           id={`${id}-${item.id}`} aria-controls={`${id}-panel`} aria-selected={page === item.id} tabIndex={page === item.id ? 0 : -1}
           onClick={() => resetPage(item.id)} onKeyDown={event => {

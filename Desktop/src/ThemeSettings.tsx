@@ -79,7 +79,7 @@ export function ThemeSettings({ preferences, systemDark, onChange, language, pac
   const changeTheme = (theme: ThemePreference) => { setEditing(false); onChange({ theme }); };
   const closeEditor = () => { setEditing(false); customTrigger.current?.focus({ preventScroll: true }); };
   return <section className="theme-settings" aria-label={t('主题与强调色', 'Theme and accent')}>
-    <div className="theme-heading"><h3>{t('主题', 'Theme')}</h3>
+    <div className="theme-heading"><h3 data-settings-anchor="theme">{t('主题', 'Theme')}</h3>
       <div className="theme-heading-controls">
       {themes.filter(theme => theme.group === 'original').map(theme =>
         <button key={theme.id} className="theme-original" type="button" aria-label={t(...theme.name)}

@@ -113,7 +113,7 @@ try {
   await page.getByRole('button', { name: '外观', exact: true }).click();
   await capture('settings', ['.settings-dialog']);
   await page.getByRole('button', { name: '玫红强调色', exact: true }).click();
-  await page.getByRole('button', { name: 'Close', exact: true }).click();
+  await page.locator('.settings-dialog > header').getByRole('button', { name: /^(?:Close|\u5173\u95ed)$/u }).click();
   await page.locator('.settings-dialog').waitFor({ state: 'detached' });
   await page.getByRole('button', { name: '主题包 · 会话预览', exact: true }).click();
   await page.locator('.composer-input').fill('检查强调色与材质');

@@ -1,4 +1,5 @@
 export type UsageSource = 'official' | 'custom' | 'unknown';
+export type BtwUsageCounts = Partial<Record<UsageSource, { tokens: number; unreported: number }>>;
 export type UsageSample = {
   source: UsageSource;
   model: string;
@@ -21,6 +22,7 @@ export type UsageDay = {
   plan: number | null;
   api: number | null;
   usd: number | null;
+  btw?: BtwUsageCounts;
 };
 export type UsageOverview = {
   days: UsageDay[];
@@ -28,7 +30,18 @@ export type UsageOverview = {
   scannedAt: number;
   limited: string[];
   estimates?: { recorded: number; unknown: number; limited: boolean };
+  btwLimited?: boolean;
 };
+export function btwUsageTotals(days: readonly UsageDay[], source: 'all' | 'official' | 'custom') {
+  const sources: UsageSource[] = source === 'all' ? ['official', 'custom', 'unknown'] : [source];
+  return days.reduce((total, day) => {
+    for (const key of sources) {
+      total.tokens += day.btw?.[key]?.tokens ?? 0;
+      total.unreported += day.btw?.[key]?.unreported ?? 0;
+    }
+    return total;
+  }, { tokens: 0, unreported: 0 });
+}
 export function usageDates(now = new Date()): string[] {
   return Array.from({ length: 365 }, (_, i) => {
     const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 364 + i);

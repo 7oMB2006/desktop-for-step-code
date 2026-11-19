@@ -10,7 +10,9 @@ export function CronManager({ bridge, onOpenHost }: {
   const [data, setData] = useState(empty);
   const [loading, setLoading] = useState(true);
   const [failed, setFailed] = useState(false);
-  const [sessions, setSessions] = useState<Session[]>([]);
+  const [{ sessions, archivedSessionIds }, setConversations] = useState<{
+    sessions: Session[]; archivedSessionIds: string[];
+  }>({ sessions: [], archivedSessionIds: [] });
   const alive = useRef(true);
   const inflight = useRef<Promise<void> | undefined>(undefined);
   const dirty = useRef(false);
@@ -27,7 +29,8 @@ export function CronManager({ bridge, onOpenHost }: {
           const [next, snapshot] = await Promise.allSettled([bridge.cronList(), bridge.snapshot()]);
           if (next.status !== 'fulfilled' || snapshot.status !== 'fulfilled') throw new Error('Cron refresh failed');
           if (alive.current) {
-            setData(next.value); setSessions(snapshot.value.sessions.filter(session => !snapshot.value.preferences.archivedSessionIds?.includes(session.id)));
+            setData(next.value);
+            setConversations({ sessions: snapshot.value.sessions, archivedSessionIds: snapshot.value.preferences.archivedSessionIds ?? [] });
             setFailed(false);
           }
         } catch { if (alive.current) setFailed(true); }
@@ -80,7 +83,7 @@ export function CronManager({ bridge, onOpenHost }: {
     if (!task?.runtimeId) throw new Error('Open the project host before deleting this job');
     await mutate(() => bridge.cronDelete(task.runtimeId!, task.id));
   };
-  return <ScheduledTasks jobs={jobs} hosts={data.hosts} sessions={sessions} history={data.history}
+  return <ScheduledTasks jobs={jobs} hosts={data.hosts} sessions={sessions} archivedSessionIds={archivedSessionIds} history={data.history}
     onOpenHost={onOpenHost ? async runtimeId => {
       const host = data.hosts.find(host => host.runtimeId === runtimeId);
       const session = (await bridge.sessions()).find(session => session.id === host?.sessionId);

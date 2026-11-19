@@ -261,7 +261,7 @@ try {
   await page.locator('.sidebar-settings').click();
   await page.getByRole('button', { name: '外观', exact: true }).click();
   await page.getByRole('button', { name: '暗', exact: true }).click();
-  await page.getByRole('dialog').getByRole('button', { name: 'Close', exact: true }).click();
+  await page.locator('.settings-dialog > header').getByRole('button', { name: /^(?:Close|\u5173\u95ed)$/u }).click();
   await page.waitForFunction(() => document.documentElement.dataset.theme === 'dark');
   await verifyCapacityScale('dark');
   await panel.locator('.context-panel-scroll').evaluate(element => { element.scrollTop = 0; });
@@ -419,7 +419,7 @@ try {
   await page.locator('.sidebar-settings').click();
   await page.getByRole('button', { name: '外观', exact: true }).click();
   await page.getByRole('button', { name: '亮', exact: true }).click();
-  await page.getByRole('dialog').getByRole('button', { name: 'Close', exact: true }).click();
+  await page.locator('.settings-dialog > header').getByRole('button', { name: /^(?:Close|\u5173\u95ed)$/u }).click();
   await page.waitForFunction(() => document.documentElement.dataset.theme === 'light');
   await navigation.getByRole('navigation').evaluate(element => { element.scrollTop = 0; });
   await page.mouse.move(700, 25);

@@ -1,5 +1,6 @@
 .cron-message { margin: 12px 0 18px; min-width: 0; }
-.cron-message-trigger { display: flex; width: 100%; min-width: 0; min-height: 34px; gap: 9px; padding: 4px 0; border: 0; border-radius: 3px; background: transparent; text-align: left; font-size: 12px; }
+.cron-message-trigger { display: flex; width: 100%; min-width: 0; min-height: 34px; gap: 9px; padding: 4px 8px; border: 0; border-radius: 6px; background: transparent; text-align: left; font-size: 12px; }
+.cron-message-trigger:focus-visible { background: var(--surface); outline: 2px solid var(--primary); outline-offset: -2px; }
 .cron-message-trigger > svg, .cron-message-label { color: var(--primary); }
 .cron-message-label { flex-shrink: 0; font-weight: 600; }
 .cron-message-separator, .cron-message-title, .cron-message-trigger time, .cron-message-chevron { color: var(--muted); }

@@ -130,7 +130,7 @@ export function CompactionSettings({ bridge, language, models, model }: {
 
   return <section className="compaction-settings" aria-labelledby="compaction-heading">
     <div className="appearance-heading">
-      <h3 id="compaction-heading">{t('上下文整理', 'Context maintenance')}</h3>
+      <h3 id="compaction-heading" data-settings-anchor="context-maintenance">{t('上下文整理', 'Context maintenance')}</h3>
       <button className="icon-button" disabled={!value || disabled} aria-label={t('恢复上下文整理默认值', 'Reset context maintenance')}
         data-tooltip={t('仅重置触发比例、Token 上限和模型覆盖', 'Reset the threshold, token limit and model overrides only')}
         onClick={() => void persist(defaultCompactionConfiguration())}><RotateCcw size={16}/></button>

@@ -521,7 +521,7 @@ try {
       await settings.waitFor();
       assert.equal(await page.locator('.window-bar').evaluate(element => getComputedStyle(element).zIndex), '19');
       assert.equal(await page.locator('.app[data-settings-open]').count(), 1);
-      const closing = await settings.getByRole('button', { name: 'Close', exact: true }).evaluate(async button => {
+      const closing = await settings.getByRole('button', { name: /^(?:Close|\u5173\u95ed)$/u }).evaluate(async button => {
         button.click();
         await new Promise(resolve => requestAnimationFrame(resolve));
         return { present: Boolean(document.querySelector('.settings-backdrop.is-closing')),

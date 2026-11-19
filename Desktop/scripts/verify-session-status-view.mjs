@@ -20,7 +20,15 @@ try {
       await page.getByText('已信任', { exact: true }).waitFor();
       const toggle = page.getByRole('button', { name: '详细信息', exact: true });
       assert.equal(await toggle.getAttribute('aria-expanded'), 'false');
-      await toggle.click();
+      await toggle.focus();
+      await page.keyboard.press('Tab');
+      await page.keyboard.press('Shift+Tab');
+      assert.deepEqual(await toggle.evaluate(element => {
+        const style = getComputedStyle(element);
+        return [style.borderRadius, style.paddingInlineStart, style.paddingInlineEnd, style.outlineOffset, element.matches(':focus-visible')];
+      }), ['6px', '8px', '8px', '-2px', true]);
+      await page.keyboard.press('Enter');
+      assert.equal(await toggle.getAttribute('aria-expanded'), 'true');
       await page.locator('.context-panel').evaluate(async element => {
         await Promise.all(element.getAnimations({ subtree: true }).map(animation => animation.finished));
       });

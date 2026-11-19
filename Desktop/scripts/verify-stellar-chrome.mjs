@@ -40,7 +40,7 @@ try {
     await page.locator('.sidebar-settings').click();
     await page.getByRole('button', { name: '外观', exact: true }).click();
     await page.getByRole('button', { name, exact: true }).click();
-    await page.getByRole('button', { name: 'Close', exact: true }).click();
+    await page.locator('.settings-dialog > header').getByRole('button', { name: /^(?:Close|\u5173\u95ed)$/u }).click();
     await page.locator('.settings-dialog').waitFor({ state: 'detached' });
   };
   await open('chat');

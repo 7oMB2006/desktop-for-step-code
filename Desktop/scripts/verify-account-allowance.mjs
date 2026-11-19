@@ -107,7 +107,7 @@ try {
   await page.getByRole('button', { name: '外观', exact: true }).click();
   await page.getByRole('button', { name: '账户', exact: true }).click();
   await allowance.getByText('5 小时额度', { exact: true }).waitFor();
-  await page.getByRole('button', { name: 'Close', exact: true }).click();
+  await page.locator('.settings-dialog > header').getByRole('button', { name: /^(?:Close|\u5173\u95ed)$/u }).click();
   await page.locator('.settings-dialog').waitFor({ state: 'detached' });
   mark('credential privacy and refreshed vault');
   const result = await page.evaluate(() => window.desktop.accountAllowance());

@@ -47,6 +47,8 @@ try {
   for (const theme of ['light', 'dark']) {
     await page.goto(`${server.resolvedUrls.local[0]}tests/fixtures/clm-panel.html?theme=${theme}`);
     await page.getByRole('button', { name: '查看修订 r27', exact: true }).waitFor();
+    const headerTab = page.locator('.context-view-tabs [role="tab"]').first();
+    assert.equal(await headerTab.evaluate(tab => getComputedStyle(tab).paddingInlineStart), '5px');
     for (const width of [1100, 390, 320]) {
       await page.setViewportSize({ width, height: 1000 });
       await page.locator('.context-panel').evaluate(async element => {
@@ -60,6 +62,23 @@ try {
         JSON.stringify(await page.evaluate(() => [...document.querySelectorAll('body *')].filter(el => el.getBoundingClientRect().right > innerWidth + 1).map(el => el.className).slice(0, 20))));
       await page.getByRole('button', { name: '概览', exact: true }).click();
     }
+    await page.getByRole('button', { name: '更早修订', exact: true }).click();
+    await page.getByRole('button', { name: '查看修订 r18', exact: true }).click();
+    const back = page.getByRole('button', { name: '回到当前', exact: true });
+    const content = page.locator('.clm-block-link').nth(1);
+    for (const [control, padding] of [[back, '8px'], [content, '10px']]) {
+      await control.focus();
+      await page.keyboard.press('Tab');
+      await page.keyboard.press('Shift+Tab');
+      assert.deepEqual(await control.evaluate(button => {
+        const style = getComputedStyle(button);
+        return [style.borderRadius, style.paddingInlineStart, style.outlineWidth, style.outlineOffset, button.matches(':focus-visible')];
+      }), ['6px', padding, '2px', '-2px', true]);
+    }
+    await content.click();
+    assert.equal(await page.getByRole('combobox', { name: '选择内容', exact: true }).inputValue(), 'ctx-assistant');
+    await back.click();
+    await page.getByText('r27 · 最近保存版本', { exact: true }).waitFor();
   }
   assert.deepEqual(errors, []);
   console.log('CLM real component: history, diff, content, enable/disable, busy guards, manual action and responsive themes passed.');

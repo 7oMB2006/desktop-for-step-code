@@ -53,7 +53,7 @@ try {
     await page.locator('.sidebar-bottom > button').click();
     await page.getByRole('button', { name: '外观', exact: true }).click();
   };
-  const closeSettings = () => page.getByRole('button', { name: 'Close', exact: true }).click();
+  const closeSettings = () => page.locator('.settings-dialog > header').getByRole('button', { name: /^(?:Close|\u5173\u95ed)$/u }).click();
   await page.goto(base);
   await ready();
   // Drafting holds the real greeting without changing its original timing logic.

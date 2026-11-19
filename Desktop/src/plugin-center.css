@@ -72,8 +72,9 @@
 .pc-page-header h1:focus { outline: none; }
 .pc-count { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; margin-top: 3px; }
 .pc-catalog-toolbar { display: flex; align-items: center; gap: 28px; border-bottom: 1px solid var(--border); flex-shrink: 0; padding: 0 4px; }
-.pc-catalog-tabs { gap: 26px; border: 0; margin: 0; }
-.pc-catalog-tabs button { font-size: 13px; padding: 10px 0 14px; min-height: 44px; }
+.pc-catalog-tabs { display: flex; gap: 4px; flex-shrink: 0; padding: 4px 0 10px; --tab-indicator-bottom: -10px; }
+.pc-catalog-tabs > button { gap: 6px; font-size: 13px; }
+.pc-catalog-tabs > button > span { font-size: 10px; color: var(--muted); font-variant-numeric: tabular-nums; }
 .pc-search { margin: 0 0 7px auto; display: flex; align-items: center; gap: 7px; color: var(--muted); position: relative; width: 200px; }
 .pc-search input { width: 100%; padding: 7px 28px 7px 8px; background: transparent; font-size: 12px; }
 .pc-search > .icon-button { position: absolute; right: 1px; width: 26px; }
@@ -227,9 +228,9 @@
 .pc-status.is-pending { color: var(--primary); }
 .pc-status-unavailable { color: var(--danger); }
 .pc-auth-state { display: flex; align-items: center; gap: 5px; font-size: 11px; color: var(--muted); }
-.pc-detail-tabs { position: sticky; top: 0; z-index: 1; isolation: isolate; gap: 25px; margin: 0 4px; padding-top: 4px; background: var(--bg); }
+.pc-detail-tabs { position: sticky; top: 0; z-index: 1; isolation: isolate; display: flex; flex-shrink: 0; gap: 4px; margin: 0 4px; padding: 4px 0 5px; border-bottom: 1px solid var(--border); background: var(--bg); --tab-indicator-bottom: -6px; }
 .pc-detail-tabs::before { content: ''; position: absolute; inset: 0 -4px; z-index: -1; background: var(--bg); pointer-events: none; }
-.pc-detail-tabs button { font-size: 12px; }
+.pc-detail-tabs > button { font-size: 12px; }
 .pc-detail-workspace { display: flex; position: relative; flex: 1; min-height: 0; min-width: 0; }
 .pc-detail-scroll { overflow-y: auto; flex: 1; min-height: 0; min-width: 0; padding: 0 12px 0 4px; scroll-padding: 58px 8px 8px; scrollbar-width: none; }
 .pc-detail-scroll::-webkit-scrollbar { display: none; }
@@ -476,7 +477,7 @@
   .pc-page-header { margin-bottom: 18px; }
   .pc-page-header h1 { font-size: 21px; }
   .pc-catalog-toolbar { gap: 8px; flex-wrap: wrap; }
-  .pc-catalog-tabs { gap: 25px; flex: 1; }
+  .pc-catalog-tabs { flex: 1; }
   .pc-search { width: 100%; margin: 4px 0 12px; }
   .pc-search input { background: var(--bg); }
   .pc-plugin-list { padding-top: 20px; }

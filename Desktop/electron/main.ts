@@ -16,6 +16,7 @@ import { inspectProjectInstructions, projectInstructionsMessage } from './projec
 import { isProjectInstructionsCommand, projectInstructionsInput } from '../src/project-instructions';
 import { hasBackgroundWork } from './background-work';
 import { BtwRequests } from './btw';
+import { BtwUsageLedger } from './btw-usage';
 import { questionnaire, serializeAnswers } from '../src/questionnaire';
 import { LaunchControls } from './launch-controls';
 import { draftLaunchChanges, emptyLaunch, type LaunchState } from '../src/launch-state';
@@ -41,7 +42,7 @@ import { isProjectTrustInput, trustProject } from './project-trust';
 import { CronManagement, cronJobs } from './cron-management';
 import { hasScheduledCron } from './cron-state';
 import { CronBindings } from './cron-bindings';
-import { CronRecovery, assertRecoveryJobs, assertRecoveryQueues, resumeCronHost } from './cron-recovery';
+import { CronRecovery, assertCronRecoveryAccount, assertRecoveryJobs, assertRecoveryQueues, resumeCronHost } from './cron-recovery';
 import { CronAutoRecovery } from './cron-auto-recovery';
 import { CronHistory } from './cron-history';
 import { PendingMessages, promptNeedsQueue } from './pending-messages';
@@ -417,6 +418,8 @@ let authData: Record<string, unknown> = {};
 let appliedAuthData: Record<string, unknown> = {};
 const usageEstimates = new UsageEstimates(join(app.getPath('userData'), 'usage-estimates'), () => appliedAuthData,
   error => { void crashLog.record('usage-estimates', error); });
+const btwUsageLedger = new BtwUsageLedger(join(app.getPath('userData'), 'btw-usage'),
+  () => { void crashLog.record('btw-usage', new Error('Side question usage could not be saved')); });
 let usageOverviewPending: Promise<import('../src/usage-overview').UsageOverview> | undefined;
 const accountAllowance = new AccountAllowanceService(() => appliedAuthData,
   (input, init) => net.fetch(input instanceof URL ? input.href : input, init),
@@ -748,7 +751,7 @@ const pluginReloads = new PluginReloadCoordinator({
   external: worker => externallyOwned(worker),
 });
 setInterval(() => { void pluginReloads.tick().catch(() => {}); }, 1000).unref();
-const btw = new BtwRequests(runtimes, emit);
+const btw = new BtwRequests(runtimes, emit, record => btwUsageLedger.record(record));
 const pendingMessages = new PendingMessages(worker => {
   worker.revision++;
   emit({ type: 'desktop_queue', runtimeId: worker.id, runtimeRevision: worker.revision, pendingMessages: pendingMessages.list(worker) });
@@ -952,7 +955,7 @@ const inspectCronRecovery = async (key: string, sessionId: string) => {
   if (!model) throw new Error('No configured model is available for recovery');
   const settings = await admin.request('settings', { cwd: workspace });
   const official = options.officialModel === true;
-  if (official && !settings.account?.loggedIn) throw new Error('Sign in before recovering scheduled tasks');
+  if (official) assertCronRecoveryAccount(settings.account);
   const profile = settings.profiles?.find((profile: { id: string }) => profile.id === settings.account?.profile);
   const account = official ? `${profile?.title ?? settings.account?.profile ?? 'Step'}${settings.account?.userId ? ` · ${settings.account.userId}` : ''}`
     : `${providerModelNames([model], appliedAuthData)[0]?.providerName ?? model.provider} · 当前供应商配置`;
@@ -1767,6 +1770,7 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
           await externalConnectors.shutdown();
           await pluginReloads.close();
           await Promise.all([runtimes.stopAll(), admin.stop(), capabilityService.stop(), collaboration.stop(), pluginHosts.close()]);
+          await btwUsageLedger.flush();
           await externalTasks.flush().catch(() => crashLog.record('external-connectors', new Error('External task state could not be saved')));
         });
         success = true;
@@ -2848,6 +2852,7 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
       // The native scan has a 28s deadline; allow bounded cache/projection/IPC headroom.
       usageOverviewPending ??= admin.request('usage_overview', {}, 60000)
         .then(result => usageEstimates.overview(result as import('../src/usage-overview').UsageOverview))
+        .then(result => btwUsageLedger.overview(result))
         .finally(() => { usageOverviewPending = undefined; });
       return usageOverviewPending;
     }
@@ -3370,6 +3375,7 @@ app.on('before-quit', event => {
       await conversationTiming.flush();
       await modelSelections.flush();
       await usageEstimates.flush();
+      await btwUsageLedger.flush();
       await workflowBindings.flush();
       browser?.dispose();
       quitting = true;

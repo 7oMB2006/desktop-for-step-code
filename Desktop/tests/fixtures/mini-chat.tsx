@@ -25,6 +25,7 @@ import { QuoteAnnotations, quoteSourceRange } from '../../src/QuoteAnnotations';
 import { AppTooltip } from '../../src/AppTooltip';
 import { quotePrompt, sameQuoteSelection, MAX_QUOTES, type ChatQuote } from '../../src/chat-quotes';
 import { messageText } from '../../src/conversation-presentation';
+import { selectInterfacePreset } from '../../src/interface-presets';
 import { applyTheme } from '../../src/theme';
 import type { DesktopBridge, Message, Model, PermissionPreset } from '../../src/contracts';
 import '../../src/style.css';
@@ -34,6 +35,7 @@ import '../../src/appearance.css';
 import './mini-chat.css';
 
 const params = new URLSearchParams(location.search);
+const interfaceSettings = params.get('density') === 'detailed' ? selectInterfacePreset('detailed') : undefined;
 const language = params.get('lang') === 'en' ? 'en' : 'zh';
 const zh = language === 'zh';
 const t = (cn: string, en: string) => zh ? cn : en;
@@ -243,6 +245,7 @@ function ChatSurface({ conversation, project, reading, scope, update, onSend, on
       {messages.length ? <div className="messages" ref={transcript}>
         <ConversationDisclosureMemory.Provider value={reading.disclosures}>
           <ConversationMessages messages={messages} language={language} busy={busy} canEdit={!busy}
+          interfaceSettings={interfaceSettings}
           onLayoutChange={followLayout}
           openImage={() => {}} onError={setError} onOpenSubagent={() => {}}
           edit={async (_message, text) => {

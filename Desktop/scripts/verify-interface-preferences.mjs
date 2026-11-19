@@ -48,6 +48,16 @@ async function enableToolDetails(page) {
   });
   assert.equal((await page.evaluate(() => window.desktop.snapshot())).preferences.interfaceSettings.toolsExpanded, true);
 }
+async function enableLiveThinking(page) {
+  const toggle = settings(page).getByRole('switch', { name: '思考时展开，结束后收起' });
+  assert.equal(await toggle.isChecked(), false);
+  await toggle.click();
+  await page.waitForFunction(() => {
+    const input = document.querySelector('.interface-option input[aria-label="思考时展开，结束后收起"]');
+    return input?.checked && !input.disabled;
+  });
+  assert.equal((await page.evaluate(() => window.desktop.snapshot())).preferences.interfaceSettings.thinkingExpanded, true);
+}
 const history = [
   { role: 'user', content: '检查这个项目。', timestamp: 1000 },
   { role: 'assistant', content: [
@@ -275,7 +285,7 @@ try {
   ];
   await openSettings(page);
   await preset(page, '详细');
-  await settings(page).getByRole('switch', { name: '思考时展开，结束后收起' }).click();
+  await enableLiveThinking(page);
   await closeSettings(page);
   await load(thinkingHistory, true);
   await page.waitForFunction(() => document.querySelector('.messages .thinking')?.dataset.expanded === 'true');
@@ -290,7 +300,7 @@ try {
   assert.equal(await liveThinking.getAttribute('data-expanded'), 'false', 'thinking deltas preserve manual folding');
   await openSettings(page);
   await preset(page, '详细');
-  await settings(page).getByRole('switch', { name: '思考时展开，结束后收起' }).click();
+  await enableLiveThinking(page);
   await closeSettings(page);
   assert.equal(await liveThinking.getAttribute('data-expanded'), 'true', 'reapplying the custom streaming option opens the current thought');
   const withTool = [...thinkingHistory, { role: 'assistant', content: [

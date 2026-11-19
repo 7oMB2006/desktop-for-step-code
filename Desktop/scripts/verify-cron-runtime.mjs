@@ -31,6 +31,8 @@ const errors = [];
 let requests = 0;
 let rejectedCredentials = 0;
 const rejectedCredentialPrompt = 'CRON FIXTURE REJECTED CREDENTIAL';
+const revision = job => JSON.stringify([job.id, job.createdAt, job.cron, job.prompt, job.recurring, job.durable,
+  job.autoExpireAt ?? null, job.desktopPausedAt ?? null]);
 const chunk = (delta, finish_reason = null) => `data: ${JSON.stringify({
   id: 'cron-fixture', object: 'chat.completion.chunk', created: 1, model: 'fixture',
   choices: [{ index: 0, delta, finish_reason }],
@@ -144,8 +146,6 @@ try {
     const f = await fixture('pause-edit');
     try {
       const before = requests;
-      const revision = job => JSON.stringify([job.id, job.createdAt, job.cron, job.prompt, job.recurring, job.durable,
-        job.autoExpireAt ?? null, job.desktopPausedAt ?? null]);
       const list = async () => (await f.worker.rpc.request('desktop_cron', { action: 'list' })).jobs;
       await f.worker.rpc.request('desktop_cron', { action: 'create', cron: '* * * * *', prompt: 'original', recurring: true, durable: true });
       const [original] = await list();
@@ -250,9 +250,20 @@ try {
       await assert.rejects(manager.create({ runtimeId: f.worker.id, cron: '0 9 * * *', prompt: 'untrusted-probe', recurring: true, durable: true }), /trusted/);
       await manager.create({ runtimeId: f.worker.id, cron: '0 9 * * *', prompt: 'session-only-probe', recurring: false, durable: false });
       const result = await manager.list([f.cwd]);
-      assert.equal(result.tasks[0].durable, false);
+      const [temporary] = result.tasks;
+      assert.equal(temporary.durable, false);
       assert.equal(result.hosts[0].trusted, false);
-      await manager.delete(f.worker.id, result.tasks[0].id);
+      await manager.update({ runtimeId: f.worker.id, jobId: temporary.id, expected: revision(temporary), paused: true, prompt: 'edited session-only probe' });
+      const [paused] = (await manager.list([f.cwd])).tasks;
+      assert.equal(paused.id, temporary.id);
+      assert.equal(paused.prompt, 'edited session-only probe');
+      assert.equal(typeof paused.desktopPausedAt, 'number');
+      await manager.update({ runtimeId: f.worker.id, jobId: paused.id, expected: revision(paused), paused: false });
+      const [resumed] = (await manager.list([f.cwd])).tasks;
+      assert.equal(resumed.durable, false);
+      assert.equal(resumed.desktopPausedAt, undefined);
+      await assert.rejects(readFile(f.store), { code: 'ENOENT' });
+      await manager.delete(f.worker.id, temporary.id);
     } finally { await f.close(); }
   });
   for (const durable of [false, true]) {

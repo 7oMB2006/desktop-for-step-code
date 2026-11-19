@@ -109,7 +109,7 @@ import { NativeUpdateDriver } from './native-update-driver';
 import { cleanInstalledUpdate } from './update-cache';
 import { DesktopTray } from './desktop-tray';
 import { DesktopNotifications } from './desktop-notifications';
-import { TaskbarBadge, taskbarBadgeBitmap, taskbarBadgeSize } from './taskbar-badge';
+import { TaskbarBadge, completionBadgeText, taskbarBadgeBitmap, taskbarBadgeSize } from './taskbar-badge';
 import { notificationPreferences, notificationPreferencePatch } from '../src/notification-preferences';
 import { QuitReview, quitReasons, needsQuitReview } from './quit-review';
 import { quitConfirmation } from '../src/quit-confirmation';
@@ -668,13 +668,18 @@ function isForegroundSession(sessionId: string) {
   return !sessionDraft && runtimes.active?.state?.sessionId === sessionId && focused(window)
     || !miniView.draft && miniView.worker?.state?.sessionId === sessionId && focused(miniChat?.window);
 }
-const taskbarBadge = process.platform === 'win32' ? new TaskbarBadge({
+const taskbarBadge = process.platform === 'win32' || process.platform === 'darwin' ? new TaskbarBadge({
   foreground: isForegroundSession,
   archived: id => preferences.archivedSessionIds?.includes(id) ?? false,
   language: () => preferences.language,
   apply: (count, description) => {
-    if (!window || window.isDestroyed() || !window.isVisible()) return false;
     try {
+      if (process.platform === 'darwin') {
+        if (!app.isReady() || !app.dock) return false;
+        app.dock.setBadge(completionBadgeText(count));
+        return true;
+      }
+      if (!window || window.isDestroyed() || !window.isVisible()) return false;
       window.setOverlayIcon(count ? nativeImage.createFromBitmap(taskbarBadgeBitmap(count),
         { width: taskbarBadgeSize, height: taskbarBadgeSize }) : null, description);
       return true;

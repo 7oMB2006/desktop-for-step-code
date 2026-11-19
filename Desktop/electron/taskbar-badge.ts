@@ -7,10 +7,14 @@ const glyphs: Record<string, string> = {
 
 export const taskbarBadgeSize = 16;
 
+export function completionBadgeText(count: number): string {
+  return count === 0 ? '' : count > 9 ? '9+' : String(count);
+}
+
 export function taskbarBadgeBitmap(count: number): Buffer {
   const size = taskbarBadgeSize;
   const pixels = Buffer.alloc(size * size * 4);
-  const text = count > 9 ? '9+' : String(count);
+  const text = completionBadgeText(count);
   const scale = text.length === 1 ? 2 : 1;
   const width = (text.length * 4 - 1) * scale;
   const left = (size - width) >> 1;

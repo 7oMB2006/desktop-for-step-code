@@ -635,8 +635,8 @@ resolved requests, disabled options and new work withdraw obsolete banners.
 Windows Do Not Disturb remains an operating-system choice and is not bypassed.
 The behavior and verification boundary are documented in `docs/NOTIFICATIONS.md`.
 
-The Windows main taskbar icon shows a native numeric overlay for conversations
-with an unread successful completion, independently of banners and sound. A
+The Windows main taskbar icon and macOS Dock show a native numeric badge for
+conversations with an unread successful completion, independently of banners and sound. A
 selected conversation can still count when its window is unfocused or minimized.
 Viewing that conversation in focused main or MiniChat, archiving it, or starting
 its next turn clears its count. The overlay shows at most `9+`; unread state is

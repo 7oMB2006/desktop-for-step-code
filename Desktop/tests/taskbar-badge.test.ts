@@ -1,6 +1,6 @@
 import { strict as assert } from 'node:assert';
 import { test } from 'node:test';
-import { TaskbarBadge, taskbarBadgeBitmap } from '../electron/taskbar-badge';
+import { TaskbarBadge, completionBadgeText, taskbarBadgeBitmap } from '../electron/taskbar-badge';
 
 test('taskbar badge counts distinct unread sessions and clears only the affected session', () => {
   let focused = 'foreground';
@@ -51,4 +51,8 @@ test('native overlay bitmaps have transparent margins and a stable overflow glyp
   assert.notDeepEqual(one, taskbarBadgeBitmap(2));
   assert.notDeepEqual(taskbarBadgeBitmap(9), taskbarBadgeBitmap(10));
   assert.deepEqual(taskbarBadgeBitmap(10), taskbarBadgeBitmap(100));
+});
+
+test('Dock badge text clears at zero and shares the Windows overflow limit', () => {
+  assert.deepEqual([0, 1, 9, 10, 100].map(completionBadgeText), ['', '1', '9', '9+', '9+']);
 });

@@ -37,6 +37,7 @@
 .subagent-task { margin: 0 0 4px; font-size: 13px; line-height: 1.6; color: var(--ink); }
 .subagent-note { margin: 0 0 10px; padding: 6px 9px; border: 1px solid var(--border); border-radius: 5px; font-size: 11px; line-height: 1.6; color: var(--muted); }
 .subagent-head .subagent-meta { margin-left: auto; color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.subagent-model-evidence { overflow-wrap: anywhere; }
 .subagent-transcript { padding-top: 4px; }
 .subagent-execution-kind { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; color: var(--muted); font-size: 10px; }
 .subagent-execution-kind button { font-size: 10px; min-height: 28px; padding: 4px 7px; }

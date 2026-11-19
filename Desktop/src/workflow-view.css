@@ -49,7 +49,8 @@
 .workflow-agent-copy > .workflow-agent-issue { color: var(--danger); }
 .workflow-retry, .workflow-agent-copy > .workflow-retry { color: var(--accent); font-size: 11px; overflow-wrap: anywhere; }
 .workflow-callbacks { margin: 12px 0; padding: 8px 0; border-block: 1px solid var(--border); font-size: 12px; }
-.workflow-callbacks summary { cursor: pointer; color: var(--danger); }
+.workflow-callbacks > summary { display: flex; align-items: center; gap: 6px; list-style: none; cursor: pointer; color: var(--danger); }
+.workflow-callbacks > summary::-webkit-details-marker { display: none; }
 .workflow-callbacks ol { padding-left: 20px; max-height: 240px; overflow: auto; }
 .workflow-callbacks li { padding: 6px 0; overflow-wrap: anywhere; }
 .workflow-callbacks strong { font-size: 11px; font-weight: 500; }

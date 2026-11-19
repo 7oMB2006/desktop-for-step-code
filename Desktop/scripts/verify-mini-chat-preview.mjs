@@ -258,7 +258,7 @@ try {
   assert.match(await page.locator('[data-surface="main"]').innerText(), /verifyPermissions/);
   assert.match(await page.locator('.window-session-title').innerText(), /新会话/);
 
-  await page.goto(`${url}?open=1&stress=reading&stream=manual`);
+  await page.goto(`${url}?open=1&stress=reading&stream=manual&density=detailed`);
   const main = page.locator('[data-surface="main"]');
   const miniViewport = mini.locator('.conversation');
   const tool = mini.locator('.process-tool');

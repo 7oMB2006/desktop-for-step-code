@@ -31,7 +31,8 @@
 :root[data-theme-material=stellar] :is(.settings-content > label, .appearance-row > span:first-child) {
   color: var(--stellar-record-muted);
 }
-:root[data-theme-material=stellar] :is(.settings-content > label > select, .appearance-row input,
+:root[data-theme-material=stellar] :is(.settings-content > label > select,
+  .settings-content > label > .appearance-select > select, .appearance-row input,
   .appearance-row select, .small-dialog > input, .small-dialog > textarea) {
   color: var(--stellar-record-ink); background: var(--stellar-control);
   border-color: var(--stellar-frame); border-radius: 3px;

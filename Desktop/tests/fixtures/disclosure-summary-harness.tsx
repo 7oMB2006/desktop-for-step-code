@@ -36,7 +36,7 @@ function Harness() {
   const [disclosures, setDisclosures] = useState<ConversationDisclosureState | undefined>(
     () => params.has('memory') ? new Map() : undefined);
   const [target, setTarget] = useState('');
-  const [preset, setPreset] = useState<'simple' | 'standard' | 'detailed'>('simple');
+  const [preset, setPreset] = useState<'simple' | 'standard' | 'detailed'>('standard');
   Object.assign(window, { disclosureFixture: {
     load: (items: Message[], active = false) => { setMessages(items); setBusy(active); },
     summary: (value: SessionSummary) => { currentSummary = value; setRevision(value => value + 1); },

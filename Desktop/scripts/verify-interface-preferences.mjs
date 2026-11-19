@@ -94,11 +94,14 @@ try {
   await load(history);
   const messages = page.locator('.messages');
   await messages.getByText('正文一：先确认项目结构。', { exact: true }).waitFor();
-  assert.equal(await messages.locator('.process-tool-group').count(), 1, 'Standard groups consecutive tools');
+  assert.equal(await messages.locator('.compact-process').count(), 1, 'Standard combines thinking and tools');
   assert.equal(await messages.locator('.process-tool[open]').count(), 0);
   assert.equal(await messages.locator('.thinking[open]').count(), 0);
   await page.screenshot({ path: 'test-results/interface-mapped-standard-light.png' });
   await messages.locator('.response-content').screenshot({ path: 'test-results/interface-mapped-standard-detail.png' });
+  await openSettings(page);
+  await preset(page, '详细');
+  await closeSettings(page);
   await messages.locator('.tool-group-trigger').click();
   await messages.locator('.process-tool > summary').first().click();
   await messages.locator('.thinking > summary').click();
@@ -118,6 +121,7 @@ try {
     globalThis.interfaceNodes.prose === document.querySelector('.messages .response-text')
     && globalThis.interfaceNodes.thinking === document.querySelector('.messages .thinking')), true, 'preset changes do not remount prose or independent thinking');
   await messages.locator('.thinking > summary').click();
+  await messages.locator('.tool-group-trigger').click();
   await messages.locator('.process-tool > summary').first().click();
   await openSettings(page);
   await preset(page, '详细');
@@ -127,8 +131,16 @@ try {
   await openSettings(page);
   await preset(page, '简洁');
   await closeSettings(page);
-  assert.equal(await page.locator('.composer-wrap .performance-bar').count(), 0);
-  assert.equal(await messages.locator('.tool-group-trigger').count(), 1);
+  assert.equal(await page.locator('.composer-wrap .performance-metric').count(), 4);
+  assert.equal(await messages.locator('.thinking, .process-tool-group, .process-tool.done').count(), 0);
+  assert.equal(await messages.locator('.process-tool.failed > summary').isVisible(), true);
+  assert.equal(await messages.locator('.process-tool.missing > summary').isVisible(), true);
+  assert.equal(await page.evaluate(() =>
+    globalThis.interfaceNodes.prose === document.querySelector('.messages .response-text')), true, 'Simple retains the original prose node');
+  await page.screenshot({ path: 'test-results/interface-mapped-simple-light.png' });
+  await openSettings(page);
+  await preset(page, '标准');
+  await closeSettings(page);
   const group = messages.locator('.tool-group-trigger').first();
   assert.match(await group.innerText(), /读取文件 2 项/);
   assert.equal(await messages.locator('.process-tool.failed > summary').isVisible(), true);
@@ -142,9 +154,9 @@ try {
   await load(history, true);
   assert.equal(await group.getAttribute('aria-expanded'), 'true', 'a fresh snapshot of identical preferences preserves manual expansion');
   await openSettings(page);
-  await preset(page, '简洁');
+  await preset(page, '标准');
   await closeSettings(page);
-  assert.equal(await group.getAttribute('aria-expanded'), 'false', 'reselecting Simple folds the existing group');
+  assert.equal(await group.getAttribute('aria-expanded'), 'false', 'reselecting Standard folds the existing group');
   await load(history.map((message, index) => index === 3 ? { ...message, desktopToolPending: true } : message), true);
   await group.getByText('正在读取文件', { exact: true }).waitFor();
   assert.equal(await group.locator('.process-group-preview').innerText(), 'package.json');
@@ -156,14 +168,20 @@ try {
     title: `Approve run_command [${'interface-wait'.slice(-8)}]`,
     message: 'Call: interface-wait\nrun_command can modify the workspace or execute a command\n\nrun_command command=fixture-awaiting\n\nBatch calls may ask separately\nbefore approved tools begin running.',
   };
+  await openSettings(page);
+  await preset(page, '简洁');
+  await closeSettings(page);
+  await load(history, true);
+  await page.locator('.working:not(.working-idle)').waitFor();
+  assert.equal(await messages.locator('.thinking, .process-tool-group, .process-tool.running').count(), 0);
   await load(history, true, [awaiting]);
   await messages.locator('.process-tool.waiting > summary').waitFor();
   assert.equal(await messages.locator('.process-tool.waiting').locator('xpath=ancestor::*[contains(@class,"tool-group-disclosure")]').count(), 0);
   await load(history, false);
   await page.locator('.permission-approval').waitFor({ state: 'detached' });
-  await page.screenshot({ path: 'test-results/interface-mapped-simple-light.png' });
   await messages.locator('.response-content').screenshot({ path: 'test-results/interface-mapped-simple-detail.png' });
   await openSettings(page);
+  await preset(page, '标准');
   await enableToolDetails(page);
   await closeSettings(page);
   assert.equal(await group.getAttribute('aria-expanded'), 'true', 'custom expansion applies to the group and its records');
@@ -173,11 +191,13 @@ try {
   await closeSettings(page);
   await page.waitForFunction(() => document.querySelector('.messages .thinking')?.dataset.expanded === 'false');
   assert.equal(await page.locator('.composer-wrap .performance-metric').count(), 4);
-  assert.equal(await messages.locator('.process-tool-group').count(), 0);
+  assert.equal(await messages.locator('.compact-process').count(), 0);
+  assert.equal(await messages.locator('.process-tool-group').count(), 1);
   assert.equal(await messages.locator('.process-tool[open]').count(), 0);
   await page.waitForTimeout(400);
   await page.screenshot({ path: 'test-results/interface-mapped-detailed-light.png' });
   await messages.locator('.response-content').screenshot({ path: 'test-results/interface-mapped-detailed-detail.png' });
+  await messages.locator('.tool-group-trigger').click();
   await messages.locator('.process-tool > summary').first().click();
   assert.equal(await messages.locator('.process-tool[open]').count(), 1);
   await load([...history, { role: 'assistant', content: [{ type: 'text', text: '后续输出不会覆盖手动展开。' }] }]);
@@ -215,6 +235,7 @@ try {
   ];
   await openSettings(page);
   await preset(page, '详细');
+  await settings(page).getByRole('switch', { name: '思考时展开，结束后收起' }).click();
   await closeSettings(page);
   await load(thinkingHistory, true);
   await page.waitForFunction(() => document.querySelector('.messages .thinking')?.dataset.expanded === 'true');
@@ -229,8 +250,9 @@ try {
   assert.equal(await liveThinking.getAttribute('data-expanded'), 'false', 'thinking deltas preserve manual folding');
   await openSettings(page);
   await preset(page, '详细');
+  await settings(page).getByRole('switch', { name: '思考时展开，结束后收起' }).click();
   await closeSettings(page);
-  assert.equal(await liveThinking.getAttribute('data-expanded'), 'true', 'explicitly reapplying Detailed opens the current thought');
+  assert.equal(await liveThinking.getAttribute('data-expanded'), 'true', 'reapplying the custom streaming option opens the current thought');
   const withTool = [...thinkingHistory, { role: 'assistant', content: [
     { type: 'toolCall', id: 'live-tool', name: 'read_file', arguments: { path: 'live.ts' } },
   ] }];
@@ -242,7 +264,7 @@ try {
   await load([...withTool, { role: 'toolResult', toolCallId: 'live-tool', toolName: 'read_file', content: 'ok' }], true);
   assert.equal(await liveThinking.getAttribute('data-expanded'), 'true', 'manual reopening after completion survives subsequent activity');
   await openSettings(page);
-  await preset(page, '简洁');
+  await preset(page, '标准');
   await closeSettings(page);
   await load(thinkingHistory, true);
   const compact = messages.locator('.compact-process');
@@ -302,13 +324,14 @@ try {
     await openSettings(page);
     await preset(page, mode);
     await closeSettings(page);
-    assert.equal(await messages.locator('.thinking').count(), 9);
+    assert.equal(await messages.locator('.thinking').count(), mode === '简洁' ? 0 : 9);
     assert.equal(await messages.locator('.thinking[data-expanded="true"]').count(), 0, 'completed historical thinking remains folded in every preset');
     assert.equal(await messages.locator('.process-tool[open]').count(), 0);
     assert.equal(await page.locator('.jump-to-bottom').isVisible(), true, 'changing presentation must not force an old-history reader to the bottom');
     assert.deepEqual((await page.evaluate(() => window.desktop.snapshot())).messages, olderHistory, 'presentation never rewrites history');
   }
   await openSettings(page);
+  await preset(page, '详细');
   await enableToolDetails(page);
   await closeSettings(page);
   assert.equal(await messages.locator('.process-tool[open]').count(), 12, 'custom expansion also applies to every historical round');

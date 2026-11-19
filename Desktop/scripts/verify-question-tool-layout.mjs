@@ -42,8 +42,20 @@ try {
           assert.ok(row.row.right <= width, 'Row must not overflow the viewport');
           if (width <= 600) assert.ok(row.truncated, 'Long question should be ellipsized in narrow layouts');
         }
-        await page.locator('summary.question-tool-summary').click();
+        const summary = page.locator('summary.question-tool-summary');
+        assert.equal(await summary.locator('.disclosure-chevron > svg[width="14"][aria-hidden="true"]').count(), 1);
+        await summary.press('Enter');
         assert.equal(await page.locator('details.process-tool').getAttribute('open'), '');
+        const nestedSummaries = page.locator('.process-tool-content > details > summary');
+        assert.equal(await nestedSummaries.count(), 2);
+        for (const nested of await nestedSummaries.all()) {
+          assert.equal(await nested.locator('.disclosure-chevron > svg[width="14"][aria-hidden="true"]').count(), 1);
+          assert.equal(await nested.evaluate(element => getComputedStyle(element).listStyleType), 'none');
+          await nested.press('Space');
+          assert.equal(await nested.evaluate(element => element.parentElement.open), true);
+          await nested.press('Space');
+          assert.equal(await nested.evaluate(element => element.parentElement.open), false);
+        }
         await page.getByRole('button', { name: lang === 'zh' ? '打开待回答问题' : 'Open pending questions' }).click();
         assert.equal(await page.locator('html').getAttribute('data-question-opened'), 'true');
         if (width === 600 && lang === 'zh') await page.screenshot({ path: `test-results/question-tool-${theme}.png` });

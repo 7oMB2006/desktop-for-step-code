@@ -8,7 +8,8 @@ import { join, resolve } from 'node:path';
 import { closeDesktopFixtureAndWait } from './close-desktop-fixture.mjs';
 
 const profile = await mkdtemp(join(tmpdir(), 'step-stream-motion-'));
-await writeFile(join(profile, 'preferences.json'), JSON.stringify({ language: 'zh', theme: 'dark', workspaces: [] }));
+await writeFile(join(profile, 'preferences.json'), JSON.stringify({ language: 'zh', theme: 'dark', workspaces: [],
+  interfaceSettings: { preset: 'detailed' } }));
 await mkdir('test-results', { recursive: true });
 const env = { ...process.env, DESKTOP_TEST_USER_DATA: profile, DESKTOP_TEST_NO_FOCUS: '1' };
 delete env.ELECTRON_RUN_AS_NODE;
@@ -170,7 +171,7 @@ try {
   const thinking = page.locator('.thinking').last();
   await page.locator('.sent-attachment').getByText('实验二.doc', { exact: true }).waitFor();
   assert.equal(await page.locator('.message.user').last().textContent().then(text => text.includes('不是已解析')), false);
-  // Standard now starts folded; explicitly open it to exercise the same animation.
+  // Explicitly open the default-folded thought to exercise the animation.
   await thinking.locator('summary').click();
   await thinking.locator('.thinking-body').waitFor({ state: 'visible' });
   await thinking.locator('.thinking-body').evaluate(async element => {

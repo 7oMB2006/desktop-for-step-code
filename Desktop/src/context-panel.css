@@ -80,7 +80,7 @@
 .context-message-list { position: relative; }
 .context-message-row { position: absolute; top: 0; left: 0; width: 100%; }
 .context-message { border-bottom: 1px solid var(--border); }
-.context-message summary { display: grid; grid-template-columns: 22px minmax(0, 1fr) 13px; gap: 8px; padding: 12px 8px; border-radius: 6px; cursor: pointer; list-style: none; align-items: center; }
+.context-message summary { display: grid; grid-template-columns: 22px minmax(0, 1fr) 14px; gap: 8px; padding: 12px 8px; border-radius: 6px; cursor: pointer; list-style: none; align-items: center; }
 .context-message summary::-webkit-details-marker { display: none; }
 .context-message summary:is(:hover, :focus-visible) { background: var(--surface); }
 .context-message summary:focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; }
@@ -92,8 +92,7 @@
 .context-message-preview { font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }
 .context-role-user .context-message-caption b { color: var(--context-input); }
 .context-role-toolResult .context-message-caption b { color: var(--context-cache); }
-.context-message-chevron { color: var(--muted); transition: transform .15s; }
-.context-message[open] .context-message-chevron { transform: rotate(90deg); }
+.context-message-chevron { color: var(--muted); }
 .context-json { margin: 0 0 12px 30px; padding-left: 10px; border-left: 2px solid var(--context-input); background: var(--side); }
 .context-json-tools { display: flex; align-items: center; justify-content: space-between; padding: 4px 5px 0 0; }
 .context-json-tools > span { font-family: "Cascadia Code", Consolas, monospace; color: var(--muted); font-size: 9px; }
@@ -107,4 +106,4 @@
 .context-message-empty { padding: 20px 0; font-size: 12px; color: var(--muted); }
 .context-panel .is-refreshing svg { animation: context-refresh 1s linear infinite; }
 @keyframes context-refresh { to { transform: rotate(360deg); } }
-@media (prefers-reduced-motion: reduce) { .context-panel, .context-panel .is-refreshing svg { animation: none; } .context-message-chevron { transition: none; } }
+@media (prefers-reduced-motion: reduce) { .context-panel, .context-panel .is-refreshing svg { animation: none; } }

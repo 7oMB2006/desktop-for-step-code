@@ -598,7 +598,7 @@ the reader has not paused it, and nested tool-output scrolling stays native.
 
 User and assistant messages do not show role headings. User message copy/edit controls and the timestamp appear below the bubble on hover or keyboard focus, reserving their layout space. Edit restores a copy of the message and its images into an empty composer for sending as a new message; it does not rewrite, rewind or fork runtime history. Existing drafts are not overwritten.
 
-Responses group consecutive assistant and tool messages until the next user message for a shared footer, not for hiding prose. All assistant narration remains visible in source order during execution and after completion; no last-message heuristic extracts a final answer. Tool summaries describe the action in the client language instead of exposing raw tool names and commands. Known built-ins and aliases have localized action labels; unknown tools retain their names without invented descriptions. Running summaries have an oblique label and a left-to-right shimmer; only a tool's final result stops that animation and smoothly restores upright text. Failed summaries are upright and red; missing results are explicitly distinguished from success. Reduced-motion disables shimmer and transition effects. Raw names, targets, inputs, outputs and completion status stay in the individual expanded details, with results matched by tool-call ID rather than completion order. Thinking and tool disclosure defaults follow Interface Complexity settings, including while streaming; later prose, completion and interruption do not override a manual disclosure choice. Narration and tool summaries remain visible, with consecutive ordinary summaries optionally combined into an expandable group. The footer has Copy and Branch from here, enabled only for the latest saved assistant reply while its session is idle, with the actual message timestamp shown on hover/focus. Copy includes all response prose, excluding thinking and tool payloads. No per-response model policy or invented duration is implemented.
+Responses group consecutive assistant and tool messages until the next user message for a shared footer, not for hiding prose. All assistant narration remains visible in source order during execution and after completion; no last-message heuristic extracts a final answer. Visible tool summaries describe the action in the client language instead of exposing raw tool names and commands. Known built-ins and aliases have localized action labels; unknown tools retain their names without invented descriptions. Running summaries have an oblique label and a left-to-right shimmer; only a tool's final result stops that animation and smoothly restores upright text. Failed summaries are upright and red; missing results are explicitly distinguished from success. Reduced-motion disables shimmer and transition effects. Raw names, targets, inputs, outputs and completion status stay in the individual expanded details, with results matched by tool-call ID rather than completion order. Thinking and tool visibility and disclosure defaults follow Interface Complexity settings, including while streaming; later prose, completion and interruption do not override a manual disclosure choice. The footer has Copy and Branch from here, enabled only for the latest saved assistant reply while its session is idle, with the actual message timestamp shown on hover/focus. Copy includes all response prose, excluding thinking and tool payloads. No per-response model policy or invented duration is implemented.
 
 ## Mathematical Notation
 
@@ -634,6 +634,14 @@ the source conversation; it never approves a request. Foreground activation,
 resolved requests, disabled options and new work withdraw obsolete banners.
 Windows Do Not Disturb remains an operating-system choice and is not bypassed.
 The behavior and verification boundary are documented in `docs/NOTIFICATIONS.md`.
+
+The Windows main taskbar icon and macOS Dock show a native numeric badge for
+conversations with an unread successful completion, independently of banners and sound. A
+selected conversation can still count when its window is unfocused or minimized.
+Viewing that conversation in focused main or MiniChat, archiving it, or starting
+its next turn clears its count. The overlay shows at most `9+`; unread state is
+session-scoped and lasts only until application exit. Do not add a duplicate
+in-app badge or change the tray icon.
 
 Closing the main window hides it to the Windows tray without stopping Agent tasks, queued messages, terminal processes or browser tabs. The tray uses the product icon and supplies Open and Quit in the selected language. Clicking it or launching another instance restores the existing window. File > Quit application and tray Quit perform the existing confirmed shutdown and wait for runtime/terminal cleanup; cancellation keeps the application available. A failed tray creation falls back to the explicit shutdown path instead of hiding an unreachable window. Windows session end does not request interactive task confirmation.
 
@@ -683,19 +691,32 @@ Both application menus have matching light/dark surfaces, trackless scrolling, b
 
 Local HTML uses an ephemeral, credential-free browser partition and a loopback server with unpredictable page URLs. Only the selected HTML and its bounded, declared same-directory asset graph are served, including CSS and literal module dependencies. Root-relative declared assets are rewritten into the page's capability URL; source files are unchanged. Sensitive paths, arbitrary neighboring files, downloads, external network requests, permissions and Node/IPC access are blocked. This is a constrained offline artifact preview, not a general local web server: pages depending on remote APIs/CDNs should be explicitly opened in a system application instead.
 
+## Subagent Models
+
+Settings > General uses an unframed row per built-in Step Code role with
+provider-qualified model selection, a supported thinking-level selector and
+an explicit per-row save. Inherit is the default; an unavailable saved value
+remains visible until repaired or cleared. Keep focus and report save failures
+in place. Saves apply to new ordinary delegations, without switching or
+restarting the parent or changing Workflow or already-started children.
+Subagent details distinguish confirmed runtime model and source from unverified
+legacy records. An invalid explicit role selection must fail before sending the
+child prompt, without silently substituting another model.
+
 ## Interface Complexity
 
 Interface complexity is a dedicated Settings category, separate from typography.
 Simple, Standard and Detailed are presentation presets, not permission or model
-capability tiers. Simple folds consecutive thinking and ordinary tools into
-one process row between prose segments and hides the performance strip.
-Its live row shows the current tool or latest thinking preview; its settled
-row summarizes the actual tools, with all original records available inside.
-Standard folds thinking and groups adjacent ordinary tools while keeping
-the performance strip visible. Detailed keeps individual tool rows and opens
-thinking only while that block is receiving output, folding it when a tool,
-prose or turn completion follows. All presets fold tool details. Each option is
-independently customizable, with manual changes retaining the Custom label.
+capability tiers. Simple omits thinking and ordinary tool rows from the
+transcript without modifying history, prose, artifacts or runtime controls.
+Standard folds consecutive thinking and ordinary tools into one process row
+between prose segments. Its live row shows the current tool or latest thinking
+preview; its settled row summarizes the actual tools, with all original records
+available inside.
+Detailed keeps thinking on separate rows and groups adjacent ordinary tools.
+All presets fold tool details and enable the performance strip. Custom can
+disable the strip, show individual tool rows or expand thinking while it streams.
+Thinking expansion and grouping options are inactive while process rows are hidden.
 The default for missing preferences is Standard. Settings are stored in the
 Desktop profile, not browser localStorage or the personal Step Code profile.
 

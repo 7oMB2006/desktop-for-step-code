@@ -75,12 +75,17 @@ try {
   const mainId = await app.evaluate(({ BrowserWindow, Notification }) => {
     const window = BrowserWindow.getAllWindows()[0];
     window.setOpacity(0); window.setIgnoreMouseEvents(true); window.showInactive(); window.setSize(1200, 850);
-    globalThis.noticeFixture = { notices: [], nativeShow: Notification.prototype.show, nativeClose: Notification.prototype.close,
+    globalThis.noticeFixture = { notices: [], overlays: [], nativeShow: Notification.prototype.show, nativeClose: Notification.prototype.close,
       focusedId: undefined };
     // Exercise the real foreground predicate without stealing the owner's OS focus.
     BrowserWindow.prototype.isFocused = function () { return globalThis.noticeFixture.focusedId === this.id; };
     Notification.prototype.show = function () { globalThis.noticeFixture.notices.push(this); };
     Notification.prototype.close = function () { this.testClosed = true; this.emit('close', { reason: 'applicationHidden' }); };
+    const setOverlayIcon = BrowserWindow.prototype.setOverlayIcon;
+    if (process.platform === 'win32') BrowserWindow.prototype.setOverlayIcon = function (icon, description) {
+      setOverlayIcon.call(this, icon, description);
+      globalThis.noticeFixture.overlays.push({ id: this.id, size: icon?.getSize() ?? null, description });
+    };
     return window.id;
   });
   await prepareSessionFixture(page);
@@ -105,6 +110,17 @@ try {
     globalThis.noticeFixture.focusedId = id;
     if (id !== null) BrowserWindow.fromId(id).emit('focus');
   }, id);
+  const expectBadge = async count => {
+    if (process.platform === 'darwin') {
+      assert.equal(await app.evaluate(({ app }) => app.dock.getBadge()), count ? String(count) : '');
+      return;
+    }
+    if (process.platform !== 'win32') return;
+    assert.deepEqual(await app.evaluate(() => globalThis.noticeFixture.overlays.at(-1)), {
+      id: mainId, size: count ? { width: 16, height: 16 } : null,
+      description: count ? `${count} 个会话有未读回复` : '',
+    });
+  };
   const openGeneral = async name => {
     await page.locator('.sidebar-settings').click();
     await page.getByRole('button', { name, exact: true }).click();
@@ -182,11 +198,12 @@ try {
   } finally { await rmdir(join(profile, 'preferences.json.tmp')); }
   checks.push('strict IPC validation and real filesystem save-failure rollback');
   await preferences({ approvalNotifications: true, completionNotifications: false, completionSound: false });
-  await start('NOTIFY-A');
+  const a = await start('NOTIFY-A');
   await page.getByRole('button', { name: '新建会话', exact: true }).click();
   finish('NOTIFY-A'); await idle();
   assert.equal(await count(), 0);
   assert.equal(await page.evaluate(() => window.completionPlays.length), 0);
+  await expectBadge(1);
   checks.push('default silent background completion');
 
   await preferences({ completionSound: true });
@@ -209,12 +226,19 @@ try {
   await page.waitForFunction(() => window.completionPlays.length === 1);
   assert.equal(await mini.evaluate(() => window.completionPlays.length), 0);
   assert.equal(await count(), 0);
+  await expectBadge(2);
+  await focus(miniId);
+  await expectBadge(1);
+  await mini.evaluate(id => window.desktop.navigateSession(id), a.state.sessionId);
+  await expectBadge(0);
+  await focus(null);
   checks.push('completion sound independent of banners and played once across main/MiniChat');
 
   await preferences({ completionSound: false, completionNotifications: true });
   await start('NOTIFY-E');
   await focus(mainId); finish('NOTIFY-E'); await idle();
   assert.equal(await count(), 0, 'Focused main conversation must stay quiet');
+  await expectBadge(0);
   await focus(null);
   const f = await start('NOTIFY-F');
   await mini.evaluate(id => window.desktop.navigateSession(id), f.state.sessionId);

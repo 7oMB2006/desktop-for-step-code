@@ -1,0 +1,26 @@
+.subagent-role-settings { min-width: 0; padding: 4px; }
+.subagent-role-settings .subagent-role-scope { margin: 0 0 12px; color: var(--muted); }
+.subagent-role-row {
+  display: grid;
+  grid-template-columns: minmax(max-content, .55fr) minmax(0, 1.7fr) minmax(90px, .85fr) max-content;
+  gap: 8px 12px;
+  align-items: end;
+  padding: 12px 4px;
+  border-bottom: 1px solid var(--border);
+}
+.settings-content .subagent-role-row > label { margin: 0; min-width: 0; }
+.subagent-role-row .appearance-select, .subagent-role-row select { width: 100%; min-width: 0; }
+.subagent-role-name { display: flex; align-items: center; gap: 8px; align-self: center; }
+.subagent-role-name-text { display: grid; gap: 4px; }
+.subagent-role-name small, .subagent-role-result { color: var(--muted); }
+.subagent-role-result { grid-column: 2 / -1; }
+.subagent-role-result[role="alert"] { color: var(--danger); }
+.subagent-role-row button[aria-disabled="true"] { opacity: .6; cursor: default; }
+@media (max-width: 650px) {
+  .subagent-role-row { grid-template-columns: minmax(0, 1.45fr) minmax(85px, 1fr) max-content; }
+  .subagent-role-name, .subagent-role-result { grid-column: 1 / -1; }
+}
+@media (max-width: 400px) {
+  .subagent-role-row { grid-template-columns: minmax(0, 1fr) max-content; }
+  .subagent-role-row > label:first-of-type { grid-column: 1 / -1; }
+}

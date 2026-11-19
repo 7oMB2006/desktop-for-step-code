@@ -71,6 +71,7 @@ import { diagnoseCapabilityMutation, type CapabilityPhaseMarker } from './capabi
 import { capabilityFailureDetails } from './capability-failure.mjs';
 import { UsageEstimates } from './usage-estimates';
 import { providerInfos, providerModelNames, runtimeAuth, mergeRuntimeAuth, saveProviderAuth, deleteProviderAuth, projectProviders, discoverProviderModels, keylessEnvironment } from './custom-providers';
+import { SubagentRoleStore } from './subagent-role-store';
 import { DesktopNetwork, validateNetwork } from './network';
 import { ModelCatalog } from './model-catalog';
 import { testProvider } from './provider-diagnostic';
@@ -108,6 +109,7 @@ import { NativeUpdateDriver } from './native-update-driver';
 import { cleanInstalledUpdate } from './update-cache';
 import { DesktopTray } from './desktop-tray';
 import { DesktopNotifications } from './desktop-notifications';
+import { TaskbarBadge, completionBadgeText, taskbarBadgeBitmap, taskbarBadgeSize } from './taskbar-badge';
 import { notificationPreferences, notificationPreferencePatch } from '../src/notification-preferences';
 import { QuitReview, quitReasons, needsQuitReview } from './quit-review';
 import { quitConfirmation } from '../src/quit-confirmation';
@@ -274,6 +276,7 @@ async function importAttachment(path: string) {
 }
 const runtimeRoot = app.isPackaged ? join(process.resourcesPath, 'runtime') : resolve('runtime');
 const dataRoot = join(app.getPath('userData'), 'step-runtime');
+const subagentRoleStore = new SubagentRoleStore(join(dataRoot, 'desktop-subagent-models.json'));
 const pluginConnections = new PluginConnections(dataRoot);
 const externalPreparing = new Set<SessionRuntime>();
 let preparingExternal = false;
@@ -537,6 +540,13 @@ function publishModelSelection(worker: import('./session-runtimes').SessionRunti
 }
 const runtimes: SessionRuntimes = new SessionRuntimes(event => {
   notifications.handle(event);
+  if (taskbarBadge) {
+    if (event.type === 'desktop_task_completed' && event.sessionId) taskbarBadge.complete(event.sessionId);
+    else if (event.type === 'agent_start') {
+      const sessionId = runtimes.workers.get(event.runtimeId)?.state?.sessionId;
+      if (sessionId) taskbarBadge.clear(sessionId);
+    } else if (event.type === 'desktop_runtimes') taskbarBadge.sync();
+  }
   if (event.type === 'desktop_task_completed') event = { ...event, playSound: preferences.completionSound === true };
   const queueWorker = runtimes.workers.get(event.runtimeId);
   if (event.type === 'desktop_btw') {
@@ -652,15 +662,34 @@ const runtimes: SessionRuntimes = new SessionRuntimes(event => {
     else pendingMessages.clear(worker);
   },
 });
+function isForegroundSession(sessionId: string) {
+  const focused = (view?: BrowserWindow) => Boolean(view && !view.isDestroyed()
+    && view.isVisible() && !view.isMinimized() && view.isFocused());
+  return !sessionDraft && runtimes.active?.state?.sessionId === sessionId && focused(window)
+    || !miniView.draft && miniView.worker?.state?.sessionId === sessionId && focused(miniChat?.window);
+}
+const taskbarBadge = process.platform === 'win32' || process.platform === 'darwin' ? new TaskbarBadge({
+  foreground: isForegroundSession,
+  archived: id => preferences.archivedSessionIds?.includes(id) ?? false,
+  language: () => preferences.language,
+  apply: (count, description) => {
+    try {
+      if (process.platform === 'darwin') {
+        if (!app.isReady() || !app.dock) return false;
+        app.dock.setBadge(completionBadgeText(count));
+        return true;
+      }
+      if (!window || window.isDestroyed() || !window.isVisible()) return false;
+      window.setOverlayIcon(count ? nativeImage.createFromBitmap(taskbarBadgeBitmap(count),
+        { width: taskbarBadgeSize, height: taskbarBadgeSize }) : null, description);
+      return true;
+    } catch { return false; }
+  },
+}) : undefined;
 const notifications = new DesktopNotifications({
   preferences: () => preferences,
   workers: () => runtimes.workers,
-  foreground: sessionId => {
-    const focused = (view?: BrowserWindow) => Boolean(view && !view.isDestroyed()
-      && view.isVisible() && !view.isMinimized() && view.isFocused());
-    return !sessionDraft && runtimes.active?.state?.sessionId === sessionId && focused(window)
-      || !miniView.draft && miniView.worker?.state?.sessionId === sessionId && focused(miniChat?.window);
-  },
+  foreground: isForegroundSession,
   create: options => Notification.isSupported() ? new Notification({
     ...options, icon: app.isPackaged ? join(process.resourcesPath, process.platform === 'darwin' ? 'icon.png' : 'icon.ico')
       : resolve(process.platform === 'darwin' ? 'build/icon.png' : 'build/icon.ico'),
@@ -2503,6 +2532,7 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
             await workflowBindings.remove(target.id);
             sessionCatalog = sessionCatalog.filter(session => session.id !== target.id);
             runtimes.unreadSessionIds.delete(target.id);
+            taskbarBadge?.clear(target.id);
             preferences.archivedSessionIds = preferences.archivedSessionIds?.filter(id => id !== target.id);
             preferences.sessionOrder = preferences.sessionOrder?.filter(id => id !== target.id);
             await savePreferences();
@@ -2884,6 +2914,15 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
       return stepPage.prepare((bundlePath, homePath) => admin.request('prepare_steppage', { bundlePath, homePath }));
     }
     case 'compactionSettings': return admin.request('compaction_settings');
+    case 'subagentRoleSettings': {
+      const available = runtimeManifest.patches?.includes('desktop-subagent-role-models') === true;
+      return { available, values: available ? await subagentRoleStore.read() : {} };
+    }
+    case 'saveSubagentRole': {
+      if (!runtimeManifest.patches?.includes('desktop-subagent-role-models')) throw new Error('Unsupported subagent role settings');
+      const current = await viewSnapshot(undefined, false);
+      return subagentRoleStore.save(args[0], args[1], current.models.map(model => ({ ...model, thinkingLevels: modelThinkingLevels(model) })));
+    }
     case 'saveCompactionSettings': return admin.request('save_compaction_settings', { update: args[0] });
     case 'speechSettings':
       return speechSettings(authData, appliedAuthData, settingsMutation || providerSettingsPending || providerApplyFailed);
@@ -3257,6 +3296,7 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
         throw error;
       }
       notifications.sync();
+      taskbarBadge?.sync();
       window.setBackgroundColor(resolveTheme(preferences.theme, nativeTheme.shouldUseDarkColors, preferences.accentColor).tokens['--bg']);
       miniChat?.window?.setBackgroundColor(resolveTheme(preferences.theme, nativeTheme.shouldUseDarkColors, preferences.accentColor).tokens['--bg']);
       pluginWindows?.setBackground(resolveTheme(preferences.theme, nativeTheme.shouldUseDarkColors, preferences.accentColor).tokens['--bg']);
@@ -3493,7 +3533,7 @@ else app.whenReady().then(async () => {
     error: error => { void crashLog.record('mini-chat-window', error); },
     created: view => {
       watchComposerWindow(view);
-      view.on('focus', () => notifications.sync());
+      view.on('focus', () => { notifications.sync(); taskbarBadge?.sync(); });
     },
   });
   pluginWindows = new PluginWindows({
@@ -3540,7 +3580,9 @@ else app.whenReady().then(async () => {
   window.on('enter-full-screen', windowState);
   window.on('leave-full-screen', windowState);
   window.on('focus', windowState);
-  window.on('focus', () => notifications.sync());
+  window.on('focus', () => { notifications.sync(); taskbarBadge?.sync(); });
+  window.on('show', () => taskbarBadge?.sync(true));
+  window.on('restore', () => taskbarBadge?.sync(true));
   window.on('blur', windowState);
   window.on('hide', () => speech.cancel());
   window.webContents.setWindowOpenHandler(({ url }) => { try { const u = new URL(url); if (['https:', 'http:'].includes(u.protocol)) void shell.openExternal(u.href); } catch {} return { action: 'deny' }; });

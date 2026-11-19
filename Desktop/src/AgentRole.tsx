@@ -1,4 +1,4 @@
-import { Bot, CodeXml, FlaskConical, ScanSearch, ShieldCheck, type LucideIcon } from 'lucide-react';
+import { Bot, CodeXml, FlaskConical, ListTodo, ScanSearch, ShieldCheck, type LucideIcon } from 'lucide-react';
 import './agent-role.css';
 
 type Role = {
@@ -15,6 +15,8 @@ const roles: Record<string, Role> = {
     empty: ['尚未返回探索记录', 'No exploration notes returned yet'] },
   review: { icon: ShieldCheck, name: ['审查', 'Review'], output: ['审查结论', 'Review notes'],
     empty: ['尚未返回审查结论', 'No review notes returned yet'] },
+  planner: { icon: ListTodo, name: ['规划', 'Planner'], output: ['规划结果', 'Plan'],
+    empty: ['尚未返回规划结果', 'No plan returned yet'] },
   implement: { icon: CodeXml, name: ['实现', 'Implement'], output: ['实现产出', 'Implementation output'],
     empty: ['尚未返回实现产出', 'No implementation output returned yet'] },
   test: { icon: FlaskConical, name: ['测试', 'Test'], output: ['验证记录', 'Verification notes'],

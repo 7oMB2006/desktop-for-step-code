@@ -1,5 +1,6 @@
 import { createContext, useContext } from 'react';
-import { Check, CircleHelp, ChevronRight } from 'lucide-react';
+import { Check, CircleHelp } from 'lucide-react';
+import { DisclosureChevron } from './DisclosureChevron';
 import type { ResponseItem } from './conversation-presentation';
 import type { Questionnaire } from './questionnaire';
 import { questionsFrom } from './questionnaire';
@@ -31,7 +32,7 @@ export function QuestionTool({ item, waitingApproval, zh }: {
     : <span className="process-tool-label">{label}</span>}
     <span className="question-beta">Beta</span>
     {questions && <span className="question-tool-subject">{questions[0].question}</span>}
-    {!pending && <ChevronRight size={13} className="disclosure-chevron"/>}</>;
+    {!pending && <span className="disclosure-chevron"><DisclosureChevron/></span>}</>;
   return pending ? <div className={`process-tool ${state}`} data-message-index={item.index} data-tool-state={state}>
     <div className="question-tool-summary">{summary}</div>
   </div> : <details className={`process-tool ${state}`} data-message-index={item.index} data-tool-state={state}>
@@ -44,8 +45,8 @@ export function QuestionTool({ item, waitingApproval, zh }: {
         return <div className="question-record" key={i}><strong>{question.question}</strong>{value && <p>{value}</p>}</div>;
       })}
       {answered && <div className="process-tool-status"><Check size={12}/><span>{label}</span></div>}
-      <details className="tool-input"><summary>{zh ? '调用参数' : 'Tool input'}</summary><pre>{JSON.stringify(item.call?.arguments ?? {}, null, 2)}</pre></details>
-      {item.result && <details className="tool-output"><summary>{zh ? '原始结果' : 'Raw result'}</summary>
+      <details className="tool-input"><summary><span className="disclosure-chevron"><DisclosureChevron/></span>{zh ? '调用参数' : 'Tool input'}</summary><pre>{JSON.stringify(item.call?.arguments ?? {}, null, 2)}</pre></details>
+      {item.result && <details className="tool-output"><summary><span className="disclosure-chevron"><DisclosureChevron/></span>{zh ? '原始结果' : 'Raw result'}</summary>
         <pre>{resultText}</pre></details>}
     </div>
   </details>;

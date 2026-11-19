@@ -111,6 +111,7 @@ export const acceptanceGroups = {
     'verify-auto-resume-electron.mjs',
     'verify-performance-runtime.mjs',
     'verify-subagent-status.mjs',
+    'verify-subagent-role-models.mjs',
     'verify-workflow.mjs',
     'verify-chain-runtime.mjs',
     'verify-windows-commands.mjs',

@@ -1,3 +1,5 @@
+@import './select-indicator.css';
+
 :root { --ui-font: "Segoe UI", "Microsoft YaHei", sans-serif; --body-font: var(--ui-font); --code-font: "Cascadia Code", Consolas, "Microsoft YaHei", monospace; --ui-size: 14px; --ui-delta: 0px; --body-size: 15px; --code-size: 13px; --body-leading: 1.75; font-family: var(--ui-font); }
 .sidebar .session-row span, .workspace-heading, .sidebar-bottom > button, .settings-layout > nav button, .right-panel-header h2 { font-size: calc(13px + var(--ui-delta)); }
 .settings-content { font-size: var(--ui-size); }
@@ -13,12 +15,6 @@
 .appearance-settings h4 { font-size: var(--ui-size); font-weight: 600; margin: 22px 0 8px; }
 .appearance-row { display: flex; align-items: center; justify-content: space-between; gap: 20px; margin: 0; padding: 10px 0; border-bottom: 1px solid var(--border); font-size: var(--ui-size); }
 .appearance-row select { width: 180px; font-size: var(--ui-size); }
-.appearance-select { position: relative; display: inline-flex; width: 180px; max-width: 100%; }
-.appearance-select select { width: 100%; padding-right: 32px; }
-.appearance-select select::picker-icon { display: none; }
-.appearance-select > svg { position: absolute; right: 11px; top: 50%; margin-top: -7px; color: var(--muted); pointer-events: none; transition: transform .2s cubic-bezier(.215,.61,.355,1); }
-.appearance-select:has(select:open) > svg { transform: rotate(180deg); }
-@media(prefers-reduced-motion:reduce) { .appearance-select > svg { transition: none; } }
 .appearance-number { display: flex; align-items: center; gap: 8px; }
 .appearance-number input { width: 84px; text-align: right; font-variant-numeric: tabular-nums; }
 .appearance-preview { margin-top: 26px; border: 1px solid var(--border); border-radius: 6px; padding: 18px; background: var(--bg); }

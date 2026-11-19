@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Check, Save, Stethoscope, LoaderCircle } from 'lucide-react';
 import type { DesktopBridge, NetworkConfig, NetworkProbe } from './contracts';
+import { DisclosureSelect } from './DisclosureSelect';
 import './network-settings.css';
 
 export function NetworkSettings({ bridge, language, busy }: { bridge: DesktopBridge; language: string; busy: boolean }) {
@@ -40,11 +41,11 @@ export function NetworkSettings({ bridge, language, busy }: { bridge: DesktopBri
     <h3 id="network-settings-title" data-settings-anchor="network">{t('网络', 'Network')}</h3>
     {!config ? <p role="status">{error || t('加载中…', 'Loading…')}</p> : <>
       <fieldset disabled={working || busy}>
-        <label>{t('代理模式', 'Proxy mode')}<select aria-label={t('代理模式', 'Proxy mode')} value={config.mode} onChange={event => change({ mode: event.target.value as NetworkConfig['mode'], proxyUrl: config.proxyUrl })}>
+        <label>{t('代理模式', 'Proxy mode')}<DisclosureSelect aria-label={t('代理模式', 'Proxy mode')} value={config.mode} onChange={event => change({ mode: event.target.value as NetworkConfig['mode'], proxyUrl: config.proxyUrl })}>
           <option value="system">{t('跟随系统代理', 'Use system proxy')}</option>
           <option value="direct">{t('直连', 'Direct connection')}</option>
           <option value="manual">{t('手动代理', 'Manual proxy')}</option>
-        </select></label>
+        </DisclosureSelect></label>
         {config.mode === 'manual' && <label>{t('代理地址', 'Proxy address')}<input type="url" value={config.proxyUrl} placeholder="http://127.0.0.1:7897" spellCheck={false} autoComplete="off"
           onChange={event => change({ ...config, proxyUrl: event.target.value })}/></label>}
       </fieldset>

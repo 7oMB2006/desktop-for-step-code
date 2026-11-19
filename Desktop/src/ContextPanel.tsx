@@ -1,7 +1,8 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties, ReactNode, RefObject } from 'react';
 import { defaultRangeExtractor, useVirtualizer } from '@tanstack/react-virtual';
-import { ArrowUpRight, Check, ChevronRight, Copy, RefreshCw, X } from 'lucide-react';
+import { ArrowUpRight, Check, Copy, RefreshCw, X } from 'lucide-react';
+import { DisclosureChevron } from './DisclosureChevron';
 import type { Message, RuntimeState, SessionStats } from './contracts';
 import { contextCapacityColors, contextMessageCounts, contextMessageJson, contextMessagePreview, finiteAmount, type MessageFilter } from './context-inspector';
 import './context-panel.css';
@@ -71,7 +72,7 @@ const ContextMessage = memo(function ContextMessage({ message, index, rowKey, ex
     open={expanded} onToggle={event => onToggle(rowKey, event.currentTarget.open)}>
     <summary><span className="context-message-number">{String(index + 1).padStart(2, '0')}</span>
       <span className="context-message-caption"><span><b>{messageRole(role, language)}</b><time>{messageTime(message.timestamp, timeFormat)}</time></span>
-        <span className="context-message-preview">{contextMessagePreview(message)}</span></span><ChevronRight className="context-message-chevron" size={13}/></summary>
+        <span className="context-message-preview">{contextMessagePreview(message)}</span></span><span className="disclosure-chevron context-message-chevron"><DisclosureChevron/></span></summary>
     {expanded && <MessageJson message={message} language={language} onError={onError}/>}
   </details>;
 });

@@ -1,6 +1,10 @@
 import { toolPresentation, toolSubject, type ResponseItem } from './conversation-presentation';
 import { groupableTool, toolGroupLabel } from './tool-groups';
 
+export function hideOrdinaryProcess(content: ResponseItem[], active: boolean, awaiting: readonly string[] = []): ResponseItem[] {
+  return content.filter(item => item.type !== 'thinking' && !groupableTool(item, active, awaiting));
+}
+
 export type ProcessItem = Extract<ResponseItem, { type: 'tool' }> | (ResponseItem & { type: 'thinking' });
 export type ProcessGroup = { type: 'process-group'; key: string; index: number; items: ProcessItem[]; running: boolean };
 

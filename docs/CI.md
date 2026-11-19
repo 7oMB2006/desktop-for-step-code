@@ -249,6 +249,26 @@ runner; a failing group does not cancel its siblings.
 Preparation retains its 90-minute limit; each group has a 60-minute limit.
 Per-script deadlines and owned-process cancellation rules are unchanged.
 
+The macOS groups are scheduling assignments, not Windows ownership boundaries.
+To rebalance, sum each script's source and packaged `seconds` in the three
+`macos-receipt-*` artifacts. Compare per-script medians across successful full
+runs; replay proposed assignments on a held-out run before changing them.
+Measure the longest group, queue delay and end-to-end time separately.
+Runs `44341445285`, `44461389116` and `44468696520` informed the November 19
+split; `44357813571` was held out. No group runs two interactive fixtures at once.
+
+### Triage before the final gate
+
+| First signal | Evidence and smallest useful follow-up |
+| --- | --- |
+| Runner never starts | Inspect job annotations and steps. Distinguish allocation failure from cancellation by a newer commit. If still current, rerun failed jobs in the same run; do not change code for an allocation failure. |
+| Typecheck or protocol fails | Read the first compiler error or failing file in the protocol summary/TAP. From a prepared `Desktop/` run `corepack pnpm typecheck` or `corepack pnpm exec tsx --test --test-concurrency=1 tests/<file>.test.ts`. |
+| Source Electron fails | Read the group's first failing script and its source log. On the affected platform, build and stage the runtime, then run `node scripts/verify-<name>.mjs` from `Desktop/` with the source environment. |
+| Packaged Electron fails | Inspect the package log, not the source pass. On macOS reproduce with the verified candidate and both executable/resource variables from `macos-acceptance.yml`. Reuse successful preparation only when its artifact is available and commit/hash match; a different candidate must be revalidated by all groups. |
+
+Targeted passes are diagnostic. Keep sibling results, the complete ordered
+source/package receipts, and the final required checks as the merge evidence.
+
 The final `ARM64 build, tests and packaged acceptance` check preserves the old
 required-check name and runs even after failures. `scripts/ci-macos-policy.mjs`
 validates classification and documentation outcomes before choosing its route.

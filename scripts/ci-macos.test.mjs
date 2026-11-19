@@ -17,6 +17,12 @@ test('macOS inherits shared feature coverage with only explicit native exclusion
   assert.deepEqual(Object.keys(macosExclusions), ['verify-windows-commands.mjs', 'verify-plugin-update-electron.mjs']);
   assert.match(macosExclusions['verify-plugin-update-electron.mjs'], /Windows Job Object/);
   const scripts = macosGroupScripts('all');
+  const expected = Object.values(acceptanceGroups).flat().filter(script => !(script in macosExclusions));
+  assert.deepEqual([...scripts].sort(), [...expected, 'verify-macos-updater.mjs', 'verify-turn-undo.mjs'].sort());
+  for (const name of ['sessions', 'runtime']) {
+    const original = acceptanceGroups[name].filter(script => !(script in macosExclusions));
+    assert.deepEqual(macosGroupScripts(name).slice(0, original.length), original);
+  }
   assert.ok(!scripts.includes('verify-plugin-update-electron.mjs'));
   for (const script of Object.values(acceptanceGroups).flat()) {
     assert.ok(scripts.includes(script) || script in macosExclusions, script);

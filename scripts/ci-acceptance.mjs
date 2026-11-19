@@ -299,10 +299,20 @@ export const macosExclusions = {
   'verify-windows-commands.mjs': 'Requires Windows executable discovery, Git Bash and PowerShell.',
   'verify-plugin-update-electron.mjs': 'Requires Windows Job Object process-tree release and session restoration; automatic release is not supported on macOS.',
 };
+// Append moved fixtures after each group's existing work (notably native RPC).
+// Weights are source + packaged seconds from macOS receipts; see docs/CI.md.
+const macosMoves = {
+  runtime: ['verify-plugin-center.mjs', 'verify-plugin-surfaces-electron.mjs'],
+  sessions: ['verify-mini-chat-preview.mjs', 'verify-btw.mjs', 'verify-fulltext-search.mjs',
+    'verify-capabilities.mjs', 'verify-capability-diagnostics.mjs', 'verify-workflow-catalog.mjs'],
+};
+const movedInterfaceScripts = new Set(Object.values(macosMoves).flat());
 export const macosAcceptanceGroups = Object.fromEntries(Object.entries(acceptanceGroups)
-  .map(([group, scripts]) => [group, scripts.filter(script => !(script in macosExclusions))]));
+  .map(([group, scripts]) => [group, scripts.filter(script => !(script in macosExclusions)
+    && !(group === 'interface' && movedInterfaceScripts.has(script)))]));
 macosAcceptanceGroups.interface.push('verify-macos-updater.mjs');
 macosAcceptanceGroups.sessions.push('verify-turn-undo.mjs');
+for (const [group, scripts] of Object.entries(macosMoves)) macosAcceptanceGroups[group].push(...scripts);
 
 export function macosGroupScripts(group) {
   // Exercise CPU/resource-sensitive RPC fixtures before the longer UI suites.

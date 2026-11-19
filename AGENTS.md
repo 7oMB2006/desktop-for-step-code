@@ -23,6 +23,12 @@
 - Do not add AI-client co-author attribution to commits.
 - Follow `DESIGN.md` for shared UI components, including animated disclosures and form focus states. Input, textarea and composite-field focus indicators must remain fully visible on all four sides and rounded corners; reserve space inside clipping/scroll containers and verify focused controls in light/dark and narrow layouts. Never hide the focus indicator to mask clipping.
 
+## CI Triage
+
+- Investigate the first failing job without waiting for the aggregate check. Distinguish runner allocation failures from test failures; inspect the evidence before retrying.
+- Reproduce the smallest relevant check on the failing platform and in the failing mode. A source pass does not verify a packaged failure.
+- Report targeted results separately from required CI. Follow `docs/CI.md` for reruns and candidate reuse; do not weaken acceptance gates to obtain green CI.
+
 ## Windows Package Handoff
 
 - Follow `docs/ARTIFACT_LIFECYCLE.md` for generated profiles, scratch output, retained evidence and preview-package ownership. Honor locally configured package retention, protect actively referenced or explicitly retained packages, and obtain authorization before deleting older artifacts.

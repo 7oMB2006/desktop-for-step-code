@@ -15,6 +15,7 @@ const errors = [];
 async function launch() {
   app = await electron.launch({ ...(process.env.DESKTOP_VERIFY_EXE ? { executablePath: process.env.DESKTOP_VERIFY_EXE } : { args: [resolve('.')] }), env, timeout: 60000 });
   const page = await app.firstWindow();
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
   page.on('pageerror', error => errors.push(error.message));
   await app.evaluate(({ BrowserWindow }) => {
     const win = BrowserWindow.getAllWindows()[0];
@@ -228,7 +229,7 @@ try {
     getComputedStyle(node.closest('.turn-process-slot')).transitionDuration), '0s');
   await elapsed.press('Enter');
   await page.waitForFunction(foldedHeights);
-  await page.emulateMedia({ reducedMotion: null });
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
   await messages.locator('.response-content').screenshot({ path: 'test-results/interface-mapped-simple-detail.png' });
   await load(history);
   await openSettings(page);
@@ -351,6 +352,7 @@ try {
   await page.screenshot({ path: 'test-results/interface-compact-process-light.png' });
   await page.emulateMedia({ reducedMotion: 'reduce' });
   assert.equal(await compact.locator('.tool-group-disclosure').evaluate(element => getComputedStyle(element).transitionDuration), '0s');
+  assert.equal(await compact.locator('.thinking .tool-summary-shimmer').evaluate(element => getComputedStyle(element, '::before').animationName), 'none');
   await compact.locator('.tool-group-trigger').click();
   await compact.locator('.thinking > summary').click();
   assert.equal(await compact.locator('.thinking').getAttribute('data-expanded'), 'true', 'full original thought remains accessible inside the group');

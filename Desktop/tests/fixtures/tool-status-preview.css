@@ -1,0 +1,46 @@
+.web-preview { height: 100dvh; display: flex; flex-direction: column; letter-spacing: 0; }
+.web-preview-toolbar { display: flex; align-items: center; gap: 12px; padding: 8px 14px; height: 48px; min-height: 48px; flex-shrink: 0; border-bottom: 1px solid var(--border); background: var(--bg); }
+.web-preview-label { font-size: 12px; color: var(--muted); }
+.web-preview-controls { display: flex; align-items: center; gap: 12px; margin-left: auto; }
+.web-preview-controls label { display: flex; align-items: center; gap: 8px; margin: 0; white-space: nowrap; font-size: 12px; color: var(--muted); }
+.web-preview-controls select { min-width: 132px; font-size: 12px; padding: 6px 24px 6px 9px; }
+.web-preview-layout { display: flex; flex: 1; min-height: 0; min-width: 0; }
+.web-preview-sidebar { width: 260px; flex: 0 0 260px; display: flex; flex-direction: column; padding: 16px 12px 12px; border-right: 1px solid var(--border); background: var(--side); }
+.web-preview-session-heading { margin: 32px 8px 12px; font-size: 11px; color: var(--muted); }
+.web-preview-session { width: 100%; justify-content: flex-start; border: 0; background: transparent; font-size: 12px; min-width: 0; }
+.web-preview-session span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.web-preview-session.is-selected { background: var(--surface); }
+.web-preview-sidebar-bottom { display: flex; align-items: center; gap: 9px; padding: 12px 6px 0; margin-top: auto; font-size: 11px; color: var(--muted); }
+.web-preview-main { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+.web-preview-main > .plugin-center { flex: 1; min-height: 0; }
+.web-preview-lifecycle { display: flex; flex: 1; min-height: 0; min-width: 0; }
+.web-preview-lifecycle[hidden] { display: none; }
+.web-preview-chat { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.web-preview-chat-heading { padding: 20px 28px; border-bottom: 1px solid var(--border); font-size: 13px; }
+.web-preview-messages { flex: 1; min-height: 0; overflow: auto; padding: 32px max(24px, calc((100% - 780px) / 2)); }
+.web-preview-messages h3 { font-size: 16px; margin-bottom: 12px; }
+.web-preview-composer { margin: 8px auto 24px; width: min(780px, calc(100% - 48px)); border: 1px solid var(--border); border-radius: 8px; padding: 5px; background: var(--bg); }
+.web-preview-composer textarea { width: 100%; border: 0; background: transparent; min-height: 80px; resize: vertical; padding: 12px; font-size: 13px; }
+.web-preview-composer > div { display: flex; gap: 10px; align-items: center; padding: 4px; }
+.web-preview-composer > div > span { font-size: 11px; color: var(--muted); }
+.web-preview-composer .send-button { margin-left: auto; }
+.web-preview-scheduled { padding: 28px; }
+.web-preview-mcp-row { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 16px 0; font-size: 13px; border-bottom: 1px solid var(--border); }
+.web-preview-mcp-row input { width: 16px; height: 16px; }
+.web-preview .small-dialog h2 { display: flex; align-items: center; gap: 8px; font-size: 16px; }
+.web-preview-scrim { display: none; }
+@media (max-width: 759px) {
+  .web-preview-toolbar { height: auto; min-height: 88px; flex-wrap: wrap; }
+  .web-preview-label { display: none; }
+  .web-preview-controls { flex: 1; flex-wrap: wrap; justify-content: flex-end; }
+  .web-preview-controls select { min-width: 104px; }
+  .web-preview-sidebar { position: absolute; top: 48px; left: 0; bottom: 0; z-index: 12; width: min(280px, calc(100% - 48px)); }
+  .web-preview-scrim { display: block; position: absolute; inset: 48px 0 0; z-index: 11; border: 0; border-radius: 0; background: rgb(0 0 0 / .35); }
+  .web-preview-toolbar { padding: 8px; gap: 6px; }
+  .web-preview-controls { gap: 6px; }
+  .web-preview-controls label { gap: 5px; }
+  .web-preview-controls select { min-width: 112px; padding-left: 6px; }
+  .web-preview-messages { padding: 24px 16px; }
+  .web-preview-composer { width: calc(100% - 32px); margin-bottom: 16px; }
+}
+@media (max-width: 380px) { .web-preview-label { display: none; } }

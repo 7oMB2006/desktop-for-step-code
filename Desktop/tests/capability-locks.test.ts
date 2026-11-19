@@ -23,7 +23,7 @@ test('discovery affordances remain available during a live session without claim
     { action: 'plugin-update', id: 'theme', ref: 'old', candidate: 'new' },
   ] as const) {
     assert.equal(capabilityNeedsIdle(input, catalog()), false);
-    assert.equal(capabilityNeedsIdle(input, catalog(false)), true);
+    assert.equal(capabilityNeedsIdle(input, catalog(false)), input.action !== 'plugin-install');
     assert.equal(capabilityNeedsIdle(input), true);
   }
 });
@@ -35,6 +35,6 @@ test('theme affordances require matching issued references and both sides of an 
   value.available[0].package!.dataOnlyTheme = false;
   assert.equal(capabilityNeedsIdle({ action: 'plugin-update', id: 'theme', ref: 'old', candidate: 'new' }, value), true);
   assert.equal(capabilityNeedsIdle({ action: 'plugin-update', id: 'theme', ref: 'forged', candidate: 'new' }, catalog()), true);
-  assert.equal(capabilityNeedsIdle({ action: 'plugin-toggle', id: 'theme', enabled: true }, catalog()), true);
-  assert.equal(capabilityNeedsIdle({ action: 'mcp-toggle', name: 'theme__tools', enabled: true }, catalog()), true);
+  assert.equal(capabilityNeedsIdle({ action: 'plugin-toggle', id: 'theme', enabled: true }, catalog()), false);
+  assert.equal(capabilityNeedsIdle({ action: 'mcp-toggle', name: 'theme__tools', enabled: true }, catalog()), false);
 });

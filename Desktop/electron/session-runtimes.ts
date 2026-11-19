@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import { existsSync, statSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { RpcProcess } from './runtime';
@@ -24,7 +24,7 @@ import { backgroundLaneStates, backgroundState, hasBackgroundWork, type Backgrou
 import { taskOutcome } from './task-outcome';
 export { taskOutcome } from './task-outcome';
 import { completionReview, reviewActive } from '../src/completion-review';
-import { runtimeStartup, startupBlocked, startupMissing, type RuntimeStartup } from '../src/runtime-startup';
+import { runtimeStartup, startupBlocked, type RuntimeStartup } from '../src/runtime-startup';
 
 export interface WorkerTransport {
   readonly pid?: number;
@@ -207,33 +207,23 @@ export class SessionRuntimes {
   }
   async assertExecutionReady(worker: SessionRuntime) {
     const startup = await this.readStartup(worker);
-    if (startup && (startupBlocked(startup) || startupMissing(startup).length))
+    if (startup && startupBlocked(startup))
       throw new Error('STARTUP_NOT_READY: wait for tools or reconnect this runtime');
   }
-  async submitPrompt(worker: SessionRuntime, payload: Record<string, unknown>, interactive = false, timeout = 600000) {
+  async submitPrompt(worker: SessionRuntime, payload: Record<string, unknown>, _interactive = false, timeout = 600000,
+    valid: () => boolean = () => true, dispatched: () => void = () => {}) {
     const rpc = worker.rpc, sessionId = worker.state?.sessionId;
     const state = await this.readStartup(worker);
     if (worker.status !== 'connected' || rpc !== worker.rpc || sessionId !== worker.state?.sessionId
       || this.workers.get(worker.id) !== worker) throw new Error('Session runtime is not connected');
-    let startupApproval: unknown;
-    if (state) {
-      if (startupBlocked(state)) throw new Error('STARTUP_NOT_READY: wait for tools or reconnect this runtime');
-      const missing = startupMissing(state);
-      if (missing.length) {
-        const zh = this.hooks.language?.() === 'zh';
-        if (!interactive || !await this.confirm(worker, zh ? '工具不可用' : 'Unavailable tools',
-          `${zh ? '仅本次任务排除以下不可用工具并继续？这不会启用工具或授予权限。'
-            : 'Exclude these unavailable tools for this submission only? This does not enable them or grant permission.'}\n\n${missing.join('\n')}`))
-          throw new Error('STARTUP_NOT_READY: submission was not accepted');
-        if (rpc !== worker.rpc || sessionId !== worker.state?.sessionId || this.workers.get(worker.id) !== worker)
-          throw new Error('STARTUP_NOT_READY: startup identity changed');
-        const digest = createHash('sha256').update(JSON.stringify(['prompt', payload])).digest('hex');
-        startupApproval = await rpc.request('desktop_startup', { action: 'authorize', sessionId,
-          startupEpoch: state.startupEpoch, catalogRevision: state.catalogRevision,
-          submissionId: randomUUID(), digest, missing }, 10000);
-      }
-    }
-    return rpc.request('prompt', { ...payload, ...(startupApproval ? { startupApproval } : {}) }, timeout);
+    if (state && startupBlocked(state)) throw new Error('STARTUP_NOT_READY: wait for tools or reconnect this runtime');
+    if (!valid() || worker.status !== 'connected' || rpc !== worker.rpc
+      || sessionId !== worker.state?.sessionId || this.workers.get(worker.id) !== worker
+      || state && (worker.startup?.startupEpoch !== state.startupEpoch
+        || worker.startup.catalogRevision !== state.catalogRevision || startupBlocked(worker.startup)))
+      throw new Error('STARTUP_NOT_READY: submission context changed');
+    dispatched();
+    return rpc.request('prompt', payload, timeout);
   }
   private invalidateBackground(worker: SessionRuntime) {
     this.backgroundVersions.set(worker, (this.backgroundVersions.get(worker) ?? 0) + 1);

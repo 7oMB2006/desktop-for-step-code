@@ -44,9 +44,10 @@ export interface ScheduledTaskView {
 }
 export interface ScheduledTaskCreation { title: string; prompt: string; workspace: string; runtimeId: string; cron: string; recurring: boolean; durable: boolean }
 
-export function SidebarTaskActions({ selected, pluginsSelected = false, onNewSession, onScheduledTasks, onPlugins, onSearchChange, onFulltextSearch, fulltextOpen = false, disabled = false, language = 'zh' }: {
+export function SidebarTaskActions({ selected, pluginsSelected = false, pluginsAttention = false, onNewSession, onScheduledTasks, onPlugins, onSearchChange, onFulltextSearch, fulltextOpen = false, disabled = false, language = 'zh' }: {
   selected: boolean;
   pluginsSelected?: boolean;
+  pluginsAttention?: boolean;
   onNewSession: () => void;
   onScheduledTasks: () => void;
   onPlugins?: () => void;
@@ -69,8 +70,12 @@ export function SidebarTaskActions({ selected, pluginsSelected = false, onNewSes
       <button type="button" className="new-chat" disabled={disabled} onClick={onNewSession}>
         <Plus size={16}/><span>{zh ? '新建会话' : 'New chat'}</span>
       </button>
-      {onPlugins && <button type="button" disabled={disabled} aria-pressed={pluginsSelected} aria-label={zh ? '插件市场' : 'Plugin marketplace'} onClick={onPlugins}>
+      {onPlugins && <button type="button" className="sidebar-plugins-entry" disabled={disabled} aria-pressed={pluginsSelected}
+        aria-label={zh ? '插件市场' : 'Plugin marketplace'}
+        aria-description={pluginsAttention ? zh ? '当前会话有工具不可用，打开查看' : 'Tools need attention in the current session; open to review' : undefined}
+        onClick={onPlugins}>
         <Plug size={16}/><span>{zh ? '插件' : 'Plugins'}</span>
+        {pluginsAttention && <i className="sidebar-plugins-dot" aria-hidden="true"/>}
       </button>}
     </div>
     <div className="sidebar-utility-row" data-search-open={searchOpen}>
@@ -131,7 +136,7 @@ function ScheduledHistory({ entries, label = '执行与恢复记录' }: { entrie
   </details>;
 }
 
-export function ScheduledTasks({ jobs, onCreate, onDelete, onUpdate, onDisableAutomatic, onOpenHost, hosts = [], sessions = [], onPrepareRecovery, onRecover,
+export function ScheduledTasks({ jobs, onCreate, onDelete, onUpdate, onDisableAutomatic, onOpenHost, hosts = [], sessions = [], archivedSessionIds = [], onPrepareRecovery, onRecover,
   history = [], live = false, refreshing = false, issue, onRefresh }: {
   jobs: ScheduledTaskView[];
   onCreate: (value: ScheduledTaskCreation) => void | Promise<void>;
@@ -142,6 +147,7 @@ export function ScheduledTasks({ jobs, onCreate, onDelete, onUpdate, onDisableAu
   history?: { workspace: string; entries: CronHistoryEntry[] }[];
   hosts?: CronHost[]; live?: boolean; refreshing?: boolean; issue?: string; onRefresh?: () => void;
   sessions?: Session[];
+  archivedSessionIds?: string[];
   onPrepareRecovery?: (key: string, sessionId: string) => Promise<CronRecoveryPreview>;
   onRecover?: (token: string, automatic: boolean, acknowledgeUnconfirmed: boolean) => Promise<void>;
 }) {
@@ -174,9 +180,11 @@ export function ScheduledTasks({ jobs, onCreate, onDelete, onUpdate, onDisableAu
   const deleteButton = useRef<HTMLButtonElement>(null);
   const recoveryButton = useRef<HTMLButtonElement>(null);
   const task = jobs.find(job => job.id === selected);
-  const recoveryTargets = task ? sessions.filter(session => session.path
+  const archived = new Set(archivedSessionIds);
+  const recoveryTargets = task ? sessions.filter(session => session.path && !archived.has(session.id)
     && normalizedWorkspaceKey(session.cwd, window.desktop?.platform ?? 'win32') === normalizedWorkspaceKey(task.workspace, window.desktop?.platform ?? 'win32')) : [];
   const associated = task?.association && sessions.find(session => session.id === task.association?.sessionId);
+  const associatedArchived = Boolean(associated && archived.has(associated.id));
   const projects = [...new Set([...jobs.map(job => job.workspace), ...hosts.map(host => host.workspace)])];
   const selectedHost = hosts.find(host => host.runtimeId === hostId) ?? hosts[0];
   const shown = jobs.filter(job => (!project || job.workspace === project)
@@ -303,7 +311,9 @@ export function ScheduledTasks({ jobs, onCreate, onDelete, onUpdate, onDisableAu
               '宿主会话暂时无法打开，请刷新任务列表后重试。不会自动重开会话或恢复调度。')}><ArrowUpRight size={14}/></button>}
         </dd></div>}
         {live && task.durable && <div><dt>关联会话 · Beta</dt><dd>{task.association
-          ? associated?.name || associated?.firstMessage.slice(0, 60) || `${task.association.sessionId.slice(0, 8)}（当前不可用）`
+          ? associated
+            ? `${associated.name || associated.firstMessage.slice(0, 60) || associated.id.slice(0, 8)}${associatedArchived ? '（已归档）' : ''}`
+            : `${task.association.sessionId.slice(0, 8)}（当前不可用）`
           : '未记录'}</dd></div>}
       </dl>
       {!task.durable && <div className="scheduled-boundary scheduled-temporary-warning"><Info size={16}/><span>临时任务仅在当前宿主存活期间保留；退出或更新应用后丢失，即使是周期任务也不会跨重启恢复。</span></div>}
@@ -338,6 +348,9 @@ export function ScheduledTasks({ jobs, onCreate, onDelete, onUpdate, onDisableAu
       <div className="scheduled-boundary"><Info size={16}/><span>{task.host === 'offline'
         ? '当前没有存活的调度宿主。保存的任务不代表正在调度；可手动打开项目会话，或核对配置后恢复项目调度。'
         : '应用退出或电脑休眠期间不执行。任务由项目共享，关联会话不代表独占调度；到时触发不代表执行完成。'}</span></div>
+      {task.host === 'offline' && associatedArchived && <div className="scheduled-boundary"><Info size={16}/><span>
+        关联会话已归档，不能用于恢复调度。可在「设置 → 已归档」取消归档，或选择另一个同项目会话接手。
+      </span></div>}
       {task.host === 'offline' && onPrepareRecovery && onRecover && <div id="scheduled-recovery"
         className={`scheduled-recovery-disclosure${recovering ? ' is-open' : ''}`} aria-hidden={!recovering} inert={!recovering}>
       <section className="scheduled-recovery" aria-label="恢复项目调度">
@@ -347,7 +360,9 @@ export function ScheduledTasks({ jobs, onCreate, onDelete, onUpdate, onDisableAu
           { id: '', label: '选择同项目会话', disabled: true },
           ...recoveryTargets.map(session => ({ id: session.id, label: session.name || session.firstMessage.slice(0, 60) || session.id.slice(0, 8) })),
         ]} onChange={id => { setRecoverySession(id); setRecovery(undefined); }}/></label>
-        {!recoveryTargets.length && <p className="muted">暂无可用的同项目会话，请先创建并保存会话后再恢复。</p>}
+        {!recoveryTargets.length && <p className="muted">{associatedArchived
+          ? '暂无可用的同项目会话。请先取消归档，或创建并保存一个同项目会话。'
+          : '暂无可用的同项目会话，请先创建并保存会话后再恢复。'}</p>}
         {recovery && <><dl className="scheduled-properties">
           <div><dt>当前账户</dt><dd>{recovery.account}</dd></div>
           <div><dt>恢复模型</dt><dd>{recovery.model.name} · {recovery.model.provider}</dd></div>

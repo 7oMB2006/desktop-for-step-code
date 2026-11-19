@@ -404,7 +404,8 @@ async function workerUpdate() {
   assert.equal(calls.initialize, 0); assert.equal(calls.builtin, 0);
 }
 async function themeRemoval() {
-  const invalid = scenario === 'theme-remove-invalid', raced = scenario === 'theme-remove-race';
+  const invalid = scenario === 'theme-remove-invalid', raced = scenario === 'theme-remove-race',
+    wrongInstance = scenario === 'theme-remove-instance';
   const manifest = themeManifest('1.0.0');
   if (invalid) manifest.agents = ['agents'];
   const f = await fixture(manifest);
@@ -424,9 +425,10 @@ async function themeRemoval() {
     }
   };
   const before = await tree();
-  if (invalid || raced) {
+  if (invalid || raced || wrongInstance) {
     await assert.rejects(manager.mutate({ action: 'plugin-remove', id: 'theme-a', preserveRuntime: true,
-      expectedFingerprint: f.journal.previous.fingerprint }), code('stale'));
+      expectedFingerprint: f.journal.previous.fingerprint,
+      expectedInstance: wrongInstance ? randomUUID() : f.journal.previous.instance }), code('stale'));
     assert.equal(calls.uninstall, 0); assert.deepEqual(mutations, []);
     if (invalid) assert.deepEqual(await tree(), before);
     if (raced) assert.equal(altered, true);
@@ -434,7 +436,7 @@ async function themeRemoval() {
     assert.equal(receipt.state, 'installed');
   } else {
     await manager.mutate({ action: 'plugin-remove', id: 'theme-a', preserveRuntime: true,
-      expectedFingerprint: f.journal.previous.fingerprint });
+      expectedFingerprint: f.journal.previous.fingerprint, expectedInstance: f.journal.previous.instance });
     assert.equal(calls.uninstall, 1);
     assert.equal((await files.readReceipts(root)).installations.length, 0);
   }
@@ -614,6 +616,7 @@ test('publication checks reject dirty frozen updates without changing the instal
 test('theme remove rejects executable declarations even with a matching ordinary hash', () => verify('theme-remove-invalid'));
 test('theme remove rechecks proof after a package changes during receipt preflight', () => verify('theme-remove-race'));
 test('theme remove accepts a proven data-only package', () => verify('theme-remove-valid'));
+test('remove refuses a replacement installation instance with the same package fingerprint', () => verify('theme-remove-instance'));
 test('host descriptor stays read-only and target-scoped while preserving receipt, override and conflict checks', () => verify('host-descriptor'));
 test('host descriptor rejects qualified consumer names shared by different plugin IDs', () => verify('host-descriptor-collision'));
 test('publication checks reject undeclared development dependencies before installation writes', () => verify('release-source'));

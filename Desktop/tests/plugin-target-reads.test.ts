@@ -53,7 +53,7 @@ async function json(root: string, path: string, value: unknown) {
   await writeFile(join(root, path), JSON.stringify(value));
 }
 
-async function fixture(t: test.TestContext) {
+async function fixture(t: test.TestContext, host = true) {
   const created = await mkdtemp(join(tmpdir(), 'dfsc-target-reads-'));
   const root = await realpath(created);
   const targets = new Map<string, Target>();
@@ -82,7 +82,7 @@ async function fixture(t: test.TestContext) {
         { id: 'key', label: 'Key', type: 'secret' },
       ] }],
     });
-    await json(directory, 'dfsc.host.json', {
+    if (host) await json(directory, 'dfsc.host.json', {
       schemaVersion: 1, hostApiVersion: 1, consumer: { kind: 'mcp-stdio', server: 'notes' },
       capabilities: ['model.text'],
     });
@@ -195,6 +195,20 @@ test('verified target projections retain other references and stable connection 
   assert.notEqual(await f.service.connection(second), key);
 });
 
+test('reload preview verifies only its installed target and includes saved launch settings in its private stamp', async t => {
+  const f = await fixture(t), refs = await f.menu();
+  const ref = refs.get('example')!, other = refs.get('other')!;
+  const before = await f.service.reloadTarget({ id: 'example', ref });
+  assert.deepEqual(before.services, ['example__notes']);
+  assert.equal(before.stamp, (await f.service.reloadTarget({ id: 'example', ref })).stamp);
+  await writeFile(join(f.root, 'config.toml'), '[mcp_servers.example__notes]\nenabled = false\n');
+  assert.notEqual(before.stamp, (await f.service.reloadTarget({ id: 'example', ref })).stamp);
+  assert.ok(f.library.referenceSnapshot(other));
+  assert.equal(f.state.invalidations, 0, 'A preview must not revoke any live lease');
+  assert.equal(f.state.statusReads, 0, 'A global preview must not ask about the active session');
+  await assert.rejects(f.service.reloadTarget({ id: 'other', ref }), /stale/);
+});
+
 for (const change of ['instance', 'source', 'marketplace', 'state'] as const) {
   test(`a changed ${change} identity revokes the old reference even after identity restoration`, async t => {
     const f = await fixture(t), target = f.targets.get('example')!;
@@ -257,7 +271,7 @@ test('disabled configuration and host reads remain inert while consumer conflict
 
 for (const mode of ['configuration', 'follow', 'independent'] as const) {
   test(`${mode} saves return their committed revision without a post-commit target worker`, async t => {
-    const f = await fixture(t), target = f.targets.get('example')!;
+    const f = await fixture(t, mode !== 'configuration'), target = f.targets.get('example')!;
     const ref = (await f.menu()).get('example')!;
     let unexpectedWorker = 0;
     f.state.onTarget = async (_input, count) => {
@@ -279,7 +293,7 @@ for (const mode of ['configuration', 'follow', 'independent'] as const) {
     assert.equal(f.state.targetReads, 1);
     assert.equal(f.calls.filter(call => call.type === 'target-catalog').length, 1);
     assert.equal(f.state.stopped, 2, 'Only the menu and pre-commit target worker are stopped');
-    assert.equal(f.state.invalidations, 1);
+    assert.equal(f.state.invalidations, mode === 'configuration' ? 0 : 1);
     assert.ok(f.library.referenceSnapshot(ref));
     if (mode !== 'follow') {
       const binding = JSON.parse(await readFile(join(f.root, 'desktop-plugins/bindings/example.json'), 'utf8'));
@@ -308,7 +322,7 @@ for (const mode of ['configuration', 'follow', 'independent'] as const) {
 
 for (const mode of ['configuration', 'follow', 'independent'] as const) {
   test(`${mode} saves distinguish a confirmed commit from a failed final integrity check`, async t => {
-    const f = await fixture(t), target = f.targets.get('example')!;
+    const f = await fixture(t, mode !== 'configuration'), target = f.targets.get('example')!;
     const ref = (await f.menu()).get('example')!, path = join(target.directory, 'README.md');
     const original = await readFile(path);
     const stores = f.service as unknown as {
@@ -364,7 +378,7 @@ for (const mode of ['configuration', 'follow', 'independent'] as const) {
 
 for (const tampered of [false, true]) {
   test(`a failed save action ${tampered ? 'with changed bytes' : 'before commit'} cannot claim a confirmed commit`, async t => {
-    const f = await fixture(t), target = f.targets.get('example')!, ref = (await f.menu()).get('example')!;
+    const f = await fixture(t, false), target = f.targets.get('example')!, ref = (await f.menu()).get('example')!;
     const path = join(target.directory, 'README.md'), original = await readFile(path);
     const configurations = (f.service as unknown as { configurations: PluginConfigurationStore }).configurations;
     configurations.save = async () => {

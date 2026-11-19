@@ -787,7 +787,7 @@ export function createCapabilitySettings(upstream, options) {
           if (!checked.manifest || checked.errors.length) throw new CapabilityError('invalid-input');
           const fingerprint = await packageFingerprint(snapshot);
           if (input.preserveRuntime === true && (!input.expectedFingerprint || !input.expectedSource
-            || await dataOnlyThemeFingerprint(snapshot, checked.manifest.id) !== input.expectedFingerprint))
+            || fingerprint !== input.expectedFingerprint))
             throw new CapabilityError('stale');
           const currentSource = (await sources()).find(source => source.name === entry.desktopSource.name);
           if (!currentSource || sourceIdentity(currentSource) !== sourceIdentity(entry.desktopSource)
@@ -833,6 +833,7 @@ export function createCapabilitySettings(upstream, options) {
         // Bind revocation to the unique on-disk installation, not every receipt with this runtime ID.
         const receipt = receipts.installations.find(item => item.folder === folder);
         if (receipt && receipt.id !== id) throw new CapabilityError('stale');
+        if (input.expectedInstance && receipt?.instance !== input.expectedInstance) throw new CapabilityError('stale');
         const recheckTheme = async () => {
           if (input.preserveRuntime === true && (typeof input.expectedFingerprint !== 'string'
             || await dataOnlyThemeFingerprint(plugin.rootPath, id) !== input.expectedFingerprint))

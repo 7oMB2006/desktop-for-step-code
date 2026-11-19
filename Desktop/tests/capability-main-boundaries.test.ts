@@ -150,10 +150,23 @@ test('actual main passive capability reads never trigger pending provider applic
     'customBackgroundState', 'customBackgroundImage', 'customBackgroundImport', 'customBackgroundSave', 'customBackgroundRemove',
     'bvrConfiguration', 'bvrCheckEnvironment', 'bvrChoosePath', 'capabilityMutate',
     'pluginUpdatePreflight', 'pluginUpdateOperation', 'pluginUpdateApply',
+    'pluginRemovalPreflight', 'pluginRemovalOperation', 'pluginRemovalApply',
+    'pluginReloadStart', 'pluginReloadPreview', 'pluginReloadApply', 'pluginReloadState', 'pluginReloadCancel',
   ]) assert.equal(await f.read(method), method);
   assert.equal(f.state.applications, 0);
   await f.read('beginSession');
   assert.equal(f.state.applications, 1);
+});
+test('plugin reload IPC stays main-only and does not dispatch from MiniChat or untrusted frames', async () => {
+  const calls: string[] = [];
+  const f = ipcFixture(method => { calls.push(method); return method; });
+  for (const method of ['pluginReloadStart', 'pluginReloadPreview', 'pluginReloadApply', 'pluginReloadState', 'pluginReloadCancel']) {
+    await assert.rejects(f.miniRead(method), /main window/);
+    await assert.rejects(f.untrustedRead(method), /Untrusted sender/);
+    assert.equal(await f.read(method), method);
+  }
+  assert.equal(f.state.applications, 0);
+  assert.equal(calls.length, 5);
 });
 
 function deleteSessionFixture() {
@@ -514,11 +527,12 @@ for (const exitConfirmed of [true, false]) {
       const sessionEnding = false, transition = false, window = undefined;
       const speech = { cancel() {} };
       const state = { quits: 0, errors: 0, prevented: 0, diagnostics: [], messages: [], externalShutdowns: 0, externalFlushes: 0 };
-      const stop = { async stopAll() {}, async stop() {}, async close() {}, async shutdown() {}, async flush() {} };
+      const stop = { async stopAll() {}, async stop() {}, async close() {}, async shutdown() {}, async flush() {}, resume() {} };
       const runtimes = stop, terminals = stop, sessionImports = stop, remote = stop, admin = stop, network = stop;
       const historyReaders = stop, collaboration = stop, bvrBridge = stop, pluginHosts = stop, conversationTiming = stop, modelSelections = stop;
-      const usageEstimates = stop, workflowBindings = stop, miniChat = undefined, pluginWindows = undefined, browser = undefined;
+      const usageEstimates = stop, workflowBindings = stop, pluginReloads = stop, miniChat = undefined, pluginWindows = undefined, browser = undefined;
       const capabilityGate = { async whenIdle() {} };
+      const btwUsageLedger = stop;
       const externalConnectors = { async shutdown() { state.externalShutdowns++; } };
       const externalTasks = { async flush() { state.externalFlushes++; } };
       const quitReasons = () => ({}), needsQuitReview = () => false, showMainWindow = () => {};
@@ -560,11 +574,12 @@ for (const failExternalShutdown of [false, true]) {
       let quitting = false, quitPending = false;
       const sessionEnding = false, transition = false, window = undefined;
       const speech = { cancel() {} };
-      const stop = { async stopAll() {}, async stop() {}, async close() {}, async shutdown() {}, async flush() {} };
+      const stop = { async stopAll() {}, async stop() {}, async close() {}, async shutdown() {}, async flush() {}, resume() {} };
       const runtimes = stop, terminals = stop, sessionImports = stop, remote = stop, admin = stop;
       const network = { async stop() { events.push('network-stopped'); } };
       const historyReaders = stop, collaboration = stop, bvrBridge = stop, pluginHosts = stop, conversationTiming = stop, modelSelections = stop;
-      const usageEstimates = stop, workflowBindings = stop, miniChat = undefined, pluginWindows = undefined, browser = undefined;
+      const usageEstimates = stop, workflowBindings = stop, pluginReloads = stop, miniChat = undefined, pluginWindows = undefined, browser = undefined;
+      const btwUsageLedger = { async flush() { events.push('btw-usage-flushed'); } };
       const capabilityService = { async stop() { events.push('service-stopped'); } };
       const externalConnectors = { async shutdown() {
         events.push('external-stopped');
@@ -588,7 +603,7 @@ for (const failExternalShutdown of [false, true]) {
     await Promise.all([operation, settled]);
     assert.deepEqual(events, failExternalShutdown
       ? ['write-finished', 'external-stopped', 'quit-failure:external-connectors', 'error']
-      : ['write-finished', 'external-stopped', 'service-stopped', 'network-stopped', 'external-flushed', 'quit']);
+      : ['write-finished', 'external-stopped', 'service-stopped', 'network-stopped', 'external-flushed', 'btw-usage-flushed', 'quit']);
     assert.equal(f.pending(), !failExternalShutdown);
     assert.equal(f.quitting(), !failExternalShutdown);
   });

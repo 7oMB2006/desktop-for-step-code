@@ -59,7 +59,7 @@ test('real marketplace background adapter requires a recorded install and is rev
   assert.equal(entry.package.dataOnlyTheme, undefined);
   await assert.rejects(service.customBackgroundContext(entry.package.ref), /capability:stale/);
   await service.mutate({ action: 'plugin-install', name: entry.name, marketplace: entry.marketplace, ref: entry.package.ref },
-    async policy => { assert.equal(policy.scope, 'runtime', 'Host background adapters do not bypass runtime gates'); });
+    async policy => { assert.equal(policy.scope, 'next-start', 'A verified new adapter does not replace live package files'); });
   const catalog = await service.catalog(), plugin = catalog.plugins.find(item => item.id === 'custom-background');
   assert.ok(plugin?.package);
   assert.equal(plugin.name, '自定义背景');

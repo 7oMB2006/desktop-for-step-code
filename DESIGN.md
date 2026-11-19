@@ -1,5 +1,42 @@
 # Design System
 
+## Plugin Reload
+
+Recorded installed MCP plugins expose an icon-only reload action on the catalog
+card and detail header, independent of the selected conversation. The first
+click starts without confirmation. Clicking again while running opens the same
+operation; the card's ring also opens details after the operation finishes.
+Details use a native dialog with focus return and a collapsed instance list.
+The card grid stays put, and waiting and failures never open the dialog by
+themselves. Completion gives a brief success or failure toast. The ring
+counts failures explicitly and does not carry results to a replacement package.
+Keep keyboard focus on the trigger while starting the operation.
+
+The ring distinguishes ready, occupied (hatched), unknown (dim), loading,
+loaded, failed and cancelled targets. The count says ready before execution
+and loaded once execution begins. Stable segments animate between states and
+close their gaps on full success. Respect reduced-motion preferences.
+
+Reload changes only existing eligible connections of the target MCP plugin.
+An in-flight call or a pending approval for that plugin delays its instance,
+while other instances can proceed. Unrelated tools and conversation processes
+remain running.
+Waiting can be cancelled; started replacements finish. Unsupported ownership,
+hosted authorization and service-topology changes do not fall back to
+restarting the session. Closing details does not cancel pending work, which
+is tied to the package/configuration, runtime generation and session identity.
+Do not wake disconnected sessions or show a chat/composer banner.
+
+## Plugin Update And Removal
+
+Update and uninstall share host-owned preflight and a secondary confirmation
+listing affected sessions. Idle owners can be explicitly released and restored
+after the mutation; busy or unknown sessions offer direct navigation, never a
+force-stop action. Uninstall remains destructive even without runtime owners and
+always requires confirmation. Keep conversation history, unrelated MCP settings
+and production profiles outside removal scope. A failed release blocks deletion;
+an uncertain result offers review instead of an automatic retry.
+
 ## Plugin Risk Confirmation
 
 Plugin-declared risks use a host-owned native warning dialog before a supported
@@ -89,6 +126,25 @@ Live connection counts remain runtime-owned. Saved changes show Restart pending
 until an explicit idle-session restart applies them; running work and scheduled
 hosts keep their existing restart guards. Switches have no tooltip, retain their
 compact footprint and expose a larger invisible hit target.
+
+Runtime tool startup never reserves a transcript banner or auto-opens details.
+Only failures or unconfirmed cleanup mark the existing sidebar Plugins entry
+with a static dot, without changing its size or accessible name. Connecting and
+healthy states never add chat controls. The plugin catalog contains current-session
+tool status, settings and explicit guarded reconnect as an unframed section.
+This section defaults to a single collapsed summary; its existing disclosure
+chevron reveals service rows and actions in place. Hidden actions are inert,
+and motion uses the shared disclosure animation with reduced-motion support.
+Resolution removes the dot. A settled optional MCP failure is a local degradation,
+not a confirmation gate for sending, queuing or steering. Keep identity, model,
+pending startup and unconfirmed-cleanup guards. Stop remains independent.
+
+Plugin browsing stays available during running tasks. Verified new installations,
+service switches and generic configuration saves do not revoke live host leases.
+New services and changed settings require a service restart, without forcing one
+during the running task. Keep current-session restart
+guarded. Host authorization/BVR binding changes and occupied package replacement
+still require their specific safe-application checks; editable drafts remain usable.
 
 Plugins use a main-view catalog and a separate detail level, not a split sidebar
 or a small settings modal. Installed, Discover and Marketplaces share existing

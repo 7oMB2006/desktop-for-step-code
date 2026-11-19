@@ -20,7 +20,9 @@ if (entry) assert.ok(isAbsolute(entry), 'DESKTOP_VERIFY_ENTRY must be an absolut
 assert.ok(!executablePath || !entry, 'Choose a packaged executable or a source main entry, not both');
 const output = resolve(process.env.DESKTOP_PLUGIN_UPDATE_OUTPUT ?? join(desktop, 'test-results/plugin-update-electron'));
 await mkdir(output, { recursive: true });
-const profile = await realpath(await mkdtemp(join(output, 'profile-')));
+const scratch = resolve(process.env.DESKTOP_TEST_SCRATCH ?? join(dirname(output), 'plugin-update-scratch'));
+await mkdir(scratch, { recursive: true });
+const profile = await realpath(await mkdtemp(join(scratch, 'profile-')));
 const root = join(profile, 'step-runtime');
 const market = join(profile, 'update-market');
 const id = 'dfsc-config-example', service = `${id}__notes`;
@@ -97,7 +99,7 @@ for (const key of Object.keys(env)) if (/^(ELECTRON_RUN_AS_NODE|DESKTOP_DEV_URL|
   || /(?:API_KEY|ACCESS_TOKEN|AUTH_TOKEN|SECRET|PASSWORD|COOKIE)$/i.test(key)) delete env[key];
 
 const checks = [], errors = [], screenshots = [];
-const operations = [], historyTransitions = [];
+const operations = [], historyTransitions = [], removals = [];
 let app, page, ownerPid, runtimeTransition, phase = 'launch', complete = false;
 const mark = value => { phase = value; console.log(`Plugin update acceptance: ${value}`); };
 const ipc = (method, input) => page.evaluate(({ method, input }) =>
@@ -141,7 +143,7 @@ const assertConfiguration = async version => {
     `desktop-plugins/settings/${receipt.instance}/${binding.revision}.json`), 'utf8'));
   assert.equal(saved.secrets.key === secret, true, 'The same private secret survives the binding migration');
   assert.deepEqual(saved.values, configuration.values, 'Optional added values are not silently populated');
-  return { instance: receipt.instance, revision: binding.revision };
+  return { instance: receipt.instance, folder: receipt.folder, revision: binding.revision };
 };
 const mcpEnabled = async () => (await catalog()).mcp.find(server => server.name === service)?.enabled;
 const identities = value => value.runtimes.map(runtime => ({
@@ -151,8 +153,8 @@ const pids = () => fixtureRuntimeChildren(ownerPid).sort((a, b) => a - b);
 const exists = pid => {
   try { process.kill(pid, 0); return true; } catch (error) { return error.code !== 'ESRCH'; }
 };
-const shot = async filename => {
-  await settleLayout(page.getByRole('dialog', { name: 'Plugin update', exact: true }));
+const shot = async (filename, dialogName = 'Plugin update') => {
+  await settleLayout(page.getByRole('dialog', { name: dialogName, exact: true }));
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false,
     `${filename}: the application does not overflow horizontally`);
   await page.screenshot({ path: join(output, filename), animations: 'disabled' });
@@ -174,6 +176,7 @@ const launch = async () => {
   ownerPid = await app.evaluate(() => process.pid);
   assert.equal(resolve(await app.evaluate(({ app }) => app.getPath('userData'))), resolve(profile));
   await page.waitForFunction(() => Boolean(window.desktop?.pluginUpdatePreflight));
+  await page.waitForFunction(() => Boolean(window.desktop?.pluginRemovalPreflight && window.desktop?.pluginRemovalApply));
   await page.getByRole('button', { name: 'Plugin marketplace', exact: true }).waitFor();
   assert.equal(await page.evaluate(() => typeof window.require), 'undefined');
 };
@@ -263,6 +266,17 @@ try {
   const baseline = await assertConfiguration('0.1.0');
   assert.equal(await mcpEnabled(), false);
   checks.push('old package installed and configured through receipt-backed native preload IPC');
+
+  mark('uninstall without runtime still requires native confirmation');
+  await page.getByRole('button', { name: `Uninstall ${name}`, exact: true }).click();
+  const noOwners = page.getByRole('dialog', { name: 'Uninstall plugin', exact: true });
+  await noOwners.getByText('Confirm plugin removal', { exact: true }).waitFor();
+  assert.equal(await noOwners.locator('.pc-update-sessions li').count(), 0);
+  assert.ok(!(await snapshot()).runtimeId);
+  await noOwners.getByRole('button', { name: 'Cancel', exact: true }).click();
+  assert.equal((await plugin()).version, '0.1.0');
+  await assertConfiguration('0.1.0');
+  checks.push('no-owner uninstall opens a destructive confirmation; cancel retains package, configuration and runtime state');
 
   mark('ready update without runtime and disabled service preservation');
   await publish('0.2.0');
@@ -415,6 +429,130 @@ try {
     .getByRole('button', { name: 'Restart affected sessions and update', exact: true }).count(), 0);
   await shot('blocked-multiple-changes-light-1440.png');
   checks.push('incompatible default, type, enum removal and required-field changes are all reported; native apply is rejected without stopping a worker');
+
+  await page.getByRole('dialog', { name: 'Plugin update', exact: true })
+    .getByRole('button', { name: 'Cancel', exact: true }).click();
+  mark('real uninstall confirmation, direct session navigation and read-only cancel');
+  const removalInput = { id, ref: (await plugin()).package.ref };
+  const removalPreview = await ipc('pluginRemovalPreflight', removalInput);
+  assert.equal(removalPreview.readiness, 'needs-release');
+  assert.equal(removalPreview.sessions.length, 2);
+  await assert.rejects(ipc('pluginRemovalApply', { token: removalPreview.token, release: false }), /operation-denied/);
+  assert.deepEqual(pids(), restoredPids);
+  const beforeRemoval = await snapshot(), beforeRemovalIdentities = identities(beforeRemoval);
+  const removalHistory = await Promise.all(historyFixtures.map(historyEntries));
+  await page.getByRole('button', { name: `Uninstall ${name}`, exact: true }).click();
+  const uninstall = page.getByRole('dialog', { name: 'Uninstall plugin', exact: true });
+  await uninstall.getByText('Sessions need to release this plugin', { exact: true }).waitFor();
+  assert.equal(await uninstall.locator('.pc-update-sessions li').count(), 2);
+  for (const [theme, width] of [['light', 1440], ['dark', 640]]) {
+    await ipc('preferences', { theme });
+    await page.waitForFunction(theme => document.documentElement.dataset.theme === theme, theme);
+    await app.evaluate(({ BrowserWindow }, width) => BrowserWindow.getAllWindows()[0].setSize(width, 960), width);
+    await shot(`uninstall-${theme}-${width}.png`, 'Uninstall plugin');
+  }
+  await uninstall.locator('summary').click();
+  await uninstall.getByRole('button', { name: `View session ${historyFixtures[0].name}`, exact: true }).click();
+  await until(snapshot, value => value.state?.sessionId === historyFixtures[0].id,
+    'The uninstall dialog did not navigate directly to the owning session');
+  await ipc('navigateSession', historyFixtures[1].id);
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1440, 960));
+  await page.getByRole('button', { name: 'Plugin marketplace', exact: true }).click();
+  await page.getByRole('button', { name: `Uninstall ${name}`, exact: true }).click();
+  await uninstall.getByRole('button', { name: 'Cancel', exact: true }).click();
+  assert.deepEqual(pids(), restoredPids);
+  assert.equal((await plugin()).version, '0.3.0');
+  assert.deepEqual(identities(await snapshot()), beforeRemovalIdentities);
+  await assertConfiguration('0.3.0');
+  checks.push('real uninstall confirmation lists both owners; navigation opens the exact session and cancel leaves processes and installation unchanged');
+
+  mark('uninstall through the real button releases and restores both sessions');
+  await page.getByRole('button', { name: `Uninstall ${name}`, exact: true }).click();
+  await uninstall.getByRole('button', { name: 'Release sessions and uninstall', exact: true }).click();
+  await uninstall.getByText('Plugin uninstalled', { exact: true }).waitFor({ timeout: 60000 });
+  const removed = await ipc('pluginRemovalOperation', { pluginId: id });
+  removals.push(removed);
+  assert.equal(removed.installation, 'committed', JSON.stringify(removed));
+  assert.equal(removed.phase, 'done', JSON.stringify(removed));
+  assert.equal(removed.sessions.length, 2);
+  assert.ok(removed.sessions.every(session => session.restoration === 'restored'));
+  assert.ok(!(await catalog()).plugins.some(plugin => plugin.id === id));
+  await assert.rejects(access(join(root, 'plugins', baseline.folder)), { code: 'ENOENT' });
+  const receiptsAfterRemoval = JSON.parse(await readFile(join(root, 'desktop-plugins/installations.json'), 'utf8'));
+  assert.ok(!receiptsAfterRemoval.installations.some(receipt => receipt.id === id));
+  await until(async () => restoredPids.every(pid => !exists(pid)), Boolean,
+    'An old runtime process survived uninstall release');
+  const afterRemoval = await snapshot(), afterRemovalPids = pids();
+  assert.equal(afterRemoval.runtimeId, beforeRemoval.runtimeId);
+  assert.equal(afterRemoval.state.sessionId, beforeRemoval.state.sessionId);
+  assert.deepEqual(identities(afterRemoval), beforeRemovalIdentities);
+  assert.equal(afterRemovalPids.length, 2);
+  assert.ok(afterRemovalPids.every(pid => !restoredPids.includes(pid)));
+  for (const [index, fixture] of historyFixtures.entries()) {
+    await ipc('navigateSession', fixture.id);
+    assert.ok(JSON.stringify((await snapshot()).messages).includes(fixture.text));
+    const entries = await historyEntries(fixture);
+    for (const entry of removalHistory[index])
+      assert.ok(entries.some(candidate => JSON.stringify(candidate) === JSON.stringify(entry)),
+        'Uninstall preserves every existing history entry');
+  }
+  for (const runtime of afterRemoval.runtimes) {
+    const summary = await ipc('summary', runtime.runtimeId);
+    assert.ok(!summary.mcp?.some(server => server.name === service));
+  }
+  await assert.rejects(ipc('pluginRemovalApply', { token: removed.id, release: true }), /stale/);
+  await uninstall.getByRole('button', { name: 'Close', exact: true }).click();
+  checks.push('real uninstall deletes the receipt-backed plugin, terminates both old worker PIDs, restores original session identities and histories, and removes its MCP without replaying consent');
+
+  mark('no-owner uninstall commits without restarting unrelated runtimes');
+  const reinstall = (await catalog()).available.find(plugin => plugin.name === id);
+  assert.ok(reinstall?.package?.ref);
+  await mutate({ action: 'plugin-install', name: id, marketplace: reinstall.marketplace, ref: reinstall.package.ref });
+  await page.reload();
+  await page.getByRole('button', { name: 'Plugin marketplace', exact: true }).click();
+  await page.getByRole('button', { name: `Uninstall ${name}`, exact: true }).click();
+  await uninstall.getByText('Confirm plugin removal', { exact: true }).waitFor();
+  assert.equal(await uninstall.locator('.pc-update-sessions li').count(), 0);
+  await uninstall.getByRole('button', { name: 'Uninstall plugin', exact: true }).click();
+  await uninstall.getByText('Plugin uninstalled', { exact: true }).waitFor({ timeout: 60000 });
+  const unownedRemoval = await ipc('pluginRemovalOperation', { pluginId: id });
+  removals.push(unownedRemoval);
+  assert.equal(unownedRemoval.phase, 'done', JSON.stringify(unownedRemoval));
+  assert.equal(unownedRemoval.installation, 'committed');
+  assert.deepEqual(unownedRemoval.sessions, []);
+  assert.deepEqual(pids(), afterRemovalPids);
+  assert.ok(!(await catalog()).plugins.some(plugin => plugin.id === id));
+  checks.push('confirmed no-owner uninstall commits with no release, leaving both unrelated live runtimes untouched');
+
+  mark('an explicitly seeded interrupted journal survives restart without replaying removal');
+  await uninstall.getByRole('button', { name: 'Close', exact: true }).click();
+  const candidate = (await catalog()).available.find(plugin => plugin.name === id);
+  await mutate({ action: 'plugin-install', name: id, marketplace: candidate.marketplace, ref: candidate.package.ref });
+  await closeDesktopFixtureAndWait(app);
+  app = undefined;
+  const interrupted = { id: 'offline-interrupted-removal-fixture', pluginId: id, version: '0.4.0',
+    phase: 'applying', installation: 'unchanged', sessions: [], warnings: [] };
+  await writeFile(join(root, 'desktop-plugins/removal-operation.json'), JSON.stringify({ version: 1, operation: interrupted }));
+  const retainedReceipt = await readFile(join(root, 'desktop-plugins/installations.json'));
+  await launch();
+  await page.getByRole('button', { name: 'Plugin marketplace', exact: true }).click();
+  await page.getByRole('button', { name: `Uninstall ${name}`, exact: true }).click();
+  const recoveredDialog = page.getByRole('dialog', { name: 'Uninstall plugin', exact: true });
+  await recoveredDialog.getByText('Removal outcome needs review', { exact: true }).waitFor();
+  assert.equal(await recoveredDialog.getByRole('button', { name: 'Release sessions and uninstall', exact: true }).count(), 0);
+  assert.equal(await recoveredDialog.getByRole('button', { name: 'Uninstall plugin', exact: true }).count(), 0);
+  assert.equal(await recoveredDialog.getByRole('button', { name: 'Check again', exact: true }).count(), 0);
+  assert.equal((await plugin()).version, '0.4.0');
+  assert.deepEqual(await readFile(join(root, 'desktop-plugins/installations.json')), retainedReceipt);
+  const recovered = await ipc('pluginRemovalOperation', { pluginId: id });
+  removals.push(recovered);
+  assert.equal(recovered.id, interrupted.id);
+  assert.equal(recovered.installation, 'unknown');
+  assert.equal(recovered.phase, 'attention');
+  await assert.rejects(ipc('pluginRemovalApply', { token: interrupted.id, release: true }), /stale/);
+  await shot('uninstall-interrupted-after-restart.png', 'Uninstall plugin');
+  checks.push('an explicitly seeded interrupted removal record becomes unknown after restart; the real renderer offers review without reusing consent or deleting the installed fixture');
+
   assert.deepEqual(providerRequests, []);
   assert.deepEqual(errors, []);
   complete = true;
@@ -428,10 +566,10 @@ try {
     complete, phase, entry: executablePath ?? entry ?? executionRoot, executionRoot, profile,
     realMainAndPreload: true, realRenderer: true, realRuntime: true,
     providerRequests: providerRequests.length, checks, screenshots, pageErrors: errors,
-    operations, runtimeTransition, historyTransitions,
+    operations, removals, runtimeTransition, historyTransitions,
     historyFixtures: historyFixtures.map(({ id, name }) => ({ id, name, kind: 'explicit-offline-jsonl-acceptance-fixture' })),
     scope: 'Isolated local Git marketplace and offline model fixture. No personal profile, real provider, public market or installer lifecycle acceptance.',
   }, null, 2) + '\n');
 }
-console.log(`Production Electron plugin update acceptance passed: ${checks.length} checks; zero provider requests.`);
+console.log(`Production Electron plugin update/removal acceptance passed: ${checks.length} checks; zero provider requests.`);
 console.log(output);

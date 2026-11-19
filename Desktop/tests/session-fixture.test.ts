@@ -430,34 +430,55 @@ test('capability restart readiness rejects the old connected worker and the conn
   };
   visit(source);
   assert.ok(initializer);
-  const snapshots = [
-    { runtimeId: 'old', status: 'connected' },
-    { runtimeId: 'old', status: 'connected' },
-    { runtimeId: 'new', status: 'connecting' },
-    { runtimeId: 'new', status: 'connected' },
-  ];
-  let reads = 0, clicks = 0, buttonChecks = 0;
-  const page = {
-    evaluate: async () => snapshots[reads++],
-    locator: (selector: string) => {
-      assert.equal(selector, '.cap-footer');
-      return { getByRole: () => ({ click: async () => { clicks++; } }) };
-    },
-    waitForFunction: async (predicate: (footer: string) => boolean, footer: string) => {
-      assert.equal(reads, 4, 'an enabled button cannot replace actual connected-worker readiness');
-      assert.equal(footer, '.cap-footer');
-      assert.equal(runInNewContext(`(${predicate.toString()})(footer)`, {
-        footer,
-        document: { querySelector: () => ({ disabled: false }) },
-      }), true);
+  for (const hidesRestart of [false, true]) {
+    const footer = hidesRestart ? '.pc-detail-footer' : '.cap-footer';
+    const snapshots = [
+      { runtimeId: 'old', status: 'connected' },
+      { runtimeId: 'old', status: 'connected' },
+      { runtimeId: 'new', status: 'connecting' },
+      { runtimeId: 'new', status: 'connected' },
+    ];
+    let reads = 0, clicks = 0, buttonChecks = 0;
+    const enabled = {};
+    const checkButton = (state: string, expected: string) => {
+      assert.equal(reads, 4, 'button state cannot replace actual connected-worker readiness');
+      assert.equal(state, expected);
       buttonChecks++;
-    },
-  };
-  const restart = runInNewContext(`(${initializer})`, { page, waitForSessionFixtureSnapshot });
-  await restart();
-  assert.equal(clicks, 1);
-  assert.equal(reads, 4);
-  assert.equal(buttonChecks, 1);
+    };
+    const page = {
+      evaluate: async () => snapshots[reads++],
+      locator: (selector: string) => {
+        if (selector === 'button:enabled') {
+          assert.equal(hidesRestart, false);
+          return enabled;
+        }
+        assert.equal(selector, footer);
+        return { getByRole: (role: string, options: { name: string; exact: boolean; includeHidden: boolean }) => {
+          assert.equal(role, 'button');
+          assert.equal(options.name, '重启当前会话');
+          assert.equal(options.exact, true);
+          assert.equal(options.includeHidden, true);
+          return {
+            click: async () => { clicks++; },
+            waitFor: async ({ state }: { state: string }) => {
+              assert.equal(hidesRestart, true);
+              checkButton(state, 'detached');
+            },
+            and: (other: unknown) => {
+              assert.equal(other, enabled);
+              return { waitFor: async ({ state }: { state: string }) => checkButton(state, 'visible') };
+            },
+          };
+        } };
+      },
+    };
+    const restart = runInNewContext(`(${initializer})`, { page, waitForSessionFixtureSnapshot });
+    if (hidesRestart) await restart(footer, { hidesRestart });
+    else await restart();
+    assert.equal(clicks, 1);
+    assert.equal(reads, 4);
+    assert.equal(buttonChecks, 1);
+  }
 });
 
 test('configured plugin acceptance awaits the real MCP connection and never masks a failed service', async () => {
@@ -880,7 +901,7 @@ test('native host settings acceptance launches the selected source or packaged t
     });
   }
   for (const script of ['verify-plugin-host-settings-electron.mjs', 'verify-session-plugin-cold-start.mjs',
-    'verify-session-plugin-startup.mjs', 'verify-plugin-target-reads.mjs']) {
+    'verify-session-plugin-startup.mjs', 'verify-plugin-target-reads.mjs', 'verify-plugin-reload-electron.mjs']) {
     const text = await readFile(new URL(`../scripts/${script}`, import.meta.url), 'utf8');
     const parsed = ts.createSourceFile(script, text, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
     const resources = parsed.statements.filter(ts.isVariableStatement)
@@ -893,7 +914,7 @@ test('native host settings acceptance launches the selected source or packaged t
       const target = platform === 'win32' ? 'C:\\package\\App.exe' : '/package/App.app/Contents/MacOS/App';
       for (const executablePath of [undefined, target]) {
         const actual = runInNewContext(`(${resources.getText(parsed)})`, {
-          executablePath, process: { platform }, dirname: paths.dirname, join: paths.join,
+          executablePath, executionRoot: cwd, process: { platform }, dirname: paths.dirname, join: paths.join,
           resolve: (...parts: string[]) => paths.resolve(cwd, ...parts),
         });
         const expected = executablePath ? platform === 'win32'

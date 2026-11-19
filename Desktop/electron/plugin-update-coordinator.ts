@@ -37,14 +37,14 @@ const recordValid = (value: any): value is PluginUpdateOperation => {
   return true;
 };
 
-export class PluginUpdateCoordinator {
-  private previews = new Map<string, Preview>();
+export class PluginUpdateCoordinator<Request extends { id: string } = PluginUpdateRequest> {
+  private previews = new Map<string, Omit<Preview, 'input'> & { input: Request }>();
   private operation?: PluginUpdateOperation;
   private running = false;
   constructor(private options: {
     root: string; pool: SessionRuntimes; gate: CapabilityGate;
-    check(input: PluginUpdateRequest): Promise<Checked>;
-    mutate(input: PluginUpdateRequest, guard: CapabilityGuard, checked: Checked): Promise<{ warnings: string[] }>;
+    check(input: Request): Promise<Checked>;
+    mutate(input: Request, guard: CapabilityGuard, checked: Checked): Promise<{ warnings: string[] }>;
     assertAvailable(): void;
     acquire(): () => void;
     external(worker: SessionRuntime): boolean;
@@ -52,6 +52,8 @@ export class PluginUpdateCoordinator {
     restore(lease: RuntimeUpdateLease): Promise<void>;
     refreshed(): Promise<void>;
     releaseSupported?: boolean;
+    recordName?: 'update-operation.json' | 'removal-operation.json';
+    mutationFailureUncertain?: boolean;
   }) {}
   private async observe(id: string, scope: Checked['scope']): Promise<Observation> {
     if (scope === 'theme') return { sessions: [], affected: [], blockers: [] };
@@ -88,7 +90,7 @@ export class PluginUpdateCoordinator {
     if (affected.length && !(this.options.releaseSupported ?? process.platform === 'win32')) blockers.push('release-unsupported');
     return { sessions, affected, blockers: [...new Set(blockers)] };
   }
-  async preflight(input: PluginUpdateRequest): Promise<PluginUpdatePreflight> {
+  async preflight(input: Request): Promise<PluginUpdatePreflight> {
     this.options.assertAvailable();
     if (this.running || this.options.gate.active) throw new Error('capability:busy');
     const checked = await this.options.check(input);
@@ -102,29 +104,34 @@ export class PluginUpdateCoordinator {
         : observation.affected.length ? 'needs-release' : 'ready', sessions: observation.sessions, blockers: observation.blockers };
   }
   private async persist() {
-    await writePrivateJson(this.options.root, 'update-operation.json', { version: 1, operation: this.operation });
+    await writePrivateJson(this.options.root, this.options.recordName ?? 'update-operation.json', { version: 1, operation: this.operation });
   }
   private async persistProgress() {
     try { await this.persist(); }
     catch {
-      if (!this.operation!.warnings.includes('capability:update-operation-record-failed'))
-        this.operation!.warnings = [...this.operation!.warnings.slice(0, 99), 'capability:update-operation-record-failed'];
+      const warning = this.options.recordName === 'removal-operation.json'
+        ? 'capability:removal-operation-record-failed' : 'capability:update-operation-record-failed';
+      if (!this.operation!.warnings.includes(warning))
+        this.operation!.warnings = [...this.operation!.warnings.slice(0, 99), warning];
     }
   }
   async latest(pluginId: string): Promise<PluginUpdateOperation | null> {
     if (typeof pluginId !== 'string' || pluginId.length > 128) throw new Error('capability:invalid-input');
     if (!this.operation) {
-      const bytes = await optionalFile(this.options.root, 'desktop-plugins/update-operation.json', 65536);
+      const bytes = await optionalFile(this.options.root, `desktop-plugins/${this.options.recordName ?? 'update-operation.json'}`, 65536);
       if (!this.operation && bytes) {
         let record;
-        try { record = JSON.parse(bytes.toString('utf8')); } catch { throw new Error('capability:update-recovery-required'); }
+        const recordError = this.options.recordName === 'removal-operation.json'
+          ? 'capability:removal-operation-record-invalid' : 'capability:update-recovery-required';
+        try { record = JSON.parse(bytes.toString('utf8')); } catch { throw new Error(recordError); }
         const op = record?.operation;
         if (record?.version !== 1 || Object.keys(record).some(key => !['version', 'operation'].includes(key))
-          || !recordValid(op)) throw new Error('capability:update-recovery-required');
+          || !recordValid(op)) throw new Error(recordError);
         // A prior process cannot attest restoration or replay a user's restart consent.
         this.operation = ['done', 'attention'].includes(op.phase) ? op : { ...op, phase: 'attention', installation: 'unknown',
           sessions: op.sessions.map((item: PluginUpdateOperation['sessions'][number]) => ({ ...item, restoration: 'unknown' })),
-          error: 'capability:update-operation-interrupted' };
+          error: this.options.recordName === 'removal-operation.json'
+            ? 'capability:removal-operation-interrupted' : 'capability:update-operation-interrupted' };
       }
     }
     return this.operation?.pluginId === pluginId ? copy(this.operation) : null;
@@ -185,6 +192,10 @@ export class PluginUpdateCoordinator {
               await this.persist();
             },
           });
+          if (policy.scope === 'theme') {
+            this.operation!.phase = 'applying';
+            try { await this.persist(); } catch (error) { release?.(); throw error; }
+          }
           return release;
         };
         try {
@@ -195,7 +206,8 @@ export class PluginUpdateCoordinator {
               .map(warning => displayText(warning, 500)).filter(Boolean).slice(0, 100);
           } catch (error) {
             this.operation!.error = failure(error);
-            if (!this.options.canRestore()) this.operation!.installation = 'unknown';
+            if (!this.options.canRestore() || this.options.mutationFailureUncertain && this.operation!.phase === 'applying')
+              this.operation!.installation = 'unknown';
           } finally {
             this.operation!.phase = 'restoring';
             await this.persistProgress();

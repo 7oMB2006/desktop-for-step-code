@@ -22,6 +22,9 @@ export class PendingMessages {
     private format: (message: string, files: string[]) => string = message => message,
     private beforePrompt: (worker: SessionRuntime, message: string) => Promise<void> = async () => {},
     private receipt: (worker: SessionRuntime, id: string, event: QueueReceiptEvent) => void = () => {},
+    private submit: (worker: SessionRuntime, payload: Record<string, unknown>, valid: () => boolean,
+      dispatched: () => void) => Promise<unknown>
+      = (worker, payload, _valid, dispatched) => { dispatched(); return worker.rpc.request('prompt', payload, 600000); },
   ) {}
   list(worker: SessionRuntime): PendingMessage[] {
     return (this.entries.get(worker) ?? []).map(({ id, message, attachmentCount, version, sending, steered }) => ({ id, message, attachmentCount, version, sending, ...(steered ? { steered } : {}) }));
@@ -152,10 +155,16 @@ export class PendingMessages {
       }
       if (Array.isArray(entry.payload.images) && entry.payload.images.length && !worker.state?.model?.input?.includes('image'))
         throw new Error('The selected model does not support images. The queued input was not sent; choose an image-capable model in Desktop.');
-      // Irreversible for remote withdrawal, even if the RPC later times out.
-      entry.dispatched = true;
-      this.receipt(worker, entry.id, 'dispatching');
-      await worker.rpc.request('prompt', { ...entry.payload, ...(steer ? { streamingBehavior: 'steer' } : {}) }, 600000);
+      await this.submit(worker, { ...entry.payload, ...(steer ? { streamingBehavior: 'steer' } : {}) },
+        () => this.revisions.get(worker) === revision && !this.paused.has(worker)
+          && Boolean(this.entries.get(worker)?.includes(entry)) && entry.version === version && Boolean(entry.sending)
+          && !worker.stopping && !worker.mutating && !worker.state?.isCompacting
+          && (steer || !worker.busy && !worker.interrupted && !worker.failed),
+        () => {
+          // Only the actual prompt RPC makes remote withdrawal irreversible.
+          entry.dispatched = true;
+          this.receipt(worker, entry.id, 'dispatching');
+        });
       // RPC success means accepted for delivery, not consumed by the agent.
       // Only the authoritative user message event releases the pending receipt.
     } catch (error) {

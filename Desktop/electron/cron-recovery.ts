@@ -8,6 +8,11 @@ export function assertRecoveryQueues(workers: Iterable<Pick<SessionRuntime, 'que
     throw new Error('Withdraw or preserve the pending messages before recovering this conversation');
 }
 
+export function assertCronRecoveryAccount(account: { loggedIn?: boolean; validity?: string } | undefined) {
+  if (!account?.loggedIn) throw new Error('Sign in before recovering scheduled tasks');
+  if (account.validity === 'invalid') throw new Error('Step account credentials were rejected; sign in again before recovering scheduled tasks');
+}
+
 export async function resumeCronHost(rpc: Pick<RpcProcess, 'request'>, discard: () => Promise<void>, before?: number) {
   try {
     await rpc.request('desktop_cron_resume', before === undefined ? {} : { before }, 15000);

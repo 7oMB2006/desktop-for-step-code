@@ -24,6 +24,7 @@ export const acceptanceGroups = {
     'verify-capabilities.mjs',
     'verify-capability-diagnostics.mjs',
     'verify-plugin-center.mjs',
+    'verify-runtime-startup-status.mjs',
     'verify-plugin-host-settings-ui.mjs',
     'verify-plugin-host-settings-electron.mjs',
     'verify-plugin-host-authorization-electron.mjs',
@@ -82,6 +83,7 @@ export const acceptanceGroups = {
     'verify-session-navigation.mjs',
     'verify-session-reading.mjs',
     'verify-session-startup.mjs',
+    'verify-optional-mcp-loop.mjs',
     'verify-mini-chat-electron.mjs',
     'verify-session-branching.mjs',
     'verify-message-order.mjs',
@@ -96,6 +98,7 @@ export const acceptanceGroups = {
     'verify-electron.mjs',
     'verify-profile-lifecycle.mjs',
     'verify-plugin-update-electron.mjs',
+    'verify-plugin-reload-electron.mjs',
     'verify-cron-runtime.mjs',
     'verify-cron-management.mjs',
     'verify-cron-transcript-electron.mjs',
@@ -162,6 +165,10 @@ export const localOnly = [
   'verify-plugin-windows.mjs',
   // Design-only preview; the production PluginCenter fixture is self-contained and runs above.
   'verify-plugin-center-preview.mjs',
+  // Interactive local web preview requires its explicitly started preview server.
+  'verify-tool-status-web.mjs',
+  'verify-plugin-reload-web.mjs',
+  'verify-plugin-lifecycle-preview.mjs',
   // Local theme visual matrix; optional geometry comparison uses a captured baseline.
   'verify-theme-materials.mjs',
   'verify-stellar-chrome.mjs',

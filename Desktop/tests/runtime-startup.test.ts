@@ -131,17 +131,17 @@ test('real native core and management stay responsive while MCP connects; reject
     console.log(JSON.stringify({ coreMs: f.coreMs, slowMcpMs: 5000, providerRequests: f.payloads.length }));
   });
 
-test('real native missing executable needs exact one-shot consent; timeout cleanup cannot be excluded across epochs',
+test('real native optional failure needs no consent, legacy receipts stay exact, and uncertain cleanup blocks across epochs',
   { timeout: 60000 }, async t => {
     const missing = await fixture(t, 'missing');
     const state = await until(missing.state, state => state.discovery === 'ready'
       && state.tools.every(tool => !['connecting', 'pending'].includes(tool.status)));
     assert.equal(state.cleanupConfirmed, true);
     assert.deepEqual(state.tools.filter(tool => tool.status === 'failed').map(tool => tool.name), ['startup_fixture']);
-    const command = { message: 'EXPLICITLY_ACCEPTED_WITHOUT_MISSING_TOOL' };
-    const before = await missing.rpc.request('get_entries');
-    await assert.rejects(missing.rpc.request('prompt', command), /STARTUP_NOT_READY/);
-    assert.deepEqual(await missing.rpc.request('get_entries'), before);
+    const command = { message: 'ACCEPTED_WITHOUT_MISSING_TOOL' };
+    await missing.rpc.request('prompt', command);
+    await until(async () => ({ count: missing.payloads.length, state: await missing.rpc.request('get_state') }),
+      value => value.count === 1 && !value.state.isStreaming);
     const authorize = { action: 'authorize', ...missing.identity, catalogRevision: state.catalogRevision,
       submissionId: randomUUID(), digest: createHash('sha256').update(JSON.stringify(['prompt', command])).digest('hex'),
       missing: ['startup_fixture'] };
@@ -149,15 +149,16 @@ test('real native missing executable needs exact one-shot consent; timeout clean
     await assert.rejects(missing.rpc.request('prompt', { message: 'CHANGED_TASK', startupApproval: receipt }), /STARTUP_NOT_READY/);
     await missing.rpc.request('prompt', { ...command, startupApproval: receipt });
     await until(async () => ({ count: missing.payloads.length, state: await missing.rpc.request('get_state') }),
-      value => value.count === 1 && !value.state.isStreaming);
-    assert.equal(missing.payloads.length, 1);
+      value => value.count === 2 && !value.state.isStreaming);
+    assert.equal(missing.payloads.length, 2);
     await assert.rejects(missing.rpc.request('prompt', { ...command, startupApproval: receipt }), /STARTUP_NOT_READY/);
     await assert.rejects(missing.rpc.request('desktop_startup', authorize), /STARTUP_NOT_READY/);
-    assert.equal(missing.payloads.length, 1);
+    assert.equal(missing.payloads.length, 2);
 
     const timeout = await fixture(t, 'timeout');
     const failed = await until(timeout.state, state => state.tools.some(tool => tool.status === 'failed'));
     assert.equal(failed.cleanupConfirmed, false);
+    await assert.rejects(timeout.rpc.request('prompt', { message: 'MUST_NOT_BYPASS_UNCERTAIN_CLEANUP' }), /STARTUP_NOT_READY/);
     await assert.rejects(timeout.rpc.request('desktop_startup', { ...authorize, ...timeout.identity,
       catalogRevision: failed.catalogRevision, submissionId: randomUUID() }), /STARTUP_NOT_READY/);
     await timeout.rpc.request('new_session');

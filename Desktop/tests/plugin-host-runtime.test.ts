@@ -152,7 +152,7 @@ test(`real native unconfigured consumer stays deferred and a global override inv
         const startup = await pool.readStartup(worker);
         assert.equal(startup?.cleanupConfirmed, true);
         assert.equal(startup?.tools.find(tool => tool.name === 'dfsc-host-example__example')?.status, 'failed');
-        await assert.rejects(pool.assertExecutionReady(worker), /STARTUP_NOT_READY/);
+        await assert.doesNotReject(pool.assertExecutionReady(worker));
       }
       const summary = await worker.rpc.request('get_desktop_summary');
       assert.equal(summary.mcp.find((item: { name: string }) => item.name === 'dfsc-host-example__example').status, 'disabled');

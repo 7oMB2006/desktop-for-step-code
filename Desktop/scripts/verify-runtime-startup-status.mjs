@@ -1,0 +1,100 @@
+import assert from 'node:assert/strict';
+import { mkdir } from 'node:fs/promises';
+import { resolve, join } from 'node:path';
+import { createServer } from 'vite';
+import { chromium } from 'playwright';
+
+const output = resolve('test-results/runtime-startup-status');
+await mkdir(output, { recursive: true });
+const server = await createServer({ server: { host: '127.0.0.1', port: 0 }, logLevel: 'error' });
+await server.listen();
+let browser;
+try {
+  browser = await chromium.launch({ headless: true });
+  const page = await browser.newPage();
+  const errors = [];
+  page.on('pageerror', error => errors.push(error.message));
+  await page.goto(`${server.resolvedUrls.local[0]}tests/fixtures/runtime-startup-status.html`);
+  await page.waitForFunction(() => Boolean(window.toolStatusFixture));
+  const entry = page.locator('.sidebar-plugins-entry'), dot = page.locator('.sidebar-plugins-dot');
+  const panel = page.locator('.runtime-startup-status');
+  const configure = (mode, language = 'en', disabled = false) =>
+    page.evaluate(({ mode, language, disabled }) => window.toolStatusFixture.configure(mode, language, disabled),
+      { mode, language, disabled });
+  for (const [width, height, theme, language] of [[1280, 800, 'light', 'en'], [360, 500, 'dark', 'zh'], [700, 400, 'dark', 'en']]) {
+    await page.setViewportSize({ width, height });
+    await page.evaluate(theme => document.documentElement.dataset.theme = theme, theme);
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await configure('connecting', language);
+    await entry.waitFor();
+    assert.equal(await dot.count(), 0, 'Connecting is not an error');
+    assert.equal(await panel.count(), 0, 'No tool controls or status in the conversation');
+    const before = await page.locator('#transcript').boundingBox();
+    const entryBefore = await entry.boundingBox();
+    await configure('failed', language, true);
+    await dot.waitFor();
+    assert.deepEqual(await entry.boundingBox(), entryBefore, 'The dot cannot resize Plugins');
+    assert.deepEqual(await page.locator('#transcript').boundingBox(), before, 'Failures cannot move the conversation');
+    assert.equal(await panel.count(), 0, 'Failures cannot open details');
+    assert.ok(await entry.getAttribute('aria-description'), 'The dot has an accessible explanation');
+    await page.screenshot({ path: join(output, `sidebar-${width}-${theme}.png`) });
+    await entry.focus();
+    await page.keyboard.press('Enter');
+    await panel.waitFor({ state: 'visible' });
+    const summary = panel.locator('summary');
+    assert.equal(await summary.getAttribute('aria-expanded'), 'false', 'Plugin status starts collapsed');
+    assert.equal(await panel.locator('ul').isVisible(), false);
+    await summary.focus();
+    await page.keyboard.press('Enter');
+    await panel.locator('ul').waitFor({ state: 'visible' });
+    assert.equal(await summary.getAttribute('aria-expanded'), 'true');
+    const reconnect = page.getByRole('button', { name: language === 'zh' ? '重新连接运行时' : 'Reconnect runtime', exact: true });
+    assert.ok(await reconnect.isDisabled(), 'Busy runtime reconnect remains guarded');
+    assert.ok(await panel.evaluate(element => {
+      const box = element.getBoundingClientRect();
+      return box.left >= 0 && box.right <= innerWidth && element.scrollWidth <= element.clientWidth;
+    }), 'Long names fit even on narrow windows');
+    await page.screenshot({ path: join(output, `plugin-status-${width}-${theme}.png`) });
+    await summary.focus();
+    await page.keyboard.press('Space');
+    await panel.locator('ul').waitFor({ state: 'hidden' });
+    assert.equal(await panel.locator('.cap-disclosure-body').getAttribute('inert'), '');
+    await entry.click();
+    await page.locator('#transcript').waitFor();
+    assert.deepEqual(await page.locator('#transcript').boundingBox(), before, 'Returning restores the conversation layout');
+  }
+  await configure('cleanup');
+  await entry.click();
+  await panel.waitFor({ state: 'visible' });
+  await panel.locator('summary').click();
+  await page.getByRole('button', { name: 'Reconnect runtime', exact: true }).click();
+  assert.equal(await page.evaluate(() => window.toolStatusFixture.reconnects), 1);
+  await page.getByRole('button', { name: 'MCP settings', exact: true }).click();
+  assert.equal(await page.evaluate(() => window.toolStatusFixture.settings), 1);
+  await configure('ready');
+  await dot.waitFor({ state: 'detached' });
+  await panel.waitFor({ state: 'detached' });
+  assert.equal(await entry.getAttribute('aria-description'), null);
+  await entry.click();
+  await configure('discovery');
+  await dot.waitFor();
+  assert.equal(await panel.count(), 0, 'Discovery failure remains in the sidebar');
+  await entry.click();
+  await panel.locator('summary').click();
+  await configure('ready');
+  await panel.waitFor({ state: 'detached' });
+  await configure('failed');
+  await panel.waitFor({ state: 'visible' });
+  assert.equal(await panel.locator('summary').getAttribute('aria-expanded'), 'false', 'A resolved issue cannot reopen on recurrence');
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+  await panel.locator('summary').click();
+  await panel.locator('summary').click();
+  await panel.locator('summary').click();
+  await page.waitForFunction(() => !document.querySelector('.runtime-startup-status .cap-disclosure-body')?.getAnimations().length);
+  assert.equal(await panel.locator('summary').getAttribute('aria-expanded'), 'true', 'Interrupted animation settles to the latest toggle');
+  assert.deepEqual(errors, []);
+  console.log('Tool status: sidebar-only failures, default-collapsed disclosure, keyboard toggles, inert hidden actions, rapid animation reversal, light/dark/narrow, guarded actions and recovery passed.');
+} finally {
+  await browser?.close();
+  await server.close();
+}

@@ -42,7 +42,7 @@ export class CapabilityGate {
     const owner = this.owner;
     if (!owner || owner.closed || owner.release) throw new Error('capability:busy');
     const { scope, pluginId } = policy;
-    if (scope !== 'discovery' && scope !== 'theme' && scope !== 'runtime')
+    if (scope !== 'discovery' && scope !== 'theme' && scope !== 'next-start' && scope !== 'runtime')
       throw new Error('capability:invalid-input');
 
     let releaseRuntime: (() => void) | undefined;

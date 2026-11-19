@@ -3,12 +3,13 @@ import type { CapabilityCatalog, CapabilityMutation } from './capabilities';
 // An affordance hint only. Main revalidates the complete package at commit time.
 export function capabilityNeedsIdle(input: CapabilityMutation, catalog?: CapabilityCatalog) {
   if (input.action.startsWith('marketplace-') || input.action === 'plugin-check-updates') return false;
+  if (input.action === 'plugin-toggle' || input.action === 'mcp-toggle') return false;
   if (input.action === 'plugin-remove')
     return !catalog?.plugins.find(plugin => plugin.id === input.id)?.package?.dataOnlyTheme;
   if (input.action === 'plugin-install')
     return !catalog?.available.find(plugin => plugin.package?.ref === input.ref
       && plugin.name === input.name && plugin.marketplace === input.marketplace
-      && plugin.package?.provenance === 'recorded')?.package?.dataOnlyTheme;
+      && plugin.package?.provenance === 'recorded');
   if (input.action === 'plugin-update') {
     const installed = catalog?.plugins.find(plugin => plugin.id === input.id && plugin.package?.ref === input.ref);
     const candidate = catalog?.available.find(plugin => plugin.package?.ref === input.candidate);

@@ -39,8 +39,7 @@ import { ConversationDisclosureMemory, type ConversationDisclosureState } from '
 import { useWindowComposer } from './use-window-composer';
 import { composerErrorText, composerKey, composerOwner, type ComposerOwner, type ComposerReceipt, type WindowPresentation } from './window-conversation';
 import './session-navigation.css';
-import { RuntimeStartupStatus } from './RuntimeStartupStatus';
-import { startupBlocked } from './runtime-startup';
+import { startupBlocked, startupNeedsAttention } from './runtime-startup';
 import { WindowBar, type WindowMenu } from './WindowBar';
 import { NoticeToast, type NoticeToastItem } from './NoticeToast';
 import { PerformanceBar } from './PerformanceBar';
@@ -2165,6 +2164,7 @@ function App() {
           <StellarBrand motion={data.preferences.themeMotion !== false} paused={!sidebarVisible || settingsOpen || scheduledOpen || usageOpen}/>}
       </button>
       <SidebarTaskActions selected={scheduledOpen} pluginsSelected={pluginsOpen && !desktopMainId} language={data.preferences.language} disabled={!bridge || loading} onNewSession={() => { if (bridge && !loading) void newSession(); }}
+        pluginsAttention={!navigationTarget && startupNeedsAttention(data.state?.desktopStartup)}
         onSearchChange={setSessionQuery}
         fulltextOpen={fulltextOpen}
         onFulltextSearch={openSearch}
@@ -2200,6 +2200,8 @@ function App() {
       {!!requests.length && <div className="approval-notice"><TriangleAlert size={16}/><span>{t('当前会话有待确认的操作', 'The current session is awaiting approval')}</span>
         <button onClick={() => { setPluginsOpen(false); setApprovalOpen(true); }}>{t('查看', 'Review')}</button></div>}
       <PluginCenter bridge={bridge} language={data.preferences.language} currentVersion={appUpdate?.currentVersion} active={pluginsOpen && !desktopMainId} busy={anyBusy || busy || loading}
+        startup={navigationTarget ? undefined : data.state?.desktopStartup}
+        startupDisabled={busy || loading || Boolean(data.pendingMessages?.length) || requests.length > 0}
         runtimeId={data.runtimeId} settings={settings ?? undefined} target={capabilityTarget?.page === 'plugins' ? capabilityTarget : undefined}
         customBackgroundState={data.customBackground}
         onAppearance={() => { setPluginsOpen(false); setTab('appearance'); void openSettings(); }}
@@ -2305,10 +2307,6 @@ function App() {
         {navigationTarget.readingUnavailable && !navigationTarget.reading
           ? t(' · 历史预览不可用', ' · History preview unavailable') : ''}
       </div>}
-      {!navigationTarget && <RuntimeStartupStatus state={data.state?.desktopStartup}
-        language={data.preferences.language} disabled={busy || loading || Boolean(data.pendingMessages?.length) || requests.length > 0}
-        reconnect={isMini ? undefined : () => void applySnapshot(() => bridge!.restart())}
-        settings={() => { setTab('mcp'); void openSettings(); }}/>}
       <div className="conversation-shell"
           onWheelCapture={event => {
             if ((event.target as HTMLElement).closest('.thinking-scroll')) return;

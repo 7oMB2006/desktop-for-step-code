@@ -200,12 +200,13 @@ try {
     const row = element.querySelector('.sidebar-utility-row').getBoundingClientRect();
     const buttons = [...element.querySelectorAll('.sidebar-utility-row button')].map(button => button.getBoundingClientRect());
     return { equalPrimary: primaryButtons.length === 2 && Math.abs(primaryButtons[0].width - primaryButtons[1].width) < 1,
-      pairedIcons: Math.abs(buttons[1].left - buttons[0].right - 2) < 1 && Math.abs(buttons[1].right - row.right) < 1,
+      compactIcons: buttons.length === 3 && Math.abs(buttons[1].left - buttons[0].right) < 1
+        && Math.abs(buttons[2].left - buttons[1].right - 2) < 1 && Math.abs(buttons[2].right - row.right) < 1,
       sameRow: buttons.every(button => Math.abs(button.top - buttons[0].top) < 1),
       contained: element.scrollWidth <= element.clientWidth,
       compactGap: Math.abs(row.top - primary.bottom - 6) < 1 };
   });
-  assert.deepEqual(geometry, { equalPrimary: true, pairedIcons: true, sameRow: true, contained: true, compactGap: true });
+  assert.deepEqual(geometry, { equalPrimary: true, compactIcons: true, sameRow: true, contained: true, compactGap: true });
   const actionsBox = await page.locator('.sidebar-task-actions').boundingBox();
   const sessionsBox = await page.locator('.workspace-tree').boundingBox();
   assert.ok(Math.abs(sessionsBox.y - actionsBox.y - actionsBox.height) < 1, 'No extra spacer before the session list');

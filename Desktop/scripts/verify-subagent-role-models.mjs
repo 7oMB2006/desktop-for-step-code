@@ -65,8 +65,10 @@ let page;
 try {
   const env = { ...process.env, DESKTOP_TEST_USER_DATA: profile, DESKTOP_TEST_NO_FOCUS: '1' };
   delete env.ELECTRON_RUN_AS_NODE;
-  app = await electron.launch({ ...(process.env.DESKTOP_VERIFY_EXE ? { executablePath: process.env.DESKTOP_VERIFY_EXE }
-    : { args: [resolve(import.meta.dirname, '..')], cwd: process.argv[2] }), env, timeout: 60000 });
+  const desktop = resolve(import.meta.dirname, '..');
+  const executablePath = process.env.DESKTOP_VERIFY_EXE;
+  app = await electron.launch({ ...(executablePath ? { executablePath }
+    : { args: [desktop], cwd: process.argv[2] ? resolve(process.argv[2]) : desktop }), env, timeout: 60000 });
   assert.equal(await app.evaluate(({ app }) => app.getPath('userData')), profile);
   page = await app.firstWindow();
   await app.evaluate(({ BrowserWindow }) => { const window = BrowserWindow.getAllWindows()[0]; window.setOpacity(0); window.setIgnoreMouseEvents(true); window.showInactive(); });

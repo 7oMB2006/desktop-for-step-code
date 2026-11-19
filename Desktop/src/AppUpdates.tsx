@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { ArrowUpRight, Check, Download, RefreshCw, TriangleAlert, X, RotateCw } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { DisclosureChevron } from './DisclosureChevron';
+import { DisclosureSelect } from './DisclosureSelect';
 import type { AppUpdateState, DesktopBridge, Preferences } from './contracts';
 import './app-updates.css';
 
@@ -110,14 +111,14 @@ export function AppUpdates({ bridge, state, preferences, onPreferences }: {
         void run(async () => { await onPreferences({ autoCheckUpdates }); if (autoCheckUpdates) await bridge!.checkUpdates(); });
       }}/>{t('自动检查更新', 'Automatically check for updates')}</label>
       <label className="update-channel-field">{t('更新通道', 'Update channel')}
-        <select aria-label={t('更新通道', 'Update channel')} value={preferences.updateChannel ?? 'preview'}
+        <DisclosureSelect aria-label={t('更新通道', 'Update channel')} value={preferences.updateChannel ?? 'preview'}
           disabled={!bridge || busy || checking || downloading || installing} onChange={event => {
             const updateChannel = event.target.value as 'stable' | 'preview';
             void run(async () => { await onPreferences({ updateChannel }); await bridge!.checkUpdates(); });
           }}>
           <option value="preview">{t('正式版与预览版', 'Stable and preview')}</option>
           <option value="stable">{t('仅正式版', 'Stable only')}</option>
-        </select>
+        </DisclosureSelect>
       </label>
     </div>
   </section>;

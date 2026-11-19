@@ -38,7 +38,7 @@ import type { ApprovedPlan, PlanExecutionState } from './plan-execution';
 import { PlanExecution } from './PlanExecution';
 import { normalizeInterfaceSettings, type InterfacePreferences } from './interface-presets';
 import { groupConsecutiveTools, toolGroupLabel, type ToolItem } from './tool-groups';
-import { groupProcesses, liveThinkingKey, processGroupSummary, thinkingPreview, type ProcessGroup as ProcessGroupData } from './process-groups';
+import { groupProcesses, hideOrdinaryProcess, liveThinkingKey, processGroupSummary, thinkingPreview, type ProcessGroup as ProcessGroupData } from './process-groups';
 import './tool-groups.css';
 import { QuestionTool } from './QuestionTool';
 import { useAnimatedDisclosure } from './useAnimatedDisclosure';
@@ -346,7 +346,7 @@ function ToolDetails({ className, stateKey, label, defaultExpanded = false, chil
 }) {
   const [expanded, setExpanded] = useConversationDisclosure(stateKey, defaultExpanded);
   return <details className={className} open={expanded} onToggle={event => setExpanded(event.currentTarget.open)}>
-    <summary>{label}</summary>{children}
+    <summary><span className="disclosure-chevron"><DisclosureChevron/></span>{label}</summary>{children}
   </details>;
 }
 
@@ -506,7 +506,8 @@ function HistoricalAgents({ count, stateKey, language, children, onLayoutChange 
     const { content, text } = responsePresentation(items);
     const incomplete = incompleteResponse(items.map(item => item.message), active, props.language);
     const liveThought = liveThinkingKey(content, active);
-    const presentation = props.interfaceSettings?.compactProcess ? groupProcesses(content, active, props.awaitingToolCalls)
+    const presentation = props.interfaceSettings?.hideProcess ? hideOrdinaryProcess(content, active, props.awaitingToolCalls)
+      : props.interfaceSettings?.compactProcess ? groupProcesses(content, active, props.awaitingToolCalls)
       : props.interfaceSettings?.groupTools ? groupConsecutiveTools(content, active, props.awaitingToolCalls) : content;
     const historicalAgents = historical ? content.filter(item => {
       if (item.type !== 'tool') return false;

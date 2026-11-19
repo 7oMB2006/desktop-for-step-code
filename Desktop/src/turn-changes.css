@@ -45,7 +45,9 @@
 .turn-changes-more:is(:hover, :focus-visible) { background: var(--surface); color: var(--ink); }
 .turn-diff { margin: 0 10px 12px 44px; border-left: 2px solid var(--border); background: var(--side); animation: turn-diff-enter 200ms cubic-bezier(.22, 1, .36, 1) both; }
 .turn-diff-toolbar { display: flex; align-items: center; gap: 8px; height: 34px; padding: 0 8px; border-bottom: 1px solid var(--border); font-size: 10px; color: var(--muted); }
-.turn-diff-toolbar select { padding: 2px 4px; min-width: 0; max-width: 60%; font-size: 10px; border: 0; background: transparent; }
+.turn-diff-toolbar .disclosure-select { width: auto; max-width: 60%; }
+.turn-diff-toolbar .disclosure-select select { padding: 2px 22px 2px 4px; min-width: 0; font-size: 10px; border: 0; background: transparent; }
+.turn-diff-toolbar .disclosure-select > svg { right: 4px; }
 .turn-diff-legend { margin-left: auto; display: flex; gap: 7px; font-variant-numeric: tabular-nums; }
 .turn-diff-toolbar .icon-button { width: 24px; min-height: 24px; height: 24px; color: var(--muted); }
 .turn-diff-scroll { max-height: 340px; overflow: auto; overscroll-behavior: contain; }

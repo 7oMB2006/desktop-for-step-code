@@ -3,6 +3,7 @@ import { ShieldCheck, ShieldOff } from 'lucide-react';
 import type { ExternalApprovalCategory, ExternalApprovalState, ExternalConnectorAction } from './external-connectors';
 import { useAnimatedDisclosure } from './useAnimatedDisclosure';
 import { DisclosureChevron } from './DisclosureChevron';
+import { DisclosureSelect } from './DisclosureSelect';
 
 type Task = ExternalApprovalState['tasks'][number];
 type Props = { language: string; busy: boolean; canDelegate: boolean; act(action: ExternalConnectorAction): Promise<boolean> };
@@ -70,10 +71,10 @@ function ApprovalTask({ task, name, language, busy, canDelegate, act }: Props & 
         <p>{t('仅委托本任务选中的类型，Agent 可能判断错误。高风险和回答问题需要单独勾选；目录授权不是沙箱。无法完整分析、项目信任和权限提升仍留在本机。任务结束、到期或 DFSC 重启后失效。',
           'Only selected types are delegated for this task. Agent judgment can be wrong. Select high-risk tools and answering questions separately. Scope is not a sandbox. Incomplete requests, project trust and permission changes stay local. Ends with this task, expiry or restart.')}</p>
         <ApprovalTypes categories={categories} setCategories={setCategories} language={language} busy={busy}/>
-        <label><span>{t('有效期', 'Duration')}</span><select value={minutes} disabled={busy} onChange={event => setMinutes(Number(event.target.value))}>
+        <label><span>{t('有效期', 'Duration')}</span><DisclosureSelect value={minutes} disabled={busy} onChange={event => setMinutes(Number(event.target.value))}>
           <option value={0}>{t('本次任务', 'This task')}</option>
           {[15, 30, 60].map(value => <option value={value} key={value}>{value} {t('分钟', 'minutes')}</option>)}
-        </select></label>
+        </DisclosureSelect></label>
         <div className="remote-form-actions"><button disabled={busy} onClick={close}>{t('取消', 'Cancel')}</button>
           <button className="primary" disabled={busy || !canDelegate || !categories.length} onClick={() => {
             void act({ type: 'delegate', taskId: task.taskId, minutes, categories }).then(success => {

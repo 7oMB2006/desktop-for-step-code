@@ -55,6 +55,9 @@ function SubagentContent({ task, onBackground, ...props }: { task: SubagentDispl
   const agent = redactSensitiveText(task.agent);
   const description = redactSensitiveText(task.task);
   const model = task.model ? redactSensitiveText(task.model) : undefined;
+  const actual = task.desktopModel;
+  const source = actual && { role: zh ? '角色默认' : 'Role default', inherited: zh ? '继承' : 'Inherited',
+    definition: zh ? '角色定义' : 'Role definition', explicit: zh ? '本次指定' : 'Explicit selection' }[actual.source];
   const settled = state === 'done' || state === 'failed' || state === 'stopped';
   return <div className="subagent-body" data-agent-state={task.status}>
     <div className="subagent-head">
@@ -62,10 +65,13 @@ function SubagentContent({ task, onBackground, ...props }: { task: SubagentDispl
       <span className="subagent-status" data-lane-state={task.status} role="img" aria-label={status}>
         <SubagentStatusIcon state={state} language={props.language}/>
       </span>
-      {model && <span className="subagent-meta">{model}{task.turns ? ` · ${zh ? '轮次' : 'turns'} ${task.turns}` : ''}</span>}
+      {task.turns ? <span className="subagent-meta">{zh ? '轮次' : 'Turns'} {task.turns}</span> : null}
     </div>
     <div className="subagent-execution-kind"><span>{task.backgroundAgentId ? zh ? '后台任务' : 'Background task' : zh ? '前台调用' : 'Foreground call'}</span>
       {task.backgroundAgentId && onBackground && <button type="button" onClick={onBackground}><ArrowUpRight size={12}/>{zh ? '查看后台详情' : 'Open background details'}</button>}</div>
+    {actual ? <p className="subagent-note subagent-model-evidence">{zh ? '实际用模' : 'Model used'}: {redactSensitiveText(`${actual.provider}/${actual.id}`)} · {actual.effort} · {source}</p>
+      : (model || settled) && <p className="subagent-note subagent-model-evidence">{zh ? '实际用模未确认' : 'Model not verified'}{model ? ` · ${model}` : ''}</p>}
+    {task.modelError && <p className="subagent-note subagent-model-evidence" role="status">{redactSensitiveText(task.modelError)}</p>}
     <p className="subagent-task">{description || (zh ? '无任务描述' : 'No task description')}</p>
     <p className="subagent-note">{zh
       ? '只读记录。子代理由主会话分发任务后独立执行，此处无法与它对话，也无法追加指令。'

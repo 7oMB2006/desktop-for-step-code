@@ -5,6 +5,7 @@ import type { ExternalConnectorAction, ExternalConnectorState } from './external
 import { useAnimatedDisclosure } from './useAnimatedDisclosure';
 import { ExternalApprovalPanel } from './ExternalApprovalPanel';
 import { ExternalApprovalPolicies } from './ExternalApprovalPolicies';
+import { DisclosureSelect } from './DisclosureSelect';
 import './external-connectors.css';
 
 export function ExternalConnectorPanel({ bridge, language }: { bridge: DesktopBridge; language: string }) {
@@ -113,11 +114,11 @@ export function ExternalConnectorPanel({ bridge, language }: { bridge: DesktopBr
         placeholder={t('例如 Hermes', 'For example, Hermes')} disabled={busy || !state?.listening}
         onChange={event => { setName(event.target.value); setConfirmation(undefined); }}/></label>
       {Boolean(state?.plugins?.length) && <label><span>{t('关联插件', 'Associated plugin')}</span>
-        <select value={pluginRef} disabled={busy || !state?.listening} onChange={event => {
+        <DisclosureSelect value={pluginRef} disabled={busy || !state?.listening} onChange={event => {
           setPluginRef(event.target.value); setConfirmation(undefined);
         }}><option value="">{t('普通连接（不关联插件）', 'Generic connection (no plugin)')}</option>
           {state?.plugins?.map(plugin => <option key={plugin.ref} value={plugin.ref}>{plugin.name} ({plugin.id})</option>)}
-        </select></label>}
+        </DisclosureSelect></label>}
       <fieldset className="remote-scope" disabled={busy || !state?.listening}>
         <legend>{t('授权项目', 'Authorized projects')}</legend>
         {state?.projects.map(project => <label key={project.workspace}>
@@ -170,12 +171,12 @@ export function ExternalConnectorPanel({ bridge, language }: { bridge: DesktopBr
         {item.plugin ? <p className="external-plugin-identity">{t('关联插件', 'Associated plugin')} · {item.plugin.id}</p>
           : Boolean(state.plugins?.length) && <div className="external-plugin-association">
             <label><span>{t('关联插件', 'Associated plugin')}</span>
-              <select aria-label={t(`为 ${item.displayName} 选择插件`, `Choose a plugin for ${item.displayName}`)}
+              <DisclosureSelect aria-label={t(`为 ${item.displayName} 选择插件`, `Choose a plugin for ${item.displayName}`)}
                 value={associations[item.agentId] ?? ''} disabled={busy} onChange={event =>
                   setAssociations(value => ({ ...value, [item.agentId]: event.target.value }))}>
                 <option value="">{t('选择插件', 'Choose a plugin')}</option>
                 {state.plugins?.map(plugin => <option key={plugin.ref} value={plugin.ref}>{plugin.name} ({plugin.id})</option>)}
-              </select></label>
+              </DisclosureSelect></label>
             <button disabled={busy || !state.listening || !associations[item.agentId]} onClick={event =>
               ask({ type: 'bind-plugin', agentId: item.agentId, pluginRef: associations[item.agentId] }, event.currentTarget)}>
               <Link2 size={14}/>{t('关联插件', 'Associate plugin')}</button>

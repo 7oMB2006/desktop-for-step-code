@@ -18,6 +18,7 @@ const language = params.get('lang') === 'en' ? 'en' : 'zh';
 const transcript = params.get('view') === 'transcript';
 const roles = ['explore', 'review', 'implement', 'test', 'general', 'docs-helper', undefined];
 const flow: WorkflowState = { toolCallId: 'roles', name: 'inline', status: 'running',
+  taskFailures: params.has('callbacks') ? [{ primitive: 'parallel', index: 0, message: 'Example callback error' }] : undefined,
   agents: roles.map((agentType, index) => ({ id: `agent-${index}`, agentType,
     label: ['ref-config-starter', 'sdk-boundary-review', 'implementation-worker', 'verification-worker',
       'synthesis', 'custom-documentation-worker-with-a-very-long-label', 'review'][index],

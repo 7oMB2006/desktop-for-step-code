@@ -70,7 +70,7 @@ try {
   await page.waitForTimeout(280);
   assert.equal(await thinking.getAttribute('data-expanded'), 'true');
   assert.equal(await thinking.locator('.thinking-body').evaluate(e => e.inert), false);
-  const group = page.locator('.process-tool-group').first();
+  const group = page.locator('.compact-process[data-single=false]').first();
   await group.locator(':scope > .tool-group-trigger').click();
   const tools = group.locator('.process-tool');
   await tools.first().locator(':scope > summary').click();
@@ -131,22 +131,14 @@ try {
   assert.equal(await meter.getAttribute('aria-valuenow'), null);
   assert.equal(await page.locator('.context-capacity-strip .is-used').count(), 0);
 
-  await page.evaluate(() => {
-    const original = window.desktop.snapshot;
-    window.desktop.snapshot = async () => {
-      const snapshot = await original();
-      snapshot.preferences.interfaceSettings = { preset: 'simple' };
-      return snapshot;
-    };
-  });
-  await page.getByRole('button', { name: '刷新上下文', exact: true }).click();
   await page.locator('.compact-process[data-single=true]').first().waitFor();
   const single = page.locator('.compact-process[data-single=true]').first();
   assert.equal(await single.locator(':scope > .tool-group-trigger').isVisible(), false);
   assert.equal(await single.locator('.tool-group-disclosure > div').evaluate(e => getComputedStyle(e, '::before').content), 'none');
   await panel('摘要');
   const compactGroup = page.locator('.compact-process[data-single=false]').first();
-  await compactGroup.locator(':scope > .tool-group-trigger').click();
+  const compactTrigger = compactGroup.locator(':scope > .tool-group-trigger');
+  if (await compactTrigger.getAttribute('aria-expanded') === 'false') await compactTrigger.click();
   await compactGroup.locator('.process-tool > summary').first().click();
   await focus(compactGroup.locator('.process-tool > summary').first());
   await page.locator('.conversation').evaluate(e => { e.scrollTop = 0; });
@@ -200,7 +192,7 @@ try {
     }
   }
   await page.setViewportSize({ width: 1600, height: 1000 });
-  await page.locator('.sidebar-bottom > button').click();
+  await page.locator('.sidebar-settings').click();
   await page.getByRole('button', { name: '外观', exact: true }).click();
   await page.getByRole('button', { name: '原版浅色', exact: true }).click();
   await page.locator('.settings-dialog > header').getByRole('button', { name: /^(?:Close|\u5173\u95ed)$/u }).click();
@@ -212,7 +204,7 @@ try {
   await page.setViewportSize({ width: 1908, height: 1080 });
   await open();
   await page.locator('.thinking > summary').first().click();
-  await page.locator('.process-tool-group > .tool-group-trigger').first().click();
+  await group.locator(':scope > .tool-group-trigger').click();
   await page.locator('.process-tool > summary').first().click();
   await panel('上下文');
   await page.locator('.conversation').evaluate(e => { e.scrollTop = 0; });

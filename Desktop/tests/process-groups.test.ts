@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { groupProcesses, liveThinkingKey, processGroupSummary, thinkingPreview, type ProcessGroup } from '../src/process-groups';
+import { groupProcesses, hideOrdinaryProcess, liveThinkingKey, processGroupSummary, thinkingPreview, type ProcessGroup } from '../src/process-groups';
 import type { ResponseItem } from '../src/conversation-presentation';
 import type { ToolItem } from '../src/tool-groups';
 
@@ -10,6 +10,19 @@ const tool = (key: string, completed = true, name = 'read_file'): ToolItem => ({
   ...(completed ? { result: { role: 'toolResult', toolName: name, toolCallId: key, content: 'ok' } } : {}),
 });
 const prose: ResponseItem = { type: 'text', key: 'prose', index: 0, block: { type: 'text', text: 'Actual reply.' } };
+
+test('hidden process omits routine activity but retains prose, images and exceptional tool records', () => {
+  const image: ResponseItem = { type: 'image', key: 'image', index: 0, block: { type: 'image' } };
+  const running = tool('running', false);
+  const waiting = tool('waiting', false);
+  const failed = { ...tool('failed'), result: { ...tool('failed').result!, isError: true } };
+  const question = tool('question', true, 'clarify_user');
+  const input = [prose, thought('think'), tool('read'), running, failed, image, waiting, question];
+  const before = structuredClone(input);
+  assert.deepEqual(hideOrdinaryProcess(input, true, ['waiting']), [prose, failed, image, waiting, question]);
+  assert.deepEqual(hideOrdinaryProcess(input, false), [prose, running, failed, image, waiting, question]);
+  assert.deepEqual(input, before);
+});
 
 test('compact process combines thoughts and tools but never crosses prose or image boundaries', () => {
   const input = [thought('a'), tool('b'), thought('c'), tool('d'), prose, thought('e')];

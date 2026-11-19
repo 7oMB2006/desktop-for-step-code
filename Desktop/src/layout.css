@@ -108,8 +108,6 @@
 /* Chromium's customizable select keeps native keyboard behavior in the top layer. */
 select, select::picker(select) { appearance: base-select; }
 select { align-items: center; gap: 10px; cursor: pointer; }
-select::picker-icon { color: var(--muted); transition: rotate .15s; }
-select:open::picker-icon { rotate: 180deg; }
 select::picker(select) {
   background: var(--bg); color: var(--ink); border: 1px solid var(--border);
   border-radius: 8px; padding: 5px; box-shadow: var(--shadow);
@@ -126,7 +124,6 @@ select option:hover, select option:focus-visible { background: var(--surface); o
 select option:checked { background: var(--surface); font-weight: 600; }
 select option::checkmark { order: 1; margin-left: auto; color: var(--primary); }
 select:disabled { cursor: not-allowed; opacity: .45; }
-@media (prefers-reduced-motion: reduce) { select::picker-icon { transition: none; } }
 :root { --window-bar-height: 46px; }
 .app { padding-top: var(--window-bar-height); }
 .window-bar {
@@ -572,8 +569,8 @@ main { position: relative; }
 .message.user:hover .user-actions .icon-button, .message.user:focus-within .user-actions .icon-button { pointer-events: auto; }
 .response-content { min-width: 0; }
 .response-content summary::-webkit-details-marker { display: none; }
-.disclosure-chevron { flex-shrink: 0; transition: transform .18s cubic-bezier(.22, 1, .36, 1); }
-details[open] > summary > .disclosure-chevron { transform: rotate(90deg); }
+.disclosure-chevron { display: inline-flex; flex-shrink: 0; transform: rotate(-90deg); transition: transform .18s cubic-bezier(.22, 1, .36, 1); }
+details[open] > summary > .disclosure-chevron { transform: rotate(0); }
 .response-content > .thinking { font-size: 13px; margin: 0 0 12px; color: var(--muted); }
 .response-content > .thinking > summary { display: flex; align-items: center; gap: 6px; width: fit-content; min-height: 30px; padding: 3px 0; cursor: pointer; list-style: none; }
 .response-content > .thinking > summary:hover { color: var(--ink); }
@@ -602,7 +599,6 @@ details[open] > summary > .disclosure-chevron { transform: rotate(90deg); }
 .thinking > summary > .elapsed-label { margin-left: 5px; }
 .elapsed-label > span { font-variant-numeric: tabular-nums; }
 .elapsed-total { font-size: 10px; }
-.thinking[data-expanded="false"] > summary > .disclosure-chevron { transform: rotate(0); }
 .stream-reveal { animation: stream-text-in .18s ease-out both; }
 @keyframes stream-text-in { from { opacity: .3; } to { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) {
@@ -657,7 +653,7 @@ details[open] > summary > .disclosure-chevron { transform: rotate(90deg); }
 .client-model-change .change-models svg { color: var(--muted); flex-shrink: 0; }
 .model-effort-pending { position: absolute; top: 10px; right: 10px; color: var(--muted); font-size: 11px; font-weight: 400; }
 @media (max-width: 700px) { .client-event-note { align-items: baseline; flex-wrap: wrap; } .client-event-note > svg { align-self: center; } }
-.process-tool-content > details > summary { list-style: none; width: fit-content; padding: 5px 0; cursor: pointer; font-size: 11px; color: var(--muted); }
+.process-tool-content > details > summary { display: flex; align-items: center; gap: 5px; list-style: none; width: fit-content; padding: 5px 0; cursor: pointer; font-size: 11px; color: var(--muted); }
 .process-tool-content > details > summary:hover { color: var(--ink); }
 .process-tool-content pre { max-height: 280px; overflow: auto; margin: 3px 0 10px; padding: 10px 12px; border-radius: 4px; font-size: 11px; white-space: pre-wrap; overflow-wrap: anywhere; }
 .process-pending { color: var(--muted); font-size: 11px; margin: 5px 0; }
@@ -921,7 +917,8 @@ details[open] > summary > .disclosure-chevron { transform: rotate(90deg); }
 .archive-search { display: flex; align-items: center; flex: 1; min-width: 0; gap: 8px; padding: 0 10px; border: 1px solid var(--border); border-radius: 5px; color: var(--muted); }
 .archive-search:focus-within { outline: 2px solid var(--primary); outline-offset: 2px; }
 .archive-search input { width: 100%; padding: 8px 0; border: 0; background: transparent; font-size: 12px; outline: none; }
-.archive-filters select { width: 160px; max-width: 45%; font-size: 12px; }
+.archive-filters .disclosure-select { width: 160px; max-width: 45%; }
+.archive-filters select { font-size: 12px; }
 .archive-project { margin-bottom: 22px; }
 .archive-project > header { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; min-width: 0; }
 .archive-project h4 { flex: 1; min-width: 0; margin: 0; font-size: 13px; font-weight: 600; overflow-wrap: anywhere; }
@@ -943,7 +940,7 @@ details[open] > summary > .disclosure-chevron { transform: rotate(90deg); }
   .archive-heading h3 { font-size: 16px; }
   .archive-filters { flex-wrap: wrap; }
   .archive-search { flex-basis: 100%; }
-  .archive-filters select { width: 100%; max-width: 100%; }
+  .archive-filters .disclosure-select { width: 100%; max-width: 100%; }
   .archive-list { padding: 0 10px; }
   .archive-list li { gap: 4px; flex-wrap: wrap; }
   .archive-session-text { flex-basis: calc(100% - 40px); }

@@ -193,6 +193,8 @@ const bridge: DesktopBridge = {
   retryMessage: (entryId, message, runtimeId) => invoke('retryMessage', entryId, message, runtimeId),
   deleteSession: id => invoke('deleteSession', id), restart: () => invoke('restart'), settings: () => invoke('settings'),
   compactionSettings: () => invoke('compactionSettings'),
+  subagentRoleSettings: () => invoke('subagentRoleSettings'),
+  saveSubagentRole: (role, model) => invoke('saveSubagentRole', role, model),
   saveCompactionSettings: update => invoke('saveCompactionSettings', update),
   accountAllowance: refresh => invoke('accountAllowance', refresh),
   cancelAccountAllowance: () => invoke('cancelAccountAllowance'),

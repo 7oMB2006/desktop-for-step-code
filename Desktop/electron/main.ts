@@ -71,6 +71,7 @@ import { diagnoseCapabilityMutation, type CapabilityPhaseMarker } from './capabi
 import { capabilityFailureDetails } from './capability-failure.mjs';
 import { UsageEstimates } from './usage-estimates';
 import { providerInfos, providerModelNames, runtimeAuth, mergeRuntimeAuth, saveProviderAuth, deleteProviderAuth, projectProviders, discoverProviderModels, keylessEnvironment } from './custom-providers';
+import { SubagentRoleStore } from './subagent-role-store';
 import { DesktopNetwork, validateNetwork } from './network';
 import { ModelCatalog } from './model-catalog';
 import { testProvider } from './provider-diagnostic';
@@ -274,6 +275,7 @@ async function importAttachment(path: string) {
 }
 const runtimeRoot = app.isPackaged ? join(process.resourcesPath, 'runtime') : resolve('runtime');
 const dataRoot = join(app.getPath('userData'), 'step-runtime');
+const subagentRoleStore = new SubagentRoleStore(join(dataRoot, 'desktop-subagent-models.json'));
 const pluginConnections = new PluginConnections(dataRoot);
 const externalPreparing = new Set<SessionRuntime>();
 let preparingExternal = false;
@@ -2884,6 +2886,15 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
       return stepPage.prepare((bundlePath, homePath) => admin.request('prepare_steppage', { bundlePath, homePath }));
     }
     case 'compactionSettings': return admin.request('compaction_settings');
+    case 'subagentRoleSettings': {
+      const available = runtimeManifest.patches?.includes('desktop-subagent-role-models') === true;
+      return { available, values: available ? await subagentRoleStore.read() : {} };
+    }
+    case 'saveSubagentRole': {
+      if (!runtimeManifest.patches?.includes('desktop-subagent-role-models')) throw new Error('Unsupported subagent role settings');
+      const current = await viewSnapshot(undefined, false);
+      return subagentRoleStore.save(args[0], args[1], current.models.map(model => ({ ...model, thinkingLevels: modelThinkingLevels(model) })));
+    }
     case 'saveCompactionSettings': return admin.request('save_compaction_settings', { update: args[0] });
     case 'speechSettings':
       return speechSettings(authData, appliedAuthData, settingsMutation || providerSettingsPending || providerApplyFailed);

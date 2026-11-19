@@ -1,0 +1,8 @@
+.appearance-select { position: relative; display: inline-flex; width: 180px; max-width: 100%; }
+.disclosure-select { width: 100%; min-width: 0; }
+.appearance-select select { width: 100%; padding-right: 32px; }
+.appearance-select select::picker-icon { display: none; }
+.appearance-select > svg { position: absolute; right: 11px; top: 50%; margin-top: -7px; color: var(--muted); pointer-events: none; transition: transform .2s cubic-bezier(.215,.61,.355,1); }
+.appearance-select:has(select:open) > svg { transform: rotate(180deg); }
+.appearance-select:has(select:disabled) > svg { opacity: .45; }
+@media(prefers-reduced-motion:reduce) { .appearance-select > svg { transition: none; } }

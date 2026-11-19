@@ -3,6 +3,7 @@ import { ShieldCheck, ShieldOff } from 'lucide-react';
 import type { ExternalApprovalCategory, ExternalApprovalPolicy, ExternalConnectorAction, ExternalConnectorState } from './external-connectors';
 import { approvalTypeName, ApprovalTypes } from './ExternalApprovalPanel';
 import { useAnimatedDisclosure } from './useAnimatedDisclosure';
+import { DisclosureSelect } from './DisclosureSelect';
 
 type Props = { language: string; busy: boolean; canDelegate: boolean; act(action: ExternalConnectorAction): Promise<boolean> };
 function PolicyRow({ agentId, name, cwd, policy, language, busy, canDelegate, act }: Props & {
@@ -47,18 +48,18 @@ function PolicyRow({ agentId, name, cwd, policy, language, busy, canDelegate, ac
       <div ref={disclosure.body} inert={!open}><div className="remote-confirmation-content external-approval-form">
         <p>{t('仅此 Agent 和此项目，跨任务、跨 DFSC 重启保留。权限档位用于新任务；修改或撤销会中止仍使用旧自动权限的任务。Agent 审阅可能出错，高风险与回答问题请按需单独选择。目录授权不是沙箱，项目信任和权限提升不在委托范围内。',
           'Only this agent and project, across tasks and restarts. The permission tier applies to new tasks; replacing or revoking stops tasks using the old automatic tier. Agent review can be wrong. Select high-risk tools and answering questions separately. Scope is not a sandbox; project trust and permission changes remain local.')}</p>
-        <label><span>{t('DFSC 权限档位', 'DFSC permission tier')}</span><select value={preset} disabled={busy}
+        <label><span>{t('DFSC 权限档位', 'DFSC permission tier')}</span><DisclosureSelect value={preset} disabled={busy}
           onChange={event => setPreset(event.target.value as typeof preset)}>
           <option value="ask">{t('Ask：先审批', 'Ask: review first')}</option>
           <option value="approve-for-me">{t('代我批准：常规自动执行', 'Approve for me')}</option>
-        </select></label>
+        </DisclosureSelect></label>
         {preset === 'approve-for-me' && <p>{t('常规命令和写入由 DFSC 自动执行，不受下方勾选项限制；下方仅决定哪些剩余审批交给 Agent。',
           'DFSC runs ordinary commands and writes automatically, regardless of the checkboxes below. These only select which remaining requests the agent may review.')}</p>}
         <ApprovalTypes categories={categories} setCategories={setCategories} language={language} busy={busy}/>
-        <label><span>{t('有效期', 'Duration')}</span><select value={days} disabled={busy} onChange={event => setDays(event.target.value)}>
+        <label><span>{t('有效期', 'Duration')}</span><DisclosureSelect value={days} disabled={busy} onChange={event => setDays(event.target.value)}>
           {[1, 7, 30].map(day => <option key={day} value={day}>{day} {t('天', 'days')}</option>)}
           <option value="forever">{t('直到手动撤销', 'Until revoked')}</option>
-        </select></label>
+        </DisclosureSelect></label>
         <div className="remote-form-actions"><button disabled={busy} onClick={close}>{t('取消', 'Cancel')}</button>
           <button className="primary" disabled={busy || !canDelegate || !categories.length} onClick={() =>
             void act({ type: 'policy', agentId, cwd, days: days === 'forever' ? null : Number(days) as 1 | 7 | 30,

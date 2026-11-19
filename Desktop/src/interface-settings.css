@@ -19,6 +19,8 @@
 .interface-option input:checked + .interface-switch { background: var(--primary); }
 .interface-option input:checked + .interface-switch::after { transform: translateX(14px); background: white; }
 .interface-option input:focus-visible + .interface-switch { outline: 2px solid var(--primary); outline-offset: 3px; }
+.interface-option input:disabled { cursor: default; }
+.interface-option input:disabled + .interface-switch { opacity: .45; }
 .interface-preview { min-height: 320px; padding: 14px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); font-size: 12px; overflow-anchor: none; }
 .interface-preview-label { display: block; color: var(--muted); margin-bottom: 15px; }
 .interface-preview .message { margin: 0; }

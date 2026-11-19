@@ -11,6 +11,7 @@ import xml from 'highlight.js/lib/languages/xml';
 import type { TurnChanges as Changes, TurnFile } from './turn-changes';
 import type { DiffLayout } from './panel-preferences';
 import { splitDiffRows } from './split-diff';
+import { DisclosureSelect } from './DisclosureSelect';
 import './turn-changes.css';
 import type { TurnUndoState } from './contracts';
 
@@ -44,10 +45,10 @@ export function FilePreview({ file, language, onError, layout = 'unified' }: {
   </>;
   return <div className="turn-diff" data-layout={layout}>
     <div className="turn-diff-toolbar">
-      {file.edits.length > 1 ? <select aria-label={zh ? '编辑记录' : 'Edit record'} value={operation}
+      {file.edits.length > 1 ? <DisclosureSelect aria-label={zh ? '编辑记录' : 'Edit record'} value={operation}
         onChange={event => { setOperation(Number(event.target.value)); setCopied(false); }}>
         {file.edits.map((item, index) => <option value={index} key={item.id}>{zh ? `第 ${index + 1} 次编辑` : `Edit ${index + 1}`}</option>)}
-      </select> : <span>{zh ? '修改记录' : 'Edit record'}</span>}
+      </DisclosureSelect> : <span>{zh ? '修改记录' : 'Edit record'}</span>}
       <span className="turn-diff-legend"><span className="diff-added">+{edit.added}</span><span className="diff-removed">-{edit.removed}</span></span>
       <button type="button" className="icon-button" aria-label={zh ? '复制变更片段' : 'Copy changed excerpt'}
         data-tooltip={zh ? '复制变更片段' : 'Copy changed excerpt'} onClick={() => {

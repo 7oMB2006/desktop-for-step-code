@@ -11,7 +11,8 @@ const profile = await realpath(await mkdtemp(join(tmpdir(), 'step-desktop-electr
 const workspace = join(profile, '中文项目 with spaces'); await mkdir(workspace);
 const secondWorkspace = join(profile, 'Second project'); await mkdir(secondWorkspace);
 const independentCwd = join(profile, 'Independent cwd'); await mkdir(independentCwd);
-await writeFile(join(profile, 'preferences.json'), JSON.stringify({ language: 'zh', theme: 'light', workspace, workspaces: [secondWorkspace, workspace] }));
+await writeFile(join(profile, 'preferences.json'), JSON.stringify({ language: 'zh', theme: 'light', workspace, workspaces: [secondWorkspace, workspace],
+  interfaceSettings: { preset: 'detailed' } }));
 // Isolated on-disk history fixtures; no live model or personal session data.
 for (const [index, cwd] of [workspace, secondWorkspace, independentCwd, workspace, workspace].entries()) {
   const dir = join(profile, 'step-runtime', 'sessions');
@@ -1385,7 +1386,7 @@ try {
   const liveWrite = liveResponse.locator('.process-tool').nth(1);
   await liveCommand.locator('summary').getByText('正在运行命令', { exact: true }).waitFor();
   assert.equal(await liveResponse.locator('.assistant-actions').count(), 0);
-  assert.equal(await liveResponse.locator('.thinking').getAttribute('open'), null, 'standard preset keeps live thinking collapsed');
+  assert.equal(await liveResponse.locator('.thinking').getAttribute('open'), null, 'Detailed keeps live thinking collapsed');
   assert.equal(await liveResponse.locator('.response-process').count(), 0);
   assert.equal(await liveCommand.getAttribute('data-tool-state'), 'running');
   assert.equal(await liveCommand.locator('summary').getByText('fixture-command', { exact: true }).count(), 0);

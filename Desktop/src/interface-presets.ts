@@ -1,5 +1,6 @@
 export type InterfacePreset = 'simple' | 'standard' | 'detailed';
 export interface InterfaceOptions {
+  hideProcess: boolean;
   thinkingExpanded: boolean;
   toolsExpanded: boolean;
   performanceVisible: boolean;
@@ -10,9 +11,9 @@ export interface InterfacePreferences extends InterfaceOptions {
   preset: InterfacePreset | 'custom';
 }
 export const interfacePresets: Record<InterfacePreset, InterfaceOptions> = {
-  simple: { thinkingExpanded: false, toolsExpanded: false, performanceVisible: false, groupTools: true, compactProcess: true },
-  standard: { thinkingExpanded: false, toolsExpanded: false, performanceVisible: true, groupTools: true, compactProcess: false },
-  detailed: { thinkingExpanded: true, toolsExpanded: false, performanceVisible: true, groupTools: false, compactProcess: false },
+  simple: { hideProcess: true, thinkingExpanded: false, toolsExpanded: false, performanceVisible: true, groupTools: true, compactProcess: true },
+  standard: { hideProcess: false, thinkingExpanded: false, toolsExpanded: false, performanceVisible: true, groupTools: true, compactProcess: true },
+  detailed: { hideProcess: false, thinkingExpanded: false, toolsExpanded: false, performanceVisible: true, groupTools: true, compactProcess: false },
 };
 export function selectInterfacePreset(preset: InterfacePreset): InterfacePreferences {
   return { preset, ...interfacePresets[preset] };
@@ -25,11 +26,13 @@ export function normalizeInterfaceSettings(value: unknown): InterfacePreferences
   const fallback = interfacePresets.standard;
   return {
     preset: 'custom',
+    hideProcess: input.hideProcess === true,
     thinkingExpanded: typeof input.thinkingExpanded === 'boolean' ? input.thinkingExpanded : fallback.thinkingExpanded,
     toolsExpanded: typeof input.toolsExpanded === 'boolean' ? input.toolsExpanded : fallback.toolsExpanded,
     performanceVisible: typeof input.performanceVisible === 'boolean' ? input.performanceVisible : fallback.performanceVisible,
     groupTools: typeof input.groupTools === 'boolean' ? input.groupTools : fallback.groupTools,
-    compactProcess: typeof input.compactProcess === 'boolean' ? input.compactProcess : fallback.compactProcess,
+    // Legacy custom preferences without this option used separate rows.
+    compactProcess: input.compactProcess === true,
   };
 }
 

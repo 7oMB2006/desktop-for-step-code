@@ -3,6 +3,7 @@ import type { WorkflowAgent, WorkflowState } from './workflow-state';
 import { workflowCount, workflowIcon, workflowIsActive, workflowIssues, workflowRetryText } from './workflow-state';
 import { SubagentStatusIcon } from './SubagentStatusIcon';
 import { AgentRoleIcon, roleFor } from './AgentRole';
+import { DisclosureChevron } from './DisclosureChevron';
 import { TurnStatusTrigger } from './TurnStatusTrigger';
 import { elapsedTime } from './elapsed-time';
 import { useEffect, useState } from 'react';
@@ -94,7 +95,7 @@ export function WorkflowOverview({ flow, selected, onSelect, language }: {
     {flow.status === 'unknown' && <p className="panel-empty">{zh ? '此记录未提供工作流状态。' : 'Workflow state is unavailable in this record.'}</p>}
     {workflowIssues(flow, language) && <p className="workflow-issue-summary">{workflowIssues(flow, language)}</p>}
     {!!flow.taskFailures?.length && <details className="workflow-callbacks">
-      <summary>{zh ? '回调错误' : 'Callback errors'} · {flow.failedCallbacks ?? flow.taskFailures.length}</summary>
+      <summary><span className="disclosure-chevron"><DisclosureChevron/></span>{zh ? '回调错误' : 'Callback errors'} · {flow.failedCallbacks ?? flow.taskFailures.length}</summary>
       <ol>{flow.taskFailures.map((failure, index) => <li key={index}>
         <strong>{failure.script ? `${failure.script} · ` : ''}{failure.primitive}[{failure.index}{failure.stage === undefined ? '' : `.${failure.stage}`}]</strong>
         <p>{failure.message || (zh ? '未提供错误详情' : 'Error details unavailable')}</p>

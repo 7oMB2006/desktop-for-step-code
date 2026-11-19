@@ -27,6 +27,7 @@ export function InterfaceSettings({ language, value, onChange }: {
   const toggle = (key: keyof InterfaceOptions) => void update({ ...draft, preset: 'custom', [key]: !draft[key] });
   const presets: [InterfacePreset, string][] = [['simple', t('简洁', 'Simple')], ['standard', t('标准', 'Standard')], ['detailed', t('详细', 'Detailed')]];
   const options: [keyof InterfaceOptions, string][] = [
+    ['hideProcess', t('隐藏思考与普通工具过程', 'Hide thinking and ordinary tool activity')],
     ['thinkingExpanded', t('思考时展开，结束后收起', 'Expand while thinking, fold when finished')],
     ['toolsExpanded', t('工具详情默认展开', 'Expand tool details by default')],
     ['groupTools', t('合并连续工具记录', 'Group consecutive tool records')],
@@ -60,7 +61,7 @@ export function InterfaceSettings({ language, value, onChange }: {
         <div className="interface-options">
           {options.map(([key, label]) => <label className="interface-option" key={key}>
             <span>{label}</span>
-            <input type="checkbox" role="switch" aria-label={label} checked={draft[key]} disabled={saving} onChange={() => toggle(key)}/>
+            <input type="checkbox" role="switch" aria-label={label} checked={draft[key]} disabled={saving || (draft.hideProcess && (key === 'thinkingExpanded' || key === 'groupTools' || key === 'compactProcess'))} onChange={() => toggle(key)}/>
             <span className="interface-switch" aria-hidden="true"/>
           </label>)}
         </div>

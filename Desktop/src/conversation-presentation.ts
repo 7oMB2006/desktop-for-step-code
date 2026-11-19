@@ -7,6 +7,7 @@ import { subagentDisplayCall, subagentDisplayMessage } from './subagent-redact';
 import { isReviewInput, reviewResult, type CompletionReview } from './completion-review';
 import { commandOutcomePresentation, readCommandOutcome } from './command-outcome';
 import { parseToolPatch } from './turn-changes';
+import { readSubagentModelEvidence } from './subagent-role-models';
 
 export const messageBlocks = (message: Message): Content[] => visibleInputBlocks(subagentDisplayMessage(message));
 export const messageText = (message: Message): string => messageBlocks(message)
@@ -148,6 +149,8 @@ export type SubagentTask = {
   status: typeof SUBAGENT_STATUSES[number];
   messages: Message[];
   model?: string;
+  desktopModel?: import('./subagent-role-models').SubagentModelEvidence;
+  modelError?: string;
   turns?: number;
   toolCallId?: string;
   taskIndex?: number;
@@ -230,6 +233,7 @@ export function subagentTasks(call: Content | undefined, result: Message | undef
   const tasks: SubagentTask[] = records.map(record => {
     const value = record as Record<string, unknown>;
     const usage = value.usage as { turns?: unknown } | undefined;
+    const desktopModel = readSubagentModelEvidence(value.desktopModel);
     return {
       agent: typeof value.agent === 'string' ? value.agent : '',
       task: typeof value.task === 'string' ? value.task : '',
@@ -239,6 +243,8 @@ export function subagentTasks(call: Content | undefined, result: Message | undef
       // runtime keeps for every settled step.
       output: typeof value.activeText === 'string' ? value.activeText : undefined,
       model: typeof value.model === 'string' ? value.model : undefined,
+      ...(desktopModel ? { desktopModel } : {}),
+      ...(typeof value.errorMessage === 'string' && !value.model && !desktopModel ? { modelError: value.errorMessage } : {}),
       turns: typeof usage?.turns === 'number' ? usage.turns : undefined,
     };
   });

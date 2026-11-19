@@ -18,10 +18,17 @@ try {
       for (const width of [1280, 520, 360]) {
         await page.setViewportSize({ width, height: 860 });
         await page.emulateMedia({ reducedMotion: width === 360 ? 'reduce' : 'no-preference' });
-        await page.goto(`${url}tests/fixtures/workflow-roles.html?theme=${theme}&lang=${language}`);
+        await page.goto(`${url}tests/fixtures/workflow-roles.html?theme=${theme}&lang=${language}&callbacks=1`);
         const rows = page.locator('.workflow-agent');
         await rows.first().waitFor();
         await settleLayout(page.locator('#subagent-panel'));
+        const callbacks = page.locator('.workflow-callbacks > summary');
+        assert.equal(await callbacks.locator('.disclosure-chevron > svg[width="14"][aria-hidden="true"]').count(), 1);
+        assert.equal(await callbacks.evaluate(element => getComputedStyle(element).listStyleType), 'none');
+        await callbacks.press('Enter');
+        await page.getByText('Example callback error', { exact: true }).waitFor();
+        await callbacks.press('Enter');
+        await page.getByText('Example callback error', { exact: true }).waitFor({ state: 'hidden' });
         assert.equal(await rows.count(), 7);
         for (const [index, icon] of ['scan-search', 'shield-check', 'code-xml', 'flask-conical', 'bot', 'bot', 'bot'].entries()) {
           const row = rows.nth(index);

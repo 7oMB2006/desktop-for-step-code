@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { Archive, Folder, MessageSquare, RotateCcw, Search, Trash2 } from 'lucide-react';
 import type { Preferences, RuntimeSummary, Session } from './contracts';
 import { turnTime } from './ConversationNavigation';
+import { DisclosureSelect } from './DisclosureSelect';
 
 export function ArchivedSessions({ sessions, preferences, runtimes, activeId, onOpen, onRestore, onDelete }: {
   sessions: Session[]; preferences: Preferences; runtimes: RuntimeSummary[]; activeId?: string;
@@ -52,10 +53,10 @@ export function ArchivedSessions({ sessions, preferences, runtimes, activeId, on
     <div className="archive-filters">
       <div className="archive-search"><Search size={15}/><input type="search" aria-label={t('搜索归档会话', 'Search archived sessions')}
         placeholder={t('搜索归档会话', 'Search archived sessions')} value={query} onChange={event => setQuery(event.target.value)}/></div>
-      <select aria-label={t('筛选归档项目', 'Filter archived projects')} value={project} onChange={event => setProject(event.target.value)}>
+      <DisclosureSelect aria-label={t('筛选归档项目', 'Filter archived projects')} value={project} onChange={event => setProject(event.target.value)}>
         <option value="">{t('所有项目', 'All projects')}</option>
         {[...choices].map(([id, name]) => <option key={id} value={id}>{name}</option>)}
-      </select>
+      </DisclosureSelect>
     </div>
     {!groups.size && <div className="archive-empty"><Archive size={24}/><p>{sessions.length ? t('没有匹配的归档会话', 'No matching archived sessions') : t('暂无归档会话', 'No archived sessions')}</p></div>}
     {[...groups].map(([id, group]) => <section className="archive-project" key={id}>

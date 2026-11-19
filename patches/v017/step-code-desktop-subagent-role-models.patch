@@ -1,0 +1,255 @@
+diff --git a/packages/coding-agent/src/features/step-subagent.ts b/packages/coding-agent/src/features/step-subagent.ts
+index 54c9a23..844f823 100644
+--- a/packages/coding-agent/src/features/step-subagent.ts
++++ b/packages/coding-agent/src/features/step-subagent.ts
+@@ -119,6 +119,7 @@ export interface StepSubagentRunResult {
+ 	exitCode: number;
+ 	usage: StepSubagentUsage;
+ 	model?: string;
++	desktopModel?: import("./subagent/desktop-role-models.ts").DesktopSubagentModelEvidence;
+ 	stopReason?: string;
+ 	errorMessage?: string;
+ 	/** Live projection populated from Pi's JSON event stream. */
+@@ -150,6 +151,8 @@ export interface StepSubagentRunInput {
+ 	task: string;
+ 	cwd: string;
+ 	model?: string;
++	desktopRoleModel?: import("./subagent/desktop-role-models.ts").DesktopSubagentModel;
++	desktopModelSource?: import("./subagent/desktop-role-models.ts").DesktopSubagentModelEvidence["source"];
+ 	thinkingLevel?: ThinkingLevel;
+ 	signal?: AbortSignal;
+ 	onUpdate?: (result: StepSubagentRunResult) => void;
+diff --git a/packages/coding-agent/src/features/subagent/desktop-role-models.ts b/packages/coding-agent/src/features/subagent/desktop-role-models.ts
+new file mode 100644
+index 0000000..ae2e4e6
+--- /dev/null
++++ b/packages/coding-agent/src/features/subagent/desktop-role-models.ts
+@@ -0,0 +1,30 @@
++import { readFile } from "node:fs/promises";
++import { join } from "node:path";
++import type { ThinkingLevel } from "@step-harness/agent-core";
++
++export type DesktopSubagentModel = { provider: string; id: string; effort: ThinkingLevel };
++export type DesktopSubagentModelEvidence = DesktopSubagentModel & { source: "role" | "inherited" | "definition" | "explicit" };
++
++export async function readDesktopRoleModels(): Promise<ReadonlyMap<string, DesktopSubagentModel> | undefined> {
++	if (process.env.STEP_CLIENT !== "desktop-for-step-code" || !process.env.STEPCODE_STORAGE_ROOT_DIR) return undefined;
++	const roles = new Map<string, DesktopSubagentModel>();
++	const data = await readFile(join(process.env.STEPCODE_STORAGE_ROOT_DIR, "desktop-subagent-models.json"), "utf8").catch(
++		(error: NodeJS.ErrnoException) => {
++			if (error.code !== "ENOENT") throw error;
++			return '{"version":1,"roles":{}}';
++		},
++	);
++	const record = JSON.parse(data);
++	if (record?.version !== 1 || !record.roles || typeof record.roles !== "object" || Array.isArray(record.roles))
++		throw new Error("Invalid Desktop subagent role settings");
++	for (const [role, value] of Object.entries(record.roles)) {
++		const row = value as DesktopSubagentModel | null;
++		if (!["general", "explore", "review", "planner"].includes(role) ||
++			!row || typeof row.provider !== "string" || !row.provider || row.provider.length > 200 || /[\/\s:]/.test(row.provider) ||
++			typeof row.id !== "string" || !row.id || row.id.length > 300 || /[\r\n\0]/.test(row.id) ||
++			!["off", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"].includes(row.effort))
++			throw new Error("Invalid Desktop subagent role model");
++		roles.set(role, { provider: row.provider, id: row.id, effort: row.effort });
++	}
++	return roles;
++}
+diff --git a/packages/coding-agent/src/features/subagent/execute.ts b/packages/coding-agent/src/features/subagent/execute.ts
+index c3ac7eb..fc203b6 100644
+--- a/packages/coding-agent/src/features/subagent/execute.ts
++++ b/packages/coding-agent/src/features/subagent/execute.ts
+@@ -46,6 +46,7 @@ import {
+ 	configuredWorkflowConcurrencyLimit,
+ 	type WorkflowSemaphore,
+ } from "../workflow/budget.ts";
++import { readDesktopRoleModels } from "./desktop-role-models.ts";
+ import { redactSensitiveText } from "./display-text.ts";
+ import { truncateText } from "./lane-events.ts";
+ import type { StepSubagentLaneRuntime } from "./lane-lifecycle.ts";
+@@ -385,6 +386,7 @@ export async function runPreparedSubagent(
+ 	const parentCwd = ctx.cwd,
+ 		parentSessionId = ctx.sessionManager?.getSessionId?.();
+ 	const { mode, scope, discovery, tasks } = prepared;
++	const desktopRoleModels = await readDesktopRoleModels();
+ 	const parallel = mode === "parallel" ? tasks : undefined;
+ 	const chain = mode === "chain" ? tasks : undefined;
+ 
+@@ -564,6 +566,7 @@ export async function runPreparedSubagent(
+ 				});
+ 				emit(mode);
+ 			};
++			const desktopRoleModel = agent.source === "builtin" && !task.model ? desktopRoleModels?.get(agent.name) : undefined;
+ 			const child = await options.runner({
+ 				parentCwd,
+ 				parentSessionId,
+@@ -572,6 +575,10 @@ export async function runPreparedSubagent(
+ 				cwd: childCwd,
+ 				model: task.model ?? (ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : undefined),
+ 				thinkingLevel: ctx.thinkingLevel,
++				...(desktopRoleModels ? {
++					desktopRoleModel,
++					desktopModelSource: desktopRoleModel ? "role" : agent.model ? "definition" : task.model ? "explicit" : "inherited",
++				} : {}),
+ 				signal,
+ 				onUpdate: update,
+ 				onNeedsInput: laneRuntime?.onNeedsInput,
+diff --git a/packages/coding-agent/src/features/subagent/projection.ts b/packages/coding-agent/src/features/subagent/projection.ts
+index b83ce55..046f33e 100644
+--- a/packages/coding-agent/src/features/subagent/projection.ts
++++ b/packages/coding-agent/src/features/subagent/projection.ts
+@@ -125,6 +125,7 @@ export function liveRecord(record: StepSubagentResultRecord): StepSubagentResult
+ 		stderr: tailChars(redactSensitiveText(record.stderr), LIVE_STDERR_CHARS) ?? "",
+ 		usage: cloneUsage(record.usage),
+ 		...(record.model === undefined ? {} : { model: clipMiddle(record.model, LIVE_IDENTIFIER_CHARS) }),
++		...(record.desktopModel === undefined ? {} : { desktopModel: record.desktopModel }),
+ 		...(record.stopReason === undefined ? {} : { stopReason: clipMiddle(record.stopReason, LIVE_IDENTIFIER_CHARS) }),
+ 		...(record.errorMessage === undefined
+ 			? {}
+@@ -240,6 +241,7 @@ export function finalRecord(record: StepSubagentResultRecord, budget: Budget): S
+ 		stderr: stderr ?? "",
+ 		usage: cloneUsage(record.usage),
+ 		...(record.model === undefined ? {} : { model: clipMiddle(record.model, FINAL_IDENTIFIER_CHARS) }),
++		...(record.desktopModel === undefined ? {} : { desktopModel: withinBudget(budget, record.desktopModel) }),
+ 		...(record.stopReason === undefined ? {} : { stopReason: clipMiddle(record.stopReason, FINAL_IDENTIFIER_CHARS) }),
+ 		...(errorMessage === undefined ? {} : { errorMessage }),
+ 		...(activeText === undefined ? {} : { activeText }),
+diff --git a/packages/coding-agent/src/features/subagent/rpc-adapter.ts b/packages/coding-agent/src/features/subagent/rpc-adapter.ts
+index f3536d1..6952c23 100644
+--- a/packages/coding-agent/src/features/subagent/rpc-adapter.ts
++++ b/packages/coding-agent/src/features/subagent/rpc-adapter.ts
+@@ -32,6 +32,7 @@ import {
+ 	settledTurnOutcome,
+ } from "../step-subagent.ts";
+ import { WORKFLOW_ACL_ENV } from "../workflow/acl-extension.ts";
++import type { DesktopSubagentModelEvidence } from "./desktop-role-models.ts";
+ import { redactSensitiveText } from "./display-text.ts";
+ import { liveSubagentSessions } from "./lane-lifecycle.ts";
+ 
+@@ -140,6 +141,8 @@ interface SubagentRpcTurn {
+ 	aborted: boolean;
+ 	resolve: (result: StepSubagentRunResult) => void;
+ 	cleanup?: () => void;
++	preflightId?: string;
++	verifiedModel?: DesktopSubagentModelEvidence;
+ }
+ 
+ /** A live `--mode rpc` child bound to one subagent session id. */
+@@ -270,9 +273,11 @@ export async function createSubagentRpcSession(
+ 	// file: live progress belongs here, and the parent renders it in the lane
+ 	// list. Serialized transports default to durable events, so ask for them.
+ 	const args = ["--mode", "rpc", "--session-id", sessionId, "--include-live-events"];
+-	const model = input.agent.model ?? input.model;
++	const selected = input.desktopRoleModel;
++	const model = selected ? `${selected.provider}/${selected.id}` : input.agent.model ?? input.model;
+ 	if (model) args.push("--model", model);
+-	if (input.thinkingLevel && !input.agent.model) args.push("--thinking", input.thinkingLevel);
++	if (selected) args.push("--thinking", selected.effort);
++	else if (input.thinkingLevel && !input.agent.model) args.push("--thinking", input.thinkingLevel);
+ 	const tools = normalizeChildTools(input.agent.tools);
+ 	if (tools && tools.length > 0) args.push("--tools", tools.join(","));
+ 	if (input.agent.systemPrompt.trim()) {
+@@ -445,6 +450,32 @@ export async function createSubagentRpcSession(
+ 			onResponse: (response) => {
+ 				const commandType = response.id ? pendingCommandAcks.get(response.id) : undefined;
+ 				if (response.id) pendingCommandAcks.delete(response.id);
++				const active = turn;
++				if (active?.preflightId && response.id === active.preflightId) {
++					active.preflightId = undefined;
++					if (active.aborted) return;
++					const file = response.data?.sessionFile;
++					if (typeof file === "string" && file) sessionFile = file;
++					const resolved = response.data?.model;
++					const effort = response.data?.thinkingLevel;
++					const hasModel = response.success === true && isRecordValue(resolved) &&
++						typeof resolved.provider === "string" && typeof resolved.id === "string" && typeof effort === "string";
++					if (selected && (!hasModel || resolved.provider !== selected.provider || resolved.id !== selected.id || effort !== selected.effort)) {
++						closeStdin();
++						settleTurn((current) => {
++							current.exitCode = 1;
++							current.stopReason = "error";
++							current.errorMessage = `Configured model or thinking level unavailable for ${input.agent.name}: ${selected.provider}/${selected.id} (${selected.effort}). Update the role in Desktop settings. No fallback model was used.`;
++						});
++						return;
++					}
++					if (hasModel && input.desktopModelSource) {
++						active.verifiedModel = { provider: resolved.provider as string, id: resolved.id as string,
++							effort: effort as DesktopSubagentModelEvidence["effort"], source: input.desktopModelSource };
++					}
++					sendPrompt(active);
++					return;
++				}
+ 				if (response.id === stateRequestId) {
+ 					// The session-file probe is best effort; a failure only omits the path.
+ 					const file = response.data?.sessionFile;
+@@ -487,6 +518,13 @@ export async function createSubagentRpcSession(
+ 			onEvent: (eventLine, event) => {
+ 				const active = turn;
+ 				if (!active) return;
++				const verified = active.verifiedModel;
++				const message = event.message;
++				if (verified && event.type === "message_end" && isRecordValue(message) && message.role === "assistant" &&
++					message.provider === verified.provider && message.model === verified.id &&
++					["stop", "length", "toolUse"].includes(String(message.stopReason))) {
++					active.current.desktopModel = verified;
++				}
+ 				parseJsonEvent(eventLine, active.current, active.input.onUpdate);
+ 				if (event.type === "agent_settled") {
+ 					// The run (including queued steer/follow_up messages) fully drained.
+@@ -564,6 +602,15 @@ export async function createSubagentRpcSession(
+ 	child.once("close", finishExitedChild);
+ 	void exitStatus.then(finishExitedChild, () => undefined);
+ 
++	const sendPrompt = (active: SubagentRpcTurn): void => {
++		if (send({ type: "prompt", id: active.promptId, message: active.input.task })) return;
++		settleTurn((result) => {
++			result.exitCode = 1;
++			result.stopReason = "error";
++			result.errorMessage = "Failed to write the task to the subagent's stdin";
++		});
++	};
++
+ 	const runTurn = (turnInput: StepSubagentRunInput): Promise<StepSubagentRunResult> => {
+ 		if (turn) {
+ 			return Promise.reject(new Error(`Subagent session ${sessionId} already has an active turn`));
+@@ -580,7 +627,7 @@ export async function createSubagentRpcSession(
+ 				stderr: idleStderr,
+ 				exitCode: -1,
+ 				usage: emptyUsage(),
+-				model: turnInput.agent.model ?? turnInput.model,
++				model: selected ? undefined : turnInput.agent.model ?? turnInput.model,
+ 				startedAt: Date.now(),
+ 				updatedAt: Date.now(),
+ 			};
+@@ -624,17 +671,22 @@ export async function createSubagentRpcSession(
+ 				turnInput.signal.addEventListener("abort", onAbort, { once: true });
+ 				active.cleanup = () => turnInput.signal?.removeEventListener("abort", onAbort);
+ 			}
+-			if (!send({ type: "prompt", id: promptId, message: turnInput.task })) {
+-				settleTurn((result) => {
+-					result.exitCode = 1;
+-					result.stopReason = "error";
+-					result.errorMessage = "Failed to write the task to the subagent's stdin";
+-				});
+-				return;
+-			}
+-			if (!sessionFile) send({ type: "get_state", id: stateRequestId });
+ 			armIdleWatchdog();
+ 			armWallClock(turnInput.turnTimeoutMs);
++			if (input.desktopModelSource) {
++				active.preflightId = randomUUID();
++				if (!send({ type: "get_state", id: active.preflightId })) {
++					closeStdin();
++					settleTurn((result) => {
++						result.exitCode = 1;
++						result.stopReason = "error";
++						result.errorMessage = "Could not verify subagent model selection";
++					});
++				}
++				return;
++			}
++			sendPrompt(active);
++			if (turn === active && !sessionFile) send({ type: "get_state", id: stateRequestId });
+ 		});
+ 	};
+ 

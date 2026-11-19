@@ -163,6 +163,7 @@ try {
   await page.waitForTimeout(280);
   assert.equal(await messages.locator('.tool-group-disclosure .process-tool').count(), 2);
   await load(history, true);
+  await page.locator('.working:not(.working-idle)').waitFor();
   assert.equal(await group.getAttribute('aria-expanded'), 'true', 'a fresh snapshot of identical preferences preserves manual expansion');
   await openSettings(page);
   await preset(page, '标准');
@@ -251,10 +252,12 @@ try {
   await messages.locator('.process-tool > summary').first().click();
   assert.equal(await messages.locator('.process-tool[open]').count(), 1);
   await load([...history, { role: 'assistant', content: [{ type: 'text', text: '后续输出不会覆盖手动展开。' }] }]);
+  await messages.getByText('后续输出不会覆盖手动展开。', { exact: true }).waitFor();
   assert.equal(await messages.locator('.process-tool[open]').count(), 1);
   await messages.locator('.thinking > summary').click();
   await messages.locator('.thinking > summary').click();
   await load([...history, { role: 'assistant', content: [{ type: 'text', text: '后续输出不会覆盖手动折叠。' }] }]);
+  await messages.getByText('后续输出不会覆盖手动折叠。', { exact: true }).waitFor();
   assert.equal(await messages.locator('.thinking').getAttribute('data-expanded'), 'false');
   await openSettings(page);
   await enableToolDetails(page);
@@ -297,6 +300,7 @@ try {
   await load(thinkingHistory.map((message, index) => index === 1 ? {
     ...message, content: [...message.content.slice(0, 1), { type: 'thinking', thinking: '第一段思考。\n\n继续思考，手动折叠保持。' }],
   } : message), true);
+  await liveThinking.locator('.thinking-scroll').getByText('继续思考，手动折叠保持。', { exact: true }).waitFor({ state: 'attached' });
   assert.equal(await liveThinking.getAttribute('data-expanded'), 'false', 'thinking deltas preserve manual folding');
   await openSettings(page);
   await preset(page, '详细');
@@ -307,11 +311,13 @@ try {
     { type: 'toolCall', id: 'live-tool', name: 'read_file', arguments: { path: 'live.ts' } },
   ] }];
   await load(withTool, true);
-  await page.waitForFunction(() => document.querySelector('.messages .thinking')?.dataset.expanded === 'false');
+  await messages.locator('.process-tool[data-tool-state="running"]').waitFor();
+  await liveThinking.locator('xpath=self::*[@data-expanded="false" and not(@data-running)]').waitFor();
   assert.equal(await liveThinking.locator('.tool-summary-shimmer').evaluate(element => getComputedStyle(element, '::before').animationPlayState), 'paused', 'completed thinking stops its label animation when tools start');
   await messages.locator('.response-content').screenshot({ path: 'test-results/interface-thinking-unified.png' });
   await liveThinking.locator('summary').click();
   await load([...withTool, { role: 'toolResult', toolCallId: 'live-tool', toolName: 'read_file', content: 'ok' }], true);
+  await messages.locator('.process-tool[data-tool-state="done"]').waitFor();
   assert.equal(await liveThinking.getAttribute('data-expanded'), 'true', 'manual reopening after completion survives subsequent activity');
   await openSettings(page);
   await preset(page, '标准');

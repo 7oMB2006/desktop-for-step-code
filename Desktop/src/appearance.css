@@ -4,7 +4,7 @@
 .sidebar .session-row span, .workspace-heading, .sidebar-bottom > button, .settings-layout > nav button, .right-panel-header h2 { font-size: calc(13px + var(--ui-delta)); }
 .settings-content { font-size: var(--ui-size); }
 .sidebar .workspace-toggle, .sidebar .new-chat, .settings-content label, .settings-content button, .settings-content select, .settings-content input { font-size: calc(13px + var(--ui-delta)); }
-.process-tool > summary, .lane-header, .lane-text, .response-content > .thinking { font-family: var(--ui-font); font-size: calc(13px + var(--ui-delta)); }
+.process-tool > summary, .lane-header, .lane-text, .response-content > .thinking, .turn-process-slot > div > .thinking { font-family: var(--ui-font); font-size: calc(13px + var(--ui-delta)); }
 .message-body, .composer > textarea, .user-message-editor textarea, .file-preview-markdown { font-family: var(--body-font); font-size: var(--body-size); line-height: var(--body-leading); letter-spacing: 0; }
 .message-body h1 { font-size: 1.5em; } .message-body h2 { font-size: 1.3em; } .message-body h3 { font-size: 1.15em; }
 .message-body p { margin-bottom: .85em; }

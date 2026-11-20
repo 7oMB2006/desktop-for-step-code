@@ -34,7 +34,7 @@ try {
   const dimensions = () => brand.evaluate(e => Object.fromEntries(
     [e, e.querySelector(':scope > img'), e.querySelector('.sidebar-wordmark')].map((node, i) => {
       const r = node.getBoundingClientRect();
-      return [['button', 'mark', 'wordmark'][i], [r.width, r.height]];
+      return [['brand', 'mark', 'wordmark'][i], [r.width, r.height]];
     })));
   const shot = async name => {
     await page.screenshot({ path: join(output, `${name}.png`) });
@@ -49,7 +49,7 @@ try {
     assert.equal(await data(), before);
   };
   const settings = async () => {
-    await page.locator('.sidebar-bottom > button').click();
+    await page.locator('.sidebar-settings').click();
     await page.getByRole('button', { name: '外观', exact: true }).click();
   };
   const closeSettings = async () => {
@@ -80,9 +80,10 @@ try {
   await brand.hover(); await page.waitForTimeout(450); await shot('hover');
   assert.deepEqual(await dimensions(), original, 'Emphasis must not resize the brand');
   await page.mouse.move(600, 20);
-  await brand.focus(); await page.keyboard.press('Tab'); await page.keyboard.press('Shift+Tab');
-  const focus = await brand.evaluate(e => {
-    const s = getComputedStyle(e), r = e.getBoundingClientRect(), p = e.parentElement.getBoundingClientRect();
+  const usage = page.locator('.sidebar-utility-links .usage-entry');
+  await usage.focus(); await page.keyboard.press('Tab'); await page.keyboard.press('Shift+Tab');
+  const focus = await usage.evaluate(e => {
+    const s = getComputedStyle(e), r = e.getBoundingClientRect(), p = e.closest('.sidebar').getBoundingClientRect();
     const extent = parseFloat(s.outlineWidth) + parseFloat(s.outlineOffset);
     return { visible: e.matches(':focus-visible'), width: parseFloat(s.outlineWidth),
       fits: r.left - extent >= p.left && r.right + extent <= p.right && r.top - extent >= p.top };
@@ -90,10 +91,10 @@ try {
   assert.ok(focus.visible && focus.width >= 2 && focus.fits, JSON.stringify(focus));
   await shot('focus');
   await page.keyboard.press('Enter');
-  assert.equal(await brand.getAttribute('aria-pressed'), 'true', 'Usage entry retains its action');
+  assert.equal(await usage.getAttribute('aria-pressed'), 'true', 'Usage entry retains its action');
   await paused();
-  await brand.click();
-  assert.equal(await brand.getAttribute('aria-pressed'), 'false');
+  await usage.click();
+  assert.equal(await usage.getAttribute('aria-pressed'), 'false');
   await page.mouse.move(600, 20); await page.locator('.composer-input').focus();
   await page.emulateMedia({ reducedMotion: 'reduce' }); await paused();
   await page.emulateMedia({ reducedMotion: 'no-preference' });

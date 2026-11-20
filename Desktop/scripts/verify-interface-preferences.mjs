@@ -15,6 +15,7 @@ const errors = [];
 async function launch() {
   app = await electron.launch({ ...(process.env.DESKTOP_VERIFY_EXE ? { executablePath: process.env.DESKTOP_VERIFY_EXE } : { args: [resolve('.')] }), env, timeout: 60000 });
   const page = await app.firstWindow();
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
   page.on('pageerror', error => errors.push(error.message));
   await app.evaluate(({ BrowserWindow }) => {
     const win = BrowserWindow.getAllWindows()[0];
@@ -47,6 +48,16 @@ async function enableToolDetails(page) {
     return input?.checked && !input.disabled;
   });
   assert.equal((await page.evaluate(() => window.desktop.snapshot())).preferences.interfaceSettings.toolsExpanded, true);
+}
+async function enableLiveThinking(page) {
+  const toggle = settings(page).getByRole('switch', { name: '思考时展开，结束后收起' });
+  assert.equal(await toggle.isChecked(), false);
+  await toggle.click();
+  await page.waitForFunction(() => {
+    const input = document.querySelector('.interface-option input[aria-label="思考时展开，结束后收起"]');
+    return input?.checked && !input.disabled;
+  });
+  assert.equal((await page.evaluate(() => window.desktop.snapshot())).preferences.interfaceSettings.thinkingExpanded, true);
 }
 const history = [
   { role: 'user', content: '检查这个项目。', timestamp: 1000 },
@@ -132,7 +143,8 @@ try {
   await preset(page, '简洁');
   await closeSettings(page);
   assert.equal(await page.locator('.composer-wrap .performance-metric').count(), 4);
-  assert.equal(await messages.locator('.thinking, .process-tool-group, .process-tool.done').count(), 0);
+  assert.equal(await messages.locator('.turn-process-trigger').count(), 0, 'history without confirmed settlement stays readable');
+  assert.equal(await messages.locator('.thinking').count(), 1);
   assert.equal(await messages.locator('.process-tool.failed > summary').isVisible(), true);
   assert.equal(await messages.locator('.process-tool.missing > summary').isVisible(), true);
   assert.equal(await page.evaluate(() =>
@@ -152,6 +164,7 @@ try {
   await page.waitForTimeout(280);
   assert.equal(await messages.locator('.tool-group-disclosure .process-tool').count(), 2);
   await load(history, true);
+  await page.locator('.working:not(.working-idle)').waitFor();
   assert.equal(await group.getAttribute('aria-expanded'), 'true', 'a fresh snapshot of identical preferences preserves manual expansion');
   await openSettings(page);
   await preset(page, '标准');
@@ -173,13 +186,52 @@ try {
   await closeSettings(page);
   await load(history, true);
   await page.locator('.working:not(.working-idle)').waitFor();
-  assert.equal(await messages.locator('.thinking, .process-tool-group, .process-tool.running').count(), 0);
+  assert.equal(await messages.locator('.turn-process-trigger').count(), 0);
+  assert.equal(await messages.locator('.thinking').count(), 1, 'Simple keeps live activity visible');
   await load(history, true, [awaiting]);
   await messages.locator('.process-tool.waiting > summary').waitFor();
   assert.equal(await messages.locator('.process-tool.waiting').locator('xpath=ancestor::*[contains(@class,"tool-group-disclosure")]').count(), 0);
   await load(history, false);
   await page.locator('.permission-approval').waitFor({ state: 'detached' });
+  const run = { startedAt: 1000, endedAt: 17000 };
+  const settled = history.map(message => message.role === 'assistant'
+    ? { ...message, stopReason: 'toolUse', desktopTiming: { run, thinking: {} } } : message)
+    .concat({ role: 'assistant', stopReason: 'stop', desktopTiming: { run, thinking: {}, completed: true }, content: '最终答复：检查已结束。' });
+  await load(settled, true);
+  const final = messages.getByText('最终答复：检查已结束。', { exact: true });
+  const commentary = messages.getByText('正文一：先确认项目结构。', { exact: true });
+  await final.waitFor();
+  assert.equal(await commentary.isVisible(), true, 'streamed final prose does not fold commentary');
+  await page.evaluate(() => { globalThis.simpleFinal = [...document.querySelectorAll('.messages .response-text')].at(-1); });
+  await load(settled);
+  const elapsed = messages.getByRole('button', { name: '用时 16秒' });
+  await elapsed.waitFor();
+  assert.equal(await elapsed.getAttribute('aria-expanded'), 'false');
+  await commentary.waitFor({ state: 'hidden' });
+  assert.equal(await final.isVisible(), true);
+  assert.equal(await messages.locator('.process-tool.failed > summary').isVisible(), true);
+  assert.equal(await messages.locator('.process-tool.missing > summary').isVisible(), true);
+  assert.equal(await page.evaluate(() => globalThis.simpleFinal === [...document.querySelectorAll('.messages .response-text')].at(-1)), true);
+  const foldedHeights = () => {
+    const slots = [...document.querySelectorAll('.messages .turn-process-slot[data-folded]')];
+    return slots.length > 0 && slots.every(slot => slot.offsetHeight === 0 && slot.inert);
+  };
+  await page.waitForFunction(foldedHeights);
+  await elapsed.press('Enter');
+  await commentary.waitFor();
+  assert.equal(await elapsed.getAttribute('aria-expanded'), 'true');
+  assert.equal(await commentary.evaluate((node) =>
+    node.getBoundingClientRect().left === globalThis.simpleFinal.firstElementChild.getBoundingClientRect().left), true);
+  assert.equal(await commentary.evaluate(node =>
+    getComputedStyle(node.closest('.turn-process-slot')).transitionProperty.includes('grid-template-rows')), true);
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  assert.equal(await commentary.evaluate(node =>
+    getComputedStyle(node.closest('.turn-process-slot')).transitionDuration), '0s');
+  await elapsed.press('Enter');
+  await page.waitForFunction(foldedHeights);
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
   await messages.locator('.response-content').screenshot({ path: 'test-results/interface-mapped-simple-detail.png' });
+  await load(history);
   await openSettings(page);
   await preset(page, '标准');
   await enableToolDetails(page);
@@ -201,10 +253,12 @@ try {
   await messages.locator('.process-tool > summary').first().click();
   assert.equal(await messages.locator('.process-tool[open]').count(), 1);
   await load([...history, { role: 'assistant', content: [{ type: 'text', text: '后续输出不会覆盖手动展开。' }] }]);
+  await messages.getByText('后续输出不会覆盖手动展开。', { exact: true }).waitFor();
   assert.equal(await messages.locator('.process-tool[open]').count(), 1);
   await messages.locator('.thinking > summary').click();
   await messages.locator('.thinking > summary').click();
   await load([...history, { role: 'assistant', content: [{ type: 'text', text: '后续输出不会覆盖手动折叠。' }] }]);
+  await messages.getByText('后续输出不会覆盖手动折叠。', { exact: true }).waitFor();
   assert.equal(await messages.locator('.thinking').getAttribute('data-expanded'), 'false');
   await openSettings(page);
   await enableToolDetails(page);
@@ -235,7 +289,7 @@ try {
   ];
   await openSettings(page);
   await preset(page, '详细');
-  await settings(page).getByRole('switch', { name: '思考时展开，结束后收起' }).click();
+  await enableLiveThinking(page);
   await closeSettings(page);
   await load(thinkingHistory, true);
   await page.waitForFunction(() => document.querySelector('.messages .thinking')?.dataset.expanded === 'true');
@@ -247,21 +301,24 @@ try {
   await load(thinkingHistory.map((message, index) => index === 1 ? {
     ...message, content: [...message.content.slice(0, 1), { type: 'thinking', thinking: '第一段思考。\n\n继续思考，手动折叠保持。' }],
   } : message), true);
+  await liveThinking.locator('.thinking-scroll').getByText('继续思考，手动折叠保持。', { exact: true }).waitFor({ state: 'attached' });
   assert.equal(await liveThinking.getAttribute('data-expanded'), 'false', 'thinking deltas preserve manual folding');
   await openSettings(page);
   await preset(page, '详细');
-  await settings(page).getByRole('switch', { name: '思考时展开，结束后收起' }).click();
+  await enableLiveThinking(page);
   await closeSettings(page);
   assert.equal(await liveThinking.getAttribute('data-expanded'), 'true', 'reapplying the custom streaming option opens the current thought');
   const withTool = [...thinkingHistory, { role: 'assistant', content: [
     { type: 'toolCall', id: 'live-tool', name: 'read_file', arguments: { path: 'live.ts' } },
   ] }];
   await load(withTool, true);
-  await page.waitForFunction(() => document.querySelector('.messages .thinking')?.dataset.expanded === 'false');
+  await messages.locator('.process-tool[data-tool-state="running"]').waitFor();
+  await liveThinking.locator('xpath=self::*[@data-expanded="false" and not(@data-running)]').waitFor();
   assert.equal(await liveThinking.locator('.tool-summary-shimmer').evaluate(element => getComputedStyle(element, '::before').animationPlayState), 'paused', 'completed thinking stops its label animation when tools start');
   await messages.locator('.response-content').screenshot({ path: 'test-results/interface-thinking-unified.png' });
   await liveThinking.locator('summary').click();
   await load([...withTool, { role: 'toolResult', toolCallId: 'live-tool', toolName: 'read_file', content: 'ok' }], true);
+  await messages.locator('.process-tool[data-tool-state="done"]').waitFor();
   assert.equal(await liveThinking.getAttribute('data-expanded'), 'true', 'manual reopening after completion survives subsequent activity');
   await openSettings(page);
   await preset(page, '标准');
@@ -295,6 +352,7 @@ try {
   await page.screenshot({ path: 'test-results/interface-compact-process-light.png' });
   await page.emulateMedia({ reducedMotion: 'reduce' });
   assert.equal(await compact.locator('.tool-group-disclosure').evaluate(element => getComputedStyle(element).transitionDuration), '0s');
+  assert.equal(await compact.locator('.thinking .tool-summary-shimmer').evaluate(element => getComputedStyle(element, '::before').animationName), 'none');
   await compact.locator('.tool-group-trigger').click();
   await compact.locator('.thinking > summary').click();
   assert.equal(await compact.locator('.thinking').getAttribute('data-expanded'), 'true', 'full original thought remains accessible inside the group');
@@ -324,7 +382,7 @@ try {
     await openSettings(page);
     await preset(page, mode);
     await closeSettings(page);
-    assert.equal(await messages.locator('.thinking').count(), mode === '简洁' ? 0 : 9);
+    assert.equal(await messages.locator('.thinking').count(), 9);
     assert.equal(await messages.locator('.thinking[data-expanded="true"]').count(), 0, 'completed historical thinking remains folded in every preset');
     assert.equal(await messages.locator('.process-tool[open]').count(), 0);
     assert.equal(await page.locator('.jump-to-bottom').isVisible(), true, 'changing presentation must not force an old-history reader to the bottom');

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useId, useRef, useState } from 'react';
-import { ArrowLeft, ArrowRight, ArrowUpRight, CalendarClock, Clock3, Folder, Info, Pause, Pencil, Play, Plug, Plus, RotateCw, Save, Search, ShieldCheck, TextSearch, Trash2, X } from 'lucide-react';
+import { ArrowLeft, ArrowRight, ArrowUpRight, BarChart3, CalendarClock, Clock3, Folder, Info, Pause, Pencil, Play, Plug, Plus, RotateCw, Save, Search, ShieldCheck, TextSearch, Trash2, X } from 'lucide-react';
 import { DisclosureChevron } from './DisclosureChevron';
 import { AppMenu, type AppMenuItem } from './AppMenu';
 import type { CronAssociation, CronAutomaticRecovery, CronHistoryEntry, CronHost, CronRecoveryPreview, Session } from './contracts';
@@ -44,13 +44,15 @@ export interface ScheduledTaskView {
 }
 export interface ScheduledTaskCreation { title: string; prompt: string; workspace: string; runtimeId: string; cron: string; recurring: boolean; durable: boolean }
 
-export function SidebarTaskActions({ selected, pluginsSelected = false, pluginsAttention = false, onNewSession, onScheduledTasks, onPlugins, onSearchChange, onFulltextSearch, fulltextOpen = false, disabled = false, language = 'zh' }: {
+export function SidebarTaskActions({ selected, pluginsSelected = false, pluginsAttention = false, usageSelected = false, onNewSession, onScheduledTasks, onPlugins, onUsage, onSearchChange, onFulltextSearch, fulltextOpen = false, disabled = false, language = 'zh' }: {
   selected: boolean;
   pluginsSelected?: boolean;
   pluginsAttention?: boolean;
+  usageSelected?: boolean;
   onNewSession: () => void;
   onScheduledTasks: () => void;
   onPlugins?: () => void;
+  onUsage?: () => void;
   onSearchChange?: (query: string) => void;
   onFulltextSearch?: (query: string, trigger: HTMLButtonElement) => void;
   fulltextOpen?: boolean;
@@ -80,6 +82,12 @@ export function SidebarTaskActions({ selected, pluginsSelected = false, pluginsA
     </div>
     <div className="sidebar-utility-row" data-search-open={searchOpen}>
       <div className="sidebar-utility-links" inert={searchOpen} aria-hidden={searchOpen}>
+        {onUsage && <button type="button" className="usage-entry" disabled={disabled}
+          aria-current={usageSelected ? 'page' : undefined} aria-pressed={usageSelected}
+          aria-label={zh ? '用量统计' : 'Usage overview'}
+          data-tooltip={usageSelected ? zh ? '返回会话' : 'Back to conversation' : zh ? '用量统计' : 'Usage overview'} onClick={onUsage}>
+          <BarChart3 size={15} aria-hidden="true"/>
+        </button>}
         <button type="button" disabled={disabled} aria-current={selected ? 'page' : undefined} aria-pressed={selected}
           aria-label={zh ? '定时任务' : 'Schedules'} data-tooltip={selected ? zh ? '返回会话' : 'Back to conversation' : zh ? '定时任务' : 'Schedules'} onClick={onScheduledTasks}>
           <Clock3 size={15} aria-hidden="true"/>

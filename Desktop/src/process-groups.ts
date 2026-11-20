@@ -1,8 +1,30 @@
-import { toolPresentation, toolSubject, type ResponseItem } from './conversation-presentation';
+import { toolPresentation, toolSubject, type IndexedMessage, type ResponseItem } from './conversation-presentation';
 import { groupableTool, toolGroupLabel } from './tool-groups';
 
 export function hideOrdinaryProcess(content: ResponseItem[], active: boolean, awaiting: readonly string[] = []): ResponseItem[] {
   return content.filter(item => item.type !== 'thinking' && !groupableTool(item, active, awaiting));
+}
+
+/** A stopped stream, a model message ending on tools, and a settled run are different boundaries. */
+export function settledTurnProcess(items: IndexedMessage[], content: ResponseItem[], active: boolean,
+  awaiting: readonly string[] = []) {
+  if (active || awaiting.length) return;
+  const final = [...items].reverse().find(({ message }) => message.role === 'assistant');
+  const run = final?.message.desktopTiming?.run;
+  if (!final || final.message.desktopImported || final.message.incomplete || final.message.stopReason !== 'stop'
+    || final.message.desktopTiming?.completed !== true
+    || !run || !Number.isFinite(run.startedAt) || run.endedAt === undefined
+    || !Number.isFinite(run.endedAt) || run.endedAt < run.startedAt
+    || !content.some(item => item.index === final.index && item.type === 'text' && item.block.text?.trim())
+    || content.some(item => item.index === final.index && item.type === 'tool')) return;
+
+  const sameRun = new Map(items.filter(({ message }) => message.role === 'assistant' && !message.desktopImported
+    && !message.incomplete && message.desktopTiming?.run.startedAt === run.startedAt
+    && message.desktopTiming.run.endedAt === run.endedAt).map(item => [item.index, item.message]));
+  const keys = new Set(content.filter(item => sameRun.has(item.index) && (item.type === 'thinking'
+    || (item.type === 'text' && item.index !== final.index && sameRun.get(item.index)?.stopReason === 'toolUse')
+    || groupableTool(item, false, awaiting))).map(item => item.key));
+  if (keys.size) return { keys, duration: run.endedAt - run.startedAt };
 }
 
 export type ProcessItem = Extract<ResponseItem, { type: 'tool' }> | (ResponseItem & { type: 'thinking' });

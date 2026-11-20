@@ -11,7 +11,7 @@ export interface InterfacePreferences extends InterfaceOptions {
   preset: InterfacePreset | 'custom';
 }
 export const interfacePresets: Record<InterfacePreset, InterfaceOptions> = {
-  simple: { hideProcess: true, thinkingExpanded: false, toolsExpanded: false, performanceVisible: true, groupTools: true, compactProcess: true },
+  simple: { hideProcess: false, thinkingExpanded: false, toolsExpanded: false, performanceVisible: true, groupTools: false, compactProcess: false },
   standard: { hideProcess: false, thinkingExpanded: false, toolsExpanded: false, performanceVisible: true, groupTools: true, compactProcess: true },
   detailed: { hideProcess: false, thinkingExpanded: false, toolsExpanded: false, performanceVisible: true, groupTools: true, compactProcess: false },
 };

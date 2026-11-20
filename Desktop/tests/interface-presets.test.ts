@@ -3,7 +3,7 @@ import test from 'node:test';
 import { normalizeInterfaceSettings, selectInterfacePreset, validateInterfaceSettings } from '../src/interface-presets';
 
 test('interface presets affect presentation options only', () => {
-  assert.deepEqual(selectInterfacePreset('simple'), { preset: 'simple', hideProcess: true, thinkingExpanded: false, toolsExpanded: false, performanceVisible: true, groupTools: true, compactProcess: true });
+  assert.deepEqual(selectInterfacePreset('simple'), { preset: 'simple', hideProcess: false, thinkingExpanded: false, toolsExpanded: false, performanceVisible: true, groupTools: false, compactProcess: false });
   assert.deepEqual(selectInterfacePreset('standard'), { preset: 'standard', hideProcess: false, thinkingExpanded: false, toolsExpanded: false, performanceVisible: true, groupTools: true, compactProcess: true });
   assert.deepEqual(selectInterfacePreset('detailed'), { preset: 'detailed', hideProcess: false, thinkingExpanded: false, toolsExpanded: false, performanceVisible: true, groupTools: true, compactProcess: false });
 });

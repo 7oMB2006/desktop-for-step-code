@@ -26,7 +26,7 @@
 .interface-preview .message { margin: 0; }
 .interface-preview .message-actions { display: none; }
 .interface-preview .message-body { font-size: 12px; line-height: 1.65; }
-.interface-preview .process-tool > summary, .interface-preview .tool-group-trigger, .interface-preview .response-content > .thinking { font-size: 12px; }
+.interface-preview .process-tool > summary, .interface-preview .tool-group-trigger, .interface-preview .response-content > .thinking, .interface-preview .turn-process-slot > div > .thinking { font-size: 12px; }
 .interface-preview .process-tool-content { margin-left: 6px; padding-left: 6px; }
 .interface-preview-composer { border: 1px solid var(--border); border-radius: 5px; padding: 10px; margin-top: 18px; }
 .interface-preview-placeholder { display: block; color: var(--muted); margin-bottom: 20px; }

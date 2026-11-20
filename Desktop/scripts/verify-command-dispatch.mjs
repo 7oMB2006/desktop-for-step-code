@@ -216,12 +216,12 @@ try {
   await send('/usage');
   await page.getByRole('region', { name: '用量统计', exact: true }).waitFor();
   assert.equal((await calls('prompt')).length, 0, 'Usage opens the Desktop page without sending terminal heatmap text');
-  await page.getByRole('button', { name: '返回会话', exact: true }).click();
+  await page.locator('.sidebar-utility-links .usage-entry').click();
   assert.equal(await page.locator('#workflow-catalog-panel').getAttribute('aria-hidden'), 'true',
     'Returning from another page does not reopen an old catalog');
   await send('/usage overview');
   await page.getByRole('region', { name: '用量统计', exact: true }).waitFor();
-  await page.getByRole('button', { name: '返回会话', exact: true }).click();
+  await page.locator('.sidebar-utility-links .usage-entry').click();
   await send('/usage account');
   await page.getByRole('dialog', { name: '设置', exact: true }).waitFor();
   assert.equal(await page.getByRole('button', { name: '账户', exact: true }).getAttribute('aria-current'), 'page');

@@ -70,10 +70,12 @@ export class CronHistory {
     const history = this.load(workspace);
     return history.unconfirmed || history.entries.some(entry => (!sessionId || entry.sessionId === sessionId) && unresolved(entry));
   }
-  acknowledge(workspace: string) {
-    const entries = this.list(workspace).map(row => row.state === 'unknown' && row.reviewedAt === undefined
+  acknowledge(workspace: string, sessionId?: string) {
+    const history = this.load(workspace);
+    const entries = history.entries.map(row => (!sessionId || row.sessionId === sessionId)
+      && row.state === 'unknown' && row.reviewedAt === undefined
       ? { ...row, reviewedAt: this.now() } : row);
-    this.persist(workspace, entries, false);
+    this.persist(workspace, entries, Boolean(sessionId && history.unconfirmed));
   }
   event(worker: SessionRuntime, event: RuntimeEvent, sessionOwned = false) {
     if (!worker.state?.sessionId) return;

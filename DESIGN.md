@@ -437,6 +437,13 @@ when closed, with reduced motion; the project history remains available after
 one-shot tasks disappear. Delivery, unknown outcomes and recovery are never
 rendered as successful execution.
 
+In session-owned Cron, the same review disclosure authorizes background wake for
+the original conversation, not the project. An online owner can be authorized
+without restarting it. Offline owners remain visibly offline while waiting for
+their wake window; show a separate authorized, blocked or revoked state without
+counting them as running. Revocation stops future automatic wake, not a live
+scheduler. An automatic wake never changes the viewed conversation.
+
 The current scheduling host's name has a compact adjacent icon shortcut with a
 keyboard-accessible tooltip. It opens only that live runtime through the shared
 conversation navigation flow, without creating or restarting a session. Offline

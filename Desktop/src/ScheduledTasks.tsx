@@ -206,9 +206,11 @@ export function ScheduledTasks({ jobs, onCreate, onDelete, onUpdate, onDisableAu
     && normalizedWorkspaceKey(session.cwd, window.desktop?.platform ?? 'win32') === normalizedWorkspaceKey(task.workspace, window.desktop?.platform ?? 'win32')) : [];
   const associated = task?.association && sessions.find(session => session.id === task.association?.sessionId);
   const associatedArchived = Boolean(associated && archived.has(associated.id));
-  const canRecover = Boolean(task?.host === 'offline' && onPrepareRecovery && onRecover
-    && (!sessionOwned || task.recoverable && recoveryTargets.length === 1));
-  const recoveryName = sessionOwned ? '恢复会话调度' : '恢复项目调度';
+  const authorizingOnline = sessionOwned && task?.host === 'online';
+  const canRecover = Boolean(task && onPrepareRecovery && onRecover && (sessionOwned
+    ? recoveryTargets.length === 1 && (task.recoverable || authorizingOnline && !task.scheduling)
+    : task.host === 'offline'));
+  const recoveryName = sessionOwned ? authorizingOnline ? '授权后台唤醒' : '恢复会话调度' : '恢复项目调度';
   const recoveryTargetLabel = sessionOwned ? '所属会话' : '承接会话';
   const canUpdate = Boolean(task?.runtimeId && task.revision && (!task.scheduling || task.scheduling === 'paused'));
   const projects = [...new Set([...jobs.map(job => job.workspace), ...hosts.map(host => host.workspace)])];
@@ -366,9 +368,9 @@ export function ScheduledTasks({ jobs, onCreate, onDelete, onUpdate, onDisableAu
       {!task.durable && <div className="scheduled-boundary scheduled-temporary-warning"><Info size={16}/><span>临时任务仅在当前宿主存活期间保留；退出或更新应用后丢失，即使是周期任务也不会跨重启恢复。</span></div>}
       <section className="scheduled-instructions"><h2>任务指令</h2><p>{task.prompt}</p></section>
       {task.automatic && task.automatic.state !== 'disabled' && <div className="scheduled-automatic">
-        <span>自动恢复 · Beta：{task.automatic.state === 'enabled' ? '已授权' : '需重新核对'}</span>
-        <span>授权到期 {new Date(task.automatic.expires).toLocaleString('zh-CN')}</span>
-        {onDisableAutomatic && <button type="button" onClick={() => void save(() => onDisableAutomatic(task.id), () => {})}><Pause size={14}/>关闭自动恢复</button>}
+        <span>{sessionOwned ? '后台唤醒' : '自动恢复'} · Beta：{task.automatic.state === 'enabled' ? '已授权' : '需重新核对'}</span>
+        {task.automatic.expires !== undefined && <span>授权到期 {new Date(task.automatic.expires).toLocaleString('zh-CN')}</span>}
+        {onDisableAutomatic && <button type="button" onClick={() => void save(() => onDisableAutomatic(task.id), () => {})}><Pause size={14}/>{sessionOwned ? '关闭后台唤醒' : '关闭自动恢复'}</button>}
       </div>}
       {Boolean(task.history?.length) && <ScheduledHistory key={task.id} entries={task.history!}/>}
       {task.paused && <div className="scheduled-boundary"><Pause size={15}/><span>{sessionOwned && task.canResume === false
@@ -399,7 +401,9 @@ export function ScheduledTasks({ jobs, onCreate, onDelete, onUpdate, onDisableAu
       </div>
       <div className="scheduled-boundary"><Info size={16}/><span>{sessionOwned
         ? task.scheduling === 'parked' ? '旧任务保留为只读记录，升级后不会触发。'
-          : task.host === 'offline' ? '所属会话的宿主离线，当前不调度。' : '由所属会话调度。触发不代表执行完成。'
+          : task.host === 'offline' ? task.automatic?.state === 'enabled'
+            ? '所属会话离线，已授权应用在任务到点前唤醒。退出应用期间不执行。'
+            : '所属会话离线，当前不调度。' : '由所属会话调度。触发不代表执行完成。'
         : task.host === 'offline'
           ? '当前没有存活的调度宿主。保存的任务不代表正在调度；可手动打开项目会话，或核对配置后恢复项目调度。'
           : '应用退出或电脑休眠期间不执行。任务由项目共享，关联会话不代表独占调度；到时触发不代表执行完成。'}</span></div>
@@ -426,23 +430,28 @@ export function ScheduledTasks({ jobs, onCreate, onDelete, onUpdate, onDisableAu
           <div><dt>{recoveryTargetLabel}</dt><dd>{recovery.sessionName}</dd></div>
         </dl><ul>{recovery.jobs.map(job => <li key={job.id}>{job.prompt}</li>)}</ul>
           <div className="scheduled-boundary"><Info size={16}/><span>
-            {sessionOwned ? `只恢复该会话的 ${recovery.jobs.length} 个已核对任务，使用以上账户、模型和“每次询问”权限。确认过期或任务已到点时不启动。`
+            {sessionOwned ? `仅限该会话的 ${recovery.jobs.length} 个已核对任务，使用以上账户、模型和“每次询问”权限。确认过期或任务已到点时不启动。`
               : <>将在所选会话启动本项目全部 {recovery.jobs.length} 个持久任务，使用以上账户与模型，并将该会话权限设为“每次询问”。
                 逾期及到期任务沿用上游规则，可能投递提醒并调用模型；不重建过期任务，不保证返回创建任务时的上下文。</>}
           </span></div></>}
         {sessionOwned && recovery?.unconfirmed && <p className="muted scheduled-auto-note">部分历史执行结果未确认。本次允许未来调度，不补跑这些执行。</p>}
+        {sessionOwned && recovery && !authorizingOnline && <label className="checkbox scheduled-auto-option"><input type="checkbox" checked={automatic}
+          onChange={event => setAutomatic(event.target.checked)}/>同时授权应用下次在到点前唤醒此会话 · Beta</label>}
+        {sessionOwned && recovery && (authorizingOnline || automatic) && <p className="muted scheduled-auto-note">
+          仅在应用运行时唤醒原会话，不补跑错过的任务。任务执行可能消耗模型用量；新增或更改待执行任务后需要重新核对。
+        </p>}
         {!sessionOwned && recovery && <label className="checkbox scheduled-auto-option"><input type="checkbox" checked={automatic}
           onChange={event => setAutomatic(event.target.checked)}/>授权应用启动或空闲宿主异常后自动恢复此项目 · Beta</label>}
         {!sessionOwned && recovery && <p className="muted scheduled-auto-note">默认关闭。仅使用本次核对的已有会话、账户、模型与每次询问权限，授权最长七天。
           会话删除／归档、项目迁移、配置或任务变化、任务逾期及执行结果未确认时停止自动恢复，需重新核对；不新建会话，不自动重试或补跑。</p>}
-        {!sessionOwned && recovery?.unconfirmed && automatic && <label className="checkbox scheduled-auto-option">
+        {recovery?.unconfirmed && (automatic || authorizingOnline) && <label className="checkbox scheduled-auto-option">
           <input type="checkbox" checked={acknowledgeUnconfirmed} onChange={event => setAcknowledgeUnconfirmed(event.target.checked)}/>
           我已核对历史未确认执行，不将其视为成功，也不补跑这些执行
         </label>}
         <footer><button type="button" onClick={() => { setRecovering(false); recoveryButton.current?.focus(); }}>取消恢复</button>
-          {recovery ? <button type="button" disabled={!sessionOwned && automatic && recovery.unconfirmed && !acknowledgeUnconfirmed}
-            onClick={() => void save(() => onRecover!(recovery.token, !sessionOwned && automatic, !sessionOwned && acknowledgeUnconfirmed),
-            () => { setRecovery(undefined); setRecovering(false); }, true)}><Play size={15}/>确认恢复调度</button>
+          {recovery ? <button type="button" disabled={(automatic || authorizingOnline) && recovery.unconfirmed && !acknowledgeUnconfirmed}
+            onClick={() => void save(() => onRecover!(recovery.token, automatic || authorizingOnline, acknowledgeUnconfirmed),
+            () => { setRecovery(undefined); setRecovering(false); }, true)}><Play size={15}/>{authorizingOnline ? '确认授权' : '确认恢复调度'}</button>
             : <button type="button" disabled={!recoverySession} onClick={() => void save(async () =>
               setRecovery(await onPrepareRecovery!(task.id, recoverySession)), () => {}, true)}><ShieldCheck size={15}/>核对恢复配置</button>}
         </footer>

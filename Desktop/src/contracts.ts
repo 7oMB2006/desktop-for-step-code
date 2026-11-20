@@ -107,7 +107,7 @@ export interface CronHost {
   sessionId?: string; model?: string; permission?: PermissionPreset;
 }
 export interface CronAssociation { sessionId: string; source: 'created' | 'recovered' | 'native'; at: number }
-export interface CronAutomaticRecovery { state: 'enabled' | 'blocked' | 'disabled'; expires: number }
+export interface CronAutomaticRecovery { state: 'enabled' | 'blocked' | 'disabled'; expires?: number }
 export interface CronHistoryEntry {
   id: string; sessionId: string; jobId?: string; createdAt?: number; at: number; updatedAt: number;
   state: 'triggered' | 'running' | 'waiting' | 'completed' | 'failed' | 'interrupted' | 'unknown'

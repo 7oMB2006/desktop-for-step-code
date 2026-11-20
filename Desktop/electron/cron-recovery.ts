@@ -38,6 +38,7 @@ export interface CronRecoveryPlan {
   unconfirmed?: boolean;
   automaticBefore?: number;
   owner?: { revisions: string[]; before: number };
+  onlineRuntimeId?: string;
 }
 const stamp = (plan: CronRecoveryPlan) => createHash('sha256').update(JSON.stringify(plan)).digest('hex');
 
@@ -113,6 +114,11 @@ export class CronRecovery {
         throw new Error('Cron tasks, session or account changed; review recovery again');
       if (automatic && latest.unconfirmed && !acknowledgeUnconfirmed)
         throw new Error('Review unconfirmed Cron execution before authorizing automatic recovery');
+      if (latest.onlineRuntimeId) {
+        if (!automatic || !latest.owner) throw new Error('This conversation is already online');
+        await this.remember!(pending.key, latest);
+        return { sessionId: latest.sessionId, runtimeId: latest.onlineRuntimeId };
+      }
       const result = await this.launch(latest);
       if (automatic) {
         await this.remember!(pending.key, latest);

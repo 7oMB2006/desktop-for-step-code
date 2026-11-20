@@ -25,7 +25,7 @@ assert.equal(manifest.commit, baseline.commit, 'Use the staged v0.1.8 runtime, n
 assert.ok(manifest.patches?.includes('desktop-cron-session-ownership-v1'), 'The candidate must attest native Cron session ownership');
 
 const profile = await realpath(await mkdtemp(join(tmpdir(), 'desktop-cron-v018-')));
-const fixture = await queueFixture(profile, { textOnly: true });
+const fixture = await queueFixture(profile, { textOnly: true, duration: 120 });
 const agentDir = join(profile, 'step-runtime', 'agent');
 const sessions = join(profile, 'step-runtime', 'sessions');
 const cronDir = join(fixture.workspace, '.stepcode', 'cron');
@@ -67,12 +67,13 @@ await writeFile(grantFile, grant);
 const env = { ...process.env, DESKTOP_TEST_USER_DATA: profile, DESKTOP_TEST_NO_FOCUS: '1' };
 delete env.ELECTRON_RUN_AS_NODE;
 const errors = [];
+const launch = () => electron.launch({
+  ...(executablePath ? { executablePath, cwd: profile } : { args: [appPath], cwd: dirname(runtime) }),
+  env, timeout: 60000,
+});
 let app;
 try {
-  app = await electron.launch({
-    ...(executablePath ? { executablePath, cwd: profile } : { args: [appPath], cwd: dirname(runtime) }),
-    env, timeout: 60000,
-  });
+  app = await launch();
   assert.equal(await app.evaluate(({ app }) => app.getPath('userData')), profile);
   const page = await app.firstWindow();
   page.on('pageerror', error => errors.push(error.message));
@@ -131,7 +132,7 @@ try {
   await settleLayout(panel);
   await panel.getByRole('button', { name: '核对恢复配置', exact: true }).click();
   await panel.getByRole('button', { name: '确认恢复调度', exact: true }).waitFor();
-  assert.equal(await panel.getByRole('checkbox').count(), 0, 'v017 automatic grants must not be re-authorizable');
+  await panel.getByRole('checkbox', { name: /到点前唤醒此会话/ }).waitFor();
   await panel.getByText(ownerBName, { exact: true }).first().waitFor();
   assert.deepEqual(await panel.getByRole('listitem').allTextContents(), [owned.prompt]);
   await panel.getByRole('button', { name: '确认恢复调度', exact: true }).click();
@@ -175,7 +176,54 @@ try {
   assert.equal(once.sessionId, ownerA);
   assert.equal(fixture.requests.length, 0, 'Opening a different owner and recovering a future task must not call a model');
   assert.deepEqual(errors, []);
-  console.log('v018 Cron Electron upgrade passed: read-only legacy, scoped recovery, fixed interval and exact one-shot creation.');
+
+  // A is authorized but hours away; B is due soon. Restart without opening either chat.
+  const authorize = async prompt => {
+    await taskButton(prompt).click();
+    await page.getByRole('button', { name: '授权后台唤醒 Beta', exact: true }).click();
+    await settleLayout(panel);
+    await panel.getByRole('button', { name: '核对恢复配置', exact: true }).click();
+    await panel.getByRole('button', { name: '确认授权', exact: true }).click();
+    await page.getByText('后台唤醒 · Beta：已授权', { exact: true }).waitFor();
+    await page.getByRole('button', { name: '返回任务列表', exact: true }).click();
+  };
+  await authorize(intervalPrompt);
+  const wakeAt = Date.now() + 35_000;
+  const wakePrompt = 'Wake and execute only in conversation B';
+  await page.evaluate(input => window.desktop.cronCreate(input), { runtimeId: recovered.runtimeId, cron: '* * * * *',
+    prompt: wakePrompt, recurring: false, durable: true, runAt: wakeAt });
+  const wakeId = (await list()).tasks.find(task => task.prompt === wakePrompt)?.id;
+  assert.ok(wakeId);
+  await authorize(wakePrompt);
+  assert.equal(fixture.requests.length, 0, 'Authorization itself must not call a model');
+  await closeDesktopFixtureAndWait(app);
+  app = undefined;
+  assert.ok(Date.now() < wakeAt, 'Fixture must restart before the scheduled time');
+  app = await launch();
+  const reopened = await app.firstWindow();
+  reopened.on('pageerror', error => errors.push(error.message));
+  const waitForWake = async (predicate, before, label) => {
+    while (Date.now() < before) {
+      const overview = await reopened.evaluate(() => window.desktop.cronList()).catch(() => undefined);
+      if (overview?.hosts.length === 1 && overview.hosts[0].sessionId === ownerB && overview.hosts[0].permission === 'ask'
+        && predicate(overview.tasks.find(task => task.id === wakeId), overview.hosts[0], overview.history ?? [])) return;
+      await new Promise(resolve => setTimeout(resolve, 250));
+    }
+    assert.fail(`Timed out waiting for ${label}`);
+  };
+  await waitForWake((task, host) => task?.runtimeId === host.runtimeId, wakeAt, 'the original owner to wake before the deadline');
+  assert.equal(fixture.requests.length, 0, 'Waking the host must not fire early');
+  await waitForWake((_task, _host, history) => history.some(project => project.entries.some(row =>
+    row.jobId === wakeId && row.state === 'completed' && row.sessionId === ownerB)),
+    wakeAt + 30_000, 'a completed scheduled turn in the original owner');
+  assert.equal(fixture.requests.length, 1);
+  assert.notEqual(await reopened.evaluate(async () => (await window.desktop.snapshot()).state?.sessionId), ownerB,
+    'Background wake must not activate the conversation in the window');
+  assert.match(await readFile(ownerBFile, 'utf8'), /Wake and execute only in conversation B/);
+  assert.doesNotMatch(await readFile(join(sessions, `${ownerA}.jsonl`), 'utf8'), /Wake and execute only in conversation B/);
+  assert.equal(await readFile(grantFile, 'utf8'), grant);
+  assert.deepEqual(errors, []);
+  console.log('v018 Cron Electron passed: upgrade, scoped recovery, scheduling modes and one background wake after restart.');
 } finally {
   try {
     if (app) await closeDesktopFixtureAndWait(app);

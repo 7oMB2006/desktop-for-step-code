@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { CronSessionWake, cronWakeFingerprint, cronWakeLeadMs, matchesCronWake, nextCronWake } from '../electron/cron-session-wake';
+import { CronSessionWake, CronWakeLaunches, cronWakeFingerprint, cronWakeLeadMs, matchesCronWake, nextCronWake } from '../electron/cron-session-wake';
 import { CronRecovery, type CronRecoveryPlan } from '../electron/cron-recovery';
 import type { CronRuntimeJob } from '../electron/cron-management';
 import { normalizedWorkspaceKey } from '../src/workspace-key';
@@ -64,6 +64,86 @@ test('Authorization survives restart, revocation is owner-scoped, and an uncerta
     assert.equal(await service.get(plan.workspace, 'other'), undefined);
     assert.equal((await service.get(plan.workspace, plan.sessionId))?.blocked, true);
   } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test('Changing a task blocks only its owner even when the original schedule is restored', async t => {
+  const root = await mkdtemp(join(tmpdir(), 'dfsc-cron-wake-edit-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const service = new CronSessionWake(root);
+  await service.enable(plan);
+  await service.enable({ ...plan, sessionId: 'other' });
+  await service.block(plan.workspace, plan.sessionId);
+  const reopened = new CronSessionWake(root);
+  const restored = await reopened.get(plan.workspace, plan.sessionId);
+  assert.ok(restored && matchesCronWake(restored, plan));
+  assert.equal(restored.blocked, true);
+  await assert.rejects(reopened.activate(restored, async () => assert.fail('Restored task reused old consent')), /review/i);
+  assert.equal((await reopened.get(plan.workspace, 'other'))?.blocked, undefined);
+});
+
+test('Revocation or editing during a launch invalidates the gate and is never overwritten', async t => {
+  const root = await mkdtemp(join(tmpdir(), 'dfsc-cron-wake-revoke-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const service = new CronSessionWake(root);
+  for (const action of ['disable', 'block', 'enable'] as const) {
+    await service.enable(plan);
+    const current = await service.get(plan.workspace, plan.sessionId);
+    assert.ok(current);
+    const revised = { ...plan, jobs: [{ ...job, prompt: 'Reapproved instructions' }] };
+    await service.activate(current, async isCurrent => {
+      assert.equal(isCurrent(), true);
+      const mutation = action === 'enable' ? service.enable(revised) : service[action](plan.workspace, plan.sessionId);
+      assert.equal(isCurrent(), false, 'Revoke the in-flight gate before waiting on disk');
+      await mutation;
+    });
+    const saved = await service.get(plan.workspace, plan.sessionId);
+    if (action === 'disable') assert.equal(saved, undefined);
+    else if (action === 'block') assert.equal(saved?.blocked, true);
+    else assert.ok(saved && matchesCronWake(saved, revised) && !matchesCronWake(saved, plan));
+  }
+});
+
+test('A slow wake and a corrupt history neither stall scans nor duplicate an owner', async () => {
+  const launches = new CronWakeLaunches();
+  const started: string[] = [], errors: unknown[] = [];
+  let releaseSlow!: () => void;
+  const slow = new Promise<void>(resolve => { releaseSlow = resolve; });
+  async function* candidates(...ids: string[]) {
+    for (const sessionId of ids) yield { sessionId, workspace: `/${sessionId}` };
+  }
+  const scan = (...ids: string[]) => launches.scan(candidates(...ids), async ({ sessionId }) => {
+    if (sessionId === 'corrupt') throw new Error('Invalid Cron history');
+    return async () => {
+      started.push(sessionId);
+      if (sessionId === 'slow') await slow;
+    };
+  }, () => true, error => errors.push(error));
+  try {
+    await scan('slow', 'corrupt', 'healthy');
+    assert.deepEqual(started, ['slow', 'healthy']);
+    assert.equal(launches.hasWorkspace('/slow'), true);
+    await scan('slow', 'new');
+    assert.deepEqual(started, ['slow', 'healthy', 'new']);
+    assert.equal(errors.length, 1);
+  } finally { releaseSlow(); }
+});
+
+test('An unavailable history blocks automatic authorization before launch, but permits manual recovery', async () => {
+  let launched = 0;
+  for (const onlineRuntimeId of [undefined, 'online']) {
+    const service = new CronRecovery(async () => ({ ...plan, onlineRuntimeId, automaticUnavailable: 'project-history' }),
+      async () => { launched++; return { sessionId: plan.sessionId, runtimeId: 'manual' }; },
+      () => 0, async () => assert.fail('Unsafe authorization was saved'));
+    const preview = await service.prepare('task', 'owner');
+    assert.equal(preview.automaticUnavailable, 'project-history');
+    await assert.rejects(service.recover(preview.token, true, true), /unavailable/i);
+    assert.equal(launched, 0);
+    if (!onlineRuntimeId) {
+      const manual = await service.prepare('task', 'owner');
+      assert.equal((await service.recover(manual.token)).runtimeId, 'manual');
+      launched = 0;
+    }
+  }
 });
 
 test('Reviewing an online owner can save a grant without relaunching that owner', async () => {

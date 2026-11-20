@@ -126,6 +126,7 @@ export interface CronRecoveryPreview {
   jobs: { id: string; prompt: string; nextFireAt: number }[];
   model: Pick<Model, 'id' | 'provider' | 'name'>; account: string; permission: 'ask';
   unconfirmed?: boolean;
+  automaticUnavailable?: 'project-history' | 'in-progress' | 'history-unavailable';
 }
 export interface CronOverview {
   tasks: CronTask[]; hosts: CronHost[]; issues: { workspace: string; reason: 'unavailable' | 'untrusted' }[];

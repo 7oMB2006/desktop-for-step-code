@@ -78,6 +78,9 @@ test('Host loss and unrelated user turns are unknown, never successful; records 
   assert.equal(history.uncertain(worker.cwd), true, 'Display rotation must not acknowledge unresolved execution');
   const reopened = new CronHistory(root);
   assert.equal(reopened.uncertain(worker.cwd), true, 'The safety latch survives restart');
+  assert.deepEqual(reopened.ownerReview(worker.cwd, 'chat'), { unconfirmed: false, automaticUnavailable: 'project-history' });
+  reopened.acknowledge(worker.cwd, 'chat');
+  assert.equal(reopened.ownerReview(worker.cwd, 'other').automaticUnavailable, 'project-history');
   reopened.acknowledge(worker.cwd);
   assert.equal(new CronHistory(root).uncertain(worker.cwd), false);
 });
@@ -87,6 +90,7 @@ test('Restarted unfinished runs require explicit acknowledgment without being re
   const history = new CronHistory(root, () => 100);
   const worker = { id: 'host', cwd: 'D:/project', state: { sessionId: 'chat' }, messages: [] } as unknown as SessionRuntime;
   history.event(worker, { type: 'message_start', message: { role: 'custom', customType: 'step-cron', display: true } } as any);
+  assert.equal(history.ownerReview(worker.cwd, 'chat').automaticUnavailable, 'in-progress');
   const reopened = new CronHistory(root, () => 200);
   assert.equal(reopened.list(worker.cwd)[0].state, 'unknown');
   assert.equal(reopened.uncertain(worker.cwd), true);

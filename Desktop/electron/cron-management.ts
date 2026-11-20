@@ -81,7 +81,7 @@ export class CronManagement {
   constructor(private pool: SessionRuntimes,
     private saved: (cwd: string) => Promise<SavedCronJobs>,
     private changed: () => void, private bindings?: CronBindings,
-    private beforeUpdate?: (workspace: string) => Promise<void>, private ownership?: CronOwnership) {}
+    private beforeUpdate?: (workspace: string, sessionId?: string) => Promise<void>, private ownership?: CronOwnership) {}
   host(runtimeId: unknown): SessionRuntime {
     if (typeof runtimeId !== 'string' || !runtimeId || runtimeId.length > 80) throw new Error('Invalid Cron host');
     const worker = this.pool.require(runtimeId);
@@ -109,7 +109,7 @@ export class CronManagement {
       const sessionId = worker.state?.sessionId;
       if (this.ownership && worker.status !== 'disconnected' && sessionId)
         residentOwners.add(JSON.stringify([this.key(worker.cwd), sessionId]));
-      if (worker.status !== 'connected' || worker.stopping) continue;
+      if (worker.status !== 'connected' || worker.stopping || worker.cronGated) continue;
       if (this.ownership && !projects.has(this.key(worker.cwd))) projects.set(this.key(worker.cwd), worker.cwd);
       const rpc = worker.rpc;
       worker.operations++;
@@ -184,7 +184,7 @@ export class CronManagement {
       await this.pool.assertIdle(worker);
       this.assertCurrent(worker, rpc, sessionId);
       if (args.action === 'update') {
-        await this.beforeUpdate?.(worker.cwd);
+        await this.beforeUpdate?.(worker.cwd, sessionId);
         this.assertCurrent(worker, rpc, sessionId);
       }
       const result = await rpc.request('desktop_cron', this.ownership ? { ...args, sessionId } : args, 15000);

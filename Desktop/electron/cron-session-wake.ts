@@ -46,6 +46,9 @@ export function nextCronWake(grant: CronWakeGrant, rows: CronRuntimeJob[], now: 
 }
 
 export class CronSessionWake {
+  private writes = new Map<string, Promise<unknown>>();
+  private attempts = new Map<string, object>();
+
   constructor(private root: string) {}
 
   private file(workspace: string, sessionId: string) {
@@ -87,27 +90,58 @@ export class CronSessionWake {
     return this.read(this.file(workspace, sessionId));
   }
 
+  private mutate<T>(file: string, operation: () => Promise<T>): Promise<T> {
+    const pending = (this.writes.get(file) ?? Promise.resolve()).catch(() => {}).then(operation);
+    this.writes.set(file, pending);
+    void pending.finally(() => { if (this.writes.get(file) === pending) this.writes.delete(file); }).catch(() => {});
+    return pending;
+  }
+
   async enable(plan: CronRecoveryPlan) {
     if (!plan.owner || !plan.jobs.length || plan.jobs.length > 500) throw new Error('No verified Cron tasks to authorize');
     const { workspace, sessionId, account, sessionPath, configurationRef, model } = plan;
     const grant: CronWakeGrant = { version: 1, workspace, sessionId, accountRef: digest(account), configurationRef,
       sessionFileRef: digest(normalizedWorkspaceKey(sessionPath, process.platform)),
       model: { id: model.id, provider: model.provider }, jobs: plan.jobs.map(cronWakeFingerprint).sort() };
-    await this.write(this.file(workspace, sessionId), grant);
+    const file = this.file(workspace, sessionId);
+    this.attempts.delete(file);
+    await this.mutate(file, () => this.write(file, grant));
   }
 
   async disable(workspace: string, sessionId: string) {
-    await this.write(this.file(workspace, sessionId), { version: 1, disabled: true });
+    const file = this.file(workspace, sessionId);
+    this.attempts.delete(file);
+    await this.mutate(file, () => this.write(file, { version: 1, disabled: true }));
   }
 
-  async activate(grant: CronWakeGrant, launch: () => Promise<unknown>) {
+  async block(workspace: string, sessionId: string) {
+    const file = this.file(workspace, sessionId);
+    this.attempts.delete(file);
+    await this.mutate(file, async () => {
+      const grant = await this.read(file);
+      if (grant && !grant.blocked) await this.write(file, { ...grant, blocked: true });
+    });
+  }
+
+  async activate(grant: CronWakeGrant, launch: (isCurrent: () => boolean) => Promise<unknown>) {
     const file = this.file(grant.workspace, grant.sessionId);
-    if (grant.blocked || JSON.stringify(await this.read(file)) !== JSON.stringify(grant))
-      throw new Error('Review Cron wake authorization before launching');
-    // An interrupted or uncertain launch must not be retried on restart.
-    await this.write(file, { ...grant, blocked: true });
-    await launch();
-    await this.write(file, grant);
+    const attempt = {};
+    if (this.attempts.has(file)) throw new Error('Cron wake is already in progress');
+    this.attempts.set(file, attempt);
+    const isCurrent = () => this.attempts.get(file) === attempt;
+    try {
+      await this.mutate(file, async () => {
+        if (grant.blocked || JSON.stringify(await this.read(file)) !== JSON.stringify(grant) || !isCurrent())
+          throw new Error('Review Cron wake authorization before launching');
+        // Persist the uncertain state before opening the native gate.
+        await this.write(file, { ...grant, blocked: true });
+      });
+      if (!isCurrent()) throw new Error('Cron wake authorization changed');
+      await launch(isCurrent);
+      await this.mutate(file, async () => { if (isCurrent()) await this.write(file, grant); });
+    } finally {
+      if (isCurrent()) this.attempts.delete(file);
+    }
   }
 
   async *grants(onError: (error: unknown) => void) {
@@ -123,6 +157,33 @@ export class CronSessionWake {
         const grant = await this.read(join(this.root, name));
         if (grant && !grant.blocked) yield grant;
       } catch (error) { onError(error); }
+    }
+  }
+}
+
+// Reserve the owner immediately, but never make a scan wait for host startup.
+export class CronWakeLaunches {
+  private pending = new Map<string, string>();
+  has(sessionId: string | undefined) { return sessionId !== undefined && this.pending.has(sessionId); }
+  get busy() { return this.pending.size > 0; }
+  hasWorkspace(workspace: string) {
+    const key = normalizedWorkspaceKey(workspace, process.platform);
+    return [...this.pending.values()].includes(key);
+  }
+
+  async scan<T extends { sessionId: string; workspace: string }>(candidates: AsyncIterable<T>,
+    prepare: (candidate: T) => Promise<(() => Promise<void>) | undefined>,
+    available: () => boolean, report: (error: unknown) => void) {
+    for await (const candidate of candidates) {
+      if (!available()) break;
+      const { sessionId } = candidate;
+      if (this.has(sessionId)) continue;
+      try {
+        const launch = await prepare(candidate);
+        if (!launch || !available() || this.has(sessionId)) continue;
+        this.pending.set(sessionId, normalizedWorkspaceKey(candidate.workspace, process.platform));
+        void Promise.resolve().then(launch).catch(report).finally(() => this.pending.delete(sessionId));
+      } catch (error) { report(error); }
     }
   }
 }

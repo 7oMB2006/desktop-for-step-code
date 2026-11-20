@@ -36,6 +36,7 @@ export interface CronRecoveryPlan {
   account: string;
   model: Model;
   unconfirmed?: boolean;
+  automaticUnavailable?: CronRecoveryPreview['automaticUnavailable'];
   automaticBefore?: number;
   owner?: { revisions: string[]; before: number };
   onlineRuntimeId?: string;
@@ -97,7 +98,7 @@ export class CronRecovery {
     return { token, expires, workspace: plan.workspace, sessionId: plan.sessionId, sessionName: plan.sessionName,
       jobs: plan.jobs.map(job => ({ id: job.id, prompt: job.prompt, nextFireAt: job.nextFireAt })),
       model: { id: plan.model.id, provider: plan.model.provider, name: plan.model.name },
-      account: plan.account, permission: 'ask', unconfirmed: plan.unconfirmed };
+      account: plan.account, permission: 'ask', unconfirmed: plan.unconfirmed, automaticUnavailable: plan.automaticUnavailable };
   }
   async recover(token: unknown, automatic: unknown = false, acknowledgeUnconfirmed: unknown = false) {
     if (typeof automatic !== 'boolean' || typeof acknowledgeUnconfirmed !== 'boolean') throw new Error('Invalid automatic recovery authorization');
@@ -112,6 +113,8 @@ export class CronRecovery {
       const latest = await this.inspect(pending.key, pending.plan.sessionId);
       if (this.now() >= pending.expires || stamp(latest) !== stamp(pending.plan))
         throw new Error('Cron tasks, session or account changed; review recovery again');
+      if (automatic && latest.automaticUnavailable)
+        throw new Error('Automatic Cron wake is unavailable for this execution history');
       if (automatic && latest.unconfirmed && !acknowledgeUnconfirmed)
         throw new Error('Review unconfirmed Cron execution before authorizing automatic recovery');
       if (latest.onlineRuntimeId) {

@@ -157,7 +157,7 @@ test('Authorization invalidation must finish before editing and revalidate the h
   assert.equal(f.worker.mutating, false);
 });
 
-function ownedFixture() {
+function ownedFixture(beforeUpdate?: (workspace: string, sessionId?: string) => Promise<void>) {
   const f = fixture();
   const sessionFile = resolve('isolated-profile', 'original.jsonl');
   const foreignFile = resolve('other-profile', 'elsewhere.jsonl');
@@ -169,7 +169,7 @@ function ownedFixture() {
   const temporary = { ...home, id: 'temp', durable: false, revision: 'c'.repeat(64) };
   let saved: SavedCronJobs & { jobs: CronRuntimeJob[] } = { jobs: [home, offline, parked], trusted: true };
   let reads = 0;
-  const service = new CronManagement(f.pool, async () => { reads++; return saved; }, () => {}, undefined, undefined,
+  const service = new CronManagement(f.pool, async () => { reads++; return saved; }, () => {}, undefined, beforeUpdate,
     { sameSessionFile: async (a, b) => a === b });
   f.worker.rpc.request = async (type, args) => {
     f.calls.push({ type, args });
@@ -178,6 +178,17 @@ function ownedFixture() {
   return { ...f, service, home, offline, parked, temporary, reads: () => reads,
     disk: (value: typeof saved) => { saved = value; } };
 }
+
+test('A gated recovery host does not appear online or offer a second recovery', async () => {
+  const f = ownedFixture();
+  f.worker.cronGated = true;
+  const overview = await f.service.list([f.worker.cwd]);
+  assert.deepEqual(overview.hosts, []);
+  assert.equal(overview.tasks.find(task => task.id === f.home.id)?.runtimeId, undefined);
+  assert.equal(overview.tasks.find(task => task.id === f.home.id)?.recoverable, false);
+  assert.equal(overview.tasks.find(task => task.id === f.offline.id)?.recoverable, true);
+  assert.deepEqual(f.calls, []);
+});
 
 test('Session-owned list combines trusted disk records with the correct resident worker only', async () => {
   const f = ownedFixture();
@@ -231,7 +242,11 @@ test('A different native session cannot lend its live runtime to a saved task', 
 });
 
 test('Session-owned create, update and delete send the reviewed digest and current owner', async () => {
-  const f = ownedFixture();
+  const invalidations: [string, string | undefined][] = [];
+  const f = ownedFixture(async (workspace, sessionId) => {
+    assert.equal(f.calls.length, 1, 'Block before sending the update');
+    invalidations.push([workspace, sessionId]);
+  });
   const longId = 'native-2026'.repeat(4);
   f.worker.rpc.request = async (type, args) => {
     f.calls.push({ type, args });
@@ -242,6 +257,7 @@ test('Session-owned create, update and delete send the reviewed digest and curre
   await f.service.create(create);
   await f.service.update({ runtimeId: f.worker.id, jobId: longId, expected: f.home.revision, paused: true });
   await f.service.delete(f.worker.id, longId, f.home.revision);
+  assert.deepEqual(invalidations, [[f.worker.cwd, f.worker.state!.sessionId]]);
   assert.deepEqual(f.calls.map(call => call.args?.sessionId), ['session', 'session', 'session']);
   assert.equal(f.calls[0].args?.runAt, runAt);
   assert.equal(f.calls[1].args?.expected, f.home.revision);

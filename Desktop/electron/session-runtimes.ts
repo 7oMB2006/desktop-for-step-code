@@ -68,6 +68,7 @@ export interface SessionRuntime {
   submissions: number;
   operations: number;
   mutating: boolean;
+  cronGated?: boolean;
   state?: RuntimeState;
   leafId?: string;
   permissionPreset?: PermissionPreset;
@@ -302,7 +303,7 @@ export class SessionRuntimes {
     await this.assertIdle(worker, { stopHost: true });
   }
   summaries() {
-    return [...this.workers.values()].filter(worker => worker.state?.sessionId).map(worker => ({
+    return [...this.workers.values()].filter(worker => worker.state?.sessionId && !worker.cronGated).map(worker => ({
       runtimeId: worker.id, sessionId: worker.state!.sessionId!, cwd: worker.cwd,
       firstMessage: firstUserText(worker.messages), name: worker.state?.sessionName,
       backgroundCount: worker.status === 'connected' ? worker.backgroundLanes?.length : undefined,
@@ -319,7 +320,7 @@ export class SessionRuntimes {
   }
   require(id = this.activeId) {
     const worker = id && this.workers.get(id);
-    if (!worker || worker.status !== 'connected') throw new Error('This session runtime is not connected');
+    if (!worker || worker.status !== 'connected' || worker.cronGated) throw new Error('This session runtime is not connected');
     return worker;
   }
   async open(node: string, entry: string, cwd: string, env: NodeJS.ProcessEnv, sessionPath?: string, branch?: BranchOperation) {
@@ -367,6 +368,7 @@ export class SessionRuntimes {
       submissions: 0, operations: 0, mutating: false, messages: [], models: [], pendingUI: new Map(), uiTimers: new Map(), fullAccessCancellationRevision: 0, failed: false, interrupted: false, runActive: false, revision: 0, touched: Date.now(),
     };
     worker.cronScopeDirectory = env.DESKTOP_CRON_SCOPE_DIR ?? existing?.cronScopeDirectory;
+    worker.cronGated = env.DESKTOP_CRON_RECOVERY === '1';
     worker.status = 'connecting';
     worker.startupTiming = undefined;
     worker.startup = undefined;

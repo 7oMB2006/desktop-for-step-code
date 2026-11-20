@@ -70,6 +70,15 @@ export class CronHistory {
     const history = this.load(workspace);
     return history.unconfirmed || history.entries.some(entry => (!sessionId || entry.sessionId === sessionId) && unresolved(entry));
   }
+  ownerReview(workspace: string, sessionId: string) {
+    const history = this.load(workspace);
+    const unresolvedRows = history.entries.filter(row => row.sessionId === sessionId && unresolved(row));
+    return {
+      unconfirmed: unresolvedRows.some(row => row.state === 'unknown'),
+      automaticUnavailable: history.unconfirmed ? 'project-history' as const
+        : unresolvedRows.some(row => row.state !== 'unknown') ? 'in-progress' as const : undefined,
+    };
+  }
   acknowledge(workspace: string, sessionId?: string) {
     const history = this.load(workspace);
     const entries = history.entries.map(row => (!sessionId || row.sessionId === sessionId)

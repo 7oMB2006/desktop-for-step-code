@@ -7,18 +7,21 @@ import { useAnimatedDisclosure } from './useAnimatedDisclosure';
 import { normalizedWorkspaceKey } from './workspace-key';
 import './scheduled-tasks.css';
 
-export function ScheduledTaskSelect({ label, value, options, onChange, name }: {
-  label: string; value: string; options: AppMenuItem[]; onChange: (id: string) => void; name?: string;
+export function ScheduledTaskSelect({ label, value, options, onChange, name, placeholder = label }: {
+  label: string; value: string; options: AppMenuItem[]; onChange: (id: string) => void; name?: string; placeholder?: string;
 }) {
   const [open, setOpen] = useState(false);
   const anchor = useRef<HTMLButtonElement>(null);
   const close = useCallback(() => setOpen(false), []);
+  const enabled = options.some(option => !option.disabled);
+  useEffect(() => { if (!enabled) close(); }, [enabled, close]);
   return <span className="scheduled-select">
     {name && <input type="hidden" name={name} value={value}/>}
-    <button type="button" ref={anchor} aria-label={label} aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen(current => !current)}>
-      <span>{options.find(option => option.id === value)?.label ?? label}</span><DisclosureChevron/>
+    <button type="button" ref={anchor} aria-label={label} aria-haspopup={enabled ? 'menu' : undefined}
+      aria-expanded={enabled ? open : undefined} disabled={!enabled} onClick={() => setOpen(current => !current)}>
+      <span>{options.find(option => option.id === value)?.label ?? placeholder}</span>{enabled && <DisclosureChevron/>}
     </button>
-    <AppMenu anchor={anchor} open={open} label={label} selected={value} items={options} maxVisibleItems={5} onSelect={onChange} onClose={close}/>
+    {enabled && <AppMenu anchor={anchor} open={open} label={label} selected={value} items={options} maxVisibleItems={5} onSelect={onChange} onClose={close}/>}
   </span>;
 }
 
@@ -48,8 +51,10 @@ export interface ScheduledTaskView {
 }
 export interface ScheduledTaskCreation {
   title: string; prompt: string; workspace: string; runtimeId: string; cron: string; recurring: boolean; durable: boolean;
-  intervalHours?: number; runAt?: number;
+  expectedSessionId?: string; intervalHours?: number; runAt?: number;
 }
+const hostKey = (host: CronHost) => JSON.stringify([host.runtimeId, host.sessionId]);
+const hostLabel = (host: CronHost) => `${host.workspace.split(/[\\/]/).pop()} · ${host.name}`;
 const schedulingLabel: Record<NonNullable<CronTask['scheduling']>, string> = {
   parked: '旧任务未启用', paused: '已暂停 · Beta', expired: '已到期', completed: '调度已结束',
   missed: '已错过，未运行', 'session-missing': '所属会话缺失',
@@ -155,7 +160,7 @@ function ScheduledHistory({ entries, label = '执行与恢复记录' }: { entrie
   </details>;
 }
 
-export function ScheduledTasks({ jobs, onCreate, onDelete, onUpdate, onDisableAutomatic, onOpenHost, hosts = [], sessions = [], archivedSessionIds = [], onPrepareRecovery, onRecover,
+export function ScheduledTasks({ jobs, onCreate, onDelete, onUpdate, onDisableAutomatic, onOpenHost, onReturnToConversation, hosts = [], sessions = [], archivedSessionIds = [], onPrepareRecovery, onRecover,
   history = [], live = false, refreshing = false, issue, onRefresh, sessionOwned = false }: {
   jobs: ScheduledTaskView[];
   onCreate: (value: ScheduledTaskCreation) => void | Promise<void>;
@@ -163,6 +168,7 @@ export function ScheduledTasks({ jobs, onCreate, onDelete, onUpdate, onDisableAu
   onUpdate?: (id: string, expected: string, changes: { cron?: string; prompt?: string; paused?: boolean }) => Promise<void>;
   onDisableAutomatic?: (id: string) => Promise<void>;
   onOpenHost?: (runtimeId: string) => Promise<void>;
+  onReturnToConversation?: () => void;
   history?: { workspace: string; entries: CronHistoryEntry[] }[];
   hosts?: CronHost[]; live?: boolean; refreshing?: boolean; issue?: string; onRefresh?: () => void; sessionOwned?: boolean;
   sessions?: Session[];
@@ -185,7 +191,7 @@ export function ScheduledTasks({ jobs, onCreate, onDelete, onUpdate, onDisableAu
   const [automatic, setAutomatic] = useState(false);
   const [acknowledgeUnconfirmed, setAcknowledgeUnconfirmed] = useState(false);
   const [createWorkspace, setCreateWorkspace] = useState('');
-  const [hostId, setHostId] = useState('');
+  const [selectedHostKey, selectHost] = useState<string>();
   const [scheduleMode, setScheduleMode] = useState('cron');
   const [cron, setCron] = useState('0 9 * * *');
   const [recurring, setRecurring] = useState(true);
@@ -214,9 +220,19 @@ export function ScheduledTasks({ jobs, onCreate, onDelete, onUpdate, onDisableAu
   const recoveryTargetLabel = sessionOwned ? '所属会话' : '承接会话';
   const canUpdate = Boolean(task?.runtimeId && task.revision && (!task.scheduling || task.scheduling === 'paused'));
   const projects = [...new Set([...jobs.map(job => job.workspace), ...hosts.map(host => host.workspace)])];
-  const selectedHost = hosts.find(host => host.runtimeId === hostId) ?? hosts[0];
+  const selectedHost = hosts.find(host => hostKey(host) === selectedHostKey);
+  const hostLabels = hosts.map(hostLabel);
+  const hostOptions = hosts.map((host, index) => ({
+    id: hostKey(host),
+    label: `${hostLabels[index]}${hostLabels.indexOf(hostLabels[index]) === hostLabels.lastIndexOf(hostLabels[index])
+      ? '' : ` · ${(host.sessionId ?? host.runtimeId).slice(0, 8)}`}${host.busy ? '（忙碌）' : ''}`,
+  }));
   const shown = jobs.filter(job => (!project || job.workspace === project)
     && `${job.title} ${job.prompt} ${job.workspace}`.toLocaleLowerCase().includes(query.toLocaleLowerCase()));
+  useEffect(() => {
+    if (creating && selectedHostKey === undefined && (hosts.length || !refreshing))
+      selectHost(hosts[0] ? hostKey(hosts[0]) : '');
+  }, [creating, hosts, refreshing, selectedHostKey]);
   useEffect(() => {
     setConfirmDelete(undefined);
     if (creating || selected || navigating.current) heading.current?.focus();
@@ -245,7 +261,10 @@ export function ScheduledTasks({ jobs, onCreate, onDelete, onUpdate, onDisableAu
   };
   const resetPage = () => { setCreating(false); setSelected(undefined); setConfirmDelete(undefined); setRecovering(false); setRecovery(undefined); setEditing(undefined); setEditOpen(false); };
   const back = () => navigate(resetPage);
-  const create = () => navigate(() => setCreating(true));
+  const create = () => {
+    selectHost(hosts[0] ? hostKey(hosts[0]) : refreshing ? undefined : '');
+    navigate(() => setCreating(true));
+  };
   const cancelDelete = () => { setConfirmDelete(undefined); deleteButton.current?.focus(); };
   const save = async (action: () => void | Promise<void>, success: () => void, recoveryAction = false, failureMessage?: string) => {
     if (savingRef.current) return;
@@ -296,17 +315,23 @@ export function ScheduledTasks({ jobs, onCreate, onDelete, onUpdate, onDisableAu
         return;
       }
       void save(() => onCreate({ title, prompt, workspace: live ? selectedHost!.workspace : String(fields.get('workspace')),
-        runtimeId: selectedHost?.runtimeId ?? '', cron: fixedInterval || absoluteTime ? '* * * * *' : cron,
+        runtimeId: selectedHost?.runtimeId ?? '', expectedSessionId: selectedHost?.sessionId,
+        cron: fixedInterval || absoluteTime ? '* * * * *' : cron,
         recurring: fixedInterval || !absoluteTime && recurring, durable,
         ...(intervalHours === undefined ? {} : { intervalHours }), ...(runAt === undefined ? {} : { runAt }) }), back);
     }}>
       {!live && <label>任务名称<input name="title" required maxLength={100} placeholder="例如：检查项目的待办事项"/></label>}
-      {live ? <><label>调度宿主<ScheduledTaskSelect label="调度宿主" value={selectedHost?.runtimeId ?? ''}
-        options={hosts.map(host => ({ id: host.runtimeId, label: `${host.workspace.split(/[\\/]/).pop()} · ${host.name}${host.busy ? '（忙碌）' : ''}` }))}
-        onChange={setHostId}/></label>
+      {live ? <><label>调度宿主<ScheduledTaskSelect label="调度宿主" value={selectedHostKey ?? ''}
+        placeholder={hosts.length ? '选择会话' : refreshing ? '正在读取宿主' : '暂无在线宿主'}
+        options={hostOptions} onChange={selectHost}/></label>
         {selectedHost ? <div className="scheduled-boundary"><Info size={15}/><span>{selectedHost.workspace}<br/>
           {selectedHost.model ?? '当前模型'} · {selectedHost.permission ?? '当前权限'} · 沿用宿主当前账户</span></div>
-          : <p className="muted">请先打开项目会话并发送消息，启动调度宿主。打开此页面不会自动启动运行时。</p>}
+          : <div className="scheduled-boundary"><Info size={15}/><span role="status">{selectedHostKey
+            ? '原选中的宿主已离线，请重新选择会话。'
+            : hosts.length ? '选择负责执行此任务的会话。'
+              : refreshing ? '正在读取在线会话。' : '没有在线的项目会话。打开项目会话并发送消息后，即可选择该会话。'}</span>
+            {!hosts.length && !refreshing && onReturnToConversation && <button type="button" className="scheduled-host-return"
+              onClick={onReturnToConversation}><ArrowLeft size={14}/>返回会话</button>}</div>}
         {sessionOwned && <label>调度方式<ScheduledTaskSelect label="调度方式" value={scheduleMode} onChange={setScheduleMode}
           options={[{ id: 'cron', label: 'Cron 表达式' }, { id: 'interval', label: '固定间隔' }, { id: 'once', label: '指定时间一次' }]}/></label>}
         {sessionOwned && scheduleMode === 'interval'

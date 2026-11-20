@@ -97,11 +97,23 @@ test('Creation uses only native management RPC while holding the host mutation l
     f.calls.push({ type, args });
     return { jobs: [], trusted: true };
   };
-  await f.service.create({ runtimeId: 'one', cron: '0 9 * * *', prompt: 'read only', recurring: true, durable: true });
+  await f.service.create({ runtimeId: 'one', expectedSessionId: 'session', cron: '0 9 * * *', prompt: 'read only', recurring: true, durable: true });
   assert.deepEqual(f.calls.map(call => call.type), ['desktop_cron']);
   assert.equal(f.calls[0].args?.action, 'create');
+  assert.equal('expectedSessionId' in f.calls[0].args!, false, 'Desktop ownership assertion must not be forwarded to native');
   assert.equal(f.worker.mutating, false);
   assert.equal(f.changes(), 1);
+});
+test('Creation refuses a replaced owner even when the runtime ID has not changed', async () => {
+  const f = fixture();
+  const input = { runtimeId: 'one', expectedSessionId: 'session', cron: '0 9 * * *', prompt: 'read only', recurring: true, durable: true };
+  f.worker.state!.sessionId = 'replacement';
+  await assert.rejects(f.service.create(input), /host changed/);
+  f.worker.state!.sessionId = 'session';
+  f.idle(async () => { f.worker.state!.sessionId = 'replacement'; });
+  await assert.rejects(f.service.create(input), /host changed/);
+  assert.equal(f.calls.length, 0);
+  assert.equal(f.worker.mutating, false);
 });
 test('Busy, pending and replaced hosts cannot mutate Cron', async () => {
   const f = fixture();

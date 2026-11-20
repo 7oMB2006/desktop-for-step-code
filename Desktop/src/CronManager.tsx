@@ -4,8 +4,8 @@ import { ScheduledTasks, type ScheduledTaskCreation, type ScheduledTaskView } fr
 import { cronRevision } from './cron-revision';
 
 const empty: CronOverview = { tasks: [], hosts: [], issues: [] };
-export function CronManager({ bridge, onOpenHost }: {
-  bridge: DesktopBridge; onOpenHost?: (session: Session, runtimeId: string) => Promise<void>;
+export function CronManager({ bridge, onOpenHost, onReturnToConversation }: {
+  bridge: DesktopBridge; onOpenHost?: (session: Session, runtimeId: string) => Promise<void>; onReturnToConversation?: () => void;
 }) {
   const [data, setData] = useState(empty);
   const [loading, setLoading] = useState(true);
@@ -68,8 +68,14 @@ export function CronManager({ bridge, onOpenHost }: {
   };
   const format = (time: number) => new Intl.DateTimeFormat('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false }).format(time);
   const formatRunAt = (time: number) => new Intl.DateTimeFormat('zh-CN', { dateStyle: 'medium', timeStyle: 'short' }).format(time);
+  const catalog = new Map(sessions.map(session => [session.id, session]));
+  const hosts = data.hosts.map(host => {
+    const session = host.sessionId ? catalog.get(host.sessionId) : undefined;
+    return { ...host, name: session?.name?.trim() || session?.firstMessage.trim() || host.name };
+  });
+  const namesByRuntime = new Map(hosts.map(host => [host.runtimeId, host.name]));
   const jobs: ScheduledTaskView[] = data.tasks.map(job => ({
-    id: job.key, jobId: job.id, runtimeId: job.runtimeId, hostName: job.hostName,
+    id: job.key, jobId: job.id, runtimeId: job.runtimeId, hostName: (job.runtimeId && namesByRuntime.get(job.runtimeId)) || job.hostName,
     association: job.association, paused: data.sessionOwned ? job.scheduling === 'paused' : job.desktopPausedAt !== undefined,
     scheduling: job.scheduling, recoverable: job.recoverable, revision: job.revision ?? cronRevision(job),
     automatic: job.automatic, history: job.history,
@@ -81,8 +87,9 @@ export function CronManager({ bridge, onOpenHost }: {
     recurring: job.recurring, durable: job.durable, host: job.runtimeId ? 'online' : 'offline',
   }));
   const create = async (value: ScheduledTaskCreation) => {
-    const { runtimeId, cron, prompt, recurring, durable, intervalHours, runAt } = value;
+    const { runtimeId, expectedSessionId, cron, prompt, recurring, durable, intervalHours, runAt } = value;
     await mutate(() => bridge.cronCreate({ runtimeId, cron, prompt, recurring, durable,
+      ...(expectedSessionId === undefined ? {} : { expectedSessionId }),
       ...(intervalHours === undefined ? {} : { intervalHours }), ...(runAt === undefined ? {} : { runAt }) }));
   };
   const remove = async (key: string, expected?: string) => {
@@ -91,7 +98,8 @@ export function CronManager({ bridge, onOpenHost }: {
     await mutate(() => data.sessionOwned ? bridge.cronDelete(task.runtimeId!, task.id, expected)
       : bridge.cronDelete(task.runtimeId!, task.id));
   };
-  return <ScheduledTasks jobs={jobs} hosts={data.hosts} sessions={sessions} archivedSessionIds={archivedSessionIds} history={data.history}
+  return <ScheduledTasks jobs={jobs} hosts={hosts} sessions={sessions} archivedSessionIds={archivedSessionIds} history={data.history}
+    onReturnToConversation={onReturnToConversation}
     sessionOwned={data.sessionOwned}
     onOpenHost={onOpenHost ? async runtimeId => {
       const host = data.hosts.find(host => host.runtimeId === runtimeId);

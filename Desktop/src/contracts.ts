@@ -135,7 +135,7 @@ export interface CronOverview {
 }
 export interface CronCreateInput {
   runtimeId: string; cron: string; prompt: string; recurring: boolean; durable: boolean;
-  intervalHours?: number; runAt?: number;
+  expectedSessionId?: string; intervalHours?: number; runAt?: number;
 }
 export interface CronUpdateInput {
   runtimeId: string; jobId: string; expected: string; cron?: string; prompt?: string; paused?: boolean;

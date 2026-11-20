@@ -66,14 +66,17 @@ function ownedTask(job: CronRuntimeJob, task: Pick<CronTask, 'key' | 'workspace'
 export function cronCreation(input: unknown, owned = false): CronCreateInput {
   const value = input as CronCreateInput;
   if (!value || typeof value.runtimeId !== 'string' || value.runtimeId.length > 80
+    || value.expectedSessionId !== undefined && (typeof value.expectedSessionId !== 'string'
+      || !value.expectedSessionId || value.expectedSessionId.length > 256)
     || typeof value.cron !== 'string' || !value.cron.trim() || value.cron.length > 100
     || typeof value.prompt !== 'string' || !value.prompt.trim() || value.prompt.length > 4000
     || typeof value.recurring !== 'boolean' || typeof value.durable !== 'boolean') throw new Error('Invalid Cron creation parameters');
-  const { intervalHours, runAt } = value;
+  const { expectedSessionId, intervalHours, runAt } = value;
   if (intervalHours !== undefined && (!owned || !value.recurring || !Number.isInteger(intervalHours) || intervalHours < 1 || intervalHours > 168)
     || runAt !== undefined && (!owned || value.recurring || !time(runAt) || runAt <= Date.now()))
     throw new Error('Invalid Cron scheduling parameters');
   return { runtimeId: value.runtimeId, cron: value.cron.trim(), prompt: value.prompt.trim(), recurring: value.recurring, durable: value.durable,
+    ...(expectedSessionId === undefined ? {} : { expectedSessionId }),
     ...(intervalHours === undefined ? {} : { intervalHours }), ...(runAt === undefined ? {} : { runAt }) };
 }
 
@@ -96,7 +99,7 @@ export class CronManagement {
   }
   private assertCurrent(worker: SessionRuntime, rpc: SessionRuntime['rpc'], sessionId?: string) {
     if (this.pool.require(worker.id) !== worker || worker.rpc !== rpc || worker.stopping
-      || this.ownership && worker.state?.sessionId !== sessionId) throw new Error('Cron host changed; refresh and retry');
+      || worker.state?.sessionId !== sessionId) throw new Error('Cron host changed; refresh and retry');
   }
   async list(workspaces: string[]): Promise<CronOverview> {
     const tasks = new Map<string, CronTask>();
@@ -173,11 +176,12 @@ export class CronManagement {
     }
     return overview;
   }
-  private async mutate(runtimeId: string, args: Record<string, unknown>) {
+  private async mutate(runtimeId: string, args: Record<string, unknown>, expectedSessionId?: string) {
     const worker = this.pool.require(runtimeId);
     if (worker.mutating || worker.operations || worker.stopping) throw new Error('Cron host is busy; refresh and retry');
     const rpc = worker.rpc;
     const sessionId = worker.state?.sessionId;
+    if (expectedSessionId !== undefined && sessionId !== expectedSessionId) throw new Error('Cron host changed; refresh and retry');
     if (this.ownership && !sessionId) throw new Error('Cron host has no session');
     worker.mutating = true;
     try {
@@ -208,8 +212,8 @@ export class CronManagement {
     }
   }
   create(input: unknown) {
-    const { runtimeId, ...value } = cronCreation(input, Boolean(this.ownership));
-    return this.mutate(runtimeId, { action: 'create', ...value });
+    const { runtimeId, expectedSessionId, ...value } = cronCreation(input, Boolean(this.ownership));
+    return this.mutate(runtimeId, { action: 'create', ...value }, expectedSessionId);
   }
   delete(runtimeId: unknown, jobId: unknown, expected?: unknown) {
     if (typeof runtimeId !== 'string' || runtimeId.length > 80 || typeof jobId !== 'string' || !idPattern(Boolean(this.ownership)).test(jobId)

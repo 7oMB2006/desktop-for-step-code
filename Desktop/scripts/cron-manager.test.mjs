@@ -26,7 +26,7 @@ before(async () => {
 });
 after(async () => { await browser?.close(); });
 
-async function fixture(run, createView = false) {
+async function fixture(run, { openTask = true, empty = false } = {}) {
   const page = await browser.newPage();
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
@@ -34,7 +34,7 @@ async function fixture(run, createView = false) {
     await page.emulateMedia({ reducedMotion: 'reduce' });
     await page.setContent('<div id="root"></div>');
     await page.addScriptTag({ content: bundle });
-    await page.evaluate(() => {
+    await page.evaluate(empty => {
       const job = { key: 'task', id: 'one', runtimeId: 'host', workspace: 'project',
         cron: '0 9 * * *', prompt: 'Read/write regression', recurring: true, durable: true,
         createdAt: 100, nextFireAt: 200, autoExpireAt: 300, desktopPausedAt: 123 };
@@ -50,7 +50,7 @@ async function fixture(run, createView = false) {
           state.activeReads++;
           try {
             if (state.holdReads) await new Promise(resolve => state.pendingReads.push(resolve));
-            return { tasks: [{ ...job }], hosts: state.hosts, issues: [], sessionOwned: state.sessionOwned };
+            return { tasks: empty ? [] : [{ ...job }], hosts: state.hosts, issues: [], sessionOwned: state.sessionOwned };
           } finally { state.activeReads--; }
         },
         snapshot: async () => {
@@ -71,8 +71,9 @@ async function fixture(run, createView = false) {
           else delete job.desktopPausedAt;
         },
       });
-    });
-    if (!createView) {
+    }, empty);
+    await page.waitForFunction(() => Boolean(window.cronFixture.event));
+    if (openTask) {
       await page.getByRole('button').filter({ hasText: 'Read/write regression' }).click();
       await page.getByRole('button', { name: '恢复任务 Beta', exact: true }).waitFor();
     }
@@ -82,6 +83,9 @@ async function fixture(run, createView = false) {
 }
 
 const emit = page => page.evaluate(() => window.cronFixture.event({ type: 'desktop_cron_changed' }));
+const createButton = scope => scope.getByRole('button', { name: '创建任务', exact: true });
+const openCreate = page => createButton(page.locator('.scheduled-heading')).click();
+const submitCreate = page => createButton(page.locator('form.scheduled-editor'));
 const releaseReads = page => page.evaluate(() => {
   const state = window.cronFixture;
   state.holdReads = false;
@@ -90,16 +94,17 @@ const releaseReads = page => page.evaluate(() => {
 
 test('Cron creation without an online host has no empty menu and can return to conversations', { timeout: 15000 }, async () => {
   await fixture(async page => {
-    await page.getByRole('button', { name: '创建任务', exact: true }).click();
+    await page.getByRole('heading', { name: '暂无定时任务', exact: true }).waitFor();
+    await openCreate(page);
     const host = page.getByRole('button', { name: '调度宿主', exact: true });
     await page.getByText('暂无在线宿主', { exact: true }).waitFor();
     assert.equal(await host.isDisabled(), true);
     assert.equal(await host.getAttribute('aria-haspopup'), null);
     assert.equal(await page.getByRole('menu').count(), 0);
-    assert.equal(await page.getByRole('button', { name: '创建任务', exact: true }).isDisabled(), true);
+    assert.equal(await submitCreate(page).isDisabled(), true);
     await page.getByRole('button', { name: '返回会话', exact: true }).click();
     assert.equal(await page.evaluate(() => window.cronFixture.returned), true);
-  }, true);
+  }, { openTask: false, empty: true });
 });
 
 test('Cron creation keeps the draft and requires an explicit host choice after owner replacement', { timeout: 15000 }, async () => {
@@ -114,7 +119,7 @@ test('Cron creation keeps the draft and requires an explicit host choice after o
     });
     await emit(page);
     await page.waitForFunction(() => window.cronFixture.reads >= 2 && !document.querySelector('[aria-label="刷新定时任务"]').disabled);
-    await page.getByRole('button', { name: '创建任务', exact: true }).click();
+    await openCreate(page);
     const host = page.getByRole('button', { name: '调度宿主', exact: true });
     await host.click();
     await page.getByRole('menuitemradio', { name: 'project · First session from its first message', exact: true }).click();
@@ -126,7 +131,7 @@ test('Cron creation keeps the draft and requires an explicit host choice after o
     });
     await emit(page);
     await page.getByText('原选中的宿主已离线，请重新选择会话。', { exact: true }).waitFor();
-    const submit = page.getByRole('button', { name: '创建任务', exact: true });
+    const submit = submitCreate(page);
     assert.equal(await submit.isDisabled(), true);
     assert.equal(await task.inputValue(), 'Keep this draft');
     assert.deepEqual(await page.evaluate(() => window.cronFixture.creates), []);
@@ -138,7 +143,7 @@ test('Cron creation keeps the draft and requires an explicit host choice after o
       const [{ runtimeId, expectedSessionId, prompt }] = window.cronFixture.creates;
       return { runtimeId, expectedSessionId, prompt };
     }), { runtimeId: 'other-host', expectedSessionId: 'owner-b', prompt: 'Keep this draft' });
-  }, true);
+  }, { openTask: false });
 });
 
 test('Cron edits wait for an event-driven list read and coalesce subsequent refreshes', { timeout: 15000 }, async () => {

@@ -3,6 +3,7 @@ import type { QuitReasons, QuitReviewState } from '../src/quit-confirmation';
 import { normalizedWorkspaceKey } from '../src/workspace-key';
 import type { SessionRuntimes } from './session-runtimes';
 import { hasBackgroundWork } from './background-work';
+import { pendingCronJob } from './cron-state';
 
 export function quitReasons(pool: Pick<SessionRuntimes, 'workers' | 'isBusy'>, transitioning: boolean): QuitReasons {
   const reasons: QuitReasons = { temporaryJobs: 0, durableJobs: 0, runningTasks: 0, activeGoals: 0,
@@ -14,6 +15,7 @@ export function quitReasons(pool: Pick<SessionRuntimes, 'workers' | 'isBusy'>, t
     if (worker.launch?.goal?.status === 'active') reasons.activeGoals++;
     if (worker.cron?.status === 'unavailable') reasons.unknownCronHosts!++;
     for (const job of worker.cron?.jobs ?? []) {
+      if (!pendingCronJob(job)) continue;
       if (job.durable) durable.add(JSON.stringify([normalizedWorkspaceKey(worker.cwd, process.platform), job.id]));
       else reasons.temporaryJobs++;
     }

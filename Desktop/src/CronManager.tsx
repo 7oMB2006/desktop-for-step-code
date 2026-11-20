@@ -67,23 +67,32 @@ export function CronManager({ bridge, onOpenHost }: {
     }
   };
   const format = (time: number) => new Intl.DateTimeFormat('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false }).format(time);
+  const formatRunAt = (time: number) => new Intl.DateTimeFormat('zh-CN', { dateStyle: 'medium', timeStyle: 'short' }).format(time);
   const jobs: ScheduledTaskView[] = data.tasks.map(job => ({
     id: job.key, jobId: job.id, runtimeId: job.runtimeId, hostName: job.hostName,
-    association: job.association, paused: job.desktopPausedAt !== undefined, revision: cronRevision(job),
+    association: job.association, paused: data.sessionOwned ? job.scheduling === 'paused' : job.desktopPausedAt !== undefined,
+    scheduling: job.scheduling, recoverable: job.recoverable, revision: job.revision ?? cronRevision(job),
     automatic: job.automatic, history: job.history,
     title: job.prompt.trim().split('\n')[0].slice(0, 64), prompt: job.prompt, workspace: job.workspace,
-    schedule: job.cron, next: format(job.nextFireAt), expires: job.autoExpireAt === undefined ? undefined : format(job.autoExpireAt),
+    schedule: job.intervalHours !== undefined ? `每 ${job.intervalHours} 小时` : job.runAt !== undefined ? formatRunAt(job.runAt) : job.cron,
+    scheduleExpression: job.intervalHours === undefined && job.runAt === undefined ? job.cron : undefined,
+    next: format(job.nextFireAt), expires: job.autoExpireAt === undefined ? undefined : format(job.autoExpireAt),
+    canResume: job.runAt === undefined || job.runAt > Date.now(),
     recurring: job.recurring, durable: job.durable, host: job.runtimeId ? 'online' : 'offline',
   }));
   const create = async (value: ScheduledTaskCreation) => {
-    await mutate(() => bridge.cronCreate({ runtimeId: value.runtimeId, cron: value.cron, prompt: value.prompt, recurring: value.recurring, durable: value.durable }));
+    const { runtimeId, cron, prompt, recurring, durable, intervalHours, runAt } = value;
+    await mutate(() => bridge.cronCreate({ runtimeId, cron, prompt, recurring, durable,
+      ...(intervalHours === undefined ? {} : { intervalHours }), ...(runAt === undefined ? {} : { runAt }) }));
   };
-  const remove = async (key: string) => {
+  const remove = async (key: string, expected?: string) => {
     const task = data.tasks.find(job => job.key === key);
     if (!task?.runtimeId) throw new Error('Open the project host before deleting this job');
-    await mutate(() => bridge.cronDelete(task.runtimeId!, task.id));
+    await mutate(() => data.sessionOwned ? bridge.cronDelete(task.runtimeId!, task.id, expected)
+      : bridge.cronDelete(task.runtimeId!, task.id));
   };
   return <ScheduledTasks jobs={jobs} hosts={data.hosts} sessions={sessions} archivedSessionIds={archivedSessionIds} history={data.history}
+    sessionOwned={data.sessionOwned}
     onOpenHost={onOpenHost ? async runtimeId => {
       const host = data.hosts.find(host => host.runtimeId === runtimeId);
       const session = (await bridge.sessions()).find(session => session.id === host?.sessionId);

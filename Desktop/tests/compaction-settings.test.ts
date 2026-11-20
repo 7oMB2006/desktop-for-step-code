@@ -7,18 +7,23 @@ import { createCompactionConfiguration } from '../electron/compaction-configurat
 import { defaultCompactionConfiguration, validateCompactionUpdate } from '../src/compaction-settings';
 import { removeLinkEntry } from './fixtures/artifact-cleanup';
 
-async function fixture() {
+const upstreamDefaults = (triggerRatio: number) => ({
+  SettingsManager: { inMemory: () => ({ getCompactionTriggerSettings: () => ({ triggerRatio }) }) },
+});
+
+async function fixture(triggerRatio = .85) {
   const root = await mkdtemp(join(tmpdir(), 'desktop-compaction-'));
   let document: Record<string, any> = {
     permissionPreset: 'ask', telemetry: { enabled: false },
     mcp_servers: { private: { env: { API_KEY: 'fixture-secret-not-for-renderer' } } },
     compaction: { enabled: false, contextProjection: 'clm-v1', keepRecentTokens: 4000, reserveTokens: 12000, future: true },
   };
-  const api = createCompactionConfiguration({
+  const open = (ratio = triggerRatio) => createCompactionConfiguration({
+    ...upstreamDefaults(ratio),
     readGlobalStepConfig: () => structuredClone(document),
     updateGlobalStepConfig: (_env, update) => { document = update(structuredClone(document)); },
   }, root, { STEPCODE_STORAGE_ROOT_DIR: root, STEP_CODING_AGENT_DIR: join(root, 'agent') });
-  return { api, get: () => document, replace: (next: Record<string, any>) => { document = next; },
+  return { api: open(), open, get: () => document, replace: (next: Record<string, any>) => { document = next; },
     dispose: () => rm(root, { recursive: true, force: true }) };
 }
 
@@ -44,7 +49,8 @@ test('compaction save and reset preserve every unrelated and CLM option', async 
   try {
     const before = structuredClone(f.get());
     const initial = f.api.read();
-    assert.equal(initial.triggerRatio, .9); assert.equal(initial.enabled, false);
+    assert.equal(initial.triggerRatio, .85); assert.equal(initial.defaultTriggerRatio, .85);
+    assert.equal(initial.enabled, false);
     assert.equal(JSON.stringify(initial).includes('fixture-secret'), false);
     const changed = f.api.save({ revision: initial.revision, configuration: {
       triggerRatio: .8, tokenLimit: 50000, modelTriggerRatios: { 'step/a': .75, 'custom/a': .65 },
@@ -56,6 +62,31 @@ test('compaction save and reset preserve every unrelated and CLM option', async 
     for (const [key, value] of Object.entries(before.compaction)) assert.deepEqual(f.get().compaction[key], value);
     f.api.save({ revision: changed.revision, configuration: defaultCompactionConfiguration() });
     assert.deepEqual(f.get(), before);
+  } finally { await f.dispose(); }
+});
+
+test('runtime upgrades change only the omitted ratio; explicit 90% survives saves and reopening', async () => {
+  const f = await fixture(.9);
+  try {
+    const upgraded = f.open(.85);
+    assert.equal(f.api.read().triggerRatio, .9);
+    assert.equal(upgraded.read().triggerRatio, .85);
+    const before = structuredClone(f.get().compaction);
+    f.get().compaction.triggerRatio = .9;
+    const legacy = f.api.read();
+    f.api.save({ revision: legacy.revision, configuration: { ...defaultCompactionConfiguration(.9), tokenLimit: 64000 } });
+    const initial = upgraded.read();
+    assert.equal(initial.defaultTriggerRatio, .85);
+    assert.equal(initial.triggerRatio, .9);
+    upgraded.save({ revision: initial.revision, configuration: { ...defaultCompactionConfiguration(.9), tokenLimit: 55000,
+      modelTriggerRatios: { 'step/a': .75 } } });
+    const reopened = f.open(.85).read();
+    assert.equal(reopened.triggerRatio, .9);
+    assert.deepEqual(reopened.modelTriggerRatios, { 'step/a': .75 });
+    assert.equal(reopened.tokenLimit, 55000);
+    assert.equal(f.get().compaction.triggerRatio, .9);
+    upgraded.save({ revision: reopened.revision, configuration: defaultCompactionConfiguration(reopened.defaultTriggerRatio) });
+    assert.deepEqual(f.get().compaction, before);
   } finally { await f.dispose(); }
 });
 
@@ -94,7 +125,7 @@ test('invalid stored thresholds are projected as upstream defaults without mutat
       modelTriggerRatios: { 'step/good': .8, 'step/bad': .99 } };
     const before = structuredClone(f.get()), result = f.api.read();
     assert.equal(result.invalidConfiguration, true);
-    assert.equal(result.triggerRatio, .9); assert.equal(result.tokenLimit, null);
+    assert.equal(result.triggerRatio, .85); assert.equal(result.tokenLimit, null);
     assert.deepEqual(result.modelTriggerRatios, { 'step/good': .8 });
     assert.deepEqual(f.get(), before);
     const repaired = f.api.save({ revision: result.revision, configuration: {
@@ -129,6 +160,7 @@ test('linked Desktop roots fail closed before touching the configuration', async
     const linkedRoot = join(parent, 'linked');
     await symlink(target, linkedRoot, process.platform === 'win32' ? 'junction' : 'dir');
     const api = createCompactionConfiguration({
+      ...upstreamDefaults(.85),
       readGlobalStepConfig: () => { throw new Error('must not read'); },
       updateGlobalStepConfig: () => { throw new Error('must not write'); },
     }, linkedRoot, { STEPCODE_STORAGE_ROOT_DIR: linkedRoot, STEP_CODING_AGENT_DIR: join(linkedRoot, 'agent') });
@@ -145,6 +177,7 @@ test('a linked configuration file also fails closed before reading', async () =>
     await mkdir(root); await mkdir(outside);
     await symlink(outside, linked, process.platform === 'win32' ? 'junction' : 'dir');
     const api = createCompactionConfiguration({
+      ...upstreamDefaults(.85),
       readGlobalStepConfig: () => { throw new Error('must not read'); },
       updateGlobalStepConfig: () => { throw new Error('must not write'); },
     }, root, { STEPCODE_STORAGE_ROOT_DIR: root, STEP_CODING_AGENT_DIR: join(root, 'agent') });
@@ -157,6 +190,7 @@ test('profile mismatch and malformed compaction tables fail closed', async () =>
     f.replace({ compaction: 'invalid' });
     assert.throws(() => f.api.read(), /compaction:unavailable/);
     const invalid = createCompactionConfiguration({
+      ...upstreamDefaults(.85),
       readGlobalStepConfig: () => { throw new Error('must not read'); },
       updateGlobalStepConfig: () => { throw new Error('must not write'); },
     }, 'relative/profile', {});

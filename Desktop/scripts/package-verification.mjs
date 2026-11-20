@@ -5,6 +5,7 @@ import { cp, lstat, mkdir, readFile, readdir, realpath, symlink, writeFile } fro
 import { createRequire } from 'node:module';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { readRuntimeBaseline } from './runtime-baseline.mjs';
 
 const desktop = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const repository = dirname(desktop);
@@ -20,15 +21,19 @@ assert.ok(!contains(repository, output) && !contains(output, repository), 'Outpu
 assert.equal(await realpath(dirname(output)), dirname(output), 'Output parent must be canonical and already exist');
 const json = async path => JSON.parse(await readFile(path, 'utf8'));
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
-const runtime = await realpath(join(desktop, 'runtime'));
+const { name: baseline, manifest: pin } = await readRuntimeBaseline();
+const requestedRuntime = process.env.DESKTOP_VERIFY_RUNTIME;
+if (baseline !== 'v017') assert.ok(requestedRuntime, 'Pass DESKTOP_VERIFY_RUNTIME for the staged runtime candidate');
+if (requestedRuntime) assert.ok(isAbsolute(requestedRuntime), 'Pass an absolute DESKTOP_VERIFY_RUNTIME directory');
+const runtime = await realpath(requestedRuntime ?? join(desktop, 'runtime'));
 const terminalRuntime = await realpath(join(desktop, 'terminal-runtime'));
 const electronDist = await realpath(join(desktop, 'node_modules/electron/dist'));
 for (const input of [runtime, terminalRuntime, electronDist])
   assert.ok(!contains(input, output) && !contains(output, input), 'Output must not overlap shared package inputs');
 const manifest = await json(join(runtime, 'manifest.json'));
-const pin = await json(join(repository, 'patches/v017/manifest.json'));
 assert.equal(manifest.commit, pin.commit);
 assert.deepEqual(manifest.patchedSourceHashes, { ...pin.patchedSources, ...pin.platforms?.win32?.patchedSources });
+if (pin.patchIds) assert.deepEqual(manifest.patches, [...pin.patchIds, ...(pin.platforms?.win32?.patchIds ?? [])]);
 assert.equal(manifest.platform, 'win32');
 assert.equal(manifest.arch, 'x64');
 assert.equal(hash(await readFile(join(runtime, 'node/node.exe'))), manifest.nodeSha256);
@@ -83,7 +88,7 @@ const receipt = {
   desktopBase: execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repository, encoding: 'utf8' }).trim(),
   includesUncommittedChanges: true, runtime: manifest, desktopRuntimeHelpers: helpers,
   sourceHashes, distHashes: built,
-  scope: 'Pinned native runtime with current Desktop helpers. No upstream runtime rebuild or real-account acceptance.',
+  scope: 'Pinned staged runtime with current Desktop helpers. No real-account acceptance.',
 };
 await writeFile(join(output, 'source-receipt.json'), JSON.stringify(receipt, null, 2) + '\n');
 const require = createRequire(join(desktop, 'package.json'));
@@ -105,6 +110,8 @@ for (const [key, expected] of Object.entries(built)) {
 for (const [name, expected] of Object.entries(helpers))
   assert.equal(hash(await readFile(join(resources, 'runtime', name))), expected, `Packaged helper: ${name}`);
 assert.deepEqual(await json(join(resources, 'runtime/manifest.json')), manifest);
+assert.equal(hash(await readFile(join(resources, 'runtime/node/node.exe'))), manifest.nodeSha256);
+assert.equal(hash(await readFile(join(resources, 'runtime', manifest.entry))), hash(await readFile(join(runtime, manifest.entry))));
 const installer = `Desktop.for.Step.Code.Setup.${metadata.version}.exe`;
 const sha256 = hash(await readFile(join(packageOutput, installer)));
 await writeFile(join(output, 'package-integrity.json'), JSON.stringify({

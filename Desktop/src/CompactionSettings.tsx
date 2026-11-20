@@ -56,7 +56,7 @@ export function CompactionSettings({ bridge, language, models, model }: {
 }) {
   const t = (zh: string, en: string) => language === 'zh' ? zh : en;
   const [value, setValue] = useState<SettingsValue | null>(null);
-  const [draft, setDraft] = useState<CompactionConfiguration>(defaultCompactionConfiguration);
+  const [draft, setDraft] = useState<CompactionConfiguration>(() => defaultCompactionConfiguration());
   const draftRef = useRef(draft);
   const confirmed = useRef(value);
   const saving = useRef(false);
@@ -133,7 +133,7 @@ export function CompactionSettings({ bridge, language, models, model }: {
       <h3 id="compaction-heading" data-settings-anchor="context-maintenance">{t('上下文整理', 'Context maintenance')}</h3>
       <button className="icon-button" disabled={!value || disabled} aria-label={t('恢复上下文整理默认值', 'Reset context maintenance')}
         data-tooltip={t('仅重置触发比例、Token 上限和模型覆盖', 'Reset the threshold, token limit and model overrides only')}
-        onClick={() => void persist(defaultCompactionConfiguration())}><RotateCcw size={16}/></button>
+        onClick={() => value && void persist(defaultCompactionConfiguration(value.defaultTriggerRatio))}><RotateCcw size={16}/></button>
     </div>
     {!value ? error ? <div className="compaction-feedback" role="alert">
       <span>{t('无法读取上下文整理配置。', 'Could not read context maintenance settings.')}</span>
@@ -156,8 +156,8 @@ export function CompactionSettings({ bridge, language, models, model }: {
           </span>
         </div>
         <p className="compaction-description" id="compaction-ratio-description">
-          {t('默认 90%。实际触发点还受模型窗口与回复预留空间限制。',
-            'Default: 90%. The actual trigger also depends on the model window and reply headroom.')}
+          {t(`默认 ${percent(value.defaultTriggerRatio)}%。实际触发点还受模型窗口与回复预留空间限制。`,
+            `Default: ${percent(value.defaultTriggerRatio)}%. The actual trigger also depends on the model window and reply headroom.`)}
         </p>
         <div className="compaction-slider">
           <input id="compaction-ratio" aria-describedby="compaction-ratio-description" type="range" min={50} max={95} step="any"

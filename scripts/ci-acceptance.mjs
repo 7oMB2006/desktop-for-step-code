@@ -141,6 +141,9 @@ export const acceptanceGroups = {
 export const localOnly = [
   // Menu state/copy preview; native creation/read-only enforcement also has runtime tests.
   'verify-project-instructions-preview.mjs',
+  // These checks require an explicitly staged or packaged v018 candidate; CI still pins v017.
+  'verify-cron-v018-upgrade.mjs',
+  'verify-v018-process-electron.mjs',
   // Cross-repository/native fixtures require explicit isolated paths and/or a prepared BVR checkout.
   // Native plugin protocol and consumer coverage also run in plugin-skeleton-native.test.ts.
   'verify-bvr-electron.mjs',

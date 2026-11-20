@@ -933,6 +933,92 @@ test('idle retention grows within its cap, shrinks under pressure and still expi
   } finally { await pool.stopAll(); }
 });
 
+test('live background commands keep only their owner resident without making the session busy', async () => {
+  const { pool, open, transports } = fixture({ idleLimit: () => 0, backgroundCommandsAvailable: () => true });
+  try {
+    const owner = await open('shared-project');
+    owner.messages = [{ role: 'user', content: 'start a server' }];
+    const other = await open('shared-project');
+    other.messages = [{ role: 'user', content: 'unrelated session' }];
+    const active = await open('shared-project');
+    let count = 1;
+    for (const [index, transport] of transports.entries()) {
+      const request = transport.request.bind(transport);
+      transport.request = async (type, args) => ({
+        ...await request(type, args), desktopBackgroundCommands: { version: 1, count: index === 0 ? count : 0 },
+      });
+    }
+    owner.touched -= 6 * 60000;
+    await pool.recycle();
+    assert.equal(transports[1].stopped, true);
+    assert.equal(transports[0].stopped, false);
+    assert.equal(pool.isBusy(owner), false);
+    await pool.assertIdle(owner);
+    await assert.rejects(pool.assertIdle(owner, { stopHost: true }), /bash_kill/);
+    await assert.rejects(pool.assertBackgroundCommandsMayStop(owner), /bash_kill/);
+    await pool.assertIdle(owner, { stopHost: true, allowStoppingBackgroundCommands: true });
+    pool.activate(owner);
+    pool.activate(active);
+    count = 0;
+    await pool.recycle();
+    assert.equal(transports[0].stopped, true);
+  } finally { await pool.stopAll(); }
+});
+
+test('provider preflight does not queue a host change while a capable runtime can still launch commands', async () => {
+  let capable = false;
+  const { pool, open, transports } = fixture({ backgroundCommandsAvailable: () => capable });
+  try {
+    const worker = await open();
+    const transport = transports[0];
+    let isStreaming = true;
+    transport.request = async () => ({
+      sessionId: transport.sessionId, isStreaming, desktopBackgroundCommands: { version: 1, count: 0 },
+    });
+    await pool.assertBackgroundCommandsMayStop(worker);
+    capable = true;
+    await assert.rejects(pool.assertBackgroundCommandsMayStop(worker), /Wait for the current session task/);
+    isStreaming = false;
+    await pool.assertBackgroundCommandsMayStop(worker);
+  } finally { await pool.stopAll(); }
+});
+
+test('recycling requires a current, valid zero command count from the owning session', async () => {
+  const { pool, open, transports } = fixture({ idleLimit: () => 0, backgroundCommandsAvailable: () => true });
+  try {
+    const owner = await open();
+    owner.messages = [{ role: 'user', content: 'saved' }];
+    const another = await open();
+    const transport = transports[0];
+    const base = { sessionId: transport.sessionId, isStreaming: false };
+    for (const reply of [
+      base,
+      { ...base, desktopBackgroundCommands: { version: 2, count: 0 } },
+      { ...base, desktopBackgroundCommands: { version: 1, count: -1 } },
+      { ...base, sessionId: another.state!.sessionId, desktopBackgroundCommands: { version: 1, count: 0 } },
+    ]) {
+      transport.request = async () => reply;
+      await pool.recycle();
+      assert.equal(transport.stopped, false);
+      await assert.rejects(pool.assertIdle(owner, { stopHost: true }), /Cannot verify background commands/);
+    }
+    transport.request = async () => { throw new Error('timed out'); };
+    await pool.recycle();
+    assert.equal(transport.stopped, false);
+    const zero = { ...base, desktopBackgroundCommands: { version: 1, count: 0 } };
+    transport.request = async () => {
+      transport.receive({ type: 'extension_ui_request', method: 'setStatus', statusKey: 'fixture-metadata', statusText: 'changed' });
+      return zero;
+    };
+    await pool.recycle();
+    assert.equal(transport.stopped, false);
+    await assert.rejects(pool.assertIdle(owner, { stopHost: true }), /Cannot verify background commands/);
+    transport.request = async () => zero;
+    await pool.recycle();
+    assert.equal(transport.stopped, true);
+  } finally { await pool.stopAll(); }
+});
+
 test('Moved-session Cron isolation survives provider-driven transport refresh', async () => {
   const transports: Transport[] = [];
   const pool = new SessionRuntimes(() => {}, receive => {
@@ -2337,6 +2423,8 @@ test('abort, error, truncation and process exit never signal successful completi
     transports[0].receive({ type: 'message_end', message: { role: 'assistant', content: 'partial', stopReason: reason === 'manual' || reason === 'crash' ? 'stop' : reason } });
     if (reason === 'crash') transports[0].receive({ type: 'desktop_exit', code: 1 });
     transports[0].receive({ type: 'agent_end' });
+    if (reason === 'error' || reason === 'length') assert.equal(worker.busy, true, reason);
+    transports[0].receive({ type: 'agent_settled' });
     assert.equal(events.filter(event => event.type === 'desktop_task_completed').length, 0, reason);
     assert.ok(['failed', 'interrupted'].includes(pool.summaries()[0].status), reason);
     await pool.stopAll();

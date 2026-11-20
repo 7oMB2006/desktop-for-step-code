@@ -5,6 +5,7 @@ import { defaultCompactionConfiguration, validCompactionModelKey, validCompactio
   validateCompactionUpdate, type CompactionSettings } from '../src/compaction-settings';
 
 interface UpstreamConfiguration {
+  SettingsManager: { inMemory: () => { getCompactionTriggerSettings: () => { triggerRatio: number } } };
   readGlobalStepConfig: (env: NodeJS.ProcessEnv) => Record<string, unknown>;
   updateGlobalStepConfig: (env: NodeJS.ProcessEnv, update: (document: Record<string, unknown>) => Record<string, unknown>) => unknown;
 }
@@ -12,10 +13,10 @@ const record = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === 'object' && !Array.isArray(value);
 const revision = (value: unknown) => createHash('sha256').update(JSON.stringify(value ?? {})).digest('hex');
 
-function project(document: Record<string, unknown>): CompactionSettings {
+function project(document: Record<string, unknown>, defaultTriggerRatio: number): CompactionSettings {
   const raw = document.compaction ?? {};
   if (!record(raw)) throw new Error('compaction:unavailable');
-  const value = defaultCompactionConfiguration();
+  const value = defaultCompactionConfiguration(defaultTriggerRatio);
   let invalidConfiguration = false;
   if (validCompactionRatio(raw.triggerRatio)) value.triggerRatio = raw.triggerRatio;
   else if (raw.triggerRatio !== undefined) invalidConfiguration = true;
@@ -33,12 +34,18 @@ function project(document: Record<string, unknown>): CompactionSettings {
       })) as Record<string, number>;
     }
   }
-  return { ...value, revision: revision(raw), policy: raw.triggerPolicy === 'legacy' ? 'legacy' : 'v2',
+  return { ...value, defaultTriggerRatio, revision: revision(raw), policy: raw.triggerPolicy === 'legacy' ? 'legacy' : 'v2',
     enabled: raw.enabled !== false, invalidConfiguration };
 }
 
 /** Only the Desktop-owned global document is exposed; project/credential data never leaves this adapter. */
 export function createCompactionConfiguration(upstream: UpstreamConfiguration, root: string, env: NodeJS.ProcessEnv) {
+  // Read the bundled runtime's default without loading global or project settings.
+  const defaultTriggerRatio = () => {
+    const ratio = upstream.SettingsManager.inMemory().getCompactionTriggerSettings().triggerRatio;
+    if (!validCompactionRatio(ratio)) throw new Error('compaction:unavailable');
+    return ratio;
+  };
   const checkProfile = () => {
     if (!root || !isAbsolute(root) || resolve(env.STEPCODE_STORAGE_ROOT_DIR ?? '') !== resolve(root)
       || resolve(env.STEP_CODING_AGENT_DIR ?? '') !== resolve(root, 'agent'))
@@ -61,19 +68,23 @@ export function createCompactionConfiguration(upstream: UpstreamConfiguration, r
   };
   const read = () => {
     checkProfile();
-    return project(upstream.readGlobalStepConfig(env));
+    return project(upstream.readGlobalStepConfig(env), defaultTriggerRatio());
   };
   const save = (input: unknown) => {
     const update = validateCompactionUpdate(input);
     checkProfile();
+    const fallback = defaultTriggerRatio();
     upstream.updateGlobalStepConfig(env, document => {
-      const current = project(document);
+      const current = project(document, fallback);
       if (current.revision !== update.revision) throw new Error('compaction:conflict');
       if (current.policy === 'legacy' && !update.useRatioPolicy) throw new Error('compaction:legacy');
       const next = { ...(document.compaction as Record<string, unknown> | undefined) };
+      const explicitRatio = next.triggerRatio;
       // Delete only fields owned by this editor; CLM, permissions and unknown options survive.
       delete next.triggerRatio; delete next.tokenLimit; delete next.modelTriggerRatios;
-      if (update.configuration.triggerRatio !== .9) next.triggerRatio = update.configuration.triggerRatio;
+      // Keep an explicit value even when it equals this runtime's default.
+      if (update.configuration.triggerRatio !== fallback || explicitRatio === fallback)
+        next.triggerRatio = update.configuration.triggerRatio;
       if (update.configuration.tokenLimit !== null) next.tokenLimit = update.configuration.tokenLimit;
       if (Object.keys(update.configuration.modelTriggerRatios).length) next.modelTriggerRatios = update.configuration.modelTriggerRatios;
       if (update.useRatioPolicy) next.triggerPolicy = 'v2';

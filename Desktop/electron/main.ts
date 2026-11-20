@@ -39,10 +39,11 @@ import { PluginHostLauncher } from './plugin-host-launcher';
 import { StepPluginHostProvider } from './plugin-host-step';
 import { SpeechService, SPEECH_FIELD, speechSettings, saveSpeech, acknowledgeSpeech } from './speech';
 import { isProjectTrustInput, trustProject } from './project-trust';
-import { CronManagement, cronJobs } from './cron-management';
-import { hasScheduledCron } from './cron-state';
+import { CronManagement, cronJobs, cronScheduling, type SavedCronJobs } from './cron-management';
+import { hasScheduledCron, pendingCronJob } from './cron-state';
 import { CronBindings } from './cron-bindings';
-import { CronRecovery, assertCronRecoveryAccount, assertRecoveryJobs, assertRecoveryQueues, resumeCronHost } from './cron-recovery';
+import { CronRecovery, assertCronRecoveryAccount, assertOwnedRecoveryJobs, assertRecoveryJobs, assertRecoveryQueues,
+  inspectOwnedCronJobs, resumeCronHost, type CronRecoveryPlan } from './cron-recovery';
 import { CronAutoRecovery } from './cron-auto-recovery';
 import { CronHistory } from './cron-history';
 import { PendingMessages, promptNeedsQueue } from './pending-messages';
@@ -590,24 +591,26 @@ const runtimes: SessionRuntimes = new SessionRuntimes(event => {
   if (queueWorker) pendingMessages.runtimeEvent(queueWorker, event);
 }, undefined, {
   backgroundAvailable: () => runtimeManifest.patches?.includes('desktop-subagent-redaction') === true,
+  backgroundCommandsAvailable: () => runtimeManifest.patches?.includes('desktop-background-command-state') === true,
   retain: worker => worker.id === miniView.runtimeId || openingSessions.has(worker.state?.sessionId ?? '')
     || miniNavigation.pending(worker.state?.sessionId) || externalPreparing.has(worker) || externalTasks.retains(worker),
   event: (worker, event) => {
     try {
-      cronHistory.event(worker, event);
+      cronHistory.event(worker, event, sessionOwnedCron);
       if (['agent_end', 'desktop_exit'].includes(event.type)) emit({ type: 'desktop_cron_changed' });
     } catch (error) {
       cronHistoryFailed = true;
       void crashLog.record('cron-history', error);
     }
-    if (event.type === 'desktop_exit' && !worker.stopping) {
+    if (!sessionOwnedCron && event.type === 'desktop_exit' && !worker.stopping) {
       if (runtimes.isBusy(worker) || hasBackgroundWork(worker) || worker.queued || worker.launch?.goal?.status === 'active')
         void cronAutomatic.block(worker.cwd).then(() => emit({ type: 'desktop_cron_changed' }))
           .catch(error => crashLog.record('cron-auto-recovery', error));
       else setTimeout(() => void tryAutomaticCron(worker.cwd), 1000).unref();
     }
     if (event.type === 'tool_execution_end' && event.toolName === 'cron_create') {
-      void cronBindings.created(worker.cwd, worker.state?.sessionId, event).then(changed => {
+      if (sessionOwnedCron) emit({ type: 'desktop_cron_changed' });
+      else void cronBindings.created(worker.cwd, worker.state?.sessionId, event).then(changed => {
         if (changed) emit({ type: 'desktop_cron_changed' });
       }).catch(error => { void crashLog.record('cron-association', error); });
     }
@@ -951,34 +954,54 @@ function externallyOwned(worker: SessionRuntime) {
   return externalPreparing.has(worker) || externalTasks.retains(worker);
 }
 const runtimeManifest = JSON.parse(readFileSync(join(runtimeRoot, 'manifest.json'), 'utf8'));
+const sessionOwnedCron = runtimeManifest.patches?.includes('desktop-cron-session-ownership-v1') === true;
 const backgroundAgents = new BackgroundAgents(runtimes.workers,
   () => transition || sessionNavigation.busy || settingsMutation || providerSettingsPending || undoBusy || quitting || quitPending,
   runtimeManifest.patches?.includes('desktop-subagent-redaction') === true,
   runtimeManifest.patches?.includes('desktop-background-reply') === true);
 const launchControls = new LaunchControls(runtimes);
 const cronBindings = new CronBindings(join(app.getPath('userData'), 'cron-bindings'));
-const cronManagement = new CronManagement(runtimes, cwd => admin.request('cron_saved', { cwd }),
-  () => emit({ type: 'desktop_cron_changed' }), cronBindings, workspace => cronAutomatic.block(workspace));
-const inspectCronRecovery = async (key: string, sessionId: string) => {
+const savedCronJobs = (cwd: string): Promise<SavedCronJobs> => admin.request('cron_saved',
+  sessionOwnedCron ? { cwd, sessionOwned: true } : { cwd });
+async function sameCronSessionFile(actual: string, expected: string) {
+  try {
+    const root = join(dataRoot, 'sessions');
+    const [left, right] = await Promise.all([managedSessionFile(root, actual), managedSessionFile(root, expected)]);
+    return pathKey(left) === pathKey(right);
+  } catch { return false; }
+}
+const cronManagement: CronManagement = new CronManagement(runtimes, savedCronJobs, () => emit({ type: 'desktop_cron_changed' }),
+  cronBindings, workspace => cronAutomatic.block(workspace), sessionOwnedCron ? { sameSessionFile: sameCronSessionFile } : undefined);
+const inspectCronRecovery = async (key: string, sessionId: string): Promise<CronRecoveryPlan> => {
   assertRecoveryQueues(runtimes.workers.values(), sessionId);
   const manifest = JSON.parse(await readFile(join(runtimeRoot, 'manifest.json'), 'utf8'));
   if (!manifest.patches?.includes('desktop-cron-recovery')) throw new Error('This runtime does not support gated Cron recovery');
   const task = (await cronManagement.list(preferences.workspaces)).tasks.find(task => task.key === key);
   if (!task?.durable || task.runtimeId) throw new Error('Select an offline durable task');
+  if (sessionOwnedCron && (!task.recoverable || task.association?.source !== 'native' || task.association.sessionId !== sessionId))
+    throw new Error('Select a task owned by this conversation with a future schedule');
   const workspace = await workspaceDirectory(task.workspace);
   for (const worker of runtimes.workers.values()) {
-    if (worker.status !== 'disconnected' && await samePath(worker.cwd, workspace))
-      throw new Error('This project already has a host; refresh its state');
+    if (worker.status === 'disconnected') continue;
+    if (sessionOwnedCron ? worker.state?.sessionId === sessionId : await samePath(worker.cwd, workspace))
+      throw new Error(sessionOwnedCron ? 'This conversation already has a host; refresh its state'
+        : 'This project already has a host; refresh its state');
   }
-  const target = (await listSessions()).find(session => session.id === sessionId);
-  if (!target?.path || preferences.archivedSessionIds?.includes(sessionId) || !(await samePath(target.cwd, workspace)))
+  const targets = (await listSessions()).filter(session => session.id === sessionId);
+  const [target] = targets;
+  if (!target?.path || sessionOwnedCron && targets.length !== 1 || preferences.archivedSessionIds?.includes(sessionId)
+    || !(await samePath(target.cwd, workspace)))
     throw new Error('Select an available conversation in this project');
   const sessionPath = await managedSessionFile(join(dataRoot, 'sessions'), target.path);
   const sessionInfo = await stat(sessionPath);
-  const saved = await admin.request('cron_saved', { cwd: workspace });
+  const saved = await savedCronJobs(workspace);
   if (!saved.trusted) throw new Error('Project trust is required for recovery');
-  const jobs = cronJobs(saved.jobs).filter(job => job.durable).sort((a, b) => a.id.localeCompare(b.id));
-  if (!jobs.some(job => job.id === task.id && job.createdAt === task.createdAt)) throw new Error('Cron task changed; refresh');
+  if (saved.incomplete) throw new Error('Cron storage is unavailable');
+  const rows = cronJobs(saved.jobs, sessionOwnedCron, sessionOwnedCron ? 500 : 50);
+  const owned = sessionOwnedCron ? await inspectOwnedCronJobs(rows, task, sessionId, sessionPath, sameCronSessionFile) : undefined;
+  const jobs = owned?.jobs ?? rows.filter(job => job.durable).sort((a, b) => a.id.localeCompare(b.id));
+  if (!sessionOwnedCron && !jobs.some(job => job.id === task.id && job.createdAt === task.createdAt))
+    throw new Error('Cron task changed; refresh');
   const options = await admin.request('session_options', { cwd: workspace });
   const model = options.models?.find((model: Model) => model.provider === options.model?.provider && model.id === options.model?.id);
   if (!model) throw new Error('No configured model is available for recovery');
@@ -991,13 +1014,16 @@ const inspectCronRecovery = async (key: string, sessionId: string) => {
   return { workspace, jobs, sessionId, sessionName: target.name || target.firstMessage.slice(0, 80) || sessionId.slice(0, 8),
     sessionPath, sessionStamp: JSON.stringify([sessionInfo.size, sessionInfo.mtimeMs, sessionInfo.ino]),
     configurationRef: createHash('sha256').update(JSON.stringify(appliedAuthData)).digest('hex'), account, model,
-    unconfirmed: cronHistoryFailed || cronHistory.uncertain(workspace) };
+    unconfirmed: cronHistoryFailed || cronHistory.uncertain(workspace, sessionOwnedCron ? sessionId : undefined),
+    ...(owned ? { owner: owned.owner } : {}) };
 };
-const launchCronRecovery = async (plan: import('./cron-recovery').CronRecoveryPlan) => {
+const launchCronRecovery = async (plan: CronRecoveryPlan) => {
   assertRecoveryQueues(runtimes.workers.values(), plan.sessionId);
   const manifest = JSON.parse(await readFile(join(runtimeRoot, 'manifest.json'), 'utf8'));
   if (plan.automaticBefore !== undefined && !manifest.patches?.includes('desktop-cron-recovery-guard'))
     throw new Error('This runtime does not support safe automatic Cron recovery');
+  if (sessionOwnedCron !== Boolean(plan.owner) || plan.owner && Date.now() >= plan.owner.before)
+    throw new Error('The reviewed Cron schedule is no longer available');
   // Recovery is explicitly confirmed and starts gated, without changing the viewed chat.
   const worker = await runtimes.prepare(nodePath, join(runtimeRoot, 'step/dist/bundle/step.js'), plan.workspace,
     { ...authEnvironment(), DESKTOP_CRON_RECOVERY: '1', STEP_PERMISSION_PRESET: 'ask' }, plan.sessionPath);
@@ -1008,19 +1034,22 @@ const launchCronRecovery = async (plan: import('./cron-recovery').CronRecoveryPl
     await runtimes.read(worker);
     if (worker.permissionPreset !== 'ask' || worker.state?.model?.provider !== plan.model.provider || worker.state?.model?.id !== plan.model.id
       || runtimes.isBusy(worker)) throw new Error('Could not verify the recovery model and approval policy');
-    const loaded = await worker.rpc.request('desktop_cron', { action: 'list' });
+    const loaded = await worker.rpc.request('desktop_cron', { action: 'list', ...(plan.owner ? { sessionId: plan.sessionId } : {}) });
     if (loaded.trusted !== true) throw new Error('Project trust changed while opening the host');
-    assertRecoveryJobs(plan.jobs, cronJobs(loaded.jobs));
+    const jobs = cronJobs(loaded.jobs, sessionOwnedCron);
+    if (plan.owner) assertOwnedRecoveryJobs(plan.sessionId, plan.owner.revisions, jobs);
+    else assertRecoveryJobs(plan.jobs, jobs);
     if (createHash('sha256').update(JSON.stringify(appliedAuthData)).digest('hex') !== plan.configurationRef)
       throw new Error('Recovery account changed while opening the host');
-    await cronBindings.set(plan.workspace, plan.jobs, plan.sessionId, 'recovered');
+    if (!plan.owner) await cronBindings.set(plan.workspace, plan.jobs, plan.sessionId, 'recovered');
     assertRecoveryQueues(runtimes.workers.values(), plan.sessionId);
     await runtimes.modelReady(worker);
     await pluginHosts.attach(worker);
     await runtimes.waitForTools(worker);
     // The resume helper removes explicit rejections; uncertain delivery must retain the host.
     activated = true;
-    await resumeCronHost(worker.rpc, () => runtimes.remove(worker), plan.automaticBefore);
+    await resumeCronHost(worker.rpc, () => runtimes.remove(worker), plan.owner?.before ?? plan.automaticBefore,
+      plan.owner ? { sessionId: plan.sessionId, revisions: plan.owner.revisions } : undefined);
     const retired = [...runtimes.workers.values()].filter(previous => previous !== worker
       && previous.status === 'disconnected' && previous.state?.sessionId === plan.sessionId);
     const viewedRuntime = retired.find(previous => previous.id === runtimes.activeId);
@@ -1045,14 +1074,14 @@ const launchCronRecovery = async (plan: import('./cron-recovery').CronRecoveryPl
 const cronAutomatic = new CronAutoRecovery(join(app.getPath('userData'), 'cron-recovery-authorizations'),
   inspectCronRecovery, launchCronRecovery, workspace => !cronHistoryFailed && !cronHistory.uncertain(workspace), Date.now,
   (workspace, sessionId) => cronHistory.record(workspace, sessionId, 'recovery_blocked'),
-  error => { void crashLog.record('cron-auto-recovery', error); });
-const cronRecovery = new CronRecovery(inspectCronRecovery, launchCronRecovery, Date.now, async (key, plan) => {
+  error => { void crashLog.record('cron-auto-recovery', error); }, undefined, !sessionOwnedCron);
+const cronRecovery = new CronRecovery(inspectCronRecovery, launchCronRecovery, Date.now, sessionOwnedCron ? undefined : async (key, plan) => {
   if (cronHistoryFailed) throw new Error('Cron history is unavailable; automatic recovery remains off');
   cronHistory.acknowledge(plan.workspace);
   await cronAutomatic.enable(key, plan);
 });
 async function tryAutomaticCron(workspace?: string) {
-  if (transition || settingsMutation || providerSettingsPending || undoBusy || deletingArchived || quitting || quitPending) return;
+  if (sessionOwnedCron || transition || settingsMutation || providerSettingsPending || undoBusy || deletingArchived || quitting || quitPending) return;
   transition = true;
   try { await cronAutomatic.run(workspace); }
   catch (error) { void crashLog.record('cron-auto-recovery', error); }
@@ -1720,15 +1749,18 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
       }
       for (const task of overview.tasks) {
         try {
-          task.automatic = await cronAutomatic.status(task.workspace);
-          task.history = overview.history.find(project => project.workspace === task.workspace)?.entries.filter(row => !row.jobId
-            || row.jobId === task.id && (row.createdAt === undefined || row.createdAt === task.createdAt));
+          if (!sessionOwnedCron) task.automatic = await cronAutomatic.status(task.workspace);
+          const owner = task.association?.source === 'native' ? task.association.sessionId : undefined;
+          task.history = overview.history.find(project => project.workspace === task.workspace)?.entries.filter(row =>
+            (!owner || row.sessionId === owner) && (!row.jobId || row.jobId === task.id
+              && (row.createdAt === undefined || row.createdAt === task.createdAt)));
         } catch { overview.issues.push({ workspace: task.workspace, reason: 'unavailable' }); }
       }
       if (transition || settingsMutation || providerSettingsPending) throw new Error('Wait for account and workspace changes to finish');
       return overview;
     }
     case 'cronDisableAutomatic': {
+      if (sessionOwnedCron) throw new Error('Project-wide Cron authorizations are inactive in this runtime');
       if (transition || settingsMutation || quitting || quitPending) throw new Error('Wait for changes to finish');
       const task = (await cronManagement.list(preferences.workspaces)).tasks.find(task => task.key === args[0]);
       if (!task) throw new Error('Cron task changed; refresh');
@@ -1750,7 +1782,7 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
         if (!manifest.patches?.includes('desktop-cron-management-beta')) throw new Error('This runtime does not support task editing');
         return cronManagement.update(args[0]);
       }
-      return method === 'cronCreate' ? cronManagement.create(args[0]) : cronManagement.delete(args[0], args[1]);
+      return method === 'cronCreate' ? cronManagement.create(args[0]) : cronManagement.delete(args[0], args[1], args[2]);
     }
     case 'cronRecoveryPreview':
     case 'cronRecover': {
@@ -2290,8 +2322,9 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
         for (const worker of sources) {
           if (worker.cron?.status === 'unavailable') throw new Error('MOVE_CRON_UNAVAILABLE');
           if (hasScheduledCron(worker.cron))
-            throw new Error(`MOVE_CRON_HOST: ${worker.cron?.jobs.map(job => job.id).join(', ') || 'unavailable'}`);
+            throw new Error(`MOVE_CRON_HOST: ${worker.cron?.jobs.filter(job => pendingCronJob(job)).map(job => job.id).join(', ') || 'unavailable'}`);
           await runtimes.assertBackgroundIdle(worker, { allowDisconnected: true });
+          await runtimes.assertBackgroundCommandsMayStop(worker);
         }
         const target = (await listSessions()).find(session => session.id === id);
         if (!target?.path) throw new Error('Save this conversation before moving it');
@@ -2300,10 +2333,17 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
         const associated: string[] = [];
         try {
           for (const cwd of [target.cwd, canonical]) {
-            const saved = await admin.request('cron_saved', { cwd });
-            for (const job of cronJobs(saved.jobs)) {
-              const binding = await cronBindings.get(cwd, job);
-              if (binding?.sessionId === id) associated.push(job.id);
+            const saved = await savedCronJobs(cwd);
+            if (saved.incomplete) throw new Error('Cron storage is unavailable');
+            if (sessionOwnedCron && !saved.trusted) {
+              // A known store in an untrusted project is not proof of no ownership.
+              await stat(join(cwd, '.stepcode', 'cron', 'tasks.json')).then(
+                () => { throw new Error('Cron storage is untrusted'); },
+                error => { if (error.code !== 'ENOENT') throw error; });
+            }
+            for (const job of cronJobs(saved.jobs, sessionOwnedCron, sessionOwnedCron ? 500 : 50)) {
+              if (sessionOwnedCron ? job.sessionId === id && !['completed', 'missed', 'expired'].includes(cronScheduling(job) ?? '')
+                : (await cronBindings.get(cwd, job))?.sessionId === id) associated.push(job.id);
             }
           }
         } catch {
@@ -2311,7 +2351,7 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
         }
         if (associated.length) throw new Error(`MOVE_CRON_ASSOCIATED: ${associated.join(', ')}`);
         const runtimeManifest = JSON.parse(await readFile(join(runtimeRoot, 'manifest.json'), 'utf8'));
-        if (!runtimeManifest.patches?.includes('desktop-session-cron-scope'))
+        if (!sessionOwnedCron && !runtimeManifest.patches?.includes('desktop-session-cron-scope'))
           throw new Error('MOVE_CRON_UNAVAILABLE: runtime');
         const path = await managedSessionFile(join(dataRoot, 'sessions'), target.path);
         const source = sources[0];
@@ -2334,6 +2374,7 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
         }
         await runtimes.read(prepared);
         await runtimes.modelReady(prepared);
+        for (const worker of sources) await runtimes.assertBackgroundCommandsMayStop(worker);
         const previous = preferences;
         preferences = moveSessionToWorkspace(preferences, target, destination);
         if (wasActive) preferences.workspace = canonical;
@@ -2514,7 +2555,7 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
         }
         for (const target of targets) {
           const worker = locked.find(worker => worker.state?.sessionId === target.id);
-          if (worker) await runtimes.assertIdle(worker, { stopHost: true });
+          if (worker) await runtimes.assertIdle(worker, { stopHost: true, allowStoppingBackgroundCommands: true });
           await managedSessionFile(join(dataRoot, 'sessions'), target.path);
         }
         archivedDeletionTargets(args[0], await listSessions(), preferences.archivedSessionIds ?? []);
@@ -2555,7 +2596,7 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
       const worker = [...runtimes.workers.values()].find(worker => worker.state?.sessionId === target.id);
       if (worker && externallyOwned(worker)) throw new Error('Stop the external task before deleting its session');
       if (worker?.mutating || worker?.operations || worker?.stopping) throw new Error('Session operation in progress');
-      if (worker) await runtimes.assertIdle(worker, { stopHost: true });
+      if (worker) await runtimes.assertIdle(worker, { stopHost: true, allowStoppingBackgroundCommands: true });
       const response = await dialog.showMessageBox(window, { type: 'question', message: preferences.language === 'zh' ? '将此会话移到回收站？' : 'Move this session to the Recycle Bin?', buttons: ['Cancel', 'Move to Recycle Bin'], defaultId: 0, cancelId: 0 });
       if (response.response !== 1) return false;
       if (transition || settingsMutation || deletingArchived || worker?.mutating || worker?.operations || worker?.stopping
@@ -2565,7 +2606,10 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
         throw new Error(preferences.language === 'zh' ? '会话已在窗口中打开，请先切换到其他会话' : 'The conversation was opened in a window; select a different one first');
       transition = true;
       try {
-        if (worker) { await runtimes.assertIdle(worker, { stopHost: true }); await runtimes.remove(worker); }
+        if (worker) {
+          await runtimes.assertIdle(worker, { stopHost: true, allowStoppingBackgroundCommands: true });
+          await runtimes.remove(worker);
+        }
         if (target.path) await shell.trashItem(target.path);
         await workflowBindings.remove(target.id);
         await usageEstimates.remove(target.id);
@@ -2997,6 +3041,8 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
     }
     case 'saveProvider':
     case 'deleteProvider': {
+      // Do not queue a refresh while a turn could launch a command that needs a new prompt to stop it.
+      for (const worker of runtimes.workers.values()) await runtimes.assertBackgroundCommandsMayStop(worker);
       const previous = authData;
       const next = method === 'saveProvider' ? saveProviderAuth(previous, args[0], args[1]) : deleteProviderAuth(previous, args[0]);
       // Keep live credentials and models unchanged until every task and queue drains.

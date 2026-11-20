@@ -19,15 +19,16 @@ try {
   const saved = () => page.locator('.compaction-save-status').filter({ hasText: /已保存|Saved\./u }).waitFor();
   await page.goto(base);
   await ratio().waitFor();
-  assert.equal(await ratio().inputValue(), '90');
+  assert.equal(await ratio().inputValue(), '85');
+  assert.match(await page.locator('#compaction-ratio-description').innerText(), /85%/u);
   assert.equal(await page.locator('.compaction-advanced').getAttribute('open'), null);
   await page.getByRole('slider').focus();
   await page.keyboard.press('ArrowRight');
   await saved();
-  assert.equal(await ratio().inputValue(), '91');
+  assert.equal(await ratio().inputValue(), '86');
   assert.equal(await page.getByRole('slider').evaluate(el => el === document.activeElement), true);
   await page.keyboard.press('ArrowLeft'); await saved();
-  assert.equal(await ratio().inputValue(), '90');
+  assert.equal(await ratio().inputValue(), '85');
   await ratio().fill('99'); await ratio().press('Enter'); await saved();
   assert.equal(await ratio().inputValue(), '95');
   await page.locator('.compaction-advanced summary').click();
@@ -45,19 +46,27 @@ try {
   assert.equal(await page.locator('[data-model="step/step-4"] .compaction-model-inherited').innerText(), '85%');
   await page.getByRole('combobox', { name: '会话排序', exact: true }).selectOption('updated');
   await page.getByRole('button', { name: '恢复上下文整理默认值', exact: true }).click(); await saved();
-  assert.equal(await ratio().inputValue(), '90');
+  assert.equal(await ratio().inputValue(), '85');
   assert.equal(await page.getByRole('combobox', { name: '会话排序', exact: true }).inputValue(), 'updated');
   assert.equal(await page.getByRole('checkbox', { name: '同时限制 Token 数量', exact: true }).isChecked(), false);
   await page.getByRole('button', { name: '外观', exact: true }).click();
   await page.getByRole('button', { name: '通用', exact: true }).click();
   await ratio().waitFor();
+  assert.equal(await ratio().inputValue(), '85');
+
+  await page.goto(`${base}?oldRuntime=1`);
+  await ratio().waitFor();
+  assert.equal(await ratio().inputValue(), '90');
+  assert.match(await page.locator('#compaction-ratio-description').innerText(), /90%/u);
+  await ratio().fill('80'); await ratio().press('Enter'); await saved();
+  await page.getByRole('button', { name: '恢复上下文整理默认值', exact: true }).click(); await saved();
   assert.equal(await ratio().inputValue(), '90');
 
   await page.goto(`${base}?saveError=1`);
   await ratio().fill('80'); await ratio().press('Enter');
   await page.getByRole('button', { name: '重试保存', exact: true }).waitFor();
-  await ratio().fill('90'); await ratio().press('Enter');
-  assert.equal(await page.getByRole('slider').inputValue(), '90');
+  await ratio().fill('85'); await ratio().press('Enter');
+  assert.equal(await page.getByRole('slider').inputValue(), '85');
   assert.equal(await page.locator('.compaction-save-status').innerText(), '');
 
   for (const invalid of [false, true]) {
@@ -70,7 +79,7 @@ try {
     await migrate.waitFor({ state: 'hidden', timeout: 5000 });
     await saved();
     assert.equal(await ratio().isDisabled(), false, 'Retry must actually migrate the policy');
-    assert.equal(await ratio().inputValue(), '90');
+    assert.equal(await ratio().inputValue(), '85');
     assert.equal(await page.getByText('原配置含无效阈值，以下显示回退值；保存时会修正这些阈值。', { exact: true }).count(), 0);
     await ratio().fill('80'); await ratio().press('Enter'); await saved();
     assert.equal(await ratio().inputValue(), '80');

@@ -23,3 +23,14 @@ test('Cron snapshots reject unsupported, oversized and malformed state', () => {
     assert.equal(cronState(invalid), undefined);
   }
 });
+
+test('Native missed and expired rows are preserved as metadata without retaining the host', () => {
+  const ended = { ...job, id: 'native-job-2026-longer-than-24', status: 'completed', lastStatus: 'missed' };
+  const expired = { ...job, id: 'expired', expiresAt: 1, status: 'paused', enabled: false };
+  const missingSession = { ...job, id: 'orphan', status: 'paused', statusReason: 'session_missing' };
+  const state = cronState(snapshot([ended, expired, missingSession]));
+  assert.deepEqual(state?.jobs, [ended, expired, missingSession]);
+  assert.equal(hasScheduledCron(state), false);
+  assert.equal(hasScheduledCron(cronState(snapshot([{ ...job, status: 'paused', autoExpireAt: undefined }]))), true);
+  assert.equal(cronState(snapshot([{ ...job, status: 'finished' }])), undefined);
+});

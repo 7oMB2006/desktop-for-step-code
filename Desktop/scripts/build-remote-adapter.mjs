@@ -4,10 +4,11 @@ import { readFile, readdir, mkdir, cp, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { readRuntimeBaseline } from './runtime-baseline.mjs';
 
-export async function buildRemoteAdapter(upstream, runtime) {
+export async function buildRemoteAdapter(upstream, runtime, selectedManifest) {
   const directory = join(upstream, 'packages/lark-adapter');
-  const manifest = JSON.parse(await readFile(new URL('../../patches/v017/manifest.json', import.meta.url), 'utf8'));
+  const manifest = selectedManifest ?? (await readRuntimeBaseline()).manifest;
   const commit = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: upstream, encoding: 'utf8' }).trim();
   if (commit !== manifest.commit) throw new Error('Remote adapter must use the pinned upstream');
   const changed = execFileSync('git', ['diff', 'HEAD', '--', 'packages/lark-adapter'], { cwd: upstream, encoding: 'utf8' });

@@ -5,6 +5,8 @@ import type { CronAssociation, CronJobData } from '../src/contracts';
 import { normalizedWorkspaceKey } from '../src/workspace-key';
 import { cronJobs } from './cron-management';
 
+type TaskIdentity = Pick<CronJobData, 'id' | 'createdAt' | 'durable'>;
+
 // Desktop-only associations do not alter upstream's project-shared task format.
 export class CronBindings {
   constructor(private root: string) {}
@@ -15,11 +17,11 @@ export class CronBindings {
     await this.set(workspace, jobs, sessionId, 'created');
     return true;
   }
-  private file(workspace: string, job: CronJobData) {
+  private file(workspace: string, job: TaskIdentity) {
     const key = JSON.stringify([normalizedWorkspaceKey(workspace, process.platform), job.id, job.createdAt]);
     return join(this.root, createHash('sha256').update(key).digest('hex') + '.json');
   }
-  async get(workspace: string, job: CronJobData): Promise<CronAssociation | undefined> {
+  async get(workspace: string, job: TaskIdentity): Promise<CronAssociation | undefined> {
     if (!job.durable) return;
     try {
       const bytes = await readFile(this.file(workspace, job));
@@ -33,7 +35,7 @@ export class CronBindings {
       throw error;
     }
   }
-  async set(workspace: string, jobs: CronJobData[], sessionId: string, source: CronAssociation['source']) {
+  async set(workspace: string, jobs: CronJobData[], sessionId: string, source: Exclude<CronAssociation['source'], 'native'>) {
     if (!/^[\w-]{1,200}$/.test(sessionId)) throw new Error('Invalid Cron session identity');
     await mkdir(this.root, { recursive: true });
     for (const job of jobs.filter(job => job.durable)) {

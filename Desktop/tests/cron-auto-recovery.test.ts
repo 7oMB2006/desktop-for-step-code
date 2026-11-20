@@ -40,6 +40,23 @@ test('Automatic recovery defaults off, persists explicit bounded consent and con
   await f.service.run();
   assert.equal(f.launches(), 1);
 });
+test('The session-owned runtime never consumes, mutates or grants legacy project-wide automatic authorization', async t => {
+  const f = await fixture(t);
+  const reviewed = f.current();
+  await f.service.enable('key', reviewed);
+  const file = join(f.root, (await readdir(f.root))[0]);
+  const before = await readFile(file, 'utf8');
+  const unavailable = () => assert.fail('Session ownership cannot use a legacy project authorization');
+  const sessionOwned = new CronAutoRecovery(f.root, async () => unavailable(), async () => unavailable(),
+    unavailable, () => 1000, unavailable, unavailable, undefined, false);
+  assert.equal((await sessionOwned.status(reviewed.workspace))?.state, 'blocked');
+  await sessionOwned.run();
+  await sessionOwned.run(reviewed.workspace);
+  await sessionOwned.block(reviewed.workspace);
+  await sessionOwned.disable(reviewed.workspace);
+  await assert.rejects(sessionOwned.enable('key', reviewed), /does not support/);
+  assert.equal(await readFile(file, 'utf8'), before);
+});
 test('Temporary file locks retry atomic authorization replacement without starting a host', async t => {
   const f = await fixture(t);
   let failures = 0, attempts = 0;

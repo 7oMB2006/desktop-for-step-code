@@ -46,7 +46,8 @@ test('v0.1.7 retains the complete Desktop patch inventory without duplicate upst
   const launch = await readFile(resolve('electron/session-collaboration.ts'), 'utf8');
   assert.match(launch, /'--desktop-plan-review', '--plan-review-surface'/);
   const stage = await readFile(resolve('scripts/stage-runtime.mjs'), 'utf8');
-  assert.match(stage, /patches\/v017\/manifest\.json/);
+  const selector = await readFile(resolve('scripts/runtime-baseline.mjs'), 'utf8');
+  assert.match(selector, /patches\/v017\/manifest\.json/);
   assert.match(stage, /'desktop-mcp-credential-isolation'/);
   assert.match(stage, /'desktop-plugin-host-launch'/);
   assert.match(stage, /'desktop-ultra-effort'/);
@@ -167,9 +168,21 @@ test('every documented pin matches the staging guard', async () => {
   validateDocumentation();
 });
 
-test('runtime packaging and standalone worker helpers use the current integration manifest', async () => {
+test('staging and both package verifiers share the runtime baseline selector', async () => {
+  for (const helper of ['stage-runtime.mjs', 'build-remote-adapter.mjs', 'package-verification.mjs', 'verify-macos-package.mjs']) {
+    const text = await readFile(resolve('scripts', helper), 'utf8');
+    assert.match(text, /from '\.\/runtime-baseline\.mjs'/, helper);
+    assert.doesNotMatch(text, /patches\/v\d{3}\/manifest\.json/, helper);
+  }
+  const { readRuntimeBaseline } = await import('../scripts/runtime-baseline.mjs');
+  const stable = await readRuntimeBaseline('v017');
+  assert.equal(stable.manifest.commit, '29eb460780489801ce8afc8bffc1a2efae7cbded');
+  await assert.rejects(() => readRuntimeBaseline('../v018'), /Unknown Desktop runtime baseline/);
+});
+
+test('standalone worker helpers for the default runtime use the stable integration manifest', async () => {
   for (const helper of [
-    'stage-runtime.mjs', 'build-remote-adapter.mjs', 'verify-usage-worker.mjs', 'verify-macos-package.mjs',
+    'verify-usage-worker.mjs',
     'build-plugin-center-verification.mjs', 'package-plugin-center-preview.mjs',
     'verify-plugin-center-package.mjs',
   ]) {

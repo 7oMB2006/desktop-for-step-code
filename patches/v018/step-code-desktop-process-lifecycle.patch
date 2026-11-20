@@ -1,0 +1,679 @@
+diff --git a/packages/coding-agent/src/core/process-registry.ts b/packages/coding-agent/src/core/process-registry.ts
+index 13896b6330aaf5c075ee879cb71ac967ded1da2d..93ece4ac531a60ba0f6b9f9595f22e8af261d5d4 100644
+--- a/packages/coding-agent/src/core/process-registry.ts
++++ b/packages/coding-agent/src/core/process-registry.ts
+@@ -62,6 +62,7 @@ export function isUnfinishedWork(kind: ProcessKind): boolean {
+ }
+ 
+ const registrations = new Map<number, ProcessRegistration>();
++const windowsStops = new WeakMap<ProcessRegistration, () => Promise<void>>();
+ const listeners = new Set<(entries: readonly ProcessRegistration[]) => void>();
+ 
+ function notify(): void {
+@@ -96,9 +97,14 @@ export function listUnfinishedWork(ownerId: string): ProcessRegistration[] {
+ }
+ 
+ /** Register one process tree. Re-registering the same pid replaces the previous record. */
+-export function registerProcess(input: Omit<ProcessRegistration, "startedAt"> & { startedAt?: number }): void {
++export function registerProcess(
++	input: Omit<ProcessRegistration, "startedAt"> & { startedAt?: number },
++	stopWindows?: () => Promise<void>,
++): void {
+ 	if (!Number.isSafeInteger(input.pid) || input.pid <= 0) return;
+-	registrations.set(input.pid, { ...input, startedAt: input.startedAt ?? Date.now() });
++	const entry = { ...input, startedAt: input.startedAt ?? Date.now() };
++	if (stopWindows) windowsStops.set(entry, stopWindows);
++	registrations.set(input.pid, entry);
+ 	notify();
+ }
+ 
+@@ -173,24 +179,35 @@ export async function releaseOwnerGracefully(
+ 	graceMs: number = PROCESS_TERM_GRACE_MS,
+ 	only?: ReadonlySet<number>,
+ ): Promise<number> {
+-	const pending: Array<Promise<void>> = [];
++	const pending: Array<{ entry: ProcessRegistration; settled: Promise<void>; waitForExit: boolean }> = [];
+ 	for (const entry of registrations.values()) {
+ 		if (entry.ownerId !== ownerId || entry.releasing) continue;
+ 		if (only !== undefined && !only.has(entry.pid)) continue;
+ 		entry.releasing = true;
+ 		// `keepAlive`: the caller awaits `settled`, so the grace timer must keep the loop alive long
+ 		// enough to fire the escalation. An unref'd timer would let Node exit mid-wait.
+-		pending.push(terminateProcessTreeGracefully(entry.pid, graceMs, { keepAlive: true }).settled);
++		const stopWindows = windowsStops.get(entry);
++		pending.push({
++			entry,
++			settled: stopWindows
++				? Promise.resolve().then(stopWindows)
++				: terminateProcessTreeGracefully(entry.pid, graceMs, { keepAlive: true }).settled,
++			waitForExit: Boolean(stopWindows),
++		});
+ 	}
+ 	if (pending.length === 0) return 0;
+ 	notify();
+-	await Promise.all(pending);
+-	for (const [pid, entry] of [...registrations]) {
+-		if (entry.ownerId !== ownerId || !entry.releasing) continue;
+-		if (only !== undefined && !only.has(pid)) continue;
+-		registrations.delete(pid);
++	const results = await Promise.allSettled(pending.map(({ settled }) => settled));
++	for (const { entry, waitForExit } of pending) {
++		if (registrations.get(entry.pid) !== entry) continue;
++		// Windows taskkill returning is not proof of process exit. The child
++		// observer owns removal; if it is still registered, allow another stop.
++		if (waitForExit) entry.releasing = false;
++		else registrations.delete(entry.pid);
+ 	}
+ 	notify();
++	const failure = results.find((result) => result.status === "rejected");
++	if (failure?.status === "rejected") throw failure.reason;
+ 	return pending.length;
+ }
+ 
+diff --git a/packages/coding-agent/src/core/tools/bash.ts b/packages/coding-agent/src/core/tools/bash.ts
+index 138d324f00709fa1de5b2d9c3e6226e1ee3cbebe..7d4216d85563ed9ed543314dbd52b568439d1256 100644
+--- a/packages/coding-agent/src/core/tools/bash.ts
++++ b/packages/coding-agent/src/core/tools/bash.ts
+@@ -14,6 +14,7 @@ import {
+ 	INTERRUPTED_COMMAND_GRACE_MS,
+ 	type ShellConfig,
+ 	spawnShellChild,
++	stopWindowsShellChild,
+ 	terminateProcessTreeGracefully,
+ 	trackDetachedChildPid,
+ 	untrackDetachedChildPid,
+@@ -157,8 +158,13 @@ export function createLocalShellOperations(
+ 			// already elapsed, so anything longer reads as a hang. The call still waits for the tree
+ 			// to exit, which is where a cleanup handler's time actually goes.
+ 			let cancelEscalation: (() => void) | undefined;
++			let stoppingWindows: Promise<void> | undefined;
+ 			const stopGracefully = () => {
+ 				if (!child.pid) return;
++				if (process.platform === "win32") {
++					stoppingWindows ??= stopWindowsShellChild(child, shellConfig);
++					return;
++				}
+ 				cancelEscalation?.();
+ 				cancelEscalation = terminateProcessTreeGracefully(child.pid, INTERRUPTED_COMMAND_GRACE_MS);
+ 			};
+@@ -185,6 +191,7 @@ export function createLocalShellOperations(
+ 				// Handle shell spawn errors and wait for the process to terminate without hanging
+ 				// on inherited stdio handles held by detached descendants.
+ 				const exitCode = await waitForChildProcess(child);
++				await stoppingWindows;
+ 				return {
+ 					exitCode,
+ 					signal: child.signalCode,
+diff --git a/packages/coding-agent/src/modes/rpc/rpc-mode.ts b/packages/coding-agent/src/modes/rpc/rpc-mode.ts
+index eb95251f286655bfb59e8452c482a03a4b500945..be71719bed7f1f06455bd13d4294bb76186dbed6 100644
+--- a/packages/coding-agent/src/modes/rpc/rpc-mode.ts
++++ b/packages/coding-agent/src/modes/rpc/rpc-mode.ts
+@@ -25,6 +25,7 @@ import {
+ 	waitForRawStdoutBackpressure,
+ 	writeRawStdout,
+ } from "../../core/output-guard.ts";
++import { listProcesses } from "../../core/process-registry.ts";
+ import { pendingHandoffText } from "../../features/plan-handoff.ts";
+ import { pendingProposalOf } from "../../features/step-plan.ts";
+ import { type Theme, theme } from "../../theme/theme.ts";
+@@ -493,6 +494,10 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntimeHost, options:
+ 					autoCompactionEnabled: session.autoCompactionEnabled,
+ 					messageCount: session.messages.length,
+ 					pendingMessageCount: session.pendingMessageCount,
++					desktopBackgroundCommands: {
++						version: 1,
++						count: listProcesses(session.sessionId).filter((process) => process.kind === "bash").length,
++					},
+ 				};
+ 				return success(id, "get_state", state);
+ 			}
+diff --git a/packages/coding-agent/src/modes/rpc/rpc-types.ts b/packages/coding-agent/src/modes/rpc/rpc-types.ts
+index 1565bd4ab5bea1d427fb11a4a7218187d8a91db7..f041222b598be0d2e68bdc713352bc13f58a6e1c 100644
+--- a/packages/coding-agent/src/modes/rpc/rpc-types.ts
++++ b/packages/coding-agent/src/modes/rpc/rpc-types.ts
+@@ -106,6 +106,7 @@ export interface RpcSessionState {
+ 	autoCompactionEnabled: boolean;
+ 	messageCount: number;
+ 	pendingMessageCount: number;
++	desktopBackgroundCommands?: { version: 1; count: number };
+ }
+ 
+ // ============================================================================
+diff --git a/packages/coding-agent/src/step/tool-profile.ts b/packages/coding-agent/src/step/tool-profile.ts
+index 313f7a2a8b37b191a9528c44ab8e3d61844dfd3c..1fa72adb00f93165bcc60fd55dd5ed6f857daa98 100644
+--- a/packages/coding-agent/src/step/tool-profile.ts
++++ b/packages/coding-agent/src/step/tool-profile.ts
+@@ -63,7 +63,13 @@ import type { WriteToolOptions } from "../core/tools/write.ts";
+ import { detectSupportedImageMimeTypeFromFile } from "../utils/mime.ts";
+ import { armParentDeathGuard, type ParentDeathGuard } from "../utils/parent-death-guard.ts";
+ import { resolvePath } from "../utils/paths.ts";
+-import { getShellConfig, getShellEnv, killProcessTree, spawnShellChild } from "../utils/shell.ts";
++import {
++	getShellConfig,
++	getShellEnv,
++	killProcessTree,
++	spawnShellChild,
++	stopWindowsShellChild,
++} from "../utils/shell.ts";
+ import { resolveStepAgentDir } from "./environment.ts";
+ import { createSearchWebTool, type SearchWebToolOptions } from "./search-web-tool.ts";
+ import { readThenRunCommand } from "./then-run.ts";
+@@ -1589,14 +1595,17 @@ async function startBackgroundCommand(
+ 	const pid = child.pid;
+ 	let guard: ParentDeathGuard | undefined;
+ 	if (pid !== undefined) {
+-		registerProcess({
+-			pid,
+-			kind: "bash",
+-			ownerId: options.ownerId,
+-			label: commandLabel(command),
+-			cwd: commandCwd,
+-			logPath,
+-		});
++		registerProcess(
++			{
++				pid,
++				kind: "bash",
++				ownerId: options.ownerId,
++				label: commandLabel(command),
++				cwd: commandCwd,
++				logPath,
++			},
++			pipeLog ? () => stopWindowsShellChild(child, shellConfig, true) : undefined,
++		);
+ 		child.once("exit", () => {
+ 			void guard?.disarm();
+ 			forgetProcessIf(pid, (entry) => entry.kind === "bash" && entry.ownerId === options.ownerId);
+diff --git a/packages/coding-agent/src/utils/process-tree.ts b/packages/coding-agent/src/utils/process-tree.ts
+index eccd68cd1caea00f6dedb1a2d86f924e614f8955..6e7ad6019f0aa8431b4d51cd2d82dca151ebcf30 100644
+--- a/packages/coding-agent/src/utils/process-tree.ts
++++ b/packages/coding-agent/src/utils/process-tree.ts
+@@ -13,7 +13,7 @@
+  *   the host is exiting, or a stream already broke.
+  */
+ 
+-import { type ChildProcess, spawn } from "node:child_process";
++import { type ChildProcess, spawn, spawnSync } from "node:child_process";
+ import { readdirSync, readFileSync } from "node:fs";
+ import { join } from "node:path";
+ 
+@@ -34,9 +34,9 @@ export const PROCESS_TREE_TERM_GRACE_MS = 3_000;
+  */
+ export const INTERRUPTED_COMMAND_GRACE_MS = 500;
+ 
+-type LinuxProcessIdentity = { pid: number; ppid: number; startTime: string };
++type ProcessIdentity = { pid: number; ppid: number; startTime: string };
+ 
+-function readLinuxProcessIdentity(pid: number): LinuxProcessIdentity | undefined {
++function readLinuxProcessIdentity(pid: number): ProcessIdentity | undefined {
+ 	try {
+ 		const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
+ 		const fields = stat.slice(stat.lastIndexOf(")") + 2).split(" ");
+@@ -48,8 +48,8 @@ function readLinuxProcessIdentity(pid: number): LinuxProcessIdentity | undefined
+ }
+ 
+ /** Snapshot descendants before killing their parent makes them untraceable. */
+-function getLinuxDescendants(pid: number): LinuxProcessIdentity[] {
+-	const children = new Map<number, LinuxProcessIdentity[]>();
++function getLinuxDescendants(pid: number): ProcessIdentity[] {
++	const children = new Map<number, ProcessIdentity[]>();
+ 	try {
+ 		// /proc/<pid>/task/<tid>/children is absent on some Linux kernels.
+ 		// The stat parent field is available without that optional interface.
+@@ -65,7 +65,7 @@ function getLinuxDescendants(pid: number): LinuxProcessIdentity[] {
+ 	} catch {
+ 		return [];
+ 	}
+-	const descendants: LinuxProcessIdentity[] = [];
++	const descendants: ProcessIdentity[] = [];
+ 	const pending = [pid];
+ 	const visited = new Set(pending);
+ 	for (let index = 0; index < pending.length; index++) {
+@@ -80,15 +80,60 @@ function getLinuxDescendants(pid: number): LinuxProcessIdentity[] {
+ }
+ 
+ /**
+- * Snapshot of the Linux descendants observed for one tree, taken before the first signal.
++ * Snapshot of the descendants observed for one POSIX tree, taken before the first signal.
+  *
+  * Re-reading `/proc` at escalation time would find nothing: by then the parent is dead and its
+  * children have been reparented, so their `ppid` no longer points at the tree. The identity
+  * snapshot is what makes the second signal able to reach a descendant that ignored the first.
+  */
+-type TreeSnapshot = LinuxProcessIdentity[];
++type TreeSnapshot = ProcessIdentity[];
++
++function readDarwinProcessTable(pid?: number): ProcessIdentity[] {
++	const result = spawnSync(
++		"/bin/ps",
++		pid === undefined ? ["-axo", "pid=,ppid=,lstart="] : ["-p", String(pid), "-o", "pid=,ppid=,lstart="],
++		{
++			encoding: "utf8",
++			timeout: 2000,
++			maxBuffer: 4 * 1024 * 1024,
++			env: { ...process.env, LC_ALL: "C" },
++		},
++	);
++	if (result.error || result.status !== 0) return [];
++	return result.stdout.split(/\r?\n/).flatMap((line) => {
++		const match = /^\s*(\d+)\s+(\d+)\s+([A-Za-z]{3} [A-Za-z]{3}\s+\d+ \d{2}:\d{2}:\d{2} \d{4})\s*$/u.exec(line);
++		if (!match) return [];
++		const pid = Number(match[1]),
++			ppid = Number(match[2]);
++		return Number.isSafeInteger(pid) && pid > 0 && Number.isSafeInteger(ppid) && ppid >= 0
++			? [{ pid, ppid, startTime: match[3]! }]
++			: [];
++	});
++}
++
++function getDarwinDescendants(pid: number): ProcessIdentity[] {
++	const children = new Map<number, ProcessIdentity[]>();
++	for (const child of readDarwinProcessTable()) {
++		const siblings = children.get(child.ppid) ?? [];
++		siblings.push(child);
++		children.set(child.ppid, siblings);
++	}
++	const seen = new Set([pid]);
++	const pending = [pid];
++	const descendants: ProcessIdentity[] = [];
++	for (let index = 0; index < pending.length; index++) {
++		for (const child of children.get(pending[index]!) ?? []) {
++			if (seen.has(child.pid)) continue;
++			seen.add(child.pid);
++			descendants.push(child);
++			pending.push(child.pid);
++		}
++	}
++	return descendants;
++}
+ 
+ function snapshotTree(pid: number): TreeSnapshot {
++	if (process.platform === "darwin") return getDarwinDescendants(pid);
+ 	return process.platform === "linux" ? getLinuxDescendants(pid) : [];
+ }
+ 
+@@ -113,7 +158,11 @@ function signalTree(pid: number, signal: NodeJS.Signals, snapshot?: TreeSnapshot
+ 		}
+ 	}
+ 	for (const descendant of [...descendants].reverse()) {
+-		if (readLinuxProcessIdentity(descendant.pid)?.startTime !== descendant.startTime) continue;
++		const identity =
++			process.platform === "darwin"
++				? readDarwinProcessTable(descendant.pid)[0]
++				: readLinuxProcessIdentity(descendant.pid);
++		if (identity?.startTime !== descendant.startTime) continue;
+ 		try {
+ 			process.kill(descendant.pid, signal);
+ 		} catch {
+@@ -122,15 +171,20 @@ function signalTree(pid: number, signal: NodeJS.Signals, snapshot?: TreeSnapshot
+ 	}
+ }
+ 
+-function spawnWindowsTaskkill(pid: number, force: boolean): void {
++function spawnWindowsTaskkill(pid: number, force: boolean, extraPids: number[] = []): ChildProcess | undefined {
+ 	try {
+ 		const child: ChildProcess = spawn(
+ 			join(process.env.SystemRoot ?? "C:\\Windows", "System32", "taskkill.exe"),
+-			[...(force ? ["/F"] : []), "/T", "/PID", String(pid)],
++			[
++				...(force ? ["/F"] : []),
++				"/T",
++				...[...new Set([...extraPids, pid])].flatMap((target) => ["/PID", String(target)]),
++			],
+ 			{ stdio: "ignore", detached: true, windowsHide: true },
+ 		);
+ 		// A failed spawn emits "error" asynchronously; consume it to avoid crashing Node.
+ 		child.once("error", () => {});
++		return child;
+ 	} catch {
+ 		// Ignore errors if taskkill fails.
+ 	}
+@@ -193,11 +247,10 @@ export function terminateProcessTreeGracefully(
+  * Use only where waiting is impossible: host exit, or a stream that already failed. A shell
+  * `trap ... TERM` never runs on this path.
+  */
+-export function killProcessTree(pid: number): void {
++export function killProcessTree(pid: number, extraPids: number[] = []): ChildProcess | undefined {
+ 	if (process.platform === "win32") {
+ 		// Use the trusted System32 executable so cleanup does not depend on PATH.
+-		spawnWindowsTaskkill(pid, true);
+-		return;
++		return spawnWindowsTaskkill(pid, true, extraPids);
+ 	}
+ 	// `signalTree` already covers descendants that moved to their own group or session.
+ 	signalTree(pid, "SIGKILL");
+diff --git a/packages/coding-agent/src/utils/shell.ts b/packages/coding-agent/src/utils/shell.ts
+index 3087f5e76c2fe5864b5dcbbd1953b1ce7da2f3f3..cb7e1d3b31453de79c9b3a39154f6d9b8ece1094 100644
+--- a/packages/coding-agent/src/utils/shell.ts
++++ b/packages/coding-agent/src/utils/shell.ts
+@@ -1,9 +1,122 @@
+ import { existsSync, realpathSync, statSync } from "node:fs";
+ import { delimiter, join, win32 } from "node:path";
+-import { type ChildProcess, spawn, spawnSync } from "child_process";
++import { type ChildProcess, execFile, spawn, spawnSync } from "child_process";
+ import { getBinDir } from "../config.ts";
+ import { forgetProcess, HOST_OWNER, registerProcess, releaseAllProcessesSync } from "../core/process-registry.ts";
+ import { isStepStorageContext, resolveStepAgentDir } from "../step/environment.ts";
++import { killProcessTree } from "./process-tree.ts";
++
++function readProcessTable(executable: string, args: string[], timeout = 3000): Promise<string> {
++	return new Promise((resolve) => {
++		execFile(
++			executable,
++			args,
++			{ encoding: "utf8", timeout, maxBuffer: 4 * 1024 * 1024, windowsHide: true },
++			(error, stdout) => resolve(error ? "" : stdout),
++		);
++	});
++}
++
++/** MSYS fork/exec can leave Windows parent IDs pointing to an already exited process. */
++export function getMsysDescendantWindowsPids(table: string, rootWindowsPids: number[]): number[] {
++	const lines = table.trim().split(/\r?\n/);
++	const header = lines.shift()?.trim().split(/\s+/) ?? [];
++	const [pidIndex, parentIndex, windowsIndex] = ["PID", "PPID", "WINPID"].map((name) => header.indexOf(name));
++	if (pidIndex! < 0 || parentIndex! < 0 || windowsIndex! < 0) return [];
++	const rows = lines
++		.map((line) => {
++			const values = line
++				.trim()
++				.replace(/^\*\s*/, "")
++				.split(/\s+/);
++			return {
++				pid: Number(values[pidIndex!]),
++				ppid: Number(values[parentIndex!]),
++				winpid: Number(values[windowsIndex!]),
++			};
++		})
++		.filter((row) => [row.pid, row.ppid, row.winpid].every(Number.isSafeInteger) && row.pid > 0 && row.winpid > 0);
++	const owned = new Set(rows.filter((row) => rootWindowsPids.includes(row.winpid)).map((row) => row.pid));
++	for (let changed = true; changed; ) {
++		changed = false;
++		for (const row of rows) {
++			if (owned.has(row.ppid) && !owned.has(row.pid)) {
++				owned.add(row.pid);
++				changed = true;
++			}
++		}
++	}
++	return rows
++		.filter((row) => owned.has(row.pid))
++		.map((row) => row.winpid)
++		.reverse();
++}
++
++/** Capture descendants while the original Windows shell still owns its pid. */
++export async function stopWindowsShellChild(
++	child: ChildProcess,
++	shellConfig: ShellConfig,
++	verifyExit = false,
++): Promise<void> {
++	const pid = child.pid;
++	if (process.platform !== "win32" || !pid || child.exitCode !== null || child.signalCode !== null) return;
++	let extraPids: number[] = [];
++	if (win32.basename(shellConfig.shell).toLowerCase() === "bash.exe") {
++		let root = win32.dirname(win32.dirname(shellConfig.shell));
++		if (win32.basename(root).toLowerCase() === "usr") root = win32.dirname(root);
++		const ps = win32.join(root, "usr", "bin", "ps.exe");
++		if (isFile(win32.join(root, "cmd", "git.exe")) && isFile(ps)) {
++			const powershell = win32.join(
++				process.env.SystemRoot ?? "C:\\Windows",
++				"System32",
++				"WindowsPowerShell",
++				"v1.0",
++				"powershell.exe",
++			);
++			const directChildren = await readProcessTable(
++				powershell,
++				[
++					"-NoProfile",
++					"-NonInteractive",
++					"-Command",
++					`Get-CimInstance Win32_Process -Filter 'ParentProcessId = ${pid}' | Select-Object -ExpandProperty ProcessId`,
++				],
++				10000,
++			);
++			if (child.exitCode !== null || child.signalCode !== null) return;
++			const seeds = [
++				pid,
++				...directChildren
++					.trim()
++					.split(/\s+/)
++					.map(Number)
++					.filter((value) => Number.isSafeInteger(value) && value > 0),
++			];
++			extraPids = getMsysDescendantWindowsPids(await readProcessTable(ps, ["-W"]), seeds);
++		}
++	}
++	if (child.exitCode !== null || child.signalCode !== null) return;
++	const cleanup = killProcessTree(pid, extraPids);
++	if (cleanup) {
++		await new Promise<void>((resolve) => {
++			cleanup.once("error", () => resolve());
++			cleanup.once("exit", () => resolve());
++		});
++	}
++	if (verifyExit && child.exitCode === null && child.signalCode === null) {
++		await new Promise<void>((resolve, reject) => {
++			const onExit = () => {
++				clearTimeout(timeout);
++				resolve();
++			};
++			const timeout = setTimeout(() => {
++				child.off("exit", onExit);
++				reject(new Error("Windows shell exit was not confirmed"));
++			}, 2000);
++			child.once("exit", onExit);
++		});
++	}
++}
+ 
+ // Process-tree signalling and ownership used to live in this module. They moved to their own
+ // modules so the registry can signal trees without importing shell configuration; these
+diff --git a/packages/coding-agent/test/background-command-lifecycle.test.ts b/packages/coding-agent/test/background-command-lifecycle.test.ts
+index 20cebc5f450bbac8c28966beba3f9bfa51779477..659935d2303e63f96b752e99d8c1808b4dc2dde6 100644
+--- a/packages/coding-agent/test/background-command-lifecycle.test.ts
++++ b/packages/coding-agent/test/background-command-lifecycle.test.ts
+@@ -28,6 +28,7 @@ function alive(pid: number): boolean {
+ 	} catch {
+ 		return false;
+ 	}
++	if (process.platform === "win32") return true;
+ 	try {
+ 		const state = execFileSync("ps", ["-o", "state=", "-p", String(pid)], { encoding: "utf8" }).trim();
+ 		return !state.startsWith("Z");
+@@ -84,7 +85,7 @@ const logs = new Set<string>();
+ afterEach(async () => {
+ 	// Owner release is kind-agnostic on purpose, so this reaps every kind a test registered.
+ 	for (const owner of owners.splice(0)) await releaseOwnerGracefully(owner, 200).catch(() => undefined);
+-	for (const dir of workspaces.splice(0)) rmSync(dir, { recursive: true, force: true });
++	for (const dir of workspaces.splice(0)) rmSync(dir, { recursive: true, force: true, maxRetries: 5 });
+ 	// A log file is a deliberate product artifact (it is how a stopped dev server stays inspectable),
+ 	// but this suite's own files are not the user's. Remove only the ones it created.
+ 	for (const log of logs) rmSync(log, { force: true });
+@@ -132,7 +133,7 @@ describe("run_in_background lifecycle", () => {
+ 
+ 		await releaseOwnerGracefully(sessionA, 500);
+ 
+-		expect(alive(pidA)).toBe(false);
++		await expect.poll(() => alive(pidA)).toBe(false);
+ 		expect(alive(pidB)).toBe(true);
+ 		expect(listProcesses(sessionA)).toEqual([]);
+ 		expect(listProcesses(sessionB)).toHaveLength(1);
+@@ -210,6 +211,56 @@ describe("run_in_background lifecycle", () => {
+ 		expect(alive(pidB)).toBe(true);
+ 	}, 30_000);
+ 
++	test.skipIf(process.platform !== "win32")(
++		"Git Bash stop reaps the owned nested process, not a peer",
++		async () => {
++			const cwd = workspace();
++			const sessionA = "windows-nested-a";
++			const sessionB = "windows-nested-b";
++			owners.push(sessionA, sessionB);
++			const node = `"${process.execPath.replaceAll("\\", "/")}"`;
++			const child = `${node} -e 'console.log(process.pid);setInterval(()=>{},1000)'`;
++			const a = await startBackground(cwd, sessionA, `${child} & wait`);
++			const b = await startBackground(cwd, sessionB, `${child} & wait`);
++			const nestedPid = async (logPath: string): Promise<number> => {
++				let pid = 0;
++				await expect
++					.poll(
++						() => {
++							pid = Number(readFileSync(logPath, "utf8").trim());
++							return pid;
++						},
++						{ timeout: 10000 },
++					)
++					.toBeGreaterThan(0);
++				return pid;
++			};
++			const pidA = await nestedPid(a.details!.logPath!);
++			const pidB = await nestedPid(b.details!.logPath!);
++			try {
++				expect(alive(pidA)).toBe(true);
++				expect(alive(pidB)).toBe(true);
++				await tool(createStepToolProfile(cwd), "bash_kill").execute(
++					"stop-a",
++					{ all: true },
++					undefined,
++					undefined,
++					contextFor(sessionA, cwd),
++				);
++				await expect.poll(() => alive(pidA)).toBe(false);
++				expect(alive(pidB)).toBe(true);
++				expect(listProcesses(sessionA)).toHaveLength(0);
++			} finally {
++				for (const pid of [pidA, pidB]) {
++					try {
++						process.kill(pid, "SIGKILL");
++					} catch {}
++				}
++			}
++		},
++		30_000,
++	);
++
+ 	test("a host-owned command (no session) is still registered and reclaimable", async () => {
+ 		const cwd = workspace();
+ 		const result = await startBackground(cwd, HOST_OWNER, "sleep 300");
+@@ -242,6 +293,6 @@ describe("run_in_background lifecycle", () => {
+ 			await new Promise((resolve) => setTimeout(resolve, 50));
+ 		}
+ 		expect(text).toContain("step-background-probe");
+-		forgetProcess(pid);
++		await expect.poll(() => alive(pid)).toBe(false);
+ 	}, 20_000);
+ });
+diff --git a/packages/coding-agent/test/process-registry.test.ts b/packages/coding-agent/test/process-registry.test.ts
+index c8dca9e77727e16696645ec861121046c4ae43e4..6e2124e9b0e652dc933f0b6fd25eb8e4258e4144 100644
+--- a/packages/coding-agent/test/process-registry.test.ts
++++ b/packages/coding-agent/test/process-registry.test.ts
+@@ -82,6 +82,7 @@ function alive(pid: number): boolean {
+ 	} catch {
+ 		return false;
+ 	}
++	if (process.platform === "win32") return true;
+ 	try {
+ 		const state = execFileSync("ps", ["-o", "state=", "-p", String(pid)], { encoding: "utf8" }).trim();
+ 		return !state.startsWith("Z");
+@@ -138,17 +139,21 @@ describe("process registry", () => {
+ 		expect(alive(theirs)).toBe(true);
+ 	});
+ 
+-	test("graceful release lets a SIGTERM handler run before the escalation", async () => {
+-		const { pid, marker } = await stubborn();
+-		registerProcess({ pid, kind: "bash", ownerId: "session-a", label: "trap test" });
+-
+-		await releaseOwnerGracefully("session-a", 1_500);
+-
+-		// The child wrote its marker on SIGTERM, then the escalation stopped it.
+-		expect(existsSync(marker)).toBe(true);
+-		expect(readFileSync(marker, "utf8")).toBe("term");
+-		expect(alive(pid)).toBe(false);
+-	}, 20_000);
++	test.skipIf(process.platform === "win32")(
++		"graceful release lets a SIGTERM handler run before the escalation",
++		async () => {
++			const { pid, marker } = await stubborn();
++			registerProcess({ pid, kind: "bash", ownerId: "session-a", label: "trap test" });
++
++			await releaseOwnerGracefully("session-a", 1_500);
++
++			// The child wrote its marker on SIGTERM, then the escalation stopped it.
++			expect(existsSync(marker)).toBe(true);
++			expect(readFileSync(marker, "utf8")).toBe("term");
++			expect(alive(pid)).toBe(false);
++		},
++		20_000,
++	);
+ 
+ 	test("sync release stops trees immediately and forgets them", async () => {
+ 		const pid = await ordinary();
+diff --git a/packages/coding-agent/test/rpc-prompt-response-semantics.test.ts b/packages/coding-agent/test/rpc-prompt-response-semantics.test.ts
+index 69f60daafcc836869ef2742266deb58804687a5e..6bd809e3360a2adb352320919a74c43ec71dc5cd 100644
+--- a/packages/coding-agent/test/rpc-prompt-response-semantics.test.ts
++++ b/packages/coding-agent/test/rpc-prompt-response-semantics.test.ts
+@@ -12,6 +12,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
+ import { AgentSession } from "../src/core/agent-session.ts";
+ import type { AgentSessionRuntime } from "../src/core/agent-session-runtime.ts";
+ import { AuthStorage } from "../src/core/auth-storage.ts";
++import { forgetProcess, registerProcess } from "../src/core/process-registry.ts";
+ import { SessionManager } from "../src/core/session-manager.ts";
+ import { SettingsManager } from "../src/core/settings-manager.ts";
+ import { runRpcMode } from "../src/modes/rpc/rpc-mode.ts";
+@@ -212,6 +213,33 @@ describe("RPC prompt response semantics", () => {
+ 		rpcIo.lineHandler = undefined;
+ 	});
+ 
++	it("projects only the current session's background commands into get_state", async () => {
++		const { lineHandler, cleanup } = await startRpcMode({ withAuth: false, responseDelayMs: 0 });
++		const pids = [2147483600, 2147483601, 2147483602];
++		const state = async (id: string) => {
++			lineHandler(JSON.stringify({ id, type: "get_state" }));
++			const reply = () => parseOutputLines(rpcIo.outputLines).find((line) => line.id === id);
++			await vi.waitFor(() => expect(reply()).toMatchObject({ success: true }));
++			return reply()?.data;
++		};
++		try {
++			const initial = (await state("before")) as { sessionId: string; desktopBackgroundCommands: unknown };
++			expect(initial.desktopBackgroundCommands).toEqual({ version: 1, count: 0 });
++			registerProcess({ pid: pids[0]!, kind: "bash", ownerId: initial.sessionId, label: "owner" });
++			registerProcess({ pid: pids[1]!, kind: "subagent", ownerId: initial.sessionId, label: "not a command" });
++			registerProcess({ pid: pids[2]!, kind: "bash", ownerId: "unrelated-session", label: "not the owner" });
++			expect(await state("during")).toMatchObject({
++				desktopBackgroundCommands: { version: 1, count: 1 },
++				isStreaming: false,
++			});
++			forgetProcess(pids[0]!);
++			expect(await state("after")).toMatchObject({ desktopBackgroundCommands: { version: 1, count: 0 } });
++		} finally {
++			for (const pid of pids) forgetProcess(pid);
++			await cleanup();
++		}
++	});
++
+ 	it("emits one failure response when prompt preflight rejects", async () => {
+ 		const { lineHandler, cleanup } = await startRpcMode({
+ 			withAuth: false,
+diff --git a/packages/coding-agent/test/session-process-release.test.ts b/packages/coding-agent/test/session-process-release.test.ts
+index 92d6284a0854cc3f364df9e3e88c64b3692e5def..2a3f3995bf91993a9f8de0b65ee408b037a98298 100644
+--- a/packages/coding-agent/test/session-process-release.test.ts
++++ b/packages/coding-agent/test/session-process-release.test.ts
+@@ -17,6 +17,7 @@ function alive(pid: number): boolean {
+ 	} catch {
+ 		return false;
+ 	}
++	if (process.platform === "win32") return true;
+ 	try {
+ 		const state = execFileSync("ps", ["-o", "state=", "-p", String(pid)], { encoding: "utf8" }).trim();
+ 		return !state.startsWith("Z");
+@@ -91,7 +92,7 @@ describe("session-scoped process release", () => {
+ 			await new Promise((r) => setTimeout(r, 50));
+ 		}
+ 
+-		expect(alive(mine)).toBe(false);
++		await expect.poll(() => alive(mine)).toBe(false);
+ 		expect(alive(theirs)).toBe(true);
+ 		expect(listProcesses(session)).toEqual([]);
+ 		expect(listProcesses(other)).toHaveLength(1);

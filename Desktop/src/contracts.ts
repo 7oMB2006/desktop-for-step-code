@@ -100,12 +100,13 @@ export interface Settings { account: Account; profiles: Profile[]; mcp: Record<s
 export interface CronJobData {
   id: string; cron: string; prompt: string; recurring: boolean; durable: boolean;
   createdAt: number; nextFireAt: number; autoExpireAt?: number; desktopPausedAt?: number;
+  intervalHours?: number; runAt?: number; revision?: string;
 }
 export interface CronHost {
   runtimeId: string; workspace: string; name: string; trusted: boolean; busy: boolean;
   sessionId?: string; model?: string; permission?: PermissionPreset;
 }
-export interface CronAssociation { sessionId: string; source: 'created' | 'recovered'; at: number }
+export interface CronAssociation { sessionId: string; source: 'created' | 'recovered' | 'native'; at: number }
 export interface CronAutomaticRecovery { state: 'enabled' | 'blocked' | 'disabled'; expires: number }
 export interface CronHistoryEntry {
   id: string; sessionId: string; jobId?: string; createdAt?: number; at: number; updatedAt: number;
@@ -117,6 +118,8 @@ export interface CronHistoryEntry {
 export interface CronTask extends CronJobData {
   key: string; workspace: string; runtimeId?: string; hostName?: string; association?: CronAssociation;
   automatic?: CronAutomaticRecovery; history?: CronHistoryEntry[];
+  scheduling?: 'parked' | 'paused' | 'expired' | 'completed' | 'missed' | 'session-missing';
+  recoverable?: boolean;
 }
 export interface CronRecoveryPreview {
   token: string; expires: number; workspace: string; sessionId: string; sessionName: string;
@@ -127,8 +130,12 @@ export interface CronRecoveryPreview {
 export interface CronOverview {
   tasks: CronTask[]; hosts: CronHost[]; issues: { workspace: string; reason: 'unavailable' | 'untrusted' }[];
   history?: { workspace: string; entries: CronHistoryEntry[] }[];
+  sessionOwned?: boolean;
 }
-export interface CronCreateInput { runtimeId: string; cron: string; prompt: string; recurring: boolean; durable: boolean }
+export interface CronCreateInput {
+  runtimeId: string; cron: string; prompt: string; recurring: boolean; durable: boolean;
+  intervalHours?: number; runAt?: number;
+}
 export interface CronUpdateInput {
   runtimeId: string; jobId: string; expected: string; cron?: string; prompt?: string; paused?: boolean;
 }
@@ -174,7 +181,7 @@ export interface DesktopBridge extends SessionImportBridge, BtwBridge, Backgroun
   prepareStepPage(): Promise<StepPagePreparation>;
   cronList(): Promise<CronOverview>;
   cronCreate(input: CronCreateInput): Promise<void>;
-  cronDelete(runtimeId: string, jobId: string): Promise<void>;
+  cronDelete(runtimeId: string, jobId: string, expected?: string): Promise<void>;
   cronUpdate(input: CronUpdateInput): Promise<void>;
   cronOpenHost(runtimeId: string): Promise<Snapshot>;
   cronRecoveryPreview(key: string, sessionId: string): Promise<CronRecoveryPreview>;

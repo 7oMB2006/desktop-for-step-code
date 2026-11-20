@@ -1,0 +1,107 @@
+diff --git a/packages/coding-agent/src/features/step-cron.ts b/packages/coding-agent/src/features/step-cron.ts
+index b0c0475..3b24711 100644
+--- a/packages/coding-agent/src/features/step-cron.ts
++++ b/packages/coding-agent/src/features/step-cron.ts
+@@ -1056,6 +1056,19 @@ export class StepCronRuntime {
+ 						if (!this.ownsJob(job)) continue;
+ 						if (job.status !== undefined && job.status !== "enabled") continue;
+ 						const expires = this.expirationOf(job);
++						// Upgrading legacy Desktop jobs must not replay a missed
++						// occurrence or start a model turn to report one.
++						if (process.env.DESKTOP_CRON_STATE === "1" && job.origin === "legacy") {
++							if (expires !== undefined && expires <= now) {
++								job.status = "expired";
++								continue;
++							}
++							if (!job.recurring && job.nextFireAt <= now) {
++								job.status = "completed";
++								job.lastStatus = "missed";
++								continue;
++							}
++						}
+ 						if (expires !== undefined && expires <= now) {
+ 							if (job.nextFireAt <= now) {
+ 								if (this.deliveryAllowed(job)) this.fire(job, now);
+@@ -1656,6 +1669,9 @@ export function createStepCronExtension(options: StepCronExtensionOptions = {}):
+ 				// outcome that cannot deliver it to a conversation it does not belong
+ 				// to. Such a record stays deletable, so it is not stranded.
+ 				ownsJob: (job) => {
++					// Old Desktop pause markers do not imply native status. A
++					// partially converted row must not become runnable.
++					if (process.env.DESKTOP_CRON_STATE === "1" && Object.hasOwn(job, "desktopPausedAt")) return false;
+ 					// No readable session id means this host cannot attribute a task at
+ 					// all, so it claims none. Never `true`: that would fall back to
+ 					// "everything is mine", the cross-session defect itself.
+diff --git a/packages/coding-agent/test/step-cron.test.ts b/packages/coding-agent/test/step-cron.test.ts
+index b44a7b4..84fc2df 100644
+--- a/packages/coding-agent/test/step-cron.test.ts
++++ b/packages/coding-agent/test/step-cron.test.ts
+@@ -1402,6 +1402,68 @@ describe("a task belongs to the session that created it", () => {
+ 		await emitCron(after, "session_shutdown");
+ 	});
+ 
++	test("Desktop never claims a partially converted pause, even for its owner", async () => {
++		vi.useFakeTimers();
++		vi.stubEnv("DESKTOP_CRON_STATE", "1");
++		const { first } = twoSessionsInOneFolder();
++		const file = path.join(first.ctx.cwd, ".stepcode", "cron", "tasks.json");
++		const row = {
++			schemaVersion: 2 as const,
++			id: "legacy-pause",
++			cron: "* * * * *",
++			prompt: "Do not deliver",
++			recurring: false,
++			durable: true,
++			createdAt: Date.now() - 120_000,
++			nextFireAt: Date.now() - 60_000,
++			desktopPausedAt: Date.now() - 90_000,
++			sessionId: first.session.id,
++		};
++		const store = new CronFileStore(file);
++		store.save([row]);
++		createStepCronExtension({ enabled: true })(first.api);
++		await emitCron(first, "session_start");
++		await vi.advanceTimersByTimeAsync(2_000);
++		const listed = (await first.tools
++			.get("cron_list")!
++			.execute("list", {} as never, undefined, undefined, first.ctx)) as { details: CronJob[] };
++		expect(listed.details).toEqual([]);
++		expect(first.sent).toEqual([]);
++		expect(store.load()).toEqual([row]);
++		await emitCron(first, "session_shutdown");
++	});
++
++	test("Desktop opening a migrated session after its due time does not deliver or send a missed notice", async () => {
++		vi.useFakeTimers();
++		vi.stubEnv("DESKTOP_CRON_STATE", "1");
++		const { first } = twoSessionsInOneFolder();
++		const file = path.join(first.ctx.cwd, ".stepcode", "cron", "tasks.json");
++		const now = Date.now();
++		const once: CronJob = {
++			schemaVersion: 2,
++			id: "migrated-once",
++			cron: "* * * * *",
++			prompt: "Do not deliver",
++			recurring: false,
++			durable: true,
++			createdAt: now - 120_000,
++			nextFireAt: now - 60_000,
++			sessionId: first.session.id,
++			status: "enabled",
++			origin: "legacy",
++		};
++		const store = new CronFileStore(file);
++		store.save([once, { ...once, id: "migrated-expired", recurring: true, autoExpireAt: now - 30_000 }]);
++		createStepCronExtension({ enabled: true })(first.api);
++		await emitCron(first, "session_start");
++		await vi.advanceTimersByTimeAsync(2_000);
++		expect(first.sent).toEqual([]);
++		const [missed, expired] = store.load();
++		expect(missed).toMatchObject({ id: once.id, status: "completed", lastStatus: "missed" });
++		expect(expired).toMatchObject({ id: "migrated-expired", status: "expired" });
++		await emitCron(first, "session_shutdown");
++	});
++
+ 	test("session_start does not deliver another session's due task", async () => {
+ 		// Startup recovery used to walk every durable record without consulting
+ 		// ownership, so a task belonging to a session that had exited was delivered

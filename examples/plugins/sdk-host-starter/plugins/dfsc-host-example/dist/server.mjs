@@ -21507,6 +21507,11 @@ function parseModelSelection(value, declared) {
 function capabilities(value) {
   if (!Array.isArray(value) || !value.length || value.length > CAPABILITIES.length || value.some((item) => !CAPABILITIES.includes(item)) || new Set(value).size !== value.length) fail();
 }
+function parseIndependentCapabilities(value, declared) {
+  capabilities(value);
+  if (value.some((item) => !declared.includes(item))) fail();
+  return [...value];
+}
 function parseLaunch(value, expected, now = Date.now()) {
   boundedJson(value, LIMITS.launch);
   keys(
@@ -21528,7 +21533,8 @@ function parseLaunch(value, expected, now = Date.now()) {
       "capabilities",
       "models",
       "dataDirectory",
-      "broker"
+      "broker",
+      "independentCapabilities"
     ],
     [
       "version",
@@ -21553,10 +21559,12 @@ function parseLaunch(value, expected, now = Date.now()) {
   if (!text(value.pluginId, 128) || !id(value.consumer) || !uuid2(value.instance) || !uuid2(value.launchId) || !uuid2(value.runtimeId) || !text(value.sessionId, 128) || !hash(value.fingerprint) || !hash(value.declarationHash) || !hash(value.revision) || !hash(value.accountRevision) || !text(value.dataDirectory, 4096) || !isAbsolute(value.dataDirectory) || value.pluginId !== expected.pluginId || value.consumer !== expected.consumer) fail();
   capabilities(value.capabilities);
   parseModelSelection(value.models, value.capabilities);
+  const independent = value.independentCapabilities === void 0 ? void 0 : parseIndependentCapabilities(value.independentCapabilities, CAPABILITIES);
+  if (independent && (!hash(value.configurationRevision) || (value.mode === "follow" ? independent.some((item) => value.capabilities.includes(item)) : independent.length !== value.capabilities.length || independent.some((item) => !value.capabilities.includes(item))))) fail();
   if (value.mode === "independent") {
     if (!hash(value.configurationRevision) || value.broker !== void 0 || Object.keys(value.models).length) fail();
   } else if (value.mode === "follow") {
-    if (value.configurationRevision !== null) fail();
+    if (!independent && value.configurationRevision !== null) fail();
     keys(value.broker, ["origin", "token", "expiresAt"]);
     const { origin, token, expiresAt } = value.broker;
     let url;
@@ -21751,6 +21759,7 @@ function createHostClient({ pluginId, consumer, environment = process.env, fetch
     mode: launch.mode,
     dataDirectory: launch.dataDirectory,
     configurationRevision: launch.configurationRevision,
+    ...launch.independentCapabilities ? { independentCapabilities: Object.freeze([...launch.independentCapabilities]) } : {},
     async context(options = {}) {
       return parseContext(await call("context", {}, 1e4, options.signal), launch.capabilities);
     },

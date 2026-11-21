@@ -824,7 +824,12 @@ async function hostSettingsAcceptance() {
   let poll: ts.CallExpression | undefined, launch: ts.CallExpression | undefined;
   const visit = (node: ts.Node) => {
     if (ts.isCallExpression(node)) {
-      if (node.expression.getText(source) === 'waitForSessionFixtureSnapshot') poll = node;
+      const label = node.arguments[2];
+      if (node.expression.getText(source) === 'waitForSessionFixtureSnapshot'
+        && label && ts.isStringLiteral(label) && label.text === 'the configured independent SDK consumer') {
+        assert.ok(!poll, 'the independent consumer readiness check must be unique');
+        poll = node;
+      }
       if (node.expression.getText(source) === 'electron.launch') launch = node;
     }
     ts.forEachChild(node, visit);
@@ -870,7 +875,7 @@ test('native host readiness cannot accept a changed owner, mode, revision or fai
     const page = { evaluate: async (_callback: unknown, ref?: string) => {
       if (ref !== 'pkg-ref') return current;
       if (kind === 'read') throw failure;
-      return { ...independent, ...(kind === 'mode' ? { mode: 'follow' } : {}),
+      return { ...independent, ...(kind === 'mode' ? { mode: 'account' } : {}),
         ...(kind === 'revision' ? { revision: 'changed' } : {}),
         runtime: { status: kind === 'pending' ? 'restart-required' : 'connected' } };
     } };

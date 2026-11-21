@@ -9,6 +9,12 @@ import { CapabilityService } from '../electron/capability-service';
 import type { PluginConfigurationInput } from '../src/capabilities';
 
 const helpers = await import(pathToFileURL(resolve('electron/plugin-files.mjs')).href);
+test('direct-only model connection is explicit, optional and cannot name a broker source', () => {
+  const schema = { schemaVersion: 1, consumer: { kind: 'json-file-v1', server: 'notes' }, groups: [] };
+  assert.equal(parseConfigurationSchema(schema).modelConnection, undefined);
+  assert.equal(parseConfigurationSchema({ ...schema, modelConnection: 'independent' }).modelConnection, 'independent');
+  assert.throws(() => parseConfigurationSchema({ ...schema, modelConnection: 'plan' }), /invalid-configuration/);
+});
 const source = resolve('../examples/plugins/config-starter/plugins/dfsc-config-example');
 async function fixture(t: test.TestContext, groups?: unknown[]) {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'dfsc-config-')));

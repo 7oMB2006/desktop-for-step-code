@@ -50,15 +50,22 @@ function capabilities(value) {
   if (!Array.isArray(value) || !value.length || value.length > CAPABILITIES.length
     || value.some(item => !CAPABILITIES.includes(item)) || new Set(value).size !== value.length) fail();
 }
+export function parseIndependentCapabilities(value, declared) {
+  capabilities(value);
+  if (value.some(item => !declared.includes(item))) fail();
+  return [...value];
+}
 export function parseHostDeclaration(value, manifest) {
   boundedJson(value, LIMITS.manifest);
-  keys(value, ['$schema', 'schemaVersion', 'hostApiVersion', 'consumer', 'capabilities'],
+  keys(value, ['$schema', 'schemaVersion', 'hostApiVersion', 'consumer', 'capabilities', 'independentCapabilities'],
     ['schemaVersion', 'hostApiVersion', 'consumer', 'capabilities']);
   if (value.schemaVersion !== 1 || value.hostApiVersion !== 1) fail('UNSUPPORTED_VERSION');
   if (value.$schema !== undefined && !text(value.$schema, 512)) fail();
   keys(value.consumer, ['kind', 'server']);
   if (value.consumer.kind !== 'mcp-stdio' || !id(value.consumer.server)) fail();
   capabilities(value.capabilities);
+  const independent = value.independentCapabilities === undefined ? undefined
+    : parseIndependentCapabilities(value.independentCapabilities, value.capabilities);
   const server = manifest?.mcpServers?.[value.consumer.server];
   if (!object(manifest?.mcpServers) || !object(server) || !text(server.command, 2048) || !server.command.trim()
     || server.url !== undefined || server.transport !== undefined && server.transport !== 'stdio'
@@ -70,13 +77,14 @@ export function parseHostDeclaration(value, manifest) {
     || server.env !== undefined && (!object(server.env) || Object.entries(server.env).some(([key, item]) =>
       /^DFSC_(?:HOST|LAUNCH)_/iu.test(key) || typeof item !== 'string' || item.includes('\0')))) fail();
   return Object.freeze({ schemaVersion: 1, hostApiVersion: 1,
-    consumer: Object.freeze({ ...value.consumer }), capabilities: Object.freeze([...value.capabilities]) });
+    consumer: Object.freeze({ ...value.consumer }), capabilities: Object.freeze([...value.capabilities]),
+    ...(independent ? { independentCapabilities: Object.freeze(independent) } : {}) });
 }
 export function parseLaunch(value, expected, now = Date.now()) {
   boundedJson(value, LIMITS.launch);
   keys(value, ['version', 'mode', 'pluginId', 'consumer', 'instance', 'fingerprint', 'declarationHash',
     'revision', 'configurationRevision', 'launchId', 'runtimeId', 'sessionId', 'accountRevision',
-    'capabilities', 'models', 'dataDirectory', 'broker'],
+    'capabilities', 'models', 'dataDirectory', 'broker', 'independentCapabilities'],
   ['version', 'mode', 'pluginId', 'consumer', 'instance', 'fingerprint', 'declarationHash',
     'revision', 'configurationRevision', 'launchId', 'runtimeId', 'sessionId', 'accountRevision',
     'capabilities', 'models', 'dataDirectory']);
@@ -88,10 +96,15 @@ export function parseLaunch(value, expected, now = Date.now()) {
     || value.pluginId !== expected.pluginId || value.consumer !== expected.consumer) fail();
   capabilities(value.capabilities);
   parseModelSelection(value.models, value.capabilities);
+  const independent = value.independentCapabilities === undefined ? undefined
+    : parseIndependentCapabilities(value.independentCapabilities, CAPABILITIES);
+  if (independent && (!hash(value.configurationRevision)
+    || (value.mode === 'follow' ? independent.some(item => value.capabilities.includes(item))
+      : independent.length !== value.capabilities.length || independent.some(item => !value.capabilities.includes(item))))) fail();
   if (value.mode === 'independent') {
     if (!hash(value.configurationRevision) || value.broker !== undefined || Object.keys(value.models).length) fail();
   } else if (value.mode === 'follow') {
-    if (value.configurationRevision !== null) fail();
+    if (!independent && value.configurationRevision !== null) fail();
     keys(value.broker, ['origin', 'token', 'expiresAt']);
     const { origin, token, expiresAt } = value.broker;
     let url;

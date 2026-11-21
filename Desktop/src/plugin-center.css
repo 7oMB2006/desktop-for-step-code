@@ -285,12 +285,12 @@
 .pc-mode { display: flex; gap: 6px; padding: 3px; border: 1px solid var(--border); background: var(--side); border-radius: 6px; }
 .pc-mode > button { flex: 1; border: 1px solid transparent; background: transparent; font-size: 12px; padding: 8px 9px; min-height: 37px; border-radius: 4px; gap: 7px; }
 .pc-mode > button[aria-pressed=true] { background: var(--bg); border-color: var(--border); color: var(--primary); }
-.pc-host-form .pc-mode { flex-wrap: wrap; }
-.pc-host-form .pc-mode > button { flex: 1 1 145px; }
-.pc-host-form .pc-host-source-switches { padding: 4px; gap: 8px; }
-.pc-host-source-switches > button > span { min-width: 0; overflow-wrap: anywhere; }
+.pc-host-source-switches { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 160px), 1fr)); padding: 4px; gap: 8px; }
+.pc-host-source-switches > button { min-width: 0; min-height: 48px; padding-block: 5px; text-align: left; justify-content: flex-start; }
+.pc-host-source-switches > button > span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .pc-host-source-switches > button > svg:last-child { visibility: hidden; }
-.pc-host-source-switches > button[aria-checked=true] { background: var(--bg); border-color: var(--border); color: var(--primary); }
+.plugin-center .pc-host-source-switches > button[aria-checked=true] { background: var(--bg); border-color: var(--border); color: var(--primary); }
+.pc-host-source-switches > button[aria-checked=true][disabled] { opacity: 1; cursor: default; }
 .pc-host-source-switches > button[aria-checked=true] > svg:last-child { visibility: visible; }
 .pc-follow { padding-top: 17px; }
 .pc-follow-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: var(--muted); font-size: 11px; margin-bottom: 15px; }

@@ -46,7 +46,7 @@
 }
 ```
 
-声明最大 64 KiB、每包一个消费者、1–4 个不重复能力。
+声明最大 64 KiB、每包一个消费者、1–5 个不重复能力。
 当前能力为 `model.text`、`model.image`、`model.video`、`model.asr`、`model.tts`。
 图片理解是宿主 v1 的扩展能力：旧宿主不接受包含 `model.image` 的声明。
 插件升级前请核对目标宿主并使用新版协议客户端，不把图片声明当作已授权。
@@ -54,6 +54,11 @@
 JSON Schema 在 `plugin-schemas/dfsc.host.schema.json`，
 有效/无效公共样例在 `examples/plugins/host-client/declaration-cases.json`。
 Schema 只做结构检查，运行时还要核对实际原生服务、安装来源与 transport。
+
+可选字段 `independentCapabilities` 声明哪些能力可以按行分配给插件独立配置。
+它必须是 `capabilities` 的非空子集，不得重复，并与同一消费者的有效
+`dfsc.settings.json` 一起使用。只有实现了逐项派发的插件才应声明；旧宿主不识别此字段。
+未声明的插件保持整套走 Broker 或独立直连，不会收到新的逐项启动字段。
 
 ### 原生启动字段
 
@@ -80,7 +85,7 @@ Schema 只做结构检查，运行时还要核对实际原生服务、安装来�
 新隔离 runtime 不靠它保护账户；既有 `json-file-v1` 配置绑定仍要求其原有声明，
 本轮不顺带改变旧配置消费者的识别条件。
 
-## 唯一模式与提交
+## 来源选择与提交
 
 `PluginHostBindingStore` 是主进程实现，不能作为插件工具调用或 renderer 接口。
 它要求宿主已有有效安装 receipt、唯一实例、精确安装路径和匹配的包指纹。
@@ -113,6 +118,10 @@ step-runtime/desktop-plugins/
   可以显式重新绑定有效配置或切回跟随，不会被坏旧配置困住。
 - 主进程的 v2 快照绑定用户选定的官方账户，并存储每项声明能力的模型；改变选择
   生成新 revision。旧 v1 `follow` 快照不能签发新租约，需重新选择。
+- v4 `routed` 快照保存独立能力集合、独立配置修订，以及可选的一套官方账户和模型。
+  两组能力不得重叠，没有分配的能力不可用，不会自动回退到任何来源。
+  当前仍只有一个官方账户槽位，不能同时借用 Step Plan 和开放平台 API。
+  旧宿主不接受 v4 指针；不自动迁移旧选择或复用授权。
 - 启动对象的 v1 `models` 仍只投影 ASR/TTS，所有能力的实际可用模型读取
   `/v1/context`；不可用仍使用 `CAPABILITY_UNAVAILABLE`，旧客户端不需认识新的枚举或字段。
 - 失败发生在指针提交前，旧指针保持不变；提交后的账户/配置变化属于撤销/待重启，
@@ -135,7 +144,7 @@ JSON 最大 16 KiB。不是包内配置、全局 `host.json` 或插件自报请�
 
 | 字段 | 含义 |
 | --- | --- |
-| `version`、`mode` | 协议与唯一有效模式 |
+| `version`、`mode` | 协议与是否存在 Broker 租约（`follow` 有、`independent` 无） |
 | `pluginId`、`consumer` | 从包声明及真实启动记录确定的身份 |
 | `instance`、`fingerprint`、`declarationHash` | 安装实例、包和能力声明绑定 |
 | `revision`、`configurationRevision` | 宿主选择及独立配置引用，不含秘密 |
@@ -143,6 +152,7 @@ JSON 最大 16 KiB。不是包内配置、全局 `host.json` 或插件自报请�
 | `accountRevision`、`capabilities`、`models` | 账户选择修订、申请集合与专用模型选择 |
 | `dataDirectory` | 宿主分配的实例包外目录，不是任意文件授权 |
 | `broker` | 仅跟随模式包含 `origin`、`token`、`expiresAt` |
+| `independentCapabilities` | 仅逐项路由启动存在，列出明确分配给插件直连的能力 |
 
 broker origin 必须是精确的 `http://127.0.0.1:<port>`，
 不含 userinfo、路径、查询或片段。调用 token 为 32 字节随机值的 base64url，
@@ -155,8 +165,12 @@ broker origin 必须是精确的 `http://127.0.0.1:<port>`，
 token 是 bearer，持有被复制的有效 A token 者仍可能冒用 A。
 不以 PID、自报身份或这个 SDK 宣称本机恶意代码沙箱。
 
-独立模式先读取该上下文确认模式，再调用既有配置读取器并核对配置 revision；
-跟随模式绝不为了通过配置校验而保存空 Key。两种分支失败均不自动改走另一分支。
+有 `independentCapabilities` 时，插件必须先按能力派发：列出的能力只走独立直连；
+每次直连前读已提交的配置并核对 `configurationRevision`，读不到或修订不匹配则拒绝。
+有 Broker 时，`capabilities` 和 `/v1/context` 只包含分配给 Broker 的能力，直连行不出现在租约里；
+没有 Broker 时，`capabilities` 就是独立直连集合。其他能力不调用任何来源。
+没有该字段则维持旧的整套模式。Broker 调用失败不改走独立配置，反之亦然。
+保存后须重启会话应用；Broker 可撤销租约，但不承诺在进程重启前拦截插件自身的直连行为。
 
 ## 窄请求协议
 

@@ -71,6 +71,19 @@ test('host schema fixtures and native consumer binding reject self-authorized an
     { example: { command: 'node', env: { dfsc_host_token: 'author-controlled' } } },
   ]) assert.throws(() => parseHostDeclaration(declaration, { mcpServers }));
 });
+test('independent routing is explicitly declared and disjoint from a Broker lease', async t => {
+  assert.deepEqual(parseHostDeclaration({ ...declaration, independentCapabilities: ['model.text'] }, manifest)
+    .independentCapabilities, ['model.text']);
+  for (const independentCapabilities of [[], ['model.asr'], ['model.text', 'model.text']])
+    assert.throws(() => parseHostDeclaration({ ...declaration, independentCapabilities }, manifest), /INVALID_REQUEST/);
+  const broker = await mockHost(); t.after(() => broker.close());
+  const launch = broker.launch({ configurationRevision: '7'.repeat(64), independentCapabilities: ['model.asr'] });
+  assert.deepEqual(parseLaunch(launch, identity).independentCapabilities, ['model.asr']);
+  for (const fields of [
+    { configurationRevision: null }, { independentCapabilities: ['model.text'] },
+    { independentCapabilities: ['model.unknown'] }, { mode: 'independent', broker: undefined },
+  ]) assert.throws(() => parseLaunch({ ...launch, ...fields }, identity), /INVALID_REQUEST/);
+});
 test('a host-only consumer follows without any independent configuration and writes only outside its package', async t => {
   const { root, directory, descriptor, store } = await fixture(t);
   const broker = await mockHost(); t.after(() => broker.close());

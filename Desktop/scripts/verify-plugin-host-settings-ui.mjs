@@ -274,8 +274,87 @@ try {
   await form.getByRole('status').filter({ hasText: 'Unsupported host version' }).waitFor();
   assert.equal(await form.getByRole('switch', { name: 'Use my Step Plan quota', exact: true }).isDisabled(), true);
   assert.equal(await page.getByRole('button', { name: 'Save configuration', exact: true }).isDisabled(), true);
+
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+  await page.setViewportSize({ width: 1360, height: 900 });
+  await page.goto(`${base}/tests/fixtures/plugin-center-live.html?host=1&routed=1`);
+  await page.getByRole('button', { name: '配置 宿主模型示例', exact: true }).click();
+  await plan.click();
+  await independent.click();
+  assert.equal(await plan.getAttribute('aria-checked'), 'true');
+  assert.equal(await independent.getAttribute('aria-checked'), 'true');
+  assert.equal(await api.isDisabled(), true, 'The other official channel still requires a connected account');
+  await bind('文本', 'Step Plan', 'step-5-preview');
+  await source('视频理解').click();
+  assert.equal(await page.getByRole('menuitemradio', { name: '独立配置', exact: true }).isDisabled(), true);
+  await page.keyboard.press('Escape');
+  await pick(source('语音识别'), '独立配置');
+  assert.equal(await model('语音识别').isDisabled(), true);
+  assert.match(await model('语音识别').innerText(), /由插件配置/);
+  await form.getByLabel('API Key', { exact: true }).fill('fixture-only-key');
+  await save.click();
+  await form.getByRole('status').filter({ hasText: '待重启会话' }).waitFor();
+  const routed = (await page.evaluate(() => window.pluginHostTest.snapshot())).value;
+  assert.deepEqual(routed.independentCapabilities, ['model.asr']);
+  assert.deepEqual(routed.models, { 'model.text': 'step-5-preview' });
+  assert.equal(routed.mode, 'routed');
+  await page.getByRole('button', { name: '重启当前会话', exact: true }).click();
+  await form.getByText('插件独立直连', { exact: true }).waitFor();
+  assert.equal(await form.getByText('首次调用需确认', { exact: true }).count(), 1);
+  assert.equal(await form.locator('.pc-host-route-state').getByText('未启用', { exact: true }).count(), 3);
+  await form.locator('.pc-host-source-switches').evaluate(element => element.scrollIntoView({ block: 'center' }));
+  await page.screenshot({ path: `${output}/mixed-desktop.png` });
+  await page.evaluate(() => window.pluginCenterTest.theme('dark'));
+  await page.setViewportSize({ width: 390, height: 900 });
+  const directSource = source('语音识别');
+  await directSource.focus();
+  await directSource.scrollIntoViewIfNeeded();
+  assert.deepEqual(await directSource.evaluate(focusClips), [], 'Mixed source picker retains the narrow dark focus gutter');
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+  await page.screenshot({ path: `${output}/mixed-narrow.png` });
+  await plan.click();
+  assert.match(await source('语音识别').innerText(), /独立配置/);
+  assert.match(await source('文本').innerText(), /不使用/, 'Turning off Plan does not move text to direct calls');
+  await save.click();
+  await page.waitForFunction(() => !window.pluginHostTest.snapshot().value.source);
+
+  for (const independentModel of [false, true]) {
+    await page.goto(`${base}/tests/fixtures/plugin-center-live.html${independentModel ? '?independent-model=1' : ''}`);
+    await page.getByRole('button', { name: `配置 ${independentModel ? '漫画绘制示例' : 'DFSC Configuration Example'}`, exact: true }).click();
+    const group = page.getByRole('group', { name: '连接来源', exact: true });
+    const generic = page.locator('.pc-generic-form');
+    await generic.locator('input').first().waitFor();
+    if (!independentModel) {
+      assert.equal(await group.count(), 0, 'Ordinary configuration does not claim a model source');
+      continue;
+    }
+    const choices = group.getByRole('switch');
+    assert.equal(await choices.count(), 3);
+    assert.deepEqual(await choices.allTextContents(), ['使用我的 Step Plan 额度', '开放平台 API（按量计费）', '独立配置']);
+    for (const [index, checked] of [[0, 'false'], [1, 'false'], [2, 'true']]) {
+      const choice = choices.nth(index);
+      assert.equal(await choice.isDisabled(), true);
+      assert.equal(await choice.getAttribute('aria-checked'), checked);
+      assert.equal(await choice.getAttribute('aria-describedby'), null);
+      assert.equal(await choice.evaluate(el => Number(getComputedStyle(el).opacity) < 1), checked === 'false');
+    }
+    assert.equal(await page.getByText('请先在账户设置中连接官方 Step 账户。', { exact: true }).count(), 0);
+    for (const [width, theme] of [[1360, 'light'], [390, 'dark']]) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.evaluate(value => window.pluginCenterTest.theme(value), theme);
+      await group.scrollIntoViewIfNeeded();
+      assert.equal(await group.evaluate(element => element.scrollWidth > element.clientWidth), false);
+      await page.screenshot({ path: `${output}/independent-only-${theme}.png` });
+    }
+    await generic.getByLabel('生图接口地址', { exact: true }).fill('https://images.example.invalid/v1');
+    await generic.getByLabel('生图模型', { exact: true }).fill('fixture-image-model');
+    await generic.getByLabel('API Key', { exact: true }).fill('fixture-image-key');
+    await save.click();
+    await page.waitForFunction(() => window.pluginCenterTest.exampleConfiguration().values.model === 'fixture-image-model');
+    assert.equal(await generic.getByLabel('API Key', { exact: true }).inputValue(), '', 'Saved independent secrets never return to the input');
+  }
   assert.deepEqual(errors, []);
-  console.log('Host settings UI passed: channel labels and TTS model filtering, saved drafts, five capability observations, responsive menu and focus, mode choice, independent secrets, revision conflicts, late session response, restart and reduced motion. Fixture calls are simulated.');
+  console.log('Host settings UI passed: legacy modes, mixed routes, independent secrets, separate approval states, revision conflicts, restart, responsive focus and reduced motion. Fixture calls are simulated.');
 } finally {
   await browser.close();
   await server.close();

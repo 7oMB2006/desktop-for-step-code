@@ -53,6 +53,7 @@ export interface PluginConfigurationField {
 }
 export interface PluginConfigurationSchema {
   schemaVersion: 1; consumer: { kind: 'json-file-v1'; server: string };
+  modelConnection?: 'independent';
   groups: { id: string; title: string; fields: PluginConfigurationField[] }[];
 }
 export interface PluginConfiguration {
@@ -71,20 +72,24 @@ export interface PluginHostRuntime {
   status: 'unsupported' | 'no-session' | 'unconfigured' | 'disabled' | 'restart-required' | 'connected' | 'unavailable'
     | 'source-paused' | 'choose-account' | 'account-unavailable' | 'account-expired' | 'account-changed';
   source?: PluginHostSource;
+  independentCapabilities?: PluginHostCapability[];
   capabilities?: { id: PluginHostCapability; available: boolean; model?: string; channel?: 'plan' | 'api';
     region?: 'cn' | 'oversea'; unavailable?: import('./step-host-catalog').StepHostUnavailable;
     authorization: 'required' | 'approved' | 'unavailable' }[];
 }
 export interface PluginHostSettings {
-  ref: string; revision: string; mode: 'account' | 'independent' | 'paused' | null; consumer: string;
+  ref: string; revision: string; mode: 'account' | 'independent' | 'paused' | 'routed' | null; consumer: string;
   capabilities: PluginHostCapability[]; models: PluginHostModels; configurationCurrent: boolean;
   account?: PluginHostSourceChoice; source?: PluginHostSource; legacyFollow?: boolean; accountMatches?: boolean;
   independent?: PluginConfiguration; independentError?: string; runtime: PluginHostRuntime;
+  supportedIndependentCapabilities?: PluginHostCapability[];
+  independentCapabilities?: PluginHostCapability[];
 }
 export interface PluginHostSettingsInput {
-  ref: string; revision: string; mode: 'account' | 'independent' | 'paused'; models?: PluginHostModels;
+  ref: string; revision: string; mode: 'account' | 'independent' | 'paused' | 'routed'; models?: PluginHostModels;
   accountTicket?: string;
   configuration?: PluginConfigurationInput;
+  independentCapabilities?: PluginHostCapability[];
 }
 export interface PluginDocument {
   path: string; text: string; images: Record<string, string>; links: Record<string, string>;

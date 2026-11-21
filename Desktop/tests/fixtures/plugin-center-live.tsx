@@ -255,6 +255,19 @@ const repositoriesHeld = new URLSearchParams(location.search).get('repositories'
 let preparationRefresh: Promise<void> | undefined, releasePreparationRefresh: (() => void) | undefined;
 let exampleConfiguration: PluginConfiguration = { ref: 'fixture-config', revision: 'example-1', configured: false,
   schema: JSON.parse(exampleSchema), values: { prefix: 'Note: ', uppercase: false, limit: 160 }, hasSecret: {} };
+if (new URLSearchParams(location.search).has('independent-model')) {
+  const example = catalog.plugins.find(plugin => plugin.id === 'dfsc-config-example')!;
+  example.name = '漫画绘制示例';
+  example.description = '使用自备生图服务生成漫画分镜。';
+  exampleConfiguration = { ...exampleConfiguration, values: {}, schema: {
+    ...exampleConfiguration.schema, modelConnection: 'independent',
+    groups: [{ id: 'image', title: '生图服务', fields: [
+      { id: 'endpoint', label: '生图接口地址', type: 'text', maxLength: 2048, required: true },
+      { id: 'model', label: '生图模型', type: 'text', maxLength: 160, required: true },
+      { id: 'key', label: 'API Key', type: 'secret', maxLength: 2048, required: true },
+    ] }],
+  } };
+}
 let exampleFailure = false;
 let hostSaves = 0, hostReads = 0, hostFailure = false, hostReadFailure = false, hostAfterCommitFailure = false;
 let hostHeld: Promise<void> | undefined, releaseHost: (() => void) | undefined;
@@ -274,6 +287,8 @@ let hostConfiguration: PluginHostSettings = {
       ] },
     ] } },
 };
+if (new URLSearchParams(location.search).has('routed'))
+  hostConfiguration.supportedIndependentCapabilities = ['model.asr'];
 if (hostPreview) {
   catalog.plugins.unshift({ id: 'dfsc-host-example', name: '宿主模型示例', version: '0.1.0', description: '宿主模型与独立配置的通用示例。',
     mcpServers: ['example'], warnings: [], icon: { kind: 'step' }, installationSource: { status: 'recorded', marketplaces: ['fixture-community'] },
@@ -288,7 +303,8 @@ const hostConnected = () => {
   const source = hostConfiguration.source ?? { channel: hostChannel, region: 'cn' as const };
   hostConfiguration.runtime = hostConfiguration.mode === 'paused' ? { status: 'source-paused' }
     : hostConfiguration.mode === 'independent' ? { status: 'connected' }
-    : { status: 'connected', source, capabilities: hostConfiguration.capabilities.map(id => {
+    : { status: 'connected', source, independentCapabilities: hostConfiguration.independentCapabilities,
+      capabilities: hostConfiguration.capabilities.filter(id => hostConfiguration.mode !== 'routed' || hostConfiguration.models[id]).map(id => {
       const model = hostConfiguration.models[id];
       const unavailable = stepHostUnavailable(id, source, model);
       const available = !unavailable;
@@ -410,16 +426,17 @@ const bridge: PluginCenterBridge = {
       throw new Error('capability:host-selection-incomplete');
     }
     if (input.revision !== hostConfiguration.revision) throw new Error('capability:stale-configuration');
-    if (input.mode === 'independent') {
+    if (input.mode === 'independent' || input.mode === 'routed') {
       if (!input.configuration || !hostConfiguration.independent) throw new Error('capability:invalid-configuration');
       const config = input.configuration;
       hostConfiguration.independent = { ...hostConfiguration.independent, revision: `config-${hostSaves}`, configured: true,
         values: { ...config.values }, hasSecret: { key: config.secrets.key?.action === 'replace' || hostConfiguration.independent.hasSecret.key === true } };
     }
-    hostConfiguration = { ...hostConfiguration, mode: input.mode,
-      models: input.mode === 'account' ? input.models ?? {} : hostConfiguration.models,
-      source: input.mode === 'account' ? { channel: hostChannel, region: 'cn' } : hostConfiguration.source,
-      accountMatches: input.mode === 'account' || hostConfiguration.source?.channel === hostChannel,
+    const official = input.mode === 'account' || input.mode === 'routed' && Boolean(input.accountTicket);
+    hostConfiguration = { ...hostConfiguration, mode: input.mode, independentCapabilities: input.independentCapabilities,
+      models: input.mode === 'account' || input.mode === 'routed' ? input.models ?? {} : hostConfiguration.models,
+      source: official ? { channel: hostChannel, region: 'cn' } : input.mode === 'routed' ? undefined : hostConfiguration.source,
+      accountMatches: official || input.mode !== 'routed' && hostConfiguration.source?.channel === hostChannel,
       revision: `host-${hostSaves}`, configurationCurrent: input.mode !== 'paused',
       runtime: { status: input.mode === 'paused' ? 'source-paused' : 'restart-required' } };
     if (hostAfterCommitFailure) { hostAfterCommitFailure = false; throw new Error('capability:host-selection-incomplete'); }

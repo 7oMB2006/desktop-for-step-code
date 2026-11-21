@@ -8,8 +8,9 @@ import { hostService } from './fixtures/plugin-host-service';
 import type { PluginHostSettingsInput } from '../src/capabilities';
 import { withPluginHostAccount } from '../electron/plugin-host-account';
 
-async function fixture(t: test.TestContext, settings = true, available = true) {
-  const f = await hostService(t, { configured: false, settings });
+async function fixture(t: test.TestContext, settings = true, available = true,
+  options: Pick<NonNullable<Parameters<typeof hostService>[1]>, 'capabilities' | 'independentCapabilities'> = {}) {
+  const f = await hostService(t, { configured: false, settings, ...options });
   await f.broker.close();
   let invalidations = 0;
   const raw = { plugins: [{ id: f.descriptor.id, name: 'Example', mcpServers: ['example'], warnings: [],
@@ -116,6 +117,46 @@ test('independent mode commits a validated configuration and returns no stored s
   const followed = await f.save({ revision: saved.revision, mode: 'account' });
   assert.equal(followed.independent?.hasSecret.key, true, 'Switching source never deletes saved independent settings');
   assert.equal(f.calls.length, 0);
+});
+test('routed settings reject unsupported, overlapping and stale routes before any configuration write', async t => {
+  const capabilities = ['model.text', 'model.asr'] as const;
+  for (const optIn of [false, true]) {
+    const f = await fixture(t, true, true, {
+      capabilities: [...capabilities], independentCapabilities: optIn ? ['model.asr'] : undefined,
+    });
+    const first = await f.service.hostSettings({ ref: f.ref });
+    assert.deepEqual(first.supportedIndependentCapabilities, optIn ? ['model.asr'] : undefined);
+    const input = { revision: first.revision, mode: 'routed' as const,
+      models: { 'model.text': 'step-5-preview' }, accountTicket: first.account!.ticket,
+      independentCapabilities: ['model.asr'] as ['model.asr'],
+      configuration: { ref: f.ref, revision: first.independent!.revision, values: {},
+        secrets: { key: { action: 'replace' as const, value: 'private-direct-key' } } } };
+    if (!optIn) await assert.rejects(f.save(input), /invalid-configuration/);
+    else {
+      await assert.rejects(f.save({ ...input, independentCapabilities: ['model.text'] }), /invalid-configuration/);
+      await assert.rejects(f.save({ ...input, independentCapabilities: ['model.asr', 'model.asr'] }), /invalid-configuration/);
+      await assert.rejects(f.save({ ...input, models: { ...input.models, 'model.asr': 'stepaudio-2.5-asr' } }), /invalid-configuration/);
+      await assert.rejects(f.save({ ...input, accountTicket: 'old-ticket' }), /stale-configuration/);
+      await assert.rejects(f.save({ ...input, models: {} }), /invalid-configuration/);
+    }
+    assert.equal(f.invalidations(), 0);
+    assert.equal((await f.service.hostSettings({ ref: f.ref })).independent?.configured, false);
+    if (optIn) {
+      const saved = await f.save(input);
+      assert.equal(saved.mode, 'routed');
+      assert.equal(saved.runtime.status, 'restart-required');
+      assert.deepEqual(saved.independentCapabilities, ['model.asr']);
+      assert.deepEqual(saved.models, input.models);
+      assert.equal(saved.independent?.hasSecret.key, true);
+      assert.doesNotMatch(JSON.stringify(saved), /private-direct-key|fixture-main-private-key/);
+      assert.deepEqual((await f.service.hostSettings({ ref: f.ref })).independentCapabilities, ['model.asr']);
+      const direct = await f.save({ revision: saved.revision, mode: 'routed', independentCapabilities: ['model.asr'],
+        configuration: { ...input.configuration, revision: saved.independent!.revision, secrets: { key: { action: 'keep' } } } });
+      assert.deepEqual(direct.models, {});
+      assert.equal(direct.source, undefined);
+    }
+    assert.equal(f.calls.length, 0);
+  }
 });
 test('generic configuration save cannot bypass the protected host-settings route', async t => {
   const f = await fixture(t);

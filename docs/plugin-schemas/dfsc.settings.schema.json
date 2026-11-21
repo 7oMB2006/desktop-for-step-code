@@ -7,6 +7,7 @@
   "properties": {
     "$schema": { "type": "string" },
     "schemaVersion": { "const": 1 },
+    "modelConnection": { "const": "independent" },
     "consumer": {
       "type": "object", "required": ["kind", "server"], "additionalProperties": false,
       "properties": { "kind": { "const": "json-file-v1" }, "server": { "$ref": "#/definitions/id" } }

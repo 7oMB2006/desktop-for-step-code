@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
-import { Check, FileKey2, RefreshCw, ShieldCheck } from 'lucide-react';
+import { RefreshCw, ShieldCheck } from 'lucide-react';
 import { capabilityErrorText } from './CapabilitySettings';
-import { StepPlatformIcon } from './ProviderBrand';
+import { PluginConnectionSources } from './PluginConnectionSources';
 import { editablePluginConfiguration, PluginConfigurationEnumField, PluginConfigurationFields } from './PluginConfigurationForm';
 import type { DesktopBridge } from './contracts';
 import type { PluginConfigurationInput, PluginHostCapability, PluginHostModels, PluginHostRuntime, PluginHostSettings, PluginPackage } from './capabilities';
@@ -44,6 +44,8 @@ export function PluginHostSettingsForm({ bridge, pkg, language, busy, visible, f
   const [saved, setSaved] = useState<PluginHostSettings>();
   const [mode, setMode] = useState<PluginHostSettings['mode']>(null), [models, setModels] = useState<PluginHostModels>({});
   const [selectedRows, setSelectedRows] = useState<PluginHostCapability[]>([]);
+  const [independentRows, setIndependentRows] = useState<PluginHostCapability[]>([]);
+  const [routeAccount, setRouteAccount] = useState(false);
   const [account, setAccount] = useState<PluginHostSettings['account']>();
   const [ticket, setTicket] = useState<string>();
   const [reselected, setReselected] = useState(false);
@@ -54,15 +56,22 @@ export function PluginHostSettingsForm({ bridge, pkg, language, busy, visible, f
   const operation = useRef(false), alive = useRef(true), callback = useRef(onState), observedRuntime = useRef(runtimeKey);
   observedRuntime.current = runtimeKey;
   callback.current = onState;
-  const incomplete = mode === 'account' && selectedRows.some(id => !models[id]);
+  const routed = mode === 'routed', accountEnabled = mode === 'account' || routed && routeAccount;
+  const directEnabled = mode === 'independent' || routed;
+  const independentSupport = saved?.supportedIndependentCapabilities;
+  const canMix = Boolean(independentSupport?.length && saved?.independent);
+  const incomplete = accountEnabled && selectedRows.some(id => !models[id]);
+  const missingRoutes = routed && (!independentRows.length || routeAccount && !selectedRows.length);
   const dirty = Boolean(saved && mode && (saved.mode !== mode || mode !== 'paused' && !saved.configurationCurrent
-    || mode === 'account' && (reselected || incomplete || saved.capabilities.some(id => models[id] !== saved.models[id]))
-    || mode === 'independent' && configuration && saved.independent
+    || accountEnabled && (reselected || incomplete || saved.capabilities.some(id => models[id] !== saved.models[id]))
+    || routed && (routeAccount !== Boolean(saved.source) || saved.capabilities.some(id =>
+      independentRows.includes(id) !== Boolean(saved.independentCapabilities?.includes(id))))
+    || directEnabled && configuration && saved.independent
       && (!saved.independent.configured || JSON.stringify(configuration) !== JSON.stringify(editablePluginConfiguration(saved.independent)))));
   const supported = saved?.runtime.status !== 'unsupported';
   const accountReady = Boolean(ticket && ticket === account?.ticket);
-  const ready = Boolean(saved && supported && (mode === 'paused' || (mode === 'independent' ? configuration
-    : mode === 'account' && accountReady && !incomplete)));
+  const ready = Boolean(saved && supported && mode && (!accountEnabled || accountReady && !incomplete)
+    && (!directEnabled || configuration) && !missingRoutes);
   const locked = busy || pending;
   const source = accountReady && account ? account : saved?.source;
   const channelName = (value: 'plan' | 'api') => value === 'plan' ? 'Step Plan' : t('开放平台 API', 'Open Platform API');
@@ -71,8 +80,10 @@ export function PluginHostSettingsForm({ bridge, pkg, language, busy, visible, f
   const accept = (value: PluginHostSettings) => {
     setSaved(value); setMode(value.mode); setModels({ ...value.models });
     setSelectedRows(value.capabilities.filter(id => Boolean(value.models[id])));
+    setIndependentRows(value.independentCapabilities ?? []);
+    setRouteAccount(value.mode === 'routed' && Boolean(value.source));
     setAccount(value.account); setReselected(false);
-    setTicket(value.mode === 'account' && value.accountMatches ? value.account?.ticket : undefined);
+    setTicket((value.mode === 'account' || value.mode === 'routed') && value.accountMatches ? value.account?.ticket : undefined);
     setConfiguration(value.independent ? editablePluginConfiguration(value.independent) : undefined);
     setRuntime(value.runtime); setReloadReview(false);
   };
@@ -116,7 +127,9 @@ export function PluginHostSettingsForm({ bridge, pkg, language, busy, visible, f
     operation.current = true; setPending(true); setError(''); setRuntime(undefined); setNeedsStatus(false);
     try {
       const value = await bridge.pluginSaveHostSettings({ ref: pkg.ref, revision: saved.revision, mode,
-        ...(mode === 'account' ? { models, accountTicket: ticket } : mode === 'independent' ? { configuration } : {}) });
+        ...(accountEnabled ? { models, accountTicket: ticket } : {}),
+        ...(directEnabled ? { configuration } : {}),
+        ...(routed ? { independentCapabilities: independentRows } : {}) });
       if (alive.current) {
         accept(value);
         if (observedRuntime.current !== currentRuntime) { setRuntime(undefined); setNeedsStatus(true); }
@@ -138,51 +151,65 @@ export function PluginHostSettingsForm({ bridge, pkg, language, busy, visible, f
   };
   const chooseAccount = () => {
     if (!saved || !account) return;
-    setMode('account'); setTicket(account.ticket);
-    setReselected(previous => previous || saved.mode === 'account' && (!ticket || ticket !== account.ticket));
-    if (source?.channel !== account.channel || source.region !== account.region) {
+    setMode(directEnabled ? 'routed' : 'account'); setRouteAccount(directEnabled); setTicket(account.ticket);
+    setReselected(previous => previous || Boolean(saved.source && (!ticket || ticket !== account.ticket)));
+    if (mode === 'independent' || source?.channel !== account.channel || source.region !== account.region) {
       setModels({}); setSelectedRows([]);
     }
   };
-  const turnOff = () => {
-    setMode(saved && saved.revision !== 'unconfigured' ? 'paused' : null);
+  const pause = () => setMode(saved && saved.revision !== 'unconfigured' ? 'paused' : null);
+  const toggleAccount = () => {
+    if (routed) { setRouteAccount(false); setTicket(undefined); setModels({}); setSelectedRows([]); }
+    else pause();
+  };
+  const toggleIndependent = () => {
+    if (directEnabled) {
+      setIndependentRows([]);
+      if (accountEnabled) setMode('account');
+      else pause();
+      return;
+    }
+    if (canMix) {
+      setRouteAccount(accountEnabled);
+      if (!accountEnabled) { setModels({}); setSelectedRows([]); }
+      setMode('routed');
+    } else setMode('independent');
   };
   const chooseRowSource = (id: PluginHostCapability, value: string) => {
-    setSelectedRows(previous => value ? [...previous.filter(item => item !== id), id] : previous.filter(item => item !== id));
-    if (!value) setModels(previous => {
+    const direct = value === 'independent';
+    setIndependentRows(previous => direct ? [...previous.filter(item => item !== id), id] : previous.filter(item => item !== id));
+    setSelectedRows(previous => value && !direct ? [...previous.filter(item => item !== id), id] : previous.filter(item => item !== id));
+    if (direct || !value) setModels(previous => {
       const next = { ...previous };
       delete next[id];
       return next;
     });
   };
+  const officialSource = (channel: 'plan' | 'api') => {
+    const enabled = accountEnabled && source?.channel === channel;
+    if (enabled) return { enabled, toggle: toggleAccount };
+    if (accountEnabled || (directEnabled && !canMix) || account?.channel !== channel) return {};
+    return { toggle: chooseAccount };
+  };
   return <form id={formId} hidden={!visible} className="pc-generic-form pc-host-form" onSubmit={event => { event.preventDefault(); void submit(); }}>
     {error && <p className="cap-error" role="alert">{error}</p>}
     {!saved ? <button type="button" disabled={pending} onClick={() => void read()}>{pending ? t('读取中', 'Loading') : t('重试', 'Retry')}</button> : <>
       <fieldset className="pc-form-fields" disabled={locked || !supported}>
-        <section className="pc-form-section">
-          <div className="pc-section-title"><h3>{t('连接来源', 'Connection sources')}</h3>
-            <span className="pc-section-meta">{mode === 'account' || mode === 'independent' ? t('1 项已启用', '1 enabled')
-              : t('未启用', 'None enabled')}</span></div>
-          <div className="pc-mode pc-host-source-switches" role="group" aria-label={t('连接来源', 'Connection sources')}>
-            {(['plan', 'api'] as const).map(option => {
-              const selected = mode === 'account' && source?.channel === option;
-              return <button key={option} type="button" role="switch" disabled={!selected &&
-                (account?.channel !== option || mode === 'independent' || mode === 'account')}
-                aria-checked={selected} onClick={selected ? turnOff : chooseAccount}>
-                <StepPlatformIcon size={16}/><span>{option === 'plan' ? t('使用我的 Step Plan 额度', 'Use my Step Plan quota')
-                  : t('开放平台 API（按量计费）', 'Open Platform API (metered)')}</span><Check size={13} aria-hidden="true"/>
-              </button>;
-            })}
-            <button type="button" role="switch" disabled={mode !== 'independent' && (!configuration || mode === 'account')}
-              aria-checked={mode === 'independent'} onClick={() => mode === 'independent' ? turnOff() : setMode('independent')}>
-              <FileKey2 size={16}/><span>{t('独立配置', 'Independent')}</span><Check size={13} aria-hidden="true"/></button>
-          </div>
-          <p className="pc-hint">{t('官方连接取决于已登录的账户。当前插件每次启动只能使用一种连接；切换前请关闭当前来源。',
-            'Official connections depend on the signed-in account. This plugin uses one connection per launch; turn off the current source before switching.')}</p>
-          {!account && <p className="pc-hint">{t('请先在账户设置中连接官方 Step 账户。', 'Connect an official Step account in account settings first.')}</p>}
+        <PluginConnectionSources language={language}
+          summary={accountEnabled && directEnabled ? t('2 项已启用', '2 enabled')
+              : accountEnabled || directEnabled ? t('1 项已启用', '1 enabled')
+              : t('未启用', 'None enabled')}
+          sources={{ plan: officialSource('plan'), api: officialSource('api'), independent: directEnabled
+            ? { enabled: true, toggle: toggleIndependent }
+            : !configuration || (accountEnabled && !canMix) ? {} : { toggle: toggleIndependent } }}>
+          <p className="pc-hint">{canMix
+            ? t('官方连接使用当前登录的 Step 账户；独立配置可与其同时启用。每项能力只使用所选来源。',
+              'The signed-in Step account and independent configuration can be enabled together. Each capability uses only its selected source.')
+            : t('此版本插件仅支持单一连接来源。切换前请关闭当前来源。', 'This plugin version supports one source per launch. Turn it off before switching.')}</p>
+          {!account && !directEnabled && <p className="pc-hint">{t('请先在账户设置中连接官方 Step 账户。', 'Connect an official Step account in account settings first.')}</p>}
           {saved.legacyFollow && mode === null && <p className="pc-hint">{t('旧版「跟随会话」已停用，请重新选择额度来源。',
             'The legacy session-following setting is inactive. Select a billing source again.')}</p>}
-        </section>
+        </PluginConnectionSources>
         <section className="pc-form-section" aria-label={t('模型调用', 'Model calls')}>
           <div className="pc-section-title"><h3>{t('模型调用', 'Model calls')}</h3>
             <button type="button" className="icon-button" disabled={locked} aria-label={t('刷新宿主状态', 'Refresh host status')}
@@ -195,50 +222,63 @@ export function PluginHostSettingsForm({ bridge, pkg, language, busy, visible, f
           </div>
           <ul className="pc-host-routes">{saved.capabilities.map(id => {
             const label = labels[id][zh ? 0 : 1];
-            const selected = selectedRows.includes(id) && Boolean(source);
+            const direct = routed && independentRows.includes(id);
+            const canUseDirect = routed && Boolean(independentSupport?.includes(id));
+            const selected = selectedRows.includes(id) && Boolean(source) && !direct;
             const state = runtime?.capabilities?.find(item => item.id === id);
-            const rowEditable = mode === 'account' && accountReady && Boolean(source);
+            const runningDirect = runtime?.independentCapabilities?.includes(id);
+            const editableAccount = accountEnabled && accountReady && Boolean(source);
             return <li key={id} className="pc-host-route-grid">
               <strong>{label}</strong>
               <div className="pc-host-route-field"><PluginConfigurationEnumField field={{
                 label: `${label} · ${t('调用来源', 'Source')}`, options: [
                   { value: '', label: t('不使用', 'Do not use') },
                   ...(['plan', 'api'] as const).map(option => ({
-                    value: option, label: channelName(option), disabled: option !== source?.channel,
+                    value: option, label: channelName(option), disabled: !editableAccount || option !== source?.channel,
                   })),
+                  ...(canMix ? [{ value: 'independent', label: t('独立配置', 'Independent'), disabled: !canUseDirect }] : []),
                 ],
-              }} value={selected ? source!.channel : ''} disabled={!rowEditable} onChange={value => chooseRowSource(id, value)}/></div>
+              }} value={direct ? 'independent' : selected ? source!.channel : ''}
+                disabled={!editableAccount && !canUseDirect && !(routed && selected)}
+                onChange={value => chooseRowSource(id, value)}/></div>
               <div className="pc-host-route-field"><PluginConfigurationEnumField field={{
                 label: `${label} · ${t('模型', 'Model')}`, options: [
+                  { value: 'independent', label: t('由插件配置', 'Set by plugin'), disabled: true },
                   { value: '', label: t('选择模型', 'Select a model'), disabled: true },
                   ...stepHostModels(id).map(value => {
                     const reason = source && stepHostUnavailable(id, source, value);
                     return { value, label: reason ? `${value} · ${unavailable(reason)}` : value, disabled: Boolean(reason) };
                   }),
                 ],
-              }} value={models[id] ?? ''} disabled={!rowEditable || !selected} onChange={value => setModels(previous => ({ ...previous, [id]: value }))}/></div>
+              }} value={direct ? 'independent' : models[id] ?? ''} disabled={!editableAccount || !selected}
+                onChange={value => setModels(previous => ({ ...previous, [id]: value }))}/></div>
               <div className="pc-host-route-state">
                 <span className={state?.authorization === 'approved' ? 'pc-host-approved' : undefined}>
-                  {state?.authorization === 'approved' ? t('本次启动已授权', 'Approved for this launch')
+                  {runningDirect ? t('插件独立直连', 'Plugin connects directly')
+                    : state?.authorization === 'approved' ? t('本次启动已授权', 'Approved for this launch')
                     : state?.authorization === 'required' ? t('首次调用需确认', 'First use needs confirmation')
                       : state?.unavailable ? unavailable(state.unavailable)
-                        : state ? t('不可用', 'Unavailable') : t('未确认授权', 'Authorization unconfirmed')}</span>
+                        : state ? t('不可用', 'Unavailable')
+                          : runtime?.status === 'connected' && saved.mode === 'routed' ? t('未启用', 'Not enabled')
+                            : t('未确认授权', 'Authorization unconfirmed')}</span>
                 {state?.available && state.channel && state.region && <small>{channelName(state.channel)} · {regionName(state.region)} · {state.model}</small>}
               </div>
             </li>;
           })}</ul>
           {incomplete && <p className="pc-hint" role="status">{t('请为已选来源的能力补选模型。', 'Select a model for each capability with a source.')}</p>}
-          {mode === 'account' && <div className="pc-permission-row"><ShieldCheck size={17}/><div>
+          {missingRoutes && <p className="pc-hint" role="status">{t('请为每个已启用的来源至少分配一项能力。',
+            'Assign at least one capability to each enabled source.')}</p>}
+          {accountEnabled && <div className="pc-permission-row"><ShieldCheck size={17}/><div>
             <strong>{t('逐项调用前确认', 'Per-capability request confirmation')}</strong>
-            <p>{t('首次调用每项能力前仍需确认。', 'First use of each capability requires confirmation.')}</p></div></div>}
+            <p>{t('使用官方账户的能力，首次调用仍需确认。', 'First use of each capability routed to the official account requires confirmation.')}</p></div></div>}
         </section>
-        {mode === 'independent' && saved.independent && configuration && <div className="pc-entrance">
-          <p className="pc-body-copy">{t('插件自行连接，不经过 Broker，不使用 DFSC 额度。', 'The plugin connects directly without Broker or DFSC quota.')}</p>
+        {directEnabled && saved.independent && configuration && <div className="pc-entrance">
+          <p className="pc-body-copy">{t('独立配置由插件直连，不经过 Broker，不使用 DFSC 额度。', 'Independent calls go directly through the plugin, without Broker or DFSC quota.')}</p>
           <PluginConfigurationFields saved={saved.independent} draft={configuration} setDraft={setConfiguration} language={language} locked={locked} choosePath={choosePath}/>
         </div>}
         {saved.independentError && !configuration && <p className="pc-hint">{capabilityErrorText(saved.independentError, zh)}</p>}
       </fieldset>
-      {saved.mode === 'independent' && !saved.configurationCurrent && <p className="cap-error" role="status">{t('独立配置已变化。请核对并重新保存模型来源，旧启动不可继续使用。',
+      {(saved.mode === 'independent' || saved.mode === 'routed') && !saved.configurationCurrent && <p className="cap-error" role="status">{t('独立配置已变化。请核对并重新保存模型来源，旧启动不可继续使用。',
           'Independent settings changed. Review and save the source again; previous launches cannot continue.')}</p>}
       <div className="pc-check-row"><button type="button" disabled={pending} onClick={() => dirty ? setReloadReview(true) : void read()}>
         {t('重新载入配置', 'Reload configuration')}</button></div>

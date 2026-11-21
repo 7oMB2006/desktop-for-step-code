@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from 
 import { FolderOpen, Trash2 } from 'lucide-react';
 import { AppMenu } from './AppMenu';
 import { DisclosureChevron } from './DisclosureChevron';
+import { PluginConnectionSources } from './PluginConnectionSources';
 import { CapabilityDisclosure, capabilityErrorText } from './CapabilitySettings';
 import type { DesktopBridge } from './contracts';
 import type { PluginConfiguration, PluginConfigurationField, PluginConfigurationInput, PluginPackage } from './capabilities';
@@ -114,7 +115,10 @@ export function PluginConfigurationForm({ bridge, pkg, language, busy, visible, 
         <button type="button" disabled={pending} onClick={() => void read()}>{t('丢弃并载入', 'Discard and reload')}</button></div>}
     </div>}
     {!draft || !saved ? <button type="button" disabled={pending} onClick={() => void read()}>{pending ? t('读取中', 'Loading') : t('重试', 'Retry')}</button>
-      : <fieldset disabled={locked} className="pc-form-fields"><PluginConfigurationFields saved={saved} draft={draft} setDraft={setDraft}
-        language={language} locked={locked} choosePath={choosePath}/></fieldset>}
+      : <fieldset disabled={locked} className="pc-form-fields">
+        {saved.schema.modelConnection === 'independent' && <PluginConnectionSources language={language}
+          sources={{ plan: {}, api: {}, independent: { enabled: true } }}/>}
+        <PluginConfigurationFields saved={saved} draft={draft} setDraft={setDraft}
+          language={language} locked={locked} choosePath={choosePath}/></fieldset>}
   </form>;
 }

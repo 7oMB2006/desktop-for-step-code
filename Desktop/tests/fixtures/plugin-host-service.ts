@@ -18,7 +18,7 @@ export const fixtureAccountChoice = { channel: fixtureAccount.channel, region: f
 export const selectFixtureAccount = (ticket: unknown) => ticket === fixtureAccountChoice.ticket ? fixtureAccount : undefined;
 
 export async function hostService(t: Pick<TestContext, 'after'>, options: {
-  capabilities?: Capability[]; model?: string;
+  capabilities?: Capability[]; independentCapabilities?: Capability[]; model?: string;
   profile?: string; configured?: boolean; settings?: boolean; request?: typeof fetch;
   recordImageFailure?: (details: ImageFailureDiagnostic) => void | Promise<void>;
   packageDirectory?: string;
@@ -40,7 +40,8 @@ export async function hostService(t: Pick<TestContext, 'after'>, options: {
     ...(options.settings ? { env: { STEPFUN_API_KEY: 'DFSC_INDEPENDENT_PLUGIN' } } : {}) } } };
   await writeFile(join(directory, 'step.plugin.json'), JSON.stringify(manifest));
   await writeFile(join(directory, 'dfsc.host.json'), JSON.stringify({ schemaVersion: 1, hostApiVersion: 1,
-    consumer: { kind: 'mcp-stdio', server: 'example' }, capabilities: options.capabilities ?? ['model.text'] }));
+    consumer: { kind: 'mcp-stdio', server: 'example' }, capabilities: options.capabilities ?? ['model.text'],
+    independentCapabilities: options.independentCapabilities }));
   if (options.settings) await writeFile(join(directory, 'dfsc.settings.json'), JSON.stringify({
     schemaVersion: 1, consumer: { kind: 'json-file-v1', server: 'example' },
     groups: [{ id: 'connection', title: 'Connection', fields: [

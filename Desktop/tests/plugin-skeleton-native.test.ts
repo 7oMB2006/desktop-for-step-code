@@ -4,7 +4,7 @@ import { fixtureAccountChoice, selectFixtureAccount } from './fixtures/plugin-ho
 import { createServer } from 'node:http';
 import { execFileSync } from 'node:child_process';
 import { cp, copyFile, mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { pathToFileURL } from 'node:url';
 import { CapabilityService } from '../electron/capability-service';
@@ -242,7 +242,8 @@ test('first configuration upgrades reject invalid schemas, foreign consumers and
     assert.equal(await readFile(bindingPath, 'utf8'), revoked);
   } finally { await service.stop(); await rm(folder, { recursive: true, force: true, maxRetries: 5 }); }
 });
-for (const mode of ['account', 'independent'] as const) test(`native update preserves configuration but requires host reselection (${mode})`, { timeout: 90000 }, async () => {
+for (const [mode, migrate] of [['account', false], ['independent', false], ['independent', true]] as const)
+test(`native update preserves configuration but requires host reselection (${mode}, migrate schema: ${migrate})`, { timeout: 90000 }, async () => {
   const { folder, service, market, root } = await fixture(true);
   const broker = await mockHost();
   try {
@@ -251,8 +252,9 @@ for (const mode of ['account', 'independent'] as const) test(`native update pres
     schema.groups[0].fields.push({ id: 'key', label: 'Main key', type: 'secret', required: true },
       { id: 'asr_key', label: 'ASR key', type: 'secret' });
     await writeFile(join(packageRoot, 'dfsc.settings.json'), JSON.stringify(schema));
-    await writeFile(join(packageRoot, 'dfsc.host.json'), JSON.stringify({ schemaVersion: 1, hostApiVersion: 1,
-      consumer: { kind: 'mcp-stdio', server: 'notes' }, capabilities: ['model.text', 'model.asr'] }));
+    const declaration = { schemaVersion: 1, hostApiVersion: 1,
+      consumer: { kind: 'mcp-stdio', server: 'notes' }, capabilities: ['model.text', 'model.asr'] };
+    await writeFile(join(packageRoot, 'dfsc.host.json'), JSON.stringify(declaration));
     await service.mutate({ action: 'marketplace-add', source: market });
     await service.mutate({ action: 'plugin-install', name: 'dfsc-config-example', marketplace: 'dfsc-config-example-local' });
     const plugin = (await service.catalog()).plugins[0], ref = plugin.package!.ref;
@@ -276,14 +278,32 @@ for (const mode of ['account', 'independent'] as const) test(`native update pres
     const manifestPath = join(root, 'marketplaces', sourceName, 'plugins/dfsc-config-example/step.plugin.json');
     const manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
     await writeFile(manifestPath, JSON.stringify({ ...manifest, version: '0.2.0' }));
+    if (migrate) {
+      delete schema.groups[0].fields.find((field: { id: string }) => field.id === 'key').required;
+      await writeFile(join(dirname(manifestPath), 'dfsc.settings.json'), JSON.stringify(schema));
+      await writeFile(join(dirname(manifestPath), 'dfsc.host.json'), JSON.stringify({
+        ...declaration, independentCapabilities: ['model.asr'],
+      }));
+    }
     const candidate = (await service.catalog()).plugins[0];
-    await service.mutate({ action: 'plugin-update', id: plugin.id, ref: candidate.package!.ref, candidate: candidate.update!.ref! });
+    const input = { id: plugin.id, ref: candidate.package!.ref, candidate: candidate.update!.ref! };
+    const checked = await service.preflightUpdate(input);
+    assert.equal(checked.status, 'compatible');
+    assert.deepEqual(checked.changes, migrate ? [{ code: 'required-relaxed', field: 'key' }, { code: 'host-reconfigure' }] : []);
+    await service.mutate({ action: 'plugin-update', ...input }, undefined, checked);
     const after = (await service.catalog()).plugins[0], nextRef = after.package!.ref;
     const reset = await service.hostSettings({ ref: nextRef });
     assert.equal(reset.mode, null);
     assert.deepEqual(reset.models, {});
     assert.equal(reset.configurationCurrent, false);
-    assert.equal(reset.independent!.revision, selected.independent!.revision);
+    if (migrate) {
+      assert.notEqual(reset.independent!.revision, selected.independent!.revision);
+      assert.deepEqual(reset.supportedIndependentCapabilities, ['model.asr']);
+      const snapshot = JSON.parse(await readFile(join(dirname(configurationPath), `${reset.independent!.revision}.json`), 'utf8'));
+      const before = JSON.parse(configuration.toString('utf8'));
+      assert.deepEqual(snapshot.values, before.values);
+      assert.deepEqual(snapshot.secrets, before.secrets);
+    } else assert.equal(reset.independent!.revision, selected.independent!.revision);
     assert.equal(reset.independent!.values.prefix, 'Preserved ');
     assert.deepEqual(reset.independent!.hasSecret, { key: true, asr_key: true });
     assert.deepEqual(await readFile(configurationPath), configuration);

@@ -5,23 +5,25 @@ import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { hostService } from './fixtures/plugin-host-service';
 import { PluginHostLauncher } from '../electron/plugin-host-launcher';
+import { PluginConfigurationStore } from '../electron/plugin-configuration.mjs';
 import { createHostClient } from '../../examples/plugins/host-client/client.mjs';
 import type { CapabilityService } from '../electron/capability-service';
-import type { FollowLaunch } from '../../examples/plugins/host-client/protocol.mjs';
+import type { LaunchContext } from '../../examples/plugins/host-client/protocol.mjs';
 import ts from 'typescript';
 import { runInNewContext } from 'node:vm';
 
-async function fixture(t: test.TestContext, configured = true) {
-  const f = await hostService(t, { configured });
+async function fixture(t: test.TestContext, configured = true, routed = false) {
+  const f = await hostService(t, { configured, ...(routed ? { settings: true,
+    capabilities: ['model.text', 'model.asr', 'model.video'], independentCapabilities: ['model.asr'] } : {}) });
   await f.broker.close();
   const record = { requestId: randomUUID(), pluginId: f.descriptor.id, consumer: 'example',
     declarationHash: createHash('sha256').update(await readFile(join(f.directory, 'dfsc.host.json'))).digest('hex'),
     root: f.directory, sessionId: f.worker.state!.sessionId!, conflict: false, phase: 'pending',
     executionHash: createHash('sha256').update(JSON.stringify([
-      'node', ['dist/server.mjs'], f.directory, [],
+      'node', ['dist/server.mjs'], f.directory, routed ? [['STEPFUN_API_KEY', 'DFSC_INDEPENDENT_PLUGIN']] : [],
     ])).digest('hex') };
   const state = { allowed: true, available: true, fail: false, inspect: true,
-    starts: [] as FollowLaunch[], start: undefined as (() => Promise<void>) | undefined,
+    starts: [] as LaunchContext[], start: undefined as (() => Promise<void>) | undefined,
     resolve: undefined as (() => Promise<void>) | undefined };
   const capabilities = { withHostDescriptor: async (id, root, consumer, action) => {
     assert.equal(id, record.pluginId); assert.equal(root, record.root); assert.equal(consumer, record.consumer);
@@ -65,6 +67,50 @@ test('launcher issues only inside native receipt resolution and deduplicates con
   assert.doesNotMatch(JSON.stringify(f.launchState.starts), /fixture-main-private-key/);
   f.launcher.invalidate(f.worker);
   await assert.rejects(client.context(), /STALE_CONTEXT/);
+});
+for (const official of [false, true]) test(`routed launch partitions direct and official calls (official: ${official})`, async t => {
+  const f = await fixture(t, false, true);
+  const configuration = new PluginConfigurationStore(f.root);
+  const configured = await configuration.save(f.descriptor, {
+    ref: f.descriptor.ref, revision: 'unconfigured', values: {},
+    secrets: { key: { action: 'replace', value: 'isolated-direct-fixture' } },
+  });
+  const selected = await f.store.select(f.descriptor, { revision: 'unconfigured', mode: 'routed',
+    configurationRevision: configured.revision, independentCapabilities: ['model.asr'],
+    ...(official ? { account: f.account, models: { 'model.text': 'step-5-preview' } } : {}) });
+  await f.launcher.attach(f.worker);
+  assert.equal(f.launchState.starts.length, 1);
+  const launch = f.launchState.starts[0], client = f.client();
+  t.after(() => client.close());
+  assert.equal(client.mode, official ? 'follow' : 'independent');
+  assert.deepEqual(client.independentCapabilities, ['model.asr']);
+  assert.equal(client.configurationRevision, configured.revision);
+  assert.deepEqual(launch.capabilities, official ? ['model.text'] : ['model.asr']);
+  assert.ok(!JSON.stringify(launch).includes('isolated-direct-fixture'));
+  const status = await f.launcher.status(f.descriptor, selected);
+  assert.equal(status.status, 'connected');
+  assert.deepEqual(status.independentCapabilities, ['model.asr']);
+  assert.equal(f.calls.length, 0);
+  if (official) {
+    const context = await client.context();
+    assert.deepEqual(context.capabilities.map(item => item.id), ['model.text']);
+    await assert.rejects(client.invoke({ requestId: randomUUID(), revision: context.revision, capability: 'model.asr',
+      input: { audio: { mimeType: 'audio/wav', data: 'YQ==' } } }), /CAPABILITY_UNAVAILABLE/);
+    assert.equal(f.state.confirmations.length, 0);
+    assert.deepEqual(await client.invoke({ requestId: randomUUID(), revision: context.revision, capability: 'model.text',
+      input: { messages: [{ role: 'user', content: 'fixture' }] } }), { type: 'text', text: 'host result' });
+    assert.match(f.calls[0].url, /\/step_plan\/v1\/chat\/completions$/);
+    assert.equal(f.state.confirmations.length, 1);
+  } else {
+    assert.equal(launch.broker, undefined);
+    await assert.rejects(client.context(), /CAPABILITY_UNAVAILABLE/);
+    assert.equal(f.calls.length, 0);
+  }
+  await configuration.save(f.descriptor, { ref: f.descriptor.ref, revision: configured.revision, values: {},
+    secrets: { key: { action: 'replace', value: 'replacement-fixture' } } });
+  const changed = await f.store.current(f.descriptor);
+  assert.equal((await f.launcher.status(f.descriptor, changed)).status, 'restart-required');
+  if (official) await assert.rejects(client.context(), /STALE_CONTEXT/);
 });
 test('actual retry IPC reattaches a recovered native host only after releasing its mutation lock', async t => {
   const f = await fixture(t);

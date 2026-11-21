@@ -6,7 +6,7 @@ import { withVerifiedPackage, type PackageReadScope } from './plugin-read-scope.
 import { PluginRepositoryInfo } from './plugin-repository.mjs';
 import { PluginConfigurationStore } from './plugin-configuration.mjs';
 import type { ConfigurationDescriptor } from './plugin-configuration.mjs';
-import { PluginHostBindingStore, parseHostModels, type HostBinding, type PluginHostAccountBinding, type UnconfiguredHostBinding } from './plugin-host-contract.mjs';
+import { PluginHostBindingStore, parseHostIndependent, parseHostModels, type HostBinding, type PluginHostAccountBinding, type UnconfiguredHostBinding } from './plugin-host-contract.mjs';
 import { inspectPluginUpdate, recoverPluginUpdate } from './plugin-update.mjs';
 import { dataOnlyThemeFingerprint, digest, optionalFile, scanInstalled } from './plugin-files.mjs';
 import { capabilityPolicy, type CapabilityGuard } from './capability-policy';
@@ -373,10 +373,11 @@ export class CapabilityService {
   }
   hostSettings(input: { ref: string }, save?: PluginHostSettingsInput): Promise<PluginHostSettings> {
     return this.enqueue(async () => {
+      const fields = ['ref', 'revision', 'mode', 'models', 'configuration', 'accountTicket', 'independentCapabilities'];
       if (!input || typeof input.ref !== 'string' || Object.keys(input).some(key =>
-        !(save ? ['ref', 'revision', 'mode', 'models', 'configuration', 'accountTicket'] : ['ref']).includes(key))
+        !(save ? fields : ['ref']).includes(key))
         || save && (save.ref !== input.ref || Object.keys(save).some(key =>
-          !['ref', 'revision', 'mode', 'models', 'configuration', 'accountTicket'].includes(key))))
+          !fields.includes(key))))
         throw new Error('capability:invalid-input');
       return this.withTarget(input.ref, true, async ({ catalog, plugin, descriptor, scope }) => {
       if (descriptor.kind !== 'installed' || descriptor.provenance !== 'recorded')
@@ -398,29 +399,38 @@ export class CapabilityService {
         if (!this.options.hostAvailable?.()) throw new Error('capability:host-unavailable');
         if (JSON.stringify(save).length > 150000 || save.revision !== binding.revision)
           throw new Error('capability:stale-configuration');
-        if (!['account', 'independent', 'paused'].includes(save.mode)
-          || save.mode !== 'account' && (save.models !== undefined || save.accountTicket !== undefined)
-          || (save.mode === 'independent' ? !save.configuration || save.configuration.ref !== input.ref : save.configuration !== undefined)
+        const routed = save.mode === 'routed', direct = routed || save.mode === 'independent';
+        const canUseAccount = save.mode === 'account' || routed;
+        if (!['account', 'independent', 'paused', 'routed'].includes(save.mode)
+          || !canUseAccount && (save.models !== undefined || save.accountTicket !== undefined)
+          || !routed && save.independentCapabilities !== undefined
+          || (direct ? !save.configuration || save.configuration.ref !== input.ref : save.configuration !== undefined)
           || save.mode === 'paused' && !('mode' in binding))
           throw new Error('capability:invalid-configuration');
         // Validate before revocation or committing the independent configuration.
-        const account = save.mode === 'account' ? this.options.selectHostAccount?.(save.accountTicket) : undefined;
-        if (save.mode === 'account' && !account) throw new Error('capability:stale-configuration');
-        const models = account ? parseHostModels(save.models ?? {}, binding.declaration.capabilities) : undefined;
+        const models = canUseAccount ? parseHostModels(save.models ?? {}, binding.declaration.capabilities) : undefined;
+        const needsAccount = save.mode === 'account' || routed && Object.keys(models!).length > 0;
+        if (!needsAccount && save.accountTicket !== undefined) throw new Error('capability:invalid-configuration');
+        const account = needsAccount ? this.options.selectHostAccount?.(save.accountTicket) : undefined;
+        if (needsAccount && !account) throw new Error('capability:stale-configuration');
         if (account && models && Object.entries(models).some(([capability, model]) =>
           stepHostUnavailable(capability as keyof typeof models, account, model)))
           throw new Error('capability:invalid-configuration');
-        if (save.mode === 'independent') {
+        const independentCapabilities = routed
+          ? parseHostIndependent(save.independentCapabilities, binding.declaration.independentCapabilities ?? [], models!) : undefined;
+        if (direct) {
           const config = await this.configurations.read(descriptor, scope);
           if (config.schema.consumer.server !== binding.declaration.consumer.server)
             throw new Error('capability:configuration-consumer-conflict');
         }
         this.options.beforePluginMutation?.(descriptor.instance);
-        const config = save.mode === 'independent' ? await this.configurations.save(descriptor, save.configuration!) : undefined;
+        const config = direct ? await this.configurations.save(descriptor, save.configuration!) : undefined;
         try {
           binding = await this.hostBindings.select(descriptor, { revision: save.revision,
             mode: save.mode === 'account' ? 'follow' : save.mode,
-            ...(config ? { configurationRevision: config.revision } : { models, account }) });
+            ...(config ? { configurationRevision: config.revision } : {}),
+            ...(canUseAccount ? { models, account } : {}),
+            ...(independentCapabilities ? { independentCapabilities } : {}) });
         } catch (error) {
           // Two commit pointers are not one transaction. Never claim the old mode
           // still works when its independent configuration was already replaced.
@@ -453,10 +463,14 @@ export class CapabilityService {
         && this.options.selectHostAccount?.(account.ticket)?.id === selected.account.id);
       return { ref: input.ref, revision: binding.revision, consumer: binding.declaration.consumer.server,
         capabilities: [...binding.declaration.capabilities],
-        mode: selected?.mode === 'independent' || selected?.mode === 'paused' ? selected.mode : source ? 'account' : null,
+        mode: selected?.mode === 'independent' || selected?.mode === 'paused' || selected?.mode === 'routed'
+          ? selected.mode : source ? 'account' : null,
         account, source, legacyFollow, accountMatches,
         models: selected ? { ...selected.models } : {}, configurationCurrent: selected?.configurationCurrent ?? false,
-        independent, independentError, runtime };
+        independent, independentError, runtime,
+        ...(binding.declaration.independentCapabilities
+          ? { supportedIndependentCapabilities: [...binding.declaration.independentCapabilities] } : {}),
+        ...(selected?.independentCapabilities ? { independentCapabilities: [...selected.independentCapabilities] } : {}) };
       }, Boolean(save));
     });
   }

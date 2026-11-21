@@ -1,6 +1,6 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
-import { PluginHostBindingStore, type HostBinding, type PluginHostAccountBinding } from './plugin-host-contract.mjs';
+import { PluginHostBindingStore, usesHostBroker, type HostBinding, type PluginHostAccountBinding } from './plugin-host-contract.mjs';
 import type { ConfigurationDescriptor } from './plugin-configuration.mjs';
 import type { SessionRuntime, SessionRuntimes } from './session-runtimes';
 import type { PluginHostRuntime, PluginHostModels } from '../src/capabilities';
@@ -123,7 +123,7 @@ export class PluginHostBroker {
     const rpc = worker.rpc, sessionId = worker.state?.sessionId;
     if (!sessionId || !this.sameRuntime(worker, rpc, sessionId)) return fail('STALE_CONTEXT');
     if (!await this.options.validateConsumer(descriptor, binding, worker)) return fail('DENIED');
-    const snapshot = binding.mode === 'follow' ? await this.options.provider.read(worker, binding.models, binding.account) : undefined;
+    const snapshot = usesHostBroker(binding) ? await this.options.provider.read(worker, binding.models, binding.account) : undefined;
     const token = randomBytes(32).toString('base64url');
     const launch = await this.store.launch(descriptor, {
       runtimeId: worker.id, sessionId, accountRevision: snapshot?.revision ?? fresh(),
@@ -192,7 +192,7 @@ export class PluginHostBroker {
       if (lease.controller.signal.aborted || Date.now() >= lease.launch.broker.expiresAt
         || !this.sameRuntime(worker, lease.rpc, lease.launch.sessionId)) fail('STALE_CONTEXT');
       const binding = await this.store.current(lease.descriptor);
-      if (!('mode' in binding) || binding.mode !== 'follow' || !binding.configurationCurrent
+      if (!('mode' in binding) || !usesHostBroker(binding) || !binding.configurationCurrent
         || binding.revision !== lease.binding.revision
         || !await this.options.validateConsumer(lease.descriptor, binding, worker)) fail('STALE_CONTEXT');
       const snapshot = await this.options.provider.read(worker, binding.models, binding.account);

@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { resolve } from 'node:path';
 import { PluginHostBroker, type HostProvider } from './plugin-host-broker';
 import { plainFile } from './plugin-files.mjs';
-import type { HostBinding, UnconfiguredHostBinding } from './plugin-host-contract.mjs';
+import { usesHostBroker, type HostBinding, type UnconfiguredHostBinding } from './plugin-host-contract.mjs';
 import type { PluginHostRuntime } from '../src/capabilities';
 import type { ConfigurationDescriptor } from './plugin-configuration.mjs';
 import type { CapabilityService } from './capability-service';
@@ -159,11 +159,12 @@ export class PluginHostLauncher {
       const worker = this.options.pool.workers.get(this.options.pool.activeId ?? '');
       const previousIndependent = worker && [...this.attachments.get(worker)?.values() ?? []].some(item =>
         item.started && item.rpc === worker.rpc && item.record.sessionId === worker.state?.sessionId
-        && item.launch?.instance === binding.instance && item.launch.mode === 'independent');
+        && item.launch?.instance === binding.instance
+        && (item.launch.mode === 'independent' || item.launch.independentCapabilities));
       return { status: previousIndependent ? 'restart-required' : 'source-paused' };
     }
     if (binding.mode === 'follow' && !binding.account) return { status: 'choose-account' };
-    const account = binding.mode === 'follow' ? binding.account : undefined;
+    const account = usesHostBroker(binding) ? binding.account : undefined;
     const source = account && { channel: account.channel, region: account.region };
     const accountStatus = account && this.options.provider.accountStatus?.(account);
     if (accountStatus) return { status: accountStatus, source };
@@ -185,7 +186,8 @@ export class PluginHostLauncher {
       : observed('connected');
     if (this.options.pool.activeId !== worker.id || this.attachments.get(worker)?.get(attachment.record.requestId) !== attachment)
       return { status: 'unavailable' };
-    return status;
+    return status.status === 'connected' && attachment.launch.independentCapabilities
+      ? { ...status, independentCapabilities: [...attachment.launch.independentCapabilities] } : status;
   }
   private async validate(descriptor: ConfigurationDescriptor, binding: HostBinding, worker: SessionRuntime, connected = false) {
     if (!this.options.available()) throw new HostClientError('BUSY');

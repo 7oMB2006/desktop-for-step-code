@@ -18,13 +18,16 @@ try {
 const server = new McpServer({ name: 'dfsc-host-example', version: '0.1.0' });
 const errorResult = error => ({ isError: true, content: [{ type: 'text',
   text: error instanceof HostClientError ? error.message : 'dfsc-host:HOST_UNAVAILABLE' }] });
+export async function readHostContext(signal) {
+  if (!host) throw new HostClientError(startupCode);
+  return host.context({ signal });
+}
 server.registerTool('host_context', {
   description: 'Read host capability availability; never calls a model.',
   inputSchema: {},
 }, async (_arguments, extra) => {
   try {
-    if (!host) throw new HostClientError(startupCode);
-    return { content: [{ type: 'text', text: JSON.stringify(await host.context({ signal: extra.signal })) }] };
+    return { content: [{ type: 'text', text: JSON.stringify(await readHostContext(extra.signal)) }] };
   } catch (error) { return errorResult(error); }
 });
 server.registerTool('summarize_text', {

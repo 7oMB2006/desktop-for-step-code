@@ -174,6 +174,7 @@ async function submissionFixture(cwd: string) {
     selectedDraft: () => undefined, selectedRuntime: () => worker.id,
     text: (value: string) => value, isProjectInstructionsCommand, projectInstructionsMessage, promptNeedsQueue,
     isProjectTrustInput: () => false, preferences: { language: 'zh' }, pendingMessages, emptyLaunch, reviewPayload, reserveReview,
+    sessionTitles: { accepted() {} },
     launchControls: controls,
     externalTasks: { retains: (value: SessionRuntime) => externalWorkers.has(value) },
     externalSessionCommandAllowed,

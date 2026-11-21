@@ -212,10 +212,15 @@ try {
   assert.equal(resumed.draftId, abandoned);
   assert.equal(resumed.preferences.workspace, other, 'Global New resumes the draft with its original project');
   assert.equal(resumed.runtimeId, undefined);
-  await input.press('End');
-  await input.press('Backspace');
+  await mappedReference.waitFor();
+  await input.evaluate(element => {
+    element.focus();
+    element.setSelectionRange(element.value.length, element.value.length);
+  });
+  assert.equal(await input.evaluate(element => element.selectionStart), unsent.length);
+  await page.keyboard.press('Backspace');
   assert.equal(await input.evaluate(element => element.value), 'Draft with ', 'Backspace removes the displayed reference as a unit');
-  await input.press('ControlOrMeta+Z');
+  await page.keyboard.press('ControlOrMeta+Z');
   assert.equal(await input.evaluate(element => element.value), unsent, 'Undo restores the canonical reference');
   await input.fill('');
   await app.evaluate(({ dialog }) => { dialog.showOpenDialog = async () => ({ canceled: true, filePaths: [] }); });

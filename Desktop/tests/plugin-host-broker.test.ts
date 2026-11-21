@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { withPluginHostAccount } from '../electron/plugin-host-account';
 import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -7,7 +8,7 @@ import { request as httpRequest } from 'node:http';
 import { setTimeout as delay } from 'node:timers/promises';
 import { hostService } from './fixtures/plugin-host-service';
 import { PluginConfigurationStore } from '../electron/plugin-configuration.mjs';
-import { HOST_ENV, LIMITS, newRequestId } from '../../examples/plugins/host-client/protocol.mjs';
+import { HOST_ENV, LIMITS, HostClientError, newRequestId } from '../../examples/plugins/host-client/protocol.mjs';
 import { createHostClient } from '../../examples/plugins/host-client/client.mjs';
 import type { FollowLaunch, Invocation } from '../../examples/plugins/host-client/protocol.mjs';
 
@@ -39,10 +40,27 @@ test('a failed native startup releases only its own lease', async t => {
   assert.equal((await second.client.context()).capabilities[0].model, 'step-5-preview');
 });
 
+test('a temporary identity-check interruption does not revoke the lease or its grant', async t => {
+  const fixture = await hostService(t);
+  const { launch, client } = await clientFor(t, fixture);
+  const context = await client.context();
+  await client.invoke(input(context.revision));
+  const read = fixture.provider.read.bind(fixture.provider);
+  fixture.provider.read = async () => { throw new HostClientError('BUSY'); };
+  assert.equal((await post(launch, 'context')).value.error.code, 'BUSY');
+  await assert.rejects(client.invoke(input(context.revision)), /BUSY/);
+  assert.equal(fixture.calls.length, 1);
+  fixture.provider.read = read;
+  assert.equal((await client.context()).revision, context.revision);
+  await client.invoke(input(context.revision));
+  assert.equal(fixture.calls.length, 2);
+  assert.equal(fixture.state.confirmations.length, 1);
+});
+
 test('only main can issue a receipt-bound lease; missing choice and conflicting transports never gain access', async t => {
   const fixture = await hostService(t, { configured: false });
   await assert.rejects(fixture.broker.issue(fixture.descriptor, fixture.worker), /AUTHORIZATION_REQUIRED/);
-  await fixture.store.select(fixture.descriptor, { revision: 'unconfigured', mode: 'follow' });
+  await fixture.store.select(fixture.descriptor, { revision: 'unconfigured', mode: 'follow', account: fixture.account, models: fixture.models });
   fixture.state.transportAllowed = false;
   await assert.rejects(fixture.broker.issue(fixture.descriptor, fixture.worker), /DENIED/);
   fixture.state.transportAllowed = true;
@@ -71,22 +89,38 @@ test('independent mode receives no broker and never reads or requires a host acc
   assert.equal(fixture.state.confirmations.length, 0);
   assert.equal(fixture.calls.length, 0);
 });
-test('runtime mutation during an awaited account read cannot issue or use a lease', async t => {
+test('pausing rejects old Broker grants and reopening does not restore them', async t => {
+  const fixture = await hostService(t);
+  const { client, launch } = await clientFor(t, fixture);
+  await client.invoke(input((await client.context()).revision));
+  const paused = await fixture.store.select(fixture.descriptor, { revision: launch.revision, mode: 'paused' });
+  assert.deepEqual(paused.models, fixture.models);
+  await assert.rejects(client.context(), /STALE_CONTEXT/);
+  await assert.rejects(fixture.broker.issue(fixture.descriptor, fixture.worker), /AUTHORIZATION_REQUIRED/);
+  assert.equal(fixture.calls.length, 1);
+  await fixture.store.select(fixture.descriptor, { revision: paused.revision, mode: 'follow',
+    account: fixture.account, models: paused.models });
+  const resumed = await clientFor(t, fixture);
+  fixture.state.approved = false;
+  await assert.rejects(resumed.client.invoke(input((await resumed.client.context()).revision)), /DENIED/);
+  assert.equal(fixture.state.confirmations.length, 2);
+  assert.equal(fixture.calls.length, 1);
+});
+test('RPC replacement during an awaited account read cannot issue or use a lease', async t => {
   const fixture = await hostService(t);
   const read = fixture.provider.read.bind(fixture.provider);
   fixture.provider.read = async (...args) => {
     const snapshot = await read(...args);
-    fixture.worker.mutating = true;
+    fixture.worker.rpc = { ...fixture.worker.rpc };
     return snapshot;
   };
   await assert.rejects(fixture.broker.issue(fixture.descriptor, fixture.worker), /STALE_CONTEXT/);
-  fixture.worker.mutating = false;
   fixture.provider.read = read;
   const { client } = await clientFor(t, fixture);
   const context = await client.context();
   fixture.provider.read = async (...args) => {
     const snapshot = await read(...args);
-    fixture.worker.mutating = true;
+    fixture.worker.rpc = { ...fixture.worker.rpc };
     return snapshot;
   };
   await assert.rejects(client.invoke(input(context.revision)), /STALE_CONTEXT/);
@@ -130,6 +164,7 @@ test('the selected model and four official routes stay paired with no independen
     assert.equal(JSON.parse(String(fixture.calls[0].init?.body)).model, 'step-5-preview');
     assert.equal(fixture.state.confirmations.length, 1);
     assert.match(fixture.state.confirmations[0], /dfsc-host-example.*model.text/su);
+    assert.match(fixture.state.confirmations[0], channel === 'plan' ? /可能消耗套餐额度/u : /可能产生按量费用/u);
     assert.doesNotMatch(fixture.state.confirmations[0], /fixture-main-private-key|Bearer/);
   }
 });
@@ -155,12 +190,12 @@ test('declined and background approvals do not call a provider; approval is scop
   assert.equal(fixture.state.confirmations.length, 3);
   assert.equal(fixture.calls.length, 3);
 });
-test('unknown TTS/ASR models and unverified image-only video are explicitly unavailable without provider calls', async t => {
+test('unknown plugin models are explicitly unavailable without provider calls', async t => {
   const fixture = await hostService(t, { capabilities: ['model.video', 'model.asr', 'model.tts'] });
   fixture.worker.state!.model!.id = 'image-only-unknown';
   const current = await fixture.store.current(fixture.descriptor);
   await fixture.store.select(fixture.descriptor, { revision: current.revision, mode: 'follow',
-    models: { 'model.asr': 'not-verified', 'model.tts': 'not-verified' } });
+    account: fixture.account, models: { 'model.asr': 'not-verified', 'model.tts': 'not-verified', 'model.video': 'not-verified' } });
   const { client } = await clientFor(t, fixture);
   const context = await client.context();
   assert.ok(context.capabilities.every(item => !item.available && item.reason === 'CAPABILITY_UNAVAILABLE'));
@@ -224,7 +259,7 @@ test('TTS model selection is channel- and region-bound and revokes earlier grant
       new Response('fixture bytes', { headers: { 'content-type': 'audio/wav' } }) });
     const { client: old } = await clientFor(t, fixture);
     const previous = await old.context(), binding = await fixture.store.current(fixture.descriptor);
-    await fixture.store.select(fixture.descriptor, { revision: binding.revision, mode: 'follow', models: { 'model.tts': model } });
+    await fixture.store.select(fixture.descriptor, { revision: binding.revision, mode: 'follow', account: fixture.account, models: { 'model.tts': model } });
     await assert.rejects(old.invoke({ requestId: newRequestId(), revision: previous.revision, capability: 'model.tts',
       input: { text: 'not sent', voice: 'fixture', format: 'wav' } }), /STALE_CONTEXT/);
     const { client } = await clientFor(t, fixture);
@@ -240,10 +275,10 @@ test('TTS model selection is channel- and region-bound and revokes earlier grant
     assert.equal(fixture.state.confirmations.length, available ? 1 : 0);
   }
 });
-test('image understanding uses the exact session route and gets separate consent from video', async t => {
+test('image understanding uses the selected account route and gets separate consent from video', async t => {
   for (const [model, profile, endpoint] of [
     ['step-5-preview', 'step_plan', 'https://api.stepfun.com/step_plan/v1'],
-    ['step-3.7-flash', 'platform_oversea', 'https://api.stepfun.ai/v1'],
+    ['step-3.7-flash', 'step_plan_oversea', 'https://api.stepfun.ai/step_plan/v1'],
   ]) {
     const fixture = await hostService(t, { model, profile, capabilities: ['model.video', 'model.image'] });
     const { client, launch } = await clientFor(t, fixture);
@@ -264,12 +299,12 @@ test('image understanding uses the exact session route and gets separate consent
     assert.equal(fixture.state.confirmations.length, 2);
   }
 });
-test('image handling rejects unlisted session models without authorizing, calling or choosing another model', async t => {
+test('image handling rejects unlisted plugin models without authorizing, calling or choosing another model', async t => {
   const fixture = await hostService(t, { model: 'step-3.5-flash', capabilities: ['model.image'] });
   const { client, launch } = await clientFor(t, fixture);
   const context = await client.context();
   assert.equal(context.capabilities[0].available, false);
-  assert.equal((await fixture.broker.status(launch)).capabilities?.[0].unavailable, 'session-model-unsupported');
+  assert.equal((await fixture.broker.status(launch)).capabilities?.[0].unavailable, 'model-not-adapted');
   await assert.rejects(client.invoke({ requestId: newRequestId(), revision: context.revision, capability: 'model.image',
     input: { messages: [{ role: 'user', content: 'inspect' }], image: { mimeType: 'image/png', data: 'aW1hZ2U=' } } }), /CAPABILITY_UNAVAILABLE/);
   assert.equal(fixture.calls.length + fixture.state.confirmations.length, 0);
@@ -375,19 +410,17 @@ test('multi-megabyte media reaches the provider unchanged through client and bro
   assert.equal(fixture.state.confirmations.length, 2);
   assert.equal(fixture.calls.length, 2);
 });
-test('account, live model, mode, package, session, runtime and transport changes revoke old leases', async t => {
+test('account, mode, package, session, runtime and transport changes revoke old leases', async t => {
   const changes: Array<(fixture: Awaited<ReturnType<typeof hostService>>) => unknown> = [
     fixture => { fixture.state.auth.step.access = 'changed-private-key'; },
-    fixture => { fixture.worker.rpc.request = async () => ({ ...fixture.worker.state, model: { provider: 'step', id: 'changed-model' } }); },
     async fixture => {
       const current = await fixture.store.current(fixture.descriptor);
-      await fixture.store.select(fixture.descriptor, { revision: current.revision, mode: 'follow' });
+      await fixture.store.select(fixture.descriptor, { revision: current.revision, mode: 'follow', account: fixture.account, models: fixture.models });
     },
     fixture => writeFile(join(fixture.directory, 'changed.txt'), 'changed'),
     fixture => { fixture.worker.state!.sessionId = randomUUID(); },
     fixture => { fixture.pool.workers.delete(fixture.worker.id); },
     fixture => { fixture.state.transportAllowed = false; },
-    fixture => { fixture.state.changing = true; },
   ];
   for (const change of changes) {
     const fixture = await hostService(t);
@@ -406,10 +439,34 @@ test('late confirmation after a changed account cannot grant access', async t =>
   const context = await client.context();
   const request = client.invoke(input(context.revision));
   await entered.promise;
-  fixture.state.auth.step.access = 'changed-private-key';
+  fixture.state.auth = withPluginHostAccount({ step: { ...fixture.state.auth.step, access: 'different-account-same-route' } });
   gate.resolve(true);
   await assert.rejects(request, /STALE_CONTEXT/);
+  await assert.rejects(fixture.broker.issue(fixture.descriptor, fixture.worker), /CAPABILITY_UNAVAILABLE/);
   assert.equal(fixture.calls.length, 0);
+});
+test('chat provider and model changes preserve the selected Plan route and live grant, even across first-use confirmation', async t => {
+  const confirmed = deferred<boolean>(), asked = deferred<void>();
+  const f = await hostService(t);
+  f.worker.state!.model = { ...f.worker.state!.model!, provider: 'desktop-custom-alpha', id: 'custom-alpha' };
+  f.worker.rpc.request = async () => assert.fail('Broker must not read model state from the chat transport');
+  f.state.confirm = async () => { asked.resolve(); return confirmed.promise; };
+  const { client } = await clientFor(t, f);
+  const context = await client.context();
+  const request = client.invoke(input(context.revision));
+  await asked.promise;
+  f.worker.mutating = true;
+  f.worker.state!.model = { ...f.worker.state!.model!, provider: 'other-provider', id: 'other-model' };
+  confirmed.resolve(true);
+  await request;
+  f.worker.mutating = false;
+  await client.invoke(input(context.revision));
+  assert.equal(f.state.confirmations.length, 1);
+  assert.equal(f.calls.length, 2);
+  for (const call of f.calls) {
+    assert.equal(call.url, 'https://api.stepfun.com/step_plan/v1/chat/completions');
+    assert.equal(JSON.parse(String(call.init?.body)).model, 'step-5-preview');
+  }
 });
 test('per-plugin/session slots span multiple leases and cancelled queued requests never invoke a provider', async t => {
   const gate = deferred<void>(), two = deferred<void>();

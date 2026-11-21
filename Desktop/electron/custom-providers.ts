@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { readFile, writeFile, rename, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import { SPEECH_FIELD } from './speech';
+import { PLUGIN_HOST_ACCOUNT_FIELD } from './plugin-host-account';
 import { enrichDiscoveredModel, officialModelCapabilities, officialResponsesRequired } from '../src/official-model-capabilities';
 import type { CustomProvider, ProviderInfo, Model, ProviderApi, DiscoveredProviderModel } from '../src/contracts';
 import { catalogProviders, resolveCatalogProvider } from '../src/provider-catalog';
@@ -174,6 +175,7 @@ export function runtimeAuth(auth: AuthData): AuthData {
   const next = { ...auth };
   delete next[FIELD];
   delete next[SPEECH_FIELD];
+  delete next[PLUGIN_HOST_ACCOUNT_FIELD];
   for (const p of providerList(auth)) {
     if (!p.enabled) delete next[p.id];
     else if (p.keyless) next[p.id] = { type: 'api_key', key: keylessToken(p.id) };
@@ -191,6 +193,7 @@ export function runtimeAuth(auth: AuthData): AuthData {
 export function mergeRuntimeAuth(auth: AuthData, credentials: AuthData): AuthData {
   const next = { ...credentials };
   delete next[SPEECH_FIELD];
+  delete next[PLUGIN_HOST_ACCOUNT_FIELD];
   if (auth[SPEECH_FIELD] !== undefined) next[SPEECH_FIELD] = auth[SPEECH_FIELD];
   if (auth[FIELD] !== undefined) next[FIELD] = auth[FIELD];
   for (const p of providerList(auth)) {

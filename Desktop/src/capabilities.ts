@@ -64,21 +64,26 @@ export interface PluginConfigurationInput {
   secrets: Record<string, { action: 'keep' | 'replace' | 'delete'; value?: string }>;
 }
 export type PluginHostCapability = import('../../examples/plugins/host-client/protocol.mjs').Capability;
-export type PluginHostModels = Partial<Record<'model.asr' | 'model.tts', string>>;
+export type PluginHostModels = Partial<Record<PluginHostCapability, string>>;
+export type PluginHostSource = import('./step-host-catalog').StepHostRoute;
+export type PluginHostSourceChoice = PluginHostSource & { ticket: string };
 export interface PluginHostRuntime {
-  status: 'unsupported' | 'no-session' | 'unconfigured' | 'disabled' | 'restart-required' | 'connected' | 'unavailable';
-  source?: import('./step-host-catalog').StepHostRoute;
+  status: 'unsupported' | 'no-session' | 'unconfigured' | 'disabled' | 'restart-required' | 'connected' | 'unavailable'
+    | 'source-paused' | 'choose-account' | 'account-unavailable' | 'account-expired' | 'account-changed';
+  source?: PluginHostSource;
   capabilities?: { id: PluginHostCapability; available: boolean; model?: string; channel?: 'plan' | 'api';
     region?: 'cn' | 'oversea'; unavailable?: import('./step-host-catalog').StepHostUnavailable;
     authorization: 'required' | 'approved' | 'unavailable' }[];
 }
 export interface PluginHostSettings {
-  ref: string; revision: string; mode: 'follow' | 'independent' | null; consumer: string;
+  ref: string; revision: string; mode: 'account' | 'independent' | 'paused' | null; consumer: string;
   capabilities: PluginHostCapability[]; models: PluginHostModels; configurationCurrent: boolean;
+  account?: PluginHostSourceChoice; source?: PluginHostSource; legacyFollow?: boolean; accountMatches?: boolean;
   independent?: PluginConfiguration; independentError?: string; runtime: PluginHostRuntime;
 }
 export interface PluginHostSettingsInput {
-  ref: string; revision: string; mode: 'follow' | 'independent'; models?: PluginHostModels;
+  ref: string; revision: string; mode: 'account' | 'independent' | 'paused'; models?: PluginHostModels;
+  accountTicket?: string;
   configuration?: PluginConfigurationInput;
 }
 export interface PluginDocument {

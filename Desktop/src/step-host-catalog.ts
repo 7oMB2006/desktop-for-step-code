@@ -1,7 +1,7 @@
 import type { Capability } from '../../examples/plugins/host-client/protocol.mjs';
 
 export type StepHostRoute = { channel: 'plan' | 'api'; region: 'cn' | 'oversea' };
-export type StepHostUnavailable = 'channel-unconfirmed' | 'region-unconfirmed' | 'model-not-adapted' | 'session-model-unsupported';
+export type StepHostUnavailable = 'channel-unconfirmed' | 'region-unconfirmed' | 'model-not-adapted' | 'model-not-selected';
 
 export const STEP_ASR_MODEL = 'stepaudio-2.5-asr';
 export const STEP_TTS_MODEL = 'stepaudio-2.5-tts';
@@ -22,13 +22,19 @@ export function stepTtsUnavailable(route: StepHostRoute | undefined, model: stri
   if (entry.chinaOnly && route?.region !== 'cn') return 'region-unconfirmed';
 }
 
-export function stepHostUnavailable(id: Capability, route: StepHostRoute,
-  model: string, videoSupported: boolean): StepHostUnavailable | undefined {
+export function stepHostModels(id: Capability): readonly string[] {
   switch (id) {
-    case 'model.text': return;
-    case 'model.image': return STEP_VISUAL_MODELS.includes(model) ? undefined : 'session-model-unsupported';
-    case 'model.video': return videoSupported ? undefined : 'session-model-unsupported';
-    case 'model.asr': return model === STEP_ASR_MODEL ? undefined : 'model-not-adapted';
-    case 'model.tts': return stepTtsUnavailable(route, model);
+    case 'model.asr': return [STEP_ASR_MODEL];
+    case 'model.tts': return stepTtsModels.map(entry => entry.id);
+    default: return STEP_VISUAL_MODELS;
   }
+}
+
+export function stepHostUnavailable(id: Capability, route: StepHostRoute,
+  model: string | undefined): StepHostUnavailable | undefined {
+  if (!model) return 'model-not-selected';
+  if (!stepHostModels(id).includes(model)) return 'model-not-adapted';
+  if (id === 'model.tts') return stepTtsUnavailable(route, model);
+  if (model === 'step-3.7-flash' && route.channel === 'api' && route.region === 'oversea')
+    return 'region-unconfirmed';
 }

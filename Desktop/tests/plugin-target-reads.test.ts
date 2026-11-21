@@ -5,6 +5,7 @@ import { lstat, mkdir, readFile, readdir, realpath, rename, symlink, unlink, uti
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
+import { fixtureAccountChoice, selectFixtureAccount } from './fixtures/plugin-host-service';
 import { CapabilityService } from '../electron/capability-service';
 import { PluginConfigurationStore, type ConfigurationDescriptor } from '../electron/plugin-configuration.mjs';
 import { packageFingerprint, PluginFileError, writeReceipts } from '../electron/plugin-files.mjs';
@@ -127,6 +128,7 @@ async function fixture(t: test.TestContext, host = true) {
   }) as unknown as CapabilityCatalog;
   const service = new CapabilityService({ root, node: 'unused', runtime: 'unused', environment: () => ({}),
     hostAvailable: () => true,
+    hostAccountChoice: () => fixtureAccountChoice, selectHostAccount: selectFixtureAccount,
     hostStatus: async () => { state.statusReads++; await state.onHostStatus?.(); return { status: 'no-session' }; },
     beforePluginMutation: () => { state.invalidations++; },
     fetchRepository: async () => assert.fail('Target reads must not fetch repository statistics'),
@@ -258,18 +260,18 @@ test('disabled configuration and host reads remain inert while consumer conflict
   ]) {
     f.state.mcp = conflict;
     await assert.rejects(f.service.configuration({ ref }), /configuration-consumer-conflict/);
-    await assert.rejects(f.service.hostSettings({ ref }, { ref, revision: 'unconfigured', mode: 'follow' }),
+    await assert.rejects(f.service.hostSettings({ ref }, { ref, revision: 'unconfigured', mode: 'account', accountTicket: fixtureAccountChoice.ticket }),
       /configuration-consumer-conflict/);
     assert.ok(f.library.referenceSnapshot(ref), 'A consumer validation failure does not revoke an unchanged package');
   }
   f.state.mcp = [server];
-  await assert.rejects(f.service.hostSettings({ ref }, { ref, revision: 'outdated', mode: 'follow' }), /stale-configuration/);
+  await assert.rejects(f.service.hostSettings({ ref }, { ref, revision: 'outdated', mode: 'account', accountTicket: fixtureAccountChoice.ticket }), /stale-configuration/);
   assert.equal((await f.service.hostSettings({ ref })).runtime.status, 'disabled');
   assert.deepEqual(await readdir(join(f.root, 'desktop-plugins'), { recursive: true }), before);
   assert.equal(f.state.invalidations, 0);
 });
 
-for (const mode of ['configuration', 'follow', 'independent'] as const) {
+for (const mode of ['configuration', 'account', 'independent'] as const) {
   test(`${mode} saves return their committed revision without a post-commit target worker`, async t => {
     const f = await fixture(t, mode !== 'configuration'), target = f.targets.get('example')!;
     const ref = (await f.menu()).get('example')!;
@@ -287,7 +289,7 @@ for (const mode of ['configuration', 'follow', 'independent'] as const) {
       secrets: { key: { action: 'replace' as const, value: 'fixture-secret' } } };
     const saved = mode === 'configuration' ? await f.service.configuration({ ref }, configuration)
       : await f.service.hostSettings({ ref }, { ref, revision: 'unconfigured', mode,
-        ...(mode === 'independent' ? { configuration } : { models: {} }) });
+        ...(mode === 'independent' ? { configuration } : { models: {}, accountTicket: fixtureAccountChoice.ticket }) });
     assert.notEqual(saved.revision, 'unconfigured');
     assert.equal(unexpectedWorker, 0);
     assert.equal(f.state.targetReads, 1);
@@ -295,7 +297,7 @@ for (const mode of ['configuration', 'follow', 'independent'] as const) {
     assert.equal(f.state.stopped, 2, 'Only the menu and pre-commit target worker are stopped');
     assert.equal(f.state.invalidations, mode === 'configuration' ? 0 : 1);
     assert.ok(f.library.referenceSnapshot(ref));
-    if (mode !== 'follow') {
+    if (mode !== 'account') {
       const binding = JSON.parse(await readFile(join(f.root, 'desktop-plugins/bindings/example.json'), 'utf8'));
       const snapshot = JSON.parse(await readFile(join(f.root,
         `desktop-plugins/settings/${target.receipt.instance}/${binding.revision}.json`), 'utf8'));
@@ -310,7 +312,7 @@ for (const mode of ['configuration', 'follow', 'independent'] as const) {
       const selection = JSON.parse(await readFile(join(f.root,
         `desktop-plugins/host/selections/${target.receipt.instance}/${pointer.revision}.json`), 'utf8'));
       assert.equal(pointer.revision, saved.revision);
-      assert.equal(selection.mode, mode);
+      assert.equal(selection.mode, mode === 'account' ? 'follow' : mode);
       assert.equal('configurationCurrent' in saved && saved.configurationCurrent, true);
       assert.deepEqual(selection.models, {});
       assert.equal(selection.configurationRevision, mode === 'independent'
@@ -320,7 +322,7 @@ for (const mode of ['configuration', 'follow', 'independent'] as const) {
   });
 }
 
-for (const mode of ['configuration', 'follow', 'independent'] as const) {
+for (const mode of ['configuration', 'account', 'independent'] as const) {
   test(`${mode} saves distinguish a confirmed commit from a failed final integrity check`, async t => {
     const f = await fixture(t, mode !== 'configuration'), target = f.targets.get('example')!;
     const ref = (await f.menu()).get('example')!, path = join(target.directory, 'README.md');
@@ -351,7 +353,7 @@ for (const mode of ['configuration', 'follow', 'independent'] as const) {
     const checked = await fingerprintCalls(async () => {
       await assert.rejects(mode === 'configuration' ? f.service.configuration({ ref }, configuration)
         : f.service.hostSettings({ ref }, { ref, revision: 'unconfigured', mode,
-          ...(mode === 'independent' ? { configuration } : { models: {} }) }),
+          ...(mode === 'independent' ? { configuration } : { models: {}, accountTicket: fixtureAccountChoice.ticket }) }),
       { message: 'capability:settings-committed-unverified' });
     });
     assert.notEqual(committedRevision, '', 'Only a successful store return can confirm the commit');

@@ -16,7 +16,7 @@
 
 1. 只做提示、技能或离线工具：沿用原生资源或 `config-starter`，不用申请宿主模型。
 2. 需要独立服务：使用 `dfsc.settings.json`、既有 `json-file-v1` 读取器及独立 Key。
-3. 需要跟随 DFSC 账户：参考 `examples/plugins/sdk-host-starter` 和本候选。
+3. 需要使用 DFSC 官方账户额度：参考 `examples/plugins/sdk-host-starter` 和本候选。
    安装、声明、启用服务和 Full Access 都不是付费授权。
 
 已启用 MCP 的连接准备发生在会话运行时启动阶段，不以当前自然语言问题需要该工具为前提。
@@ -106,14 +106,15 @@ step-runtime/desktop-plugins/
 不把旧专用模型选择套入新能力清单，也不因新增能力而自动授权。
 坏指针、坏快照和身份不匹配仍拒绝，旧包描述和旧启动上下文继续失效。
 
-- `follow` 不读取独立配置、不要求独立 Key，`configurationRevision` 为 `null`。
+- Broker 模式不读取独立配置、不要求独立 Key，`configurationRevision` 为 `null`。
+  `dfsc-launch-v1` 保留 `mode: "follow"` 表示走 Broker，不是跟随聊天会话模型。
 - `independent` 必须引用已提交且符合必填规则的独立配置修订，启动不含 broker。
 - 独立配置改变后旧选择仍可显示，但 `configurationCurrent` 为假，拒绝启动；
   可以显式重新绑定有效配置或切回跟随，不会被坏旧配置困住。
-- ASR/TTS 模型选择位于宿主模式 snapshot 的 `models`，
-  键仅允许已申请的 `model.asr`、`model.tts`；改变选择生成新 revision。
-  这里是用户请求的专用模型，不是已验证的 provider 支持结果。
-  文本/视频始终由 broker 读取实际调用会话的已应用模型，不接受存储的聊天模型覆盖。
+- 主进程的 v2 快照绑定用户选定的官方账户，并存储每项声明能力的模型；改变选择
+  生成新 revision。旧 v1 `follow` 快照不能签发新租约，需重新选择。
+- 启动对象的 v1 `models` 仍只投影 ASR/TTS，所有能力的实际可用模型读取
+  `/v1/context`；不可用仍使用 `CAPABILITY_UNAVAILABLE`，旧客户端不需认识新的枚举或字段。
 - 失败发生在指针提交前，旧指针保持不变；提交后的账户/配置变化属于撤销/待重启，
   不能伪装成原模式仍有效。现有配置、更新及启动核验已共用管理队列并撤销租约；
   通用模式设置入口也通过同一队列提交，不允许并行绕过的模式 writer。
@@ -203,11 +204,11 @@ broker 已实现这些预算及取消/撤销，生产启动链按能力标记启
 
 ## 模式与授权状态界面
 
-候选源码在插件中心的配置页提供通用“跟随 DFSC 会话 / 独立配置”，
-不是 BVR 专用适配。安装后默认不选模式；没有兼容独立 schema 的消费者
-只开放跟随，旧宿主能力标记缺失时不能保存或隐式启用。
+插件中心提供通用的「使用我的 Step Plan 额度」「开放平台 API（按量计费）」和
+「独立配置」。安装后默认不选，只能选已连接的官方渠道；没有兼容独立 schema
+的消费者不开放独立配置，旧宿主能力标记缺失时不能保存或隐式启用。
 独立模式复用 `dfsc.settings.json` 的受限字段与秘密写入协议；
-跟随保存不读取独立 Key，不要求填入虚假 Key。
+保存 Broker 账户绑定不读取独立 Key，不要求填入虚假 Key。
 
 公开桥只有 `pluginHostSettings({ ref })` 和 `pluginSaveHostSettings(...)`，
 以 opaque ref、旧 revision 和受限字段校验，主进程选择实际会话；

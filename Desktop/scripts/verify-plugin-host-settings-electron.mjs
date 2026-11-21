@@ -6,7 +6,7 @@ import { dirname, join, resolve } from 'node:path';
 import { _electron as electron } from 'playwright';
 import { installationReceipt, packageFingerprint, writeReceipts } from '../electron/plugin-files.mjs';
 import { closeDesktopFixtureAndWait } from './close-desktop-fixture.mjs';
-import { waitForSessionFixtureSnapshot, waitForSessionFixtureTools } from './session-fixture.mjs';
+import { restartIdleSessionFixture, waitForSessionFixtureSnapshot, waitForSessionFixtureTools } from './session-fixture.mjs';
 
 const profile = await realpath(await mkdtemp(join(tmpdir(), 'dfsc-host-settings-electron-')));
 const root = join(profile, 'step-runtime'), directory = join(root, 'plugins', 'host-example');
@@ -31,6 +31,9 @@ const receipt = installationReceipt({ name: 'host-example' }, { name: 'local-fix
 receipt.state = 'installed';
 await writeReceipts(root, { version: 1, installations: [receipt] });
 await writeFile(join(root, 'plugins', '.stepcode-preinstalled'), '["steppage"]');
+await writeFile(join(root, 'auth.json'), JSON.stringify({ step: {
+  type: 'oauth', access: 'offline-plugin-settings-account', profile: 'step_plan', expires: Date.now() + 3600000,
+} }));
 await writeFile(join(root, 'config.toml'), 'defaultProvider = "fixture"\ndefaultModel = "fixture"\n[telemetry]\nenabled = false\n[mcp_servers.steppage__steppage]\nenabled = false\n');
 await writeFile(join(root, 'models.json'), JSON.stringify({ providers: { fixture: {
   api: 'openai-completions', baseUrl: 'http://127.0.0.1:1/v1', apiKey: 'fixture-unused',
@@ -54,15 +57,17 @@ try {
     return window.desktop.pluginHostSettings({ ref: pkg.ref });
   });
   assert.equal(first.mode, null);
-  assert.equal(first.runtime.status, 'no-session');
+  assert.equal(first.runtime.status, 'unconfigured');
   await assert.rejects(page.evaluate(ref => window.desktop.pluginHostSettings({ ref, runtimeId: 'forged-runtime' }), first.ref), /invalid-input/);
-  const saved = await page.evaluate(ref => window.desktop.pluginSaveHostSettings({ ref, revision: 'unconfigured', mode: 'follow' }), first.ref);
-  assert.equal(saved.mode, 'follow');
-  assert.equal(saved.independent.configured, false, 'Follow does not require or save a key');
+  const account = { mode: 'account', accountTicket: first.account.ticket, models: { 'model.text': 'step-5-preview' } };
+  const saved = await page.evaluate(input => window.desktop.pluginSaveHostSettings(input),
+    { ref: first.ref, revision: 'unconfigured', ...account });
+  assert.equal(saved.mode, 'account');
+  assert.equal(saved.independent.configured, false, 'Broker mode does not require or save a key');
   assert.ok(!(await page.evaluate(() => window.desktop.snapshot())).runtimeId, 'Reading and saving settings do not create a worker');
   const responses = await page.evaluate(async input => Promise.allSettled([
     window.desktop.pluginSaveHostSettings(input), window.desktop.pluginSaveHostSettings(input),
-  ]), { ref: first.ref, revision: saved.revision, mode: 'follow' });
+  ]), { ref: first.ref, revision: saved.revision, ...account });
   assert.equal(responses.filter(item => item.status === 'fulfilled').length, 1, 'Shared IPC gate permits one concurrent writer');
   assert.equal(responses.filter(item => item.status === 'rejected').length, 1);
   const current = await page.evaluate(ref => window.desktop.pluginHostSettings({ ref }), first.ref);
@@ -89,15 +94,35 @@ try {
   assert.equal(connected.runtime.status, 'connected', 'Actual native SDK consumer starts in independent mode');
   assert.equal(connected.runtime.capabilities, undefined, 'Independent mode is not a host account grant');
   const switched = await page.evaluate(input => window.desktop.pluginSaveHostSettings(input),
-    { ref: first.ref, revision: independent.revision, mode: 'follow' });
+    { ref: first.ref, revision: independent.revision, ...account });
   assert.equal(switched.runtime.status, 'restart-required');
   const observed = await page.evaluate(ref => window.desktop.pluginHostSettings({ ref }), first.ref);
   assert.equal(observed.runtime.status, 'restart-required', 'Saving invalidates the existing consumer and does not renew it');
   assert.equal((await page.evaluate(() => window.desktop.snapshot())).runtimeId, snapshot.runtimeId, 'No automatic session replacement');
-  assert.doesNotMatch(JSON.stringify([first, saved, current, independent, connected, switched, observed, snapshot]),
-    /electron-private-independent-key|dfsc-launch-v1|DFSC_LAUNCH_CONTEXT|declarationHash|executionHash|"broker"|"token"/);
+  const paused = await page.evaluate(input => window.desktop.pluginSaveHostSettings(input),
+    { ref: first.ref, revision: switched.revision, mode: 'paused' });
+  assert.equal(paused.mode, 'paused');
+  assert.deepEqual(paused.models, switched.models);
+  assert.equal(paused.runtime.status, 'restart-required', 'A running independent consumer is not stopped by revoking Broker grants');
+  await restartIdleSessionFixture(page, snapshot.runtimeId);
+  const restarted = await page.evaluate(() => window.desktop.snapshot());
+  await waitForSessionFixtureSnapshot(page, value => {
+    assert.equal(value.runtimeId, restarted.runtimeId);
+    const startup = value.state?.desktopStartup;
+    if (startup?.discovery !== 'ready' || !startup.toolsSettledAt) return false;
+    assert.equal(startup.cleanupConfirmed, true);
+    const rejected = startup.tools.filter(tool => tool.status === 'failed');
+    assert.equal(rejected.length, 1);
+    assert.equal(rejected[0].hosted, true);
+    return true;
+  }, 'paused consumer rejected and startup settled');
+  const stopped = await page.evaluate(ref => window.desktop.pluginHostSettings({ ref }), first.ref);
+  assert.equal(stopped.runtime.status, 'source-paused');
+  assert.equal(stopped.independent.hasSecret.key, true);
+  assert.doesNotMatch(JSON.stringify([first, saved, current, independent, connected, switched, observed, snapshot, paused, stopped]),
+    /electron-private-independent-key|offline-plugin-settings-account|dfsc-launch-v1|DFSC_LAUNCH_CONTEXT|declarationHash|executionHash|"broker"|"token"/);
   assert.deepEqual(errors, []);
-  console.log('Production Electron host settings passed: receipt-backed IPC projection, explicit source, concurrent gates, independent SDK startup and revocation. No real account/model invocation.');
+  console.log('Production Electron host settings passed: explicit source, concurrent gates, independent SDK startup, paused restart, retained settings and no secret exposure. No real account/model invocation.');
 } finally {
   await closeDesktopFixtureAndWait(app);
 }

@@ -1,13 +1,15 @@
 import { createHmac, randomBytes } from 'node:crypto';
-import type { RuntimeState } from '../src/contracts';
 import type { SessionRuntime, SessionRuntimes } from './session-runtimes';
-import { stepHostRoute, stepModelAccount, type StepModelAccount } from './step-model-account';
+import { stepHostRoute, type StepAccount } from './step-model-account';
+import { pluginHostAccount } from './plugin-host-account';
+import type { PluginHostAccountBinding } from './plugin-host-contract.mjs';
+import type { PluginHostModels } from '../src/capabilities';
 import { StepAsrError, transcribeStepAudio } from './step-asr';
 import { synthesizeStepSpeech } from './step-tts';
-import { STEP_ASR_MODEL, STEP_TTS_MODEL, stepHostUnavailable } from '../src/step-host-catalog';
+import { stepHostUnavailable } from '../src/step-host-catalog';
 import type { HostProvider, HostProviderSnapshot } from './plugin-host-broker';
 import { CAPABILITIES, HostClientError, LIMITS } from '../../examples/plugins/host-client/protocol.mjs';
-import type { Capability, Invocation, ModelSelection, Results } from '../../examples/plugins/host-client/protocol.mjs';
+import type { Capability, Invocation, Results } from '../../examples/plugins/host-client/protocol.mjs';
 
 const fail = (code: ConstructorParameters<typeof HostClientError>[0]) => { throw new HostClientError(code); };
 type ImageFailureStage = 'network' | 'http' | 'response-body' | 'response-json' | 'response-content';
@@ -39,37 +41,51 @@ async function body(response: Response) {
 }
 export class StepPluginHostProvider implements HostProvider {
   private salt = randomBytes(32);
-  private accounts = new WeakMap<HostProviderSnapshot, StepModelAccount>();
+  private accounts = new WeakMap<HostProviderSnapshot, StepAccount>();
   constructor(private pool: Pick<SessionRuntimes, 'workers'>,
     private auth: () => Record<string, unknown>, private changing: () => boolean,
     private request: typeof fetch = fetch,
     private recordImageFailure?: (details: ImageFailureDiagnostic) => void | Promise<void>) {}
-  source(worker: SessionRuntime) {
-    if (this.pool.workers.get(worker.id) !== worker) return;
-    try { return stepHostRoute(stepModelAccount(this.auth(), worker, this.changing() || worker.mutating)); }
-    catch { return; }
+  private selection() {
+    const selected = !this.changing() && pluginHostAccount(this.auth());
+    return selected || undefined;
   }
-  async read(worker: SessionRuntime, models: ModelSelection): Promise<HostProviderSnapshot> {
-    const rpc = worker.rpc;
-    let state: RuntimeState;
-    try { state = await rpc.request('get_state', {}, 10000); }
-    catch { return fail('HOST_UNAVAILABLE'); }
-    if (this.pool.workers.get(worker.id) !== worker || worker.rpc !== rpc
-      || state.sessionId !== worker.state?.sessionId) return fail('STALE_CONTEXT');
-    let account: StepModelAccount;
-    try { account = stepModelAccount(this.auth(), { ...worker, state }, this.changing() || worker.mutating); }
-    catch { return fail('CAPABILITY_UNAVAILABLE'); }
+  private ticket(selection: NonNullable<ReturnType<StepPluginHostProvider['selection']>>) {
+    return createHmac('sha256', this.salt).update(JSON.stringify(selection)).digest('hex');
+  }
+  choice() {
+    const selection = this.selection();
+    if (!selection) return;
+    return { ...stepHostRoute(selection.account), ticket: this.ticket(selection) };
+  }
+  select(ticket: unknown) {
+    const selection = this.selection();
+    if (selection && ticket === this.ticket(selection)) return selection.binding;
+  }
+  accountStatus(binding: PluginHostAccountBinding) {
+    if (this.changing()) return 'account-unavailable';
+    const selected = pluginHostAccount(this.auth(), 0);
+    if (!selected) return this.auth().step ? 'account-changed' : 'account-unavailable';
+    if (selected.binding.id !== binding.id || selected.binding.region !== binding.region
+      || selected.binding.channel !== binding.channel) return 'account-changed';
+    if (selected.account.expires <= Date.now() + 1000) return 'account-expired';
+  }
+  async read(worker: SessionRuntime, models: PluginHostModels, binding?: PluginHostAccountBinding): Promise<HostProviderSnapshot> {
+    if (this.pool.workers.get(worker.id) !== worker) return fail('STALE_CONTEXT');
+    if (this.changing()) return fail('BUSY');
+    const selection = this.selection();
+    if (!binding || !selection || this.accountStatus(binding)) return fail('CAPABILITY_UNAVAILABLE');
+    const { account } = selection;
     const source = stepHostRoute(account), unavailable: NonNullable<HostProviderSnapshot['unavailable']> = {};
     const capabilities = CAPABILITIES.map(id => {
-      const model = id === 'model.asr' ? models[id] ?? STEP_ASR_MODEL
-        : id === 'model.tts' ? models[id] ?? STEP_TTS_MODEL : account.model;
-      const reason = stepHostUnavailable(id, source, model, account.video);
-      if (!reason) return { id, available: true, model, ...source };
-      unavailable[id] = reason;
+      const model = models[id];
+      const reason = stepHostUnavailable(id, source, model);
+      if (model && !reason) return { id, available: true, model, ...source };
+      unavailable[id] = reason ?? 'model-not-selected';
       return { id, available: false, reason: 'CAPABILITY_UNAVAILABLE' as const };
     });
     const snapshot: HostProviderSnapshot = {
-      revision: createHmac('sha256', this.salt).update(JSON.stringify([account, models])).digest('hex'),
+      revision: createHmac('sha256', this.salt).update(JSON.stringify([selection, models])).digest('hex'),
       expiresAt: account.expires,
       source, unavailable, capabilities,
     };
@@ -80,7 +96,7 @@ export class StepPluginHostProvider implements HostProvider {
     const account = this.accounts.get(snapshot);
     if (!account) return fail('STALE_CONTEXT');
     const supported = snapshot.capabilities.find(item => item.id === invocation.capability && item.available);
-    if (!supported) return fail('CAPABILITY_UNAVAILABLE');
+    if (!supported?.model) return fail('CAPABILITY_UNAVAILABLE');
     if (invocation.capability === 'model.tts')
       return synthesizeStepSpeech(account, invocation.input, signal, this.request, supported.model);
     if (invocation.capability === 'model.asr') {
@@ -108,7 +124,7 @@ export class StepPluginHostProvider implements HostProvider {
           { type: 'text', text: messages[index].content },
         ];
       }
-      payload = { model: account.model, messages,
+      payload = { model: supported.model, messages,
         ...(input.temperature !== undefined ? { temperature: input.temperature } : {}),
         ...(input.maxTokens !== undefined ? { max_tokens: input.maxTokens } : {}) };
     }
@@ -141,7 +157,7 @@ export class StepPluginHostProvider implements HostProvider {
         try {
           const id = response && upstreamRequestId(response, account.key);
           void Promise.resolve(this.recordImageFailure({
-            capability: invocation.capability, model: account.model, requestId: invocation.requestId,
+            capability: invocation.capability, model: supported.model, requestId: invocation.requestId,
             ...stepHostRoute(account), stage,
             ...(response ? { httpStatus: response.status } : {}),
             ...(id ? { upstreamRequestId: id } : {}),

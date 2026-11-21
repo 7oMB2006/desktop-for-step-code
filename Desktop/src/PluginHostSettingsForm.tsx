@@ -5,7 +5,7 @@ import { StepPlatformIcon } from './ProviderBrand';
 import { editablePluginConfiguration, PluginConfigurationEnumField, PluginConfigurationFields } from './PluginConfigurationForm';
 import type { DesktopBridge } from './contracts';
 import type { PluginConfigurationInput, PluginHostCapability, PluginHostModels, PluginHostRuntime, PluginHostSettings, PluginPackage } from './capabilities';
-import { STEP_ASR_MODEL, STEP_TTS_MODEL, stepTtsModels, stepTtsUnavailable, type StepHostUnavailable } from './step-host-catalog';
+import { stepHostModels, stepHostUnavailable, type StepHostUnavailable } from './step-host-catalog';
 
 type Bridge = Pick<DesktopBridge, 'pluginHostSettings' | 'pluginSaveHostSettings' | 'pluginChoosePath'>;
 const labels: Record<PluginHostCapability, [string, string]> = {
@@ -17,7 +17,7 @@ const unavailableLabels: Record<StepHostUnavailable, [string, string]> = {
   'channel-unconfirmed': ['当前渠道未确认支持', 'Not confirmed for this channel'],
   'region-unconfirmed': ['当前地区未确认支持', 'Not confirmed for this region'],
   'model-not-adapted': ['DFSC 尚未适配此模型', 'Model not integrated in DFSC'],
-  'session-model-unsupported': ['当前会话模型不在支持范围', 'Session model not supported'],
+  'model-not-selected': ['未选择插件模型', 'No plugin model selected'],
 };
 function runtimeLabel(status: PluginHostRuntime['status'], zh: boolean) {
   const values: Record<PluginHostRuntime['status'], [string, string]> = {
@@ -25,9 +25,14 @@ function runtimeLabel(status: PluginHostRuntime['status'], zh: boolean) {
     'no-session': ['尚无已连接会话', 'No connected session'],
     unconfigured: ['尚未选择模型来源', 'Model source not selected'],
     disabled: ['服务已停用', 'Service disabled'],
+    'source-paused': ['模型连接已暂停', 'Model connections paused'],
     'restart-required': ['待重启会话', 'Session restart required'],
     connected: ['当前会话已连接', 'Connected in current session'],
     unavailable: ['连接状态未确认', 'Connection unconfirmed'],
+    'choose-account': ['请重新选择额度账户', 'Select a quota account again'],
+    'account-unavailable': ['额度账户未连接', 'Quota account not connected'],
+    'account-expired': ['额度账户登录已过期', 'Quota account login expired'],
+    'account-changed': ['额度账户已变化，请重新选择', 'Quota account changed; select it again'],
   };
   return values[status][zh ? 0 : 1];
 }
@@ -37,7 +42,11 @@ export function PluginHostSettingsForm({ bridge, pkg, language, busy, visible, f
 }) {
   const zh = language === 'zh', t = (cn: string, en: string) => zh ? cn : en;
   const [saved, setSaved] = useState<PluginHostSettings>();
-  const [mode, setMode] = useState<'follow' | 'independent' | null>(null), [models, setModels] = useState<PluginHostModels>({});
+  const [mode, setMode] = useState<PluginHostSettings['mode']>(null), [models, setModels] = useState<PluginHostModels>({});
+  const [selectedRows, setSelectedRows] = useState<PluginHostCapability[]>([]);
+  const [account, setAccount] = useState<PluginHostSettings['account']>();
+  const [ticket, setTicket] = useState<string>();
+  const [reselected, setReselected] = useState(false);
   const [configuration, setConfiguration] = useState<PluginConfigurationInput>();
   const [runtime, setRuntime] = useState<PluginHostRuntime>(), [pending, setPending] = useState(false);
   const [needsStatus, setNeedsStatus] = useState(false);
@@ -45,20 +54,25 @@ export function PluginHostSettingsForm({ bridge, pkg, language, busy, visible, f
   const operation = useRef(false), alive = useRef(true), callback = useRef(onState), observedRuntime = useRef(runtimeKey);
   observedRuntime.current = runtimeKey;
   callback.current = onState;
-  const dirty = Boolean(saved && mode && (saved.mode !== mode || !saved.configurationCurrent
-    || mode === 'follow' && JSON.stringify(models) !== JSON.stringify(saved.models)
+  const incomplete = mode === 'account' && selectedRows.some(id => !models[id]);
+  const dirty = Boolean(saved && mode && (saved.mode !== mode || mode !== 'paused' && !saved.configurationCurrent
+    || mode === 'account' && (reselected || incomplete || saved.capabilities.some(id => models[id] !== saved.models[id]))
     || mode === 'independent' && configuration && saved.independent
       && (!saved.independent.configured || JSON.stringify(configuration) !== JSON.stringify(editablePluginConfiguration(saved.independent)))));
   const supported = saved?.runtime.status !== 'unsupported';
-  const ready = Boolean(saved && mode && supported && (mode !== 'independent' || configuration));
+  const accountReady = Boolean(ticket && ticket === account?.ticket);
+  const ready = Boolean(saved && supported && (mode === 'paused' || (mode === 'independent' ? configuration
+    : mode === 'account' && accountReady && !incomplete)));
   const locked = busy || pending;
-  const source = runtime?.source;
-  const channel = source?.channel === 'plan' ? 'Step Plan' : t('开放平台 API', 'Open Platform API');
+  const source = accountReady && account ? account : saved?.source;
+  const channelName = (value: 'plan' | 'api') => value === 'plan' ? 'Step Plan' : t('开放平台 API', 'Open Platform API');
+  const regionName = (value: 'cn' | 'oversea') => value === 'cn' ? t('中国大陆', 'China') : t('海外', 'Overseas');
   const unavailable = (reason: StepHostUnavailable) => unavailableLabels[reason][zh ? 0 : 1];
-  const ttsSelection = models['model.tts'] ?? '';
-  const ttsReason = stepTtsUnavailable(source, ttsSelection || STEP_TTS_MODEL);
   const accept = (value: PluginHostSettings) => {
     setSaved(value); setMode(value.mode); setModels({ ...value.models });
+    setSelectedRows(value.capabilities.filter(id => Boolean(value.models[id])));
+    setAccount(value.account); setReselected(false);
+    setTicket(value.mode === 'account' && value.accountMatches ? value.account?.ticket : undefined);
     setConfiguration(value.independent ? editablePluginConfiguration(value.independent) : undefined);
     setRuntime(value.runtime); setReloadReview(false);
   };
@@ -72,6 +86,7 @@ export function PluginHostSettingsForm({ bridge, pkg, language, busy, visible, f
       if (alive.current) {
         if (!statusOnly) accept(value);
         if (observedRuntime.current === currentRuntime) {
+          setAccount(value.account);
           setRuntime(value.revision === saved?.revision || !statusOnly ? value.runtime : { status: 'restart-required' });
           setNeedsStatus(false);
           if (statusOnly && value.revision !== saved?.revision)
@@ -101,7 +116,7 @@ export function PluginHostSettingsForm({ bridge, pkg, language, busy, visible, f
     operation.current = true; setPending(true); setError(''); setRuntime(undefined); setNeedsStatus(false);
     try {
       const value = await bridge.pluginSaveHostSettings({ ref: pkg.ref, revision: saved.revision, mode,
-        ...(mode === 'follow' ? { models } : { configuration }) });
+        ...(mode === 'account' ? { models, accountTicket: ticket } : mode === 'independent' ? { configuration } : {}) });
       if (alive.current) {
         accept(value);
         if (observedRuntime.current !== currentRuntime) { setRuntime(undefined); setNeedsStatus(true); }
@@ -121,81 +136,110 @@ export function PluginHostSettingsForm({ bridge, pkg, language, busy, visible, f
     } catch (error) { if (alive.current) setError(capabilityErrorText(error, zh)); }
     finally { operation.current = false; if (alive.current) setPending(false); }
   };
+  const chooseAccount = () => {
+    if (!saved || !account) return;
+    setMode('account'); setTicket(account.ticket);
+    setReselected(previous => previous || saved.mode === 'account' && (!ticket || ticket !== account.ticket));
+    if (source?.channel !== account.channel || source.region !== account.region) {
+      setModels({}); setSelectedRows([]);
+    }
+  };
+  const turnOff = () => {
+    setMode(saved && saved.revision !== 'unconfigured' ? 'paused' : null);
+  };
+  const chooseRowSource = (id: PluginHostCapability, value: string) => {
+    setSelectedRows(previous => value ? [...previous.filter(item => item !== id), id] : previous.filter(item => item !== id));
+    if (!value) setModels(previous => {
+      const next = { ...previous };
+      delete next[id];
+      return next;
+    });
+  };
   return <form id={formId} hidden={!visible} className="pc-generic-form pc-host-form" onSubmit={event => { event.preventDefault(); void submit(); }}>
     {error && <p className="cap-error" role="alert">{error}</p>}
     {!saved ? <button type="button" disabled={pending} onClick={() => void read()}>{pending ? t('读取中', 'Loading') : t('重试', 'Retry')}</button> : <>
       <fieldset className="pc-form-fields" disabled={locked || !supported}>
         <section className="pc-form-section">
-          <div className="pc-section-title"><h3>{t('模型来源', 'Model source')}</h3>
-            <span className="pc-section-meta">{saved.mode ? t('已保存', 'Saved') : t('尚未设置', 'Not configured')}</span></div>
-          <div className="pc-mode" role="group" aria-label={t('模型来源', 'Model source')}>
-            <button type="button" aria-pressed={mode === 'follow'} onClick={() => setMode('follow')}>
-              <StepPlatformIcon size={17}/>{t('跟随 DFSC 会话', 'Follow DFSC session')}{mode === 'follow' && <Check size={14}/>}</button>
-            <button type="button" disabled={!configuration} aria-pressed={mode === 'independent'} onClick={() => setMode('independent')}>
-              <FileKey2 size={17}/>{t('独立配置', 'Independent')}{mode === 'independent' && <Check size={14}/>}</button>
+          <div className="pc-section-title"><h3>{t('连接来源', 'Connection sources')}</h3>
+            <span className="pc-section-meta">{mode === 'account' || mode === 'independent' ? t('1 项已启用', '1 enabled')
+              : t('未启用', 'None enabled')}</span></div>
+          <div className="pc-mode pc-host-source-switches" role="group" aria-label={t('连接来源', 'Connection sources')}>
+            {(['plan', 'api'] as const).map(option => {
+              const selected = mode === 'account' && source?.channel === option;
+              return <button key={option} type="button" role="switch" disabled={!selected &&
+                (account?.channel !== option || mode === 'independent' || mode === 'account')}
+                aria-checked={selected} onClick={selected ? turnOff : chooseAccount}>
+                <StepPlatformIcon size={16}/><span>{option === 'plan' ? t('使用我的 Step Plan 额度', 'Use my Step Plan quota')
+                  : t('开放平台 API（按量计费）', 'Open Platform API (metered)')}</span><Check size={13} aria-hidden="true"/>
+              </button>;
+            })}
+            <button type="button" role="switch" disabled={mode !== 'independent' && (!configuration || mode === 'account')}
+              aria-checked={mode === 'independent'} onClick={() => mode === 'independent' ? turnOff() : setMode('independent')}>
+              <FileKey2 size={16}/><span>{t('独立配置', 'Independent')}</span><Check size={13} aria-hidden="true"/></button>
           </div>
-          {mode === null && <p className="pc-body-copy">{t('选择并保存后，再重启需要使用此插件的会话。安装和启用服务不会自动授权账户。',
-            'Select and save a source, then restart the session that will use this plugin. Installation and enabling the service do not authorize account access.')}</p>}
-          {mode === 'follow' && <div className="pc-follow pc-entrance">
-            {source && <p className="pc-hint">{t('沿用 DFSC', 'Follow DFSC')} · {channel} · {source.region === 'cn' ? t('中国大陆', 'China') : t('海外', 'Overseas')}</p>}
-            <p className="pc-body-copy">{t('使用实际调用插件的会话账户与已应用模型，不读取独立配置中的 Key。Plan 失败不会切换到直调 API。',
-              'Uses the invoking session’s account and applied model, not an independent key. Plan failures never switch to direct API.')}</p>
-            {saved.capabilities.includes('model.asr') && <div className="pc-field pc-host-speech"><label>{t('语音识别专用模型', 'Dedicated speech recognition model')}
-              <input value={models['model.asr'] ?? ''} placeholder={STEP_ASR_MODEL} maxLength={160} spellCheck={false}
-                onChange={event => setModels(previous => {
-                  const next = { ...previous }; if (event.target.value) next['model.asr'] = event.target.value; else delete next['model.asr']; return next;
-                })}/></label><p className="pc-hint">{t('留空使用 stepaudio-2.5-asr。当前仅支持此模型及 WAV 音频；其他值会显示为不可用。',
-                  'Leave blank for stepaudio-2.5-asr. Only this model and WAV audio are supported; other values are unavailable.')}</p></div>}
-            {saved.capabilities.includes('model.tts') && <div className="pc-field pc-host-speech">
-              <span className="pc-generic-label">{t('语音合成专用模型', 'Dedicated speech synthesis model')}</span>
-              <PluginConfigurationEnumField field={{
-                label: t('语音合成专用模型', 'Dedicated speech synthesis model'), options: [
-                  { value: '', label: t(`默认：${STEP_TTS_MODEL}`, `Default: ${STEP_TTS_MODEL}`) },
-                  ...[...stepTtsModels.map(item => item.id), ...(ttsSelection && !stepTtsModels.some(item => item.id === ttsSelection) ? [ttsSelection] : [])]
-                    .map(value => {
-                      const reason = stepTtsUnavailable(source, value);
-                      return { value, label: reason && value !== ttsSelection ? `${value} · ${unavailable(reason)}` : value, disabled: Boolean(reason) };
-                    }),
-                ] }} value={ttsSelection} disabled={locked || !supported} onChange={value => setModels(previous => {
-                  const next = { ...previous }; if (value) next['model.tts'] = value; else delete next['model.tts']; return next;
-                })}/>
-              <p className="pc-hint">{ttsReason ? unavailable(ttsReason)
-                : t('单次最多 1000 字符，支持 MP3 / WAV / PCM。', 'Up to 1,000 characters per request; MP3 / WAV / PCM.')}</p>
-            </div>}
-            <div className="pc-permission-row"><ShieldCheck size={17}/><div><strong>{t('逐项调用前确认', 'Per-capability request confirmation')}</strong>
-              <p>{t('保存不是付费授权。首次调用每项能力前仍需确认；授权只覆盖本次启动的会话、账户和模型。',
-                'Saving is not paid authorization. Each capability needs first-use confirmation for this launch, session, account and model.')}</p></div></div>
-          </div>}
-          {mode === 'independent' && <p className="pc-body-copy">{t('使用下方独立连接。插件自行调用，不经过宿主账户代理，也不会借用 DFSC 的 Key。',
-            'Uses the independent settings below. Requests are made by the plugin, not the host account broker; DFSC keys are not shared.')}</p>}
-          {!configuration && <p className="pc-hint">{saved.independentError ? capabilityErrorText(saved.independentError, zh)
-            : t('作者未提供兼容的独立配置，当前仅可选择跟随 DFSC。', 'No compatible independent configuration was provided; only Follow DFSC is available.')}</p>}
+          <p className="pc-hint">{t('官方连接取决于已登录的账户。当前插件每次启动只能使用一种连接；切换前请关闭当前来源。',
+            'Official connections depend on the signed-in account. This plugin uses one connection per launch; turn off the current source before switching.')}</p>
+          {!account && <p className="pc-hint">{t('请先在账户设置中连接官方 Step 账户。', 'Connect an official Step account in account settings first.')}</p>}
+          {saved.legacyFollow && mode === null && <p className="pc-hint">{t('旧版「跟随会话」已停用，请重新选择额度来源。',
+            'The legacy session-following setting is inactive. Select a billing source again.')}</p>}
+        </section>
+        <section className="pc-form-section" aria-label={t('模型调用', 'Model calls')}>
+          <div className="pc-section-title"><h3>{t('模型调用', 'Model calls')}</h3>
+            <button type="button" className="icon-button" disabled={locked} aria-label={t('刷新宿主状态', 'Refresh host status')}
+              onClick={() => void read(true)}><RefreshCw size={14}/></button></div>
+          <p className="pc-host-runtime" role="status">{runtime ? runtimeLabel(runtime.status, zh) : t('状态待刷新', 'Status needs refresh')}
+            <span>{t('当前会话快照', 'Current session snapshot')}</span></p>
+          <div className="pc-host-route-grid pc-host-route-head" aria-hidden="true">
+            <span>{t('能力', 'Capability')}</span><span>{t('调用来源', 'Source')}</span><span>{t('模型', 'Model')}</span>
+            <span>{t('当前会话', 'Current session')}</span>
+          </div>
+          <ul className="pc-host-routes">{saved.capabilities.map(id => {
+            const label = labels[id][zh ? 0 : 1];
+            const selected = selectedRows.includes(id) && Boolean(source);
+            const state = runtime?.capabilities?.find(item => item.id === id);
+            const rowEditable = mode === 'account' && accountReady && Boolean(source);
+            return <li key={id} className="pc-host-route-grid">
+              <strong>{label}</strong>
+              <div className="pc-host-route-field"><PluginConfigurationEnumField field={{
+                label: `${label} · ${t('调用来源', 'Source')}`, options: [
+                  { value: '', label: t('不使用', 'Do not use') },
+                  ...(['plan', 'api'] as const).map(option => ({
+                    value: option, label: channelName(option), disabled: option !== source?.channel,
+                  })),
+                ],
+              }} value={selected ? source!.channel : ''} disabled={!rowEditable} onChange={value => chooseRowSource(id, value)}/></div>
+              <div className="pc-host-route-field"><PluginConfigurationEnumField field={{
+                label: `${label} · ${t('模型', 'Model')}`, options: [
+                  { value: '', label: t('选择模型', 'Select a model'), disabled: true },
+                  ...stepHostModels(id).map(value => {
+                    const reason = source && stepHostUnavailable(id, source, value);
+                    return { value, label: reason ? `${value} · ${unavailable(reason)}` : value, disabled: Boolean(reason) };
+                  }),
+                ],
+              }} value={models[id] ?? ''} disabled={!rowEditable || !selected} onChange={value => setModels(previous => ({ ...previous, [id]: value }))}/></div>
+              <div className="pc-host-route-state">
+                <span className={state?.authorization === 'approved' ? 'pc-host-approved' : undefined}>
+                  {state?.authorization === 'approved' ? t('本次启动已授权', 'Approved for this launch')
+                    : state?.authorization === 'required' ? t('首次调用需确认', 'First use needs confirmation')
+                      : state?.unavailable ? unavailable(state.unavailable)
+                        : state ? t('不可用', 'Unavailable') : t('未确认授权', 'Authorization unconfirmed')}</span>
+                {state?.available && state.channel && state.region && <small>{channelName(state.channel)} · {regionName(state.region)} · {state.model}</small>}
+              </div>
+            </li>;
+          })}</ul>
+          {incomplete && <p className="pc-hint" role="status">{t('请为已选来源的能力补选模型。', 'Select a model for each capability with a source.')}</p>}
+          {mode === 'account' && <div className="pc-permission-row"><ShieldCheck size={17}/><div>
+            <strong>{t('逐项调用前确认', 'Per-capability request confirmation')}</strong>
+            <p>{t('首次调用每项能力前仍需确认。', 'First use of each capability requires confirmation.')}</p></div></div>}
         </section>
         {mode === 'independent' && saved.independent && configuration && <div className="pc-entrance">
+          <p className="pc-body-copy">{t('插件自行连接，不经过 Broker，不使用 DFSC 额度。', 'The plugin connects directly without Broker or DFSC quota.')}</p>
           <PluginConfigurationFields saved={saved.independent} draft={configuration} setDraft={setConfiguration} language={language} locked={locked} choosePath={choosePath}/>
         </div>}
+        {saved.independentError && !configuration && <p className="pc-hint">{capabilityErrorText(saved.independentError, zh)}</p>}
       </fieldset>
-      <section className="pc-form-section pc-host-observation" aria-label={t('宿主连接与授权', 'Host connection and authorization')}>
-        <div className="pc-section-title"><h3>{t('宿主连接与授权', 'Host connection and authorization')}</h3>
-          <button type="button" className="icon-button" disabled={locked} aria-label={t('刷新宿主状态', 'Refresh host status')}
-            onClick={() => void read(true)}><RefreshCw size={14}/></button></div>
-        <p className="pc-host-runtime" role="status">{runtime ? runtimeLabel(runtime.status, zh) : t('状态待刷新', 'Status needs refresh')}
-          <span>{t('查询快照', 'Snapshot')}</span></p>
-        <ul className="pc-host-capabilities">{saved.capabilities.map(id => {
-          const state = runtime?.capabilities?.find(item => item.id === id);
-          return <li key={id}><div><strong>{labels[id][zh ? 0 : 1]}</strong>
-            <span>{state?.model ?? (saved.mode === 'independent' ? t('由插件独立配置', 'Configured independently')
-              : state && !state.available ? state.unavailable ? unavailable(state.unavailable) : t('当前账户或模型不可用', 'Unavailable for this account or model')
-                : t('连接后按实际会话确认', 'Confirmed from the connected session'))}</span></div>
-            <div>{state?.available && <span>{state.channel === 'plan' ? 'Step Plan' : t('开放平台 API', 'Open Platform API')} · {state.region === 'cn' ? t('中国大陆', 'China') : t('海外', 'Overseas')}</span>}
-              <span className={state?.authorization === 'approved' ? 'pc-host-approved' : undefined}>
-                {state ? state.authorization === 'approved' ? t('本次启动已授权', 'Approved for this launch')
-                  : state.authorization === 'required' ? t('首次调用需确认', 'First use needs confirmation') : t('不可用', 'Unavailable')
-                  : t('未确认授权', 'Authorization unconfirmed')}</span></div></li>;
-        })}</ul>
-        {saved.mode === 'independent' && !saved.configurationCurrent && <p className="cap-error" role="status">{t('独立配置已变化。请核对并重新保存模型来源，旧启动不可继续使用。',
+      {saved.mode === 'independent' && !saved.configurationCurrent && <p className="cap-error" role="status">{t('独立配置已变化。请核对并重新保存模型来源，旧启动不可继续使用。',
           'Independent settings changed. Review and save the source again; previous launches cannot continue.')}</p>}
-      </section>
       <div className="pc-check-row"><button type="button" disabled={pending} onClick={() => dirty ? setReloadReview(true) : void read()}>
         {t('重新载入配置', 'Reload configuration')}</button></div>
       {reloadReview && <div className="pc-reload-review"><p>{t('丢弃当前草稿并重新载入已保存配置？', 'Discard this draft and reload saved settings?')}</p>

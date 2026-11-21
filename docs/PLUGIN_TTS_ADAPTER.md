@@ -6,13 +6,13 @@
 
 ## 宿主负责什么
 
-- 只使用当前调用会话的官方 Step 登录账户，凭据留在主进程。
+- 只使用用户在插件设置显式选定的官方 Step 账户，和聊天用什么模型无关；凭据留在主进程。
 - 按当前账户的国内/海外、Step Plan/API 路由调用 `/audio/speech`，不跨渠道回退。
 - 国内外 Step Plan 均使用已确认的 `stepaudio-2.5-tts`。开放平台另允许
   `stepaudio-3-tts`，国内开放平台另允许 `step-tts-2`、`step-tts-mini`。
   专用模型由用户在插件设置中选择，不由插件逐次覆盖。旧配置不自动改写；
   换渠道后不适用的模型会停用，用户可选择恢复默认。
-- 逐能力首次确认、账户/会话/模型/模式变化失效、取消、超时、并发和结果大小限制。
+- 逐能力首次确认、账户/原生会话/插件模型/模式变化失效、取消、超时、并发和结果大小限制。
 - 将提供商二进制音频规范化为 `{ type: 'audio', mimeType, data }`，`data` 为 base64。
 
 `available: true` 仅代表有已知适配路径，不是余额、套餐包含或真实账户权益保证。
@@ -36,7 +36,7 @@
 
 3. MCP 入口初始化一次标准 client。它消费的是宿主注入的
    `DFSC_LAUNCH_CONTEXT`，不是全局/包内 `host.json`；不要复制、打印或转交启动环境。
-4. `host.mode === 'follow'` 时只走 broker；`independent` 时使用原独立配置读取器，
+4. `host.mode === 'follow'` 时只走 broker（v1 兼容值，不表示跟随聊天模型）；`independent` 时使用原独立配置读取器，
    并核对 `host.configurationRevision`。两分支失败均不得静默切到另一分支。
 5. 通过 context 核对可用性，再提交以下窄请求：
 

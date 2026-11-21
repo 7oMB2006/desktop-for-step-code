@@ -283,13 +283,14 @@ if (hostPreview) {
     transport: 'stdio', enabled: true, configurable: true });
 }
 let hostChannel: 'plan' | 'api' = 'plan';
+hostConfiguration.account = { channel: 'plan', region: 'cn', ticket: 'fixture-plan' };
 const hostConnected = () => {
-  const source = { channel: hostChannel, region: 'cn' as const };
-  hostConfiguration.runtime = hostConfiguration.mode === 'independent' ? { status: 'connected' }
+  const source = hostConfiguration.source ?? { channel: hostChannel, region: 'cn' as const };
+  hostConfiguration.runtime = hostConfiguration.mode === 'paused' ? { status: 'source-paused' }
+    : hostConfiguration.mode === 'independent' ? { status: 'connected' }
     : { status: 'connected', source, capabilities: hostConfiguration.capabilities.map(id => {
-      const model = id === 'model.asr' ? hostConfiguration.models[id] ?? 'stepaudio-2.5-asr'
-        : id === 'model.tts' ? hostConfiguration.models[id] ?? 'stepaudio-2.5-tts' : 'step-5-preview';
-      const unavailable = stepHostUnavailable(id, source, model, true);
+      const model = hostConfiguration.models[id];
+      const unavailable = stepHostUnavailable(id, source, model);
       const available = !unavailable;
       return { id, available, unavailable, ...(available ? { model, ...source } : {}),
         authorization: available ? 'required' as const : 'unavailable' as const };
@@ -415,8 +416,12 @@ const bridge: PluginCenterBridge = {
       hostConfiguration.independent = { ...hostConfiguration.independent, revision: `config-${hostSaves}`, configured: true,
         values: { ...config.values }, hasSecret: { key: config.secrets.key?.action === 'replace' || hostConfiguration.independent.hasSecret.key === true } };
     }
-    hostConfiguration = { ...hostConfiguration, mode: input.mode, models: input.models ?? {},
-      revision: `host-${hostSaves}`, configurationCurrent: true, runtime: { status: 'restart-required' } };
+    hostConfiguration = { ...hostConfiguration, mode: input.mode,
+      models: input.mode === 'account' ? input.models ?? {} : hostConfiguration.models,
+      source: input.mode === 'account' ? { channel: hostChannel, region: 'cn' } : hostConfiguration.source,
+      accountMatches: input.mode === 'account' || hostConfiguration.source?.channel === hostChannel,
+      revision: `host-${hostSaves}`, configurationCurrent: input.mode !== 'paused',
+      runtime: { status: input.mode === 'paused' ? 'source-paused' : 'restart-required' } };
     if (hostAfterCommitFailure) { hostAfterCommitFailure = false; throw new Error('capability:host-selection-incomplete'); }
     return structuredClone(hostConfiguration);
   },
@@ -522,7 +527,12 @@ Object.assign(window, { pluginCenterTest: { configuration: () => structuredClone
 Object.assign(window, { pluginHostTest: {
   snapshot: () => ({ value: structuredClone(hostConfiguration), saves: hostSaves, reads: hostReads, restarts }),
   connected: hostConnected,
-  channel: (value: 'plan' | 'api') => { hostChannel = value; hostConnected(); },
+  channel: (value: 'plan' | 'api') => {
+    hostChannel = value;
+    hostConfiguration.account = { channel: value, region: 'cn', ticket: `fixture-${value}` };
+    hostConfiguration.accountMatches = hostConfiguration.source?.channel === value;
+    hostConfiguration.runtime = { status: 'account-changed', source: hostConfiguration.source };
+  },
   approve: () => { for (const capability of hostConfiguration.runtime.capabilities ?? [])
     if (capability.available) capability.authorization = 'approved'; },
   fail: () => { hostFailure = true; },

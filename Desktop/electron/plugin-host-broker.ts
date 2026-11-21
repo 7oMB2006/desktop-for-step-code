@@ -1,12 +1,12 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
-import { PluginHostBindingStore, type HostBinding } from './plugin-host-contract.mjs';
+import { PluginHostBindingStore, type HostBinding, type PluginHostAccountBinding } from './plugin-host-contract.mjs';
 import type { ConfigurationDescriptor } from './plugin-configuration.mjs';
 import type { SessionRuntime, SessionRuntimes } from './session-runtimes';
-import type { PluginHostRuntime } from '../src/capabilities';
+import type { PluginHostRuntime, PluginHostModels } from '../src/capabilities';
 import type { StepHostRoute, StepHostUnavailable } from '../src/step-host-catalog';
 import { HostClientError, LIMITS, boundedJson, keys, parseContext, parseInvoke, parseResult } from '../../examples/plugins/host-client/protocol.mjs';
-import type { Capability, FollowLaunch, HostContext, Invocation, LaunchContext, ModelSelection, Results } from '../../examples/plugins/host-client/protocol.mjs';
+import type { Capability, FollowLaunch, HostContext, Invocation, LaunchContext, Results } from '../../examples/plugins/host-client/protocol.mjs';
 
 export interface HostProviderSnapshot {
   revision: string; expiresAt: number; capabilities: HostContext['capabilities'];
@@ -14,8 +14,8 @@ export interface HostProviderSnapshot {
   unavailable?: Partial<Record<Capability, StepHostUnavailable>>;
 }
 export interface HostProvider {
-  source?(worker: SessionRuntime): StepHostRoute | undefined;
-  read(worker: SessionRuntime, models: ModelSelection): Promise<HostProviderSnapshot>;
+  accountStatus?(account: PluginHostAccountBinding): 'account-unavailable' | 'account-expired' | 'account-changed' | undefined;
+  read(worker: SessionRuntime, models: PluginHostModels, account?: PluginHostAccountBinding): Promise<HostProviderSnapshot>;
   invoke(snapshot: HostProviderSnapshot, input: Invocation, signal: AbortSignal): Promise<Results[Capability]>;
 }
 type Budgets = { -readonly [K in 'lease' | 'queue' | 'confirmation' | 'provider']: number };
@@ -28,6 +28,13 @@ type Lease = {
 };
 type Waiter = { group: string; ready(): void; reject(): void };
 const fresh = () => createHash('sha256').update(randomBytes(32)).digest('hex');
+const requestData: Record<Capability, readonly [string, string]> = {
+  'model.text': ['插件提供的文字', 'Text supplied by the plugin'],
+  'model.image': ['插件提供的文字和图片', 'Text and images supplied by the plugin'],
+  'model.video': ['插件提供的文字和视频（可能含音轨）', 'Text and video supplied by the plugin (which may include audio)'],
+  'model.asr': ['插件提供的音频', 'Audio supplied by the plugin'],
+  'model.tts': ['插件提供的待合成文字与合成设置', 'Text and synthesis settings supplied by the plugin'],
+};
 function fail(code: string): never { throw new HostClientError(code); }
 function aborted(signal: AbortSignal) {
   if (!signal.aborted) return;
@@ -116,7 +123,7 @@ export class PluginHostBroker {
     const rpc = worker.rpc, sessionId = worker.state?.sessionId;
     if (!sessionId || !this.sameRuntime(worker, rpc, sessionId)) return fail('STALE_CONTEXT');
     if (!await this.options.validateConsumer(descriptor, binding, worker)) return fail('DENIED');
-    const snapshot = binding.mode === 'follow' ? await this.options.provider.read(worker, binding.models) : undefined;
+    const snapshot = binding.mode === 'follow' ? await this.options.provider.read(worker, binding.models, binding.account) : undefined;
     const token = randomBytes(32).toString('base64url');
     const launch = await this.store.launch(descriptor, {
       runtimeId: worker.id, sessionId, accountRevision: snapshot?.revision ?? fresh(),
@@ -126,6 +133,8 @@ export class PluginHostBroker {
       || !await this.options.validateConsumer(descriptor, binding, worker) || this.closed
       || !this.sameRuntime(worker, rpc, sessionId)) return fail('STALE_CONTEXT');
     if (launch.mode !== 'follow') return launch;
+    if ((await this.options.provider.read(worker, binding.models, binding.account)).revision !== snapshot?.revision
+      || !this.sameRuntime(worker, rpc, sessionId) || this.closed) return fail('STALE_CONTEXT');
     if (this.leases.size >= 64) return fail('BUSY');
     const lease: Lease = {
       worker, rpc, descriptor: { ...descriptor }, binding, launch, snapshot: snapshot!, revision: fresh(),
@@ -144,6 +153,12 @@ export class PluginHostBroker {
   }
   invalidate(worker?: SessionRuntime) {
     for (const lease of this.leases.values()) if (!worker || lease.worker === worker) this.revoke(lease);
+  }
+  invalidateInstance(instance: string) {
+    for (const lease of this.leases.values()) if (lease.launch.instance === instance) this.revoke(lease);
+  }
+  invalidateAccount() {
+    for (const lease of this.leases.values()) this.revoke(lease);
   }
   release(launch: LaunchContext) {
     if (launch.mode !== 'follow') return;
@@ -168,7 +183,7 @@ export class PluginHostBroker {
   }
   private sameRuntime(worker: SessionRuntime, rpc: SessionRuntime['rpc'], sessionId: string) {
     return this.options.pool.workers.get(worker.id) === worker && worker.rpc === rpc
-      && worker.status === 'connected' && !worker.stopping && !worker.mutating
+      && worker.status === 'connected' && !worker.stopping
       && worker.state?.sessionId === sessionId;
   }
   private async current(lease: Lease, revokeOnFailure = true) {
@@ -180,10 +195,11 @@ export class PluginHostBroker {
       if (!('mode' in binding) || binding.mode !== 'follow' || !binding.configurationCurrent
         || binding.revision !== lease.binding.revision
         || !await this.options.validateConsumer(lease.descriptor, binding, worker)) fail('STALE_CONTEXT');
-      const snapshot = await this.options.provider.read(worker, binding.models);
+      const snapshot = await this.options.provider.read(worker, binding.models, binding.account);
       if (snapshot.revision !== lease.snapshot.revision || lease.controller.signal.aborted
         || !this.sameRuntime(worker, lease.rpc, lease.launch.sessionId)) fail('STALE_CONTEXT');
-    } catch {
+    } catch (error) {
+      if (error instanceof HostClientError && error.code === 'BUSY') throw error;
       if (revokeOnFailure) this.revoke(lease);
       fail('STALE_CONTEXT');
     }
@@ -234,13 +250,15 @@ export class PluginHostBroker {
       const combined = AbortSignal.any([lease.controller.signal, controller.signal, AbortSignal.timeout(this.budgets.confirmation)]);
       const zh = this.options.language() === 'zh';
       const selected = lease.snapshot.capabilities.find(item => item.id === capability)!;
+      const [dataZh, dataEn] = requestData[capability];
+      const plan = selected.channel === 'plan';
       const message = zh
-        ? `${lease.launch.pluginId} 申请 ${capability}，模型 ${selected.model}。\n渠道：${selected.channel === 'plan' ? 'Step Plan 套餐' : '直调 API'}；地区：${selected.region}。\n文字、图片、音频或视频将发送给阶跃并可能消耗额度。仅授权本次启动、此会话的当前账户、模型及本项能力。失败不会切换计费渠道；取消不保证免除已产生的费用。`
-        : `${lease.launch.pluginId} requests ${capability} with ${selected.model}.\nChannel: ${selected.channel === 'plan' ? 'Step Plan' : 'direct API'}; region: ${selected.region}.\nText, images, audio or video are sent to Step and may consume quota. Approval covers only this launch, session, account, model and capability. No billing fallback. Cancellation may not prevent charges already incurred.`;
+        ? `${lease.launch.pluginId} 申请 ${capability}，模型 ${selected.model}。\n渠道：${plan ? 'Step Plan 套餐' : '开放平台 API（按量计费）'}；地区：${selected.region}。\n${dataZh}将发送给阶跃，${plan ? '可能消耗套餐额度' : '可能产生按量费用'}。仅授权本次启动、会话、插件所选额度账户、模型及本项能力。失败不会切换计费渠道；取消不保证撤回已产生的用量或费用。`
+        : `${lease.launch.pluginId} requests ${capability} with ${selected.model}.\nChannel: ${plan ? 'Step Plan' : 'Open Platform API (metered)'}; region: ${selected.region}.\n${dataEn} will be sent to Step and may ${plan ? 'consume plan quota' : 'incur usage charges'}. Approval applies only to this launch, session, the plugin's selected billing account, model and capability. No billing fallback. Cancellation cannot guarantee reversal of incurred usage or charges.`;
       confirmation = { controller, users: 0, settled: false, promise: undefined! };
       const record = confirmation;
       record.promise = wait(this.options.pool.confirm(lease.worker,
-        zh ? '允许插件使用当前模型账户？' : 'Allow plugin model account access?', message, combined), combined)
+        zh ? '允许插件使用已选额度账户？' : 'Allow the plugin to use its selected billing account?', message, combined), combined)
         .then(approved => {
           aborted(combined);
           if (!approved) fail('DENIED');

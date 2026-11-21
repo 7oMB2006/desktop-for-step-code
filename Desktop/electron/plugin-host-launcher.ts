@@ -10,6 +10,7 @@ import type { SessionRuntime, SessionRuntimes } from './session-runtimes';
 import type { LaunchContext } from '../../examples/plugins/host-client/protocol.mjs';
 import { setTimeout as delay } from 'node:timers/promises';
 import { runtimeStartup } from '../src/runtime-startup';
+import { HostClientError } from '../../examples/plugins/host-client/protocol.mjs';
 
 interface NativeRecord {
   requestId: string; sessionId: string; pluginId: string; consumer: string; root: string;
@@ -55,6 +56,8 @@ export class PluginHostLauncher {
     } else { this.generation++; this.attachments.clear(); this.deferred.clear(); }
     this.broker.invalidate(worker);
   }
+  invalidateInstance(instance: string) { this.broker.invalidateInstance(instance); }
+  invalidateAccount() { this.broker.invalidateAccount(); }
   async resumeDeferred() {
     if (!this.options.available()) return;
     const pending = [...this.deferred];
@@ -86,8 +89,8 @@ export class PluginHostLauncher {
     const identityCurrent = () => generation === this.generation
       && version === (this.versions.get(worker) ?? 0) && worker.rpc === rpc
       && this.options.pool.workers.get(worker.id) === worker && worker.status === 'connected'
-      && !worker.stopping && !worker.mutating && worker.state?.sessionId === sessionId;
-    const current = () => this.options.available() && identityCurrent();
+      && !worker.stopping && worker.state?.sessionId === sessionId;
+    const current = () => this.options.available() && !worker.mutating && identityCurrent();
     if (!sessionId || !current()) return;
     try {
       if (worker.startup) {
@@ -151,20 +154,31 @@ export class PluginHostLauncher {
     }
   }
   async status(descriptor: ConfigurationDescriptor, binding: HostBinding | UnconfiguredHostBinding): Promise<PluginHostRuntime> {
-    if (!this.options.available()) return { status: 'unavailable' };
+    if (!('mode' in binding)) return { status: 'unconfigured' };
+    if (binding.mode === 'paused') {
+      const worker = this.options.pool.workers.get(this.options.pool.activeId ?? '');
+      const previousIndependent = worker && [...this.attachments.get(worker)?.values() ?? []].some(item =>
+        item.started && item.rpc === worker.rpc && item.record.sessionId === worker.state?.sessionId
+        && item.launch?.instance === binding.instance && item.launch.mode === 'independent');
+      return { status: previousIndependent ? 'restart-required' : 'source-paused' };
+    }
+    if (binding.mode === 'follow' && !binding.account) return { status: 'choose-account' };
+    const account = binding.mode === 'follow' ? binding.account : undefined;
+    const source = account && { channel: account.channel, region: account.region };
+    const accountStatus = account && this.options.provider.accountStatus?.(account);
+    if (accountStatus) return { status: accountStatus, source };
+    if (!this.options.available()) return { status: 'unavailable', source };
     const worker = this.options.pool.workers.get(this.options.pool.activeId ?? '');
-    if (!worker || worker.status !== 'connected' || !worker.state?.sessionId || worker.stopping || worker.mutating)
-      return { status: 'no-session' };
+    if (!worker || worker.status !== 'connected' || !worker.state?.sessionId || worker.stopping)
+      return { status: 'no-session', source };
     const observed = (status: PluginHostRuntime['status']): PluginHostRuntime => {
-      const source = this.options.available() ? this.options.provider.source?.(worker) : undefined;
       return source ? { status, source } : { status };
     };
-    if (!('mode' in binding)) return observed('unconfigured');
     if (!binding.configurationCurrent) return observed('restart-required');
     const attachment = [...this.attachments.get(worker)?.values() ?? []].find(item =>
       item.launch?.pluginId === binding.pluginId && item.launch.revision === binding.revision
       && item.launch.instance === binding.instance && item.rpc === worker.rpc && item.started);
-    const valid = attachment?.launch && await this.validate(descriptor, binding, worker, true);
+    const valid = attachment?.launch && await this.validate(descriptor, binding, worker, true).catch(() => false);
     if (this.options.pool.activeId !== worker.id || this.options.pool.workers.get(worker.id) !== worker) return { status: 'unavailable' };
     if (!attachment?.launch || !valid) return observed('restart-required');
     const status = attachment.launch.mode === 'follow' ? await this.broker.status(attachment.launch)
@@ -174,6 +188,7 @@ export class PluginHostLauncher {
     return status;
   }
   private async validate(descriptor: ConfigurationDescriptor, binding: HostBinding, worker: SessionRuntime, connected = false) {
+    if (!this.options.available()) throw new HostClientError('BUSY');
     const matches = [...this.attachments.get(worker)?.values() ?? []].filter(item =>
       item.record.pluginId === binding.pluginId && item.record.consumer === binding.consumer
       && item.record.root === resolve(descriptor.root) && item.rpc === worker.rpc
@@ -182,7 +197,6 @@ export class PluginHostLauncher {
     const attachment = matches[0];
     if (attachment.record.declarationHash !== binding.declarationHash) return false;
     try {
-      if (!this.options.available()) return false;
       const inspected: unknown = await attachment.rpc.request('desktop_plugin_host',
         { action: 'inspect', requestId: attachment.record.requestId }, 10000);
       if (!nativeRecord(inspected) || inspected.conflict || inspected.phase === 'failed' || connected && inspected.phase !== 'connected'
@@ -194,10 +208,14 @@ export class PluginHostLauncher {
         server.command.trim(), server.args ?? [], resolve(descriptor.root, server.cwd?.trim() ?? ''),
         Object.entries(server.env ?? {}).sort(([a], [b]) => a.localeCompare(b)),
       ])).digest('hex');
-      return expected === inspected.executionHash && this.options.available()
+      if (!this.options.available()) throw new HostClientError('BUSY');
+      return expected === inspected.executionHash
         && this.attachments.get(worker)?.get(attachment.record.requestId) === attachment
         && worker.rpc === attachment.rpc && worker.state?.sessionId === attachment.record.sessionId;
-    } catch { return false; }
+    } catch (error) {
+      if (error instanceof HostClientError && error.code === 'BUSY') throw error;
+      return false;
+    }
   }
   async close() { this.invalidate(); await this.broker.close(); }
 }

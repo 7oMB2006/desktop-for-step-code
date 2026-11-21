@@ -113,7 +113,7 @@ const result = async current => {
   return value;
 };
 const tool = (text, format = 'wav') => send({ name: 'synthesize_speech', arguments: { text, voice: 'cixingnansheng', format } });
-const confirmation = () => page.getByRole('dialog', { name: '允许插件使用当前模型账户？', exact: true });
+const confirmation = () => page.getByRole('dialog', { name: '允许插件使用已选额度账户？', exact: true });
 try {
   app = await electron.launch({ executablePath, env, timeout: 60000 });
   page = await app.firstWindow();
@@ -139,7 +139,10 @@ try {
     .find(plugin => plugin.id === 'dfsc-host-example').package.ref);
   const settings = () => page.evaluate(ref => window.desktop.pluginHostSettings({ ref }), ref);
   const initial = await settings();
-  await page.evaluate(input => window.desktop.pluginSaveHostSettings(input), { ref, revision: initial.revision, mode: 'follow' });
+  await page.evaluate(input => window.desktop.pluginSaveHostSettings(input), {
+    ref, revision: initial.revision, mode: 'account', accountTicket: initial.account.ticket,
+    models: { 'model.tts': 'stepaudio-2.5-tts' },
+  });
   await page.evaluate(() => window.desktop.newIndependentSession());
   await page.reload();
   await until(async () => (await settings()).runtime.status === 'connected', 'Native speech consumer did not connect');

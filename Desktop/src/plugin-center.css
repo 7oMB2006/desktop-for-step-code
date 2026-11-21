@@ -249,24 +249,26 @@
 .pc-generic-fields .scheduled-select > button { width: 100%; justify-content: space-between; }
 .pc-generic-label { display: block; font-size: 12px; margin-bottom: 8px; }
 .pc-host-form { padding: 0 4px 8px; }
-.pc-host-speech { max-width: 420px; padding: 4px; margin: 12px -4px 0; }
-.pc-host-speech .scheduled-select { display: block; }
-.pc-host-speech .scheduled-select > button { width: 100%; justify-content: space-between; }
-.pc-host-observation { margin-top: 4px; padding-inline: 4px; }
 .pc-host-runtime { display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px 16px; font-size: 12px; line-height: 1.7; margin: 0 0 12px; }
 .pc-host-runtime > span { color: var(--muted); font-size: 10px; }
-.pc-host-capabilities { list-style: none; padding: 0; margin: 0; }
-.pc-host-capabilities > li { display: flex; align-items: baseline; justify-content: space-between; gap: 12px 24px; padding: 13px 0; border-top: 1px solid var(--border); font-size: 11px; line-height: 1.7; }
-.pc-host-capabilities > li > div { display: flex; flex-direction: column; gap: 3px; min-width: 0; overflow-wrap: anywhere; }
-.pc-host-capabilities > li > div:last-child { text-align: right; }
-.pc-host-capabilities strong { font-size: 12px; font-weight: 500; }
-.pc-host-capabilities span { color: var(--muted); }
-.pc-host-capabilities .pc-host-approved { color: var(--green); }
+.pc-host-routes { list-style: none; padding: 0; margin: 0; }
+.pc-host-route-grid { display: grid; grid-template-columns: minmax(0, .82fr) minmax(0, 1.25fr) minmax(0, 1.45fr) minmax(0, 1fr); gap: 8px 14px; }
+.pc-host-route-head { padding: 0 4px 8px; color: var(--muted); font-size: 11px; }
+.pc-host-routes > li { align-items: center; padding: 12px 4px; border-top: 1px solid var(--border); }
+.pc-host-route-grid > strong { min-width: 0; overflow-wrap: anywhere; font-size: 12px; font-weight: 600; }
+.pc-host-route-field { min-width: 0; padding: 4px; margin: -4px; }
+.pc-host-route-field .scheduled-select { display: block; }
+.pc-host-route-field .scheduled-select > button { width: 100%; min-width: 0; min-height: 36px; justify-content: space-between; text-align: left; overflow-wrap: anywhere; }
+.pc-host-route-state { min-width: 0; color: var(--muted); font-size: 11px; line-height: 1.55; overflow-wrap: anywhere; }
+.pc-host-route-state > small { display: block; font-size: 10px; }
+.pc-host-route-state .pc-host-approved { color: var(--green); }
 .pc-host-form .pc-reload-review { padding: 8px 4px; font-size: 12px; }
 .pc-host-form .pc-reload-review button + button { margin-left: 8px; }
-@media (max-width: 480px) {
-  .pc-host-capabilities > li { flex-direction: column; gap: 5px; }
-  .pc-host-capabilities > li > div:last-child { text-align: left; }
+@media (max-width: 620px) {
+  .pc-host-route-head { display: none; }
+  .pc-host-route-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .pc-host-route-field { grid-row: 2; }
+  .pc-host-route-state { grid-column: 2; grid-row: 1; text-align: right; }
 }
 @media (max-width: 640px) { .pc-generic-fields { grid-template-columns: minmax(0,1fr); } }
 .pc-document-reader { min-width: 0; padding: 4px; }
@@ -283,6 +285,13 @@
 .pc-mode { display: flex; gap: 6px; padding: 3px; border: 1px solid var(--border); background: var(--side); border-radius: 6px; }
 .pc-mode > button { flex: 1; border: 1px solid transparent; background: transparent; font-size: 12px; padding: 8px 9px; min-height: 37px; border-radius: 4px; gap: 7px; }
 .pc-mode > button[aria-pressed=true] { background: var(--bg); border-color: var(--border); color: var(--primary); }
+.pc-host-form .pc-mode { flex-wrap: wrap; }
+.pc-host-form .pc-mode > button { flex: 1 1 145px; }
+.pc-host-form .pc-host-source-switches { padding: 4px; gap: 8px; }
+.pc-host-source-switches > button > span { min-width: 0; overflow-wrap: anywhere; }
+.pc-host-source-switches > button > svg:last-child { visibility: hidden; }
+.pc-host-source-switches > button[aria-checked=true] { background: var(--bg); border-color: var(--border); color: var(--primary); }
+.pc-host-source-switches > button[aria-checked=true] > svg:last-child { visibility: visible; }
 .pc-follow { padding-top: 17px; }
 .pc-follow-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: var(--muted); font-size: 11px; margin-bottom: 15px; }
 .pc-follow-heading > span { display: flex; gap: 6px; align-items: center; }

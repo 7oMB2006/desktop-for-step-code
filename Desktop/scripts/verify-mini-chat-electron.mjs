@@ -318,10 +318,9 @@ try {
   await mini.screenshot({ path: join(output, 'native-picker-tooltip-path.png') });
   await localPlus.click();
   await mini.locator('.app-tooltip').waitFor({ state: 'detached' });
-  await mini.waitForFunction(async path => {
-    const snapshot = await window.desktop.snapshot();
-    return snapshot.draftId && !snapshot.independent && snapshot.preferences.workspace === path;
-  }, webLocal);
+  await waitForSessionFixtureSnapshot(mini,
+    snapshot => snapshot.draftId && !snapshot.independent && snapshot.preferences.workspace === webLocal,
+    'the project-specific MiniChat draft');
   await mini.locator('.mini-chat-session-copy strong').getByText('新会话', { exact: true }).waitFor();
   await mini.locator('.composer-wrap[aria-busy="false"]').waitFor();
   await editor.fill('Keep this project-specific MiniChat draft');
@@ -329,12 +328,9 @@ try {
   await openPicker();
   await nativeSearch.fill('独立会话');
   await nativePicker.getByRole('button', { name: '新建独立会话', exact: true }).click();
-  await mini.waitForFunction(async () => {
-    const snapshot = await window.desktop.snapshot();
-    return snapshot.draftId && snapshot.independent;
-  });
+  const independentDraft = await waitForSessionFixtureSnapshot(mini,
+    snapshot => snapshot.draftId && snapshot.independent, 'the retargeted independent MiniChat draft');
   await mini.locator('.composer-wrap[aria-busy="false"]').waitFor();
-  const independentDraft = await mini.evaluate(() => window.desktop.snapshot());
   assert.equal(independentDraft.draftId, projectDraft, 'Retargeting an unsubmitted draft preserves its identity');
   assert.equal(await editor.textContent(), 'Keep this project-specific MiniChat draft', 'Retargeting an unsubmitted draft keeps its input');
   assert.ok(independentDraft.independent);

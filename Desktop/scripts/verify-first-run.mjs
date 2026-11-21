@@ -297,6 +297,24 @@ try {
   assert.equal(requests.length, 0);
   assert.equal((await readFile(join(customRoot, 'step-runtime/auth.dpapi'))).includes(Buffer.from(secret)), false);
   assert.ok(!(await page.locator('body').innerText()).includes(secret));
+  await app.evaluate(({ ipcMain }) => {
+    const handlers = ipcMain._invokeHandlers;
+    const original = handlers.get('desktop');
+    const outcomes = [];
+    globalThis.firstRunPromptOutcomes = outcomes;
+    handlers.set('desktop', async (event, method, ...args) => {
+      const row = method === 'command' && args[0] === 'prompt' && outcomes.length < 4 ? { outcome: 'pending' } : null;
+      if (row) outcomes.push(row);
+      try {
+        const value = await original(event, method, ...args);
+        if (row) row.outcome = 'accepted';
+        return value;
+      } catch (error) {
+        if (row) row.outcome = /\bSTARTUP_NOT_READY:/.test(String(error)) ? 'startup-refusal' : 'other-rejection';
+        throw error;
+      }
+    });
+  });
   await page.evaluate(() => {
     window.firstRunCompletion = undefined;
     window.desktop.onEvent(event => {
@@ -450,6 +468,7 @@ try {
     await page.screenshot({ path: join(output, 'failure.png'), fullPage: true }).catch(() => {});
     console.error(await page.locator('[role="alert"]').allTextContents().catch(() => []));
   }
+  if (app) console.error('First-run prompt IPC outcomes:', await app.evaluate(() => globalThis.firstRunPromptOutcomes ?? []).catch(() => []));
   throw error;
 } finally {
   try { await close(); }

@@ -27,7 +27,10 @@ try {
   const checks = [];
   let surface = 'conversation';
   let testLateDefaults = false;
-  const baseDefaults = (await readFile(resolve('src/style.css'), 'utf8')).split(/\r?\n/).slice(0, 2).join('\n');
+  const defaults = (await readFile(resolve('src/style.css'), 'utf8')).split(/\r?\n/)
+    .filter(line => /^:root(?:\[data-theme=dark\])?\{/.test(line));
+  assert.equal(defaults.length, 2, 'Exercise both default palette rules, without loading their imports');
+  const baseDefaults = defaults.join('\n');
   async function checkTheme(theme, accentColor = null) {
     await page.evaluate(patch => window.desktop.preferences(patch), { theme, accentColor });
     // Preferences IPC persists values; the Settings UI owns its React state update.

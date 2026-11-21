@@ -1,5 +1,27 @@
 .composer > .composer-input { display: block; width: 100%; min-height: 58px; max-height: 180px; padding: 14px 16px 8px; overflow-y: auto; scrollbar-gutter: stable; outline: none; border: 0; background: transparent; color: var(--ink); font-family: var(--body-font); font-size: var(--body-size); line-height: var(--body-leading); letter-spacing: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
-.composer:has(> .composer-input:focus-visible) { outline: 2px solid var(--primary); outline-offset: 2px; }
+:is(.composer:has(> .composer-input), .user-message-editor) {
+  --composer-focus-color: color-mix(in srgb, var(--primary) 68%, var(--border));
+  --composer-focus-width: 1px;
+}
+.composer:not(.composer-file-drop):is(:has(> .composer-input:focus-visible), [data-composer-focus-within]:focus-within),
+.user-message-editor:has(textarea:focus) {
+  outline: var(--composer-focus-width) solid var(--composer-focus-color);
+  outline-offset: 2px;
+  --composer-focus-duration: 240ms;
+}
+@media (prefers-reduced-motion: no-preference) and (forced-colors: none) {
+  .composer:where(:has(> .composer-input):not(.composer-file-drop)), .user-message-editor {
+    outline: var(--composer-focus-width) solid transparent;
+    outline-offset: 2px;
+    transition: outline-color var(--composer-focus-duration, 180ms) cubic-bezier(.25, .65, .4, 1);
+  }
+}
+@media (forced-colors: active) {
+  :is(.composer:has(> .composer-input), .user-message-editor) {
+    --composer-focus-color: Highlight;
+    --composer-focus-width: 2px;
+  }
+}
 .composer-input .composer-text { margin: 0; padding: 0; font: inherit; white-space: pre-wrap; overflow-wrap: anywhere; }
 .composer-input[data-empty="true"]::before { content: attr(data-placeholder); position: absolute; color: var(--muted); pointer-events: none; }
 .composer-input[aria-disabled="true"] { opacity: .45; }
@@ -11,5 +33,7 @@
 .composer-inline-link-icon .message-link { display: inline-flex; width: 1.05em; margin-right: .2em; vertical-align: -.1em; line-height: 1; text-decoration: none; }
 .composer-inline-link-icon .message-link-site, .composer-inline-link-icon .message-link-site svg { width: .95em; height: .95em; }
 .composer-inline-link-icon .message-link-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.composer-session-reference { user-select: none; }
+.composer-session-reference-source { font-size: 0; }
 .composer-inline-command-icon .command-reference > span:last-child { display: none; }
 .composer-command-slash { font-size: 0; }

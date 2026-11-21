@@ -51,9 +51,9 @@ try {
     const focus = await input.evaluate(e => {
       const parent = e.closest('.sidebar-utility-row'), s = getComputedStyle(parent), r = parent.getBoundingClientRect();
       const side = e.closest('.sidebar').getBoundingClientRect();
-      return { width: s.outlineWidth, fits: r.left - 4 >= side.left && r.right + 4 <= side.right };
+      return { width: s.outlineWidth, style: s.outlineStyle, fits: r.left - 4 >= side.left && r.right + 4 <= side.right };
     });
-    assert.equal(focus.width, '2px'); assert.equal(focus.fits, true);
+    assert.deepEqual(focus, { width: '1px', style: 'solid', fits: true });
     await shot('search');
     await input.fill('no-results-9876');
     assert.equal(await page.locator('.workspace-tree .session-row').count(), 0);

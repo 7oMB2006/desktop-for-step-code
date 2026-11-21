@@ -1,4 +1,4 @@
-import { useContext, useLayoutEffect, useMemo, useRef, type ClipboardEvent, type KeyboardEvent } from 'react';
+import { useContext, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type KeyboardEvent } from 'react';
 import { createPortal } from 'react-dom';
 import { EditorState } from 'prosemirror-state';
 import { Decoration, DecorationSet, EditorView } from 'prosemirror-view';
@@ -8,7 +8,8 @@ import { deleteSelection, selectAll } from 'prosemirror-commands';
 import { CommandCatalog, CommandReference } from './CommandReference';
 import { commandRanges } from './command-references';
 import { MessageLink } from './MessageLink';
-import { composerLinkRanges } from './composer-links';
+import { composerLinkRanges, composerSessionReferences } from './composer-links';
+import { SessionReferenceLabel, SessionReferenceTitles } from './SessionReferenceLabel';
 import { composerDocument, composerSchema, composerSelection, composerValueSync, isComposerInputChange, selectComposer, type ComposerInputElement } from './composer-input';
 import './composer-input.css';
 
@@ -24,6 +25,25 @@ export function ComposerInput(props: Props) {
   const latest = useRef(props);
   latest.current = props;
   const commands = useContext(CommandCatalog);
+  const sessionTitles = useContext(SessionReferenceTitles);
+  const sessionLinks = useMemo(() => sessionTitles?.size
+    ? composerSessionReferences(props.value).filter(link => sessionTitles.has(link.id)) : [], [props.value, sessionTitles]);
+  const [editingReference, setEditingReference] = useState<number>();
+  const references = useRef(sessionLinks);
+  references.current = sessionLinks;
+  const referenceDecorations = useMemo(() => sessionLinks.flatMap(link => {
+    if (link.from === editingReference) return [];
+    const element = document.createElement('span');
+    element.className = 'composer-session-reference';
+    element.contentEditable = 'false';
+    return [{ element, link }];
+  }), [editingReference, sessionLinks]);
+  const updateReferenceSelection = (state: EditorState) => {
+    const { start, end } = composerSelection(state);
+    const link = references.current.find(link => (start > link.from && start < link.to)
+      || (end > link.from && end < link.to));
+    setEditingReference(link?.from);
+  };
   const decorations = useMemo(() => {
     const items: Decoration[] = [];
     const portals: { element: HTMLSpanElement; content: React.ReactNode; key: string }[] = [];
@@ -51,20 +71,33 @@ export function ComposerInput(props: Props) {
 
   useLayoutEffect(() => {
     const element = root.current!;
+    const removeReference = (direction: -1 | 1) => (state: EditorState, dispatch?: EditorView['dispatch']) => {
+      if (!state.selection.empty) return false;
+      const { start } = composerSelection(state);
+      const link = references.current.find(link => start === (direction === -1 ? link.to : link.from));
+      if (!link) return false;
+      dispatch?.(state.tr.delete(link.from + 1, link.to + 1));
+      return true;
+    };
     const editor = new EditorView({ mount: element }, {
       attributes: { spellcheck: 'false' },
       state: EditorState.create({ schema: composerSchema, doc: composerDocument(latest.current.value),
         plugins: [history(), keymap({
           'Mod-z': undo, 'Shift-Mod-z': redo, 'Mod-y': redo, 'Mod-a': selectAll,
-          'Backspace': deleteSelection, 'Shift-Backspace': deleteSelection, 'Mod-Backspace': deleteSelection,
-          'Delete': deleteSelection, 'Mod-Delete': deleteSelection,
+          'Backspace': (state, dispatch) => deleteSelection(state, dispatch) || removeReference(-1)(state, dispatch),
+          'Shift-Backspace': deleteSelection, 'Mod-Backspace': deleteSelection,
+          'Delete': (state, dispatch) => deleteSelection(state, dispatch) || removeReference(1)(state, dispatch),
+          'Mod-Delete': deleteSelection,
           'Shift-Enter': (state, dispatch) => { dispatch?.(state.tr.insertText('\n').scrollIntoView()); return true; },
         })] }),
       editable: () => !latest.current.disabled,
       dispatchTransaction(transaction) {
         editor.updateState(editor.state.apply(transaction));
         if (isComposerInputChange(transaction)) latest.current.onChange(editor.state.doc.textContent);
-        if (transaction.selectionSet) element.dispatchEvent(new Event('select', { bubbles: true }));
+        if (transaction.selectionSet) {
+          if (references.current.length) updateReferenceSelection(editor.state);
+          element.dispatchEvent(new Event('select', { bubbles: true }));
+        }
       },
       handlePaste(editor, event) {
         if (event.clipboardData?.files.length) return true;
@@ -100,17 +133,22 @@ export function ComposerInput(props: Props) {
     }
     const document = editor.state.doc;
     // ProseMirror consumes this array; loading-only renders reuse the memoized items.
-    const set = DecorationSet.create(document, [...decorations.items]);
+    const set = DecorationSet.create(document, [...decorations.items, ...referenceDecorations.flatMap(({ element, link }) => [
+      Decoration.widget(link.from + 1, element, { side: -1, ignoreSelection: true, stopEvent: () => true }),
+      Decoration.inline(link.from + 1, link.to + 1, { class: 'composer-session-reference-source', 'aria-hidden': 'true' }),
+    ])]);
     editor.setProps({ editable: () => !latest.current.disabled,
       decorations: state => state.doc === document ? set : DecorationSet.empty });
-  }, [props.value, props.disabled, decorations]);
+  }, [props.value, props.disabled, decorations, referenceDecorations]);
 
   return <>
     <div ref={root} className="composer-input" role="textbox" aria-multiline="true" aria-label={props.label}
       aria-disabled={props.disabled} data-placeholder={props.placeholder} data-empty={!props.value}
+      onBlur={() => setEditingReference(undefined)}
       onPasteCapture={props.onPaste} onKeyDownCapture={event => {
         if (event.target === event.currentTarget) props.onKeyDown(event);
       }}/>
     {decorations.portals.map(item => createPortal(item.content, item.element, item.key))}
+    {referenceDecorations.map(({ element, link }) => createPortal(<SessionReferenceLabel id={link.id}/>, element, `session:${link.from}:${link.id}`))}
   </>;
 }

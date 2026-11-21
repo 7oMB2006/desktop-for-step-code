@@ -10,9 +10,10 @@ export function updateSidebarSessionNames(sessions: Session[], runtimes: Runtime
     const runtime = bySession.get(session.id);
     const firstMessage = runtime?.firstMessage || session.firstMessage;
     const name = runtime?.name ?? session.name;
-    if (firstMessage === session.firstMessage && name === session.name) return session;
+    const automaticTitle = runtime?.automaticTitle;
+    if (firstMessage === session.firstMessage && name === session.name && automaticTitle === session.automaticTitle) return session;
     changed = true;
-    return { ...session, firstMessage, name };
+    return { ...session, firstMessage, name, automaticTitle };
   });
   return changed ? next : sessions;
 }

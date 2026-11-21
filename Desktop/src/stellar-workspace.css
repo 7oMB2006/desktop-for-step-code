@@ -164,9 +164,6 @@
 :root[data-theme-material=stellar] .new-session-search {
   margin: 4px 4px 8px; border: 1px solid var(--border); border-radius: 4px; padding: 5px 8px;
 }
-:root[data-theme-material=stellar] .new-session-search:focus-within {
-  outline: 2px solid var(--primary); outline-offset: 2px;
-}
 :root[data-theme-material=stellar] .new-session-search input:focus { outline: none; box-shadow: none; }
 :root[data-theme-material=stellar] .approval-drawer {
   background: var(--stellar-panel-fill);

@@ -11,6 +11,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { RpcProcess, isolatedEnvironment } from './runtime';
 import { SessionImports, importedProjectDirectory } from './session-import';
 import { SessionRuntimes, firstUserText, type SessionRuntime } from './session-runtimes';
+import { SessionTitles } from './session-title';
 import { GlobalInstructionsStore } from './global-instructions';
 import { inspectProjectInstructions, projectInstructionsMessage } from './project-instructions';
 import { isProjectInstructionsCommand, projectInstructionsInput } from '../src/project-instructions';
@@ -111,7 +112,7 @@ import { NativeUpdateDriver } from './native-update-driver';
 import { cleanInstalledUpdate } from './update-cache';
 import { DesktopTray } from './desktop-tray';
 import { DesktopNotifications } from './desktop-notifications';
-import { TaskbarBadge, completionBadgeText, taskbarBadgeBitmap, taskbarBadgeSize } from './taskbar-badge';
+import { TaskbarBadge, completionBadgeText } from './taskbar-badge';
 import { notificationPreferences, notificationPreferencePatch } from '../src/notification-preferences';
 import { QuitReview, quitReasons, needsQuitReview } from './quit-review';
 import { quitConfirmation } from '../src/quit-confirmation';
@@ -162,7 +163,7 @@ const filePreviews = new FilePreviews(id => runtimes.require(id).cwd);
 const localPages = new LocalPagePreview();
 const localFileGrants = new Map<string, string>();
 const fileAssociationScript = () => join(app.isPackaged ? join(process.resourcesPath, 'file-opening') : join(__dirname, 'file-opening'), process.platform === 'darwin' ? 'file-applications-macos' : 'file-associations.ps1');
-let preferences: Preferences = { theme: 'system', language: 'zh', workspaces: [] };
+let preferences: Preferences = { theme: 'system', language: 'zh', workspaces: [], autoGenerateSessionTitles: true };
 // Provider requests share Chromium's selected proxy/PAC policy.
 const providerFetch = (url: string, options: RequestInit) => net.fetch(url, options);
 const modelCatalog = new ModelCatalog(providerFetch);
@@ -221,6 +222,7 @@ let sessionDraft: { id: string; workspace?: string; model?: Model; models?: Mode
   permissionPreset?: PermissionPreset; launch?: LaunchState; modelChanged?: boolean; permissionChanged?: boolean; thinkingChanged?: boolean } | undefined = { id: randomUUID() };
 type Surface = 'main' | 'mini';
 const miniView: { draft?: typeof sessionDraft; runtimeId?: string; worker?: SessionRuntime } = {};
+const parkedDrafts = new Map<string, { surface: Surface; draft: NonNullable<typeof sessionDraft> }>();
 let miniChat: MiniChatWindow | undefined;
 let pluginWindows: PluginWindows | undefined;
 let resumeMini = false;
@@ -228,6 +230,7 @@ const presentations = { main: new Map<string, WindowPresentation>(), mini: new M
 const presentationRevisions = { main: 0, mini: 0 };
 const selectedDraft = (surface: Surface) => surface === 'mini' ? miniView.draft : sessionDraft;
 const selectDraft = (surface: Surface, draft: typeof sessionDraft) => {
+  if (draft) parkedDrafts.delete(draft.id);
   if (draft && sessionDraft?.id === draft.id) sessionDraft = draft;
   if (draft && miniView.draft?.id === draft.id) miniView.draft = draft;
   if (surface === 'mini') { miniView.draft = draft; miniView.runtimeId = undefined; miniView.worker = undefined; }
@@ -241,6 +244,13 @@ function replaceMiniRuntime(worker: SessionRuntime) {
   emit({ type: 'desktop_runtime_replaced', previousRuntimeId: previous.id, runtimeId: worker.id, sessionId: worker.state?.sessionId });
 }
 const selectRuntime = (surface: Surface, worker: SessionRuntime) => {
+  const draft = selectedDraft(surface);
+  if (draft && !creatingDrafts.has(draft.id) && !createdDrafts.has(draft.id)) {
+    for (const [id, parked] of parkedDrafts) {
+      if (parked.surface === surface && !composers.hasInput({ draftId: id })) parkedDrafts.delete(id);
+    }
+    parkedDrafts.set(draft.id, { surface, draft });
+  }
   if (surface === 'mini') {
     miniView.draft = undefined; miniView.runtimeId = worker.id; miniView.worker = worker; worker.touched = Date.now();
     if (worker.state?.sessionId) runtimes.unreadSessionIds.delete(worker.state.sessionId);
@@ -518,7 +528,7 @@ const creatingDrafts = new Set<string>();
 const miniMethods = new Set([
   'snapshot', 'windowControl', 'miniChatState', 'miniChatPin', 'miniChatReturn', 'miniChatMainAction',
   'windowPresentation', 'composerRead', 'composerWrite', 'composerTake', 'composerRestore',
-  'beginSession', 'chooseSessionProject', 'createDraftSession', 'navigateSession', 'sessionReading', 'cancelSessionReading',
+  'beginSession', 'chooseSessionProject', 'createDraftSession', 'navigateSession', 'sessionReading', 'cancelSessionReading', 'renameSession',
   'command', 'projectInstructions', 'branchSession', 'retryMessage', 'preferences',
   'chooseAttachments', 'importFile', 'importClipboardImage', 'imageAction', 'copyText', 'linkPreview',
   'fileOpen', 'fileOpenOptions', 'browserOpenLink', 'artifactFiles', 'artifactAction', 'backgroundAgents',
@@ -528,7 +538,8 @@ const miniMethods = new Set([
 function requireComposerOwner(input: unknown): ComposerOwner {
   const owner = composers.owner(parseComposerOwner(input));
   if ('draftId' in owner) {
-    if (sessionDraft?.id !== owner.draftId && miniView.draft?.id !== owner.draftId) throw new Error('Unknown session draft');
+    if (sessionDraft?.id !== owner.draftId && miniView.draft?.id !== owner.draftId && !parkedDrafts.has(owner.draftId))
+      throw new Error('Unknown session draft');
   } else if (!cachedSessions().some(session => session.id === owner.sessionId)
     && miniView.worker?.state?.sessionId !== owner.sessionId) throw new Error('Unknown conversation');
   return owner;
@@ -545,6 +556,14 @@ function publishModelSelection(worker: import('./session-runtimes').SessionRunti
     modelChanges: modelSelections.changes(worker),
     state: worker.state ? { ...worker.state, model: worker.state.model ? providerModelNames([worker.state.model], appliedAuthData)[0] : undefined } : undefined });
 }
+const sessionTitles = new SessionTitles({
+  enabled: () => preferences.autoGenerateSessionTitles !== false,
+  auth: () => !settingsMutation && !providerSettingsPending && !providerApplyFailed && !quitting && !quitPending && !updateInstalling
+    ? appliedAuthData : undefined,
+  live: worker => runtimes.workers.get(worker.id) === worker,
+  save: (worker, title) => saveLiveSessionName(worker, title, 'automatic'),
+  fetch: providerFetch,
+});
 const runtimes: SessionRuntimes = new SessionRuntimes(event => {
   notifications.handle(event);
   if (taskbarBadge) {
@@ -659,6 +678,7 @@ const runtimes: SessionRuntimes = new SessionRuntimes(event => {
         '--extension', join(runtimeRoot, 'runtime-compile-cache.mjs')] };
   },
   dispose: worker => {
+    sessionTitles.cancel(worker);
     externalPreparing.delete(worker);
     externalTasks.dispose(worker);
     remote.dispose(worker);
@@ -678,20 +698,13 @@ function isForegroundSession(sessionId: string) {
   return !sessionDraft && runtimes.active?.state?.sessionId === sessionId && focused(window)
     || !miniView.draft && miniView.worker?.state?.sessionId === sessionId && focused(miniChat?.window);
 }
-const taskbarBadge = process.platform === 'win32' || process.platform === 'darwin' ? new TaskbarBadge({
+const taskbarBadge = process.platform === 'darwin' ? new TaskbarBadge({
   foreground: isForegroundSession,
   archived: id => preferences.archivedSessionIds?.includes(id) ?? false,
-  language: () => preferences.language,
-  apply: (count, description) => {
+  apply: count => {
     try {
-      if (process.platform === 'darwin') {
-        if (!app.isReady() || !app.dock) return false;
-        app.dock.setBadge(completionBadgeText(count));
-        return true;
-      }
-      if (!window || window.isDestroyed() || !window.isVisible()) return false;
-      window.setOverlayIcon(count ? nativeImage.createFromBitmap(taskbarBadgeBitmap(count),
-        { width: taskbarBadgeSize, height: taskbarBadgeSize }) : null, description);
+      if (!app.isReady() || !app.dock) return false;
+      app.dock.setBadge(completionBadgeText(count));
       return true;
     } catch { return false; }
   },
@@ -700,9 +713,9 @@ const notifications = new DesktopNotifications({
   preferences: () => preferences,
   workers: () => runtimes.workers,
   foreground: isForegroundSession,
-  create: options => Notification.isSupported() ? new Notification({
-    ...options, icon: app.isPackaged ? join(process.resourcesPath, process.platform === 'darwin' ? 'icon.png' : 'icon.ico')
-      : resolve(process.platform === 'darwin' ? 'build/icon.png' : 'build/icon.ico'),
+  // On Windows a supplied icon becomes an appLogoOverride in the toast.
+  create: options => Notification.isSupported() ? new Notification(process.platform === 'win32' ? options : {
+    ...options, icon: app.isPackaged ? join(process.resourcesPath, 'icon.png') : resolve('build/icon.png'),
   }) : undefined,
   open: (sessionId, kind) => {
     if (quitting || quitPending) return;
@@ -1222,6 +1235,20 @@ function savePreferences() {
   preferenceWrites = write;
   return write;
 }
+async function saveLiveSessionName(worker: SessionRuntime, name: string, source: 'manual' | 'automatic' = 'manual') {
+  const rpc = worker.rpc, sessionId = worker.state?.sessionId;
+  if (!sessionId) throw new Error('Session identity is unavailable');
+  worker.operations++;
+  try {
+    await rpc.request('set_session_name', { name }, source === 'automatic' ? 5000 : undefined);
+    if (worker.rpc !== rpc || worker.state?.sessionId !== sessionId) throw new Error('Conversation state changed');
+    worker.revision++;
+    worker.state = { ...worker.state, sessionName: name };
+    worker.automaticTitle = source === 'automatic' ? { sessionId, name } : undefined;
+    runtimes.publish();
+    emit({ type: 'desktop_sessions_changed' });
+  } finally { worker.operations--; }
+}
 async function rememberModel(model: Model) {
   const previous = preferences.preferredModel;
   const selected = modelPreference(model)!;
@@ -1246,7 +1273,8 @@ async function listSessions(): Promise<Session[]> {
     const id = worker.state?.sessionId;
     if (id && !isChildSession(id) && !sessions.some(session => session.id === id)) sessions.unshift({
       id, path: worker.state?.sessionFile ?? '', cwd: worker.cwd,
-      name: worker.state?.sessionName, firstMessage: firstUserText(worker.messages), modified: new Date(worker.touched).toISOString(), messageCount: worker.messages.length,
+      name: worker.state?.sessionName, firstMessage: firstUserText(worker.messages), created: new Date(worker.createdAt ?? worker.touched).toISOString(),
+      modified: new Date(worker.touched).toISOString(), messageCount: worker.messages.length,
     });
   }
   sessionCatalog = await Promise.all(sessions.map(async s => {
@@ -1266,7 +1294,8 @@ function cachedSessions(): Session[] {
       ...previous, id, path: worker.state?.sessionFile ?? previous?.path ?? '', cwd: worker.cwd,
       firstMessage: firstUserText(worker.messages) || previous?.firstMessage || '',
       name: worker.state?.sessionName ?? previous?.name,
-      messageCount: worker.messages.length, modified: previous?.modified ?? new Date(worker.touched).toISOString(),
+      messageCount: worker.messages.length, created: previous?.created ?? new Date(worker.createdAt ?? worker.touched).toISOString(),
+      modified: previous?.modified ?? new Date(worker.touched).toISOString(),
       independent: previous?.independent ?? isIndependentPath(worker.cwd),
       workspacePath: previous?.workspacePath ?? preferences.workspaces.find(path => pathKey(path) === pathKey(worker.cwd)),
     });
@@ -1347,6 +1376,9 @@ async function snapshot(worker = runtimes.active, refresh = true, ignoreDraft = 
   if (draft) worker = undefined;
   if (refresh && worker?.status === 'connected' && !worker.mutating) await runtimes.read(worker);
   const sessions = refresh ? await listSessions() : cachedSessions();
+  const runtimeSummaries = runtimes.summaries();
+  const automaticTitles = new Map(runtimeSummaries.flatMap(runtime => runtime.automaticTitle
+    ? [[runtime.sessionId, runtime.automaticTitle] as const] : []));
   return {
     windowPresentation: presentations[surface].get(composerKey(draft ? { draftId: draft.id } : worker?.state?.sessionId ? { sessionId: worker.state.sessionId } : undefined)),
     windowPresentationRevision: presentationRevisions[surface],
@@ -1356,7 +1388,7 @@ async function snapshot(worker = runtimes.active, refresh = true, ignoreDraft = 
     workspaceIssue: unavailableWorkspace,
     preferences: { ...preferences, workspace: draft ? draft.workspace : worker?.cwd ?? preferences.workspace }, themePacks: themePacks.packs,
     customBackground: backgroundState, providerSettingsPending,
-    status: draft ? 'ready' : worker?.status ?? status, draftId: draft?.id, runtimeId: worker?.id, runtimeStartupTiming: draft ? undefined : worker?.startupTiming, runtimes: runtimes.summaries(), unreadSessionIds: [...runtimes.unreadSessionIds],
+    status: draft ? 'ready' : worker?.status ?? status, draftId: draft?.id, runtimeId: worker?.id, runtimeStartupTiming: draft ? undefined : worker?.startupTiming, runtimes: runtimeSummaries, unreadSessionIds: [...runtimes.unreadSessionIds],
     state: draft ? { isStreaming: false, model: draft.model ? providerModelNames([draft.model], appliedAuthData)[0] : undefined, thinkingLevel: draft.thinkingLevel }
       : worker?.state ? { ...worker.state, desktopStartup: worker.startup,
         model: worker.state.model ? providerModelNames([worker.state.model], appliedAuthData)[0] : undefined } : undefined,
@@ -1368,7 +1400,9 @@ async function snapshot(worker = runtimes.active, refresh = true, ignoreDraft = 
     messages: worker ? worker.messages.map(message => pendingMessages.decorate(worker, message)) : [], models: providerModelNames(draft?.models ?? worker?.models ?? [], appliedAuthData), stats: worker?.stats,
     pendingMessages: worker ? pendingMessages.list(worker) : [],
     requests: worker ? [...worker.pendingUI.values()] : [],
-    sessions, independent: draft ? !draft.workspace : !worker || !(await sessionWorkspacePath(worker.cwd)),
+    sessions: automaticTitles.size ? sessions.map(session => session.name && automaticTitles.get(session.id) === session.name
+      ? { ...session, automaticTitle: session.name } : session) : sessions,
+    independent: draft ? !draft.workspace : !worker || !(await sessionWorkspacePath(worker.cwd)),
   };
 }
 async function guardIdle(options: { stopHost?: boolean; resources?: boolean; allowWaitingCron?: boolean } = {}) {
@@ -1607,10 +1641,16 @@ async function newIndependentSession(surface: Surface = 'main') {
   await mkdir(cwd, { recursive: true });
   return connect(cwd, undefined, false, false, surface);
 }
-async function beginSession(workspace?: string, surface: Surface = 'main') {
+async function beginSession(workspace?: string, surface: Surface = 'main', resume = false) {
   if (transition || deletingArchived) throw new Error('Workspace operation in progress');
-  const previous = selectedDraft(surface);
+  const active = selectedDraft(surface);
+  const parked = active ? undefined : [...parkedDrafts.values()].reverse().find(({ surface: owner, draft }) =>
+    owner === surface && composers.hasInput({ draftId: draft.id })
+    && (resume || pathKey(draft.workspace ?? '') === pathKey(workspace ?? ''))
+    && (!draft.workspace || preferences.workspaces.some(path => pathKey(path) === pathKey(draft.workspace!))));
+  const previous = active ?? parked?.draft;
   if (previous && creatingDrafts.has(previous.id)) throw new Error('This draft is being created; wait before changing its project');
+  if (parked) workspace = parked.draft.workspace;
   const selected = workspace === undefined ? undefined
     : preferences.workspaces.find(path => pathKey(path) === pathKey(workspace));
   if (workspace !== undefined && !selected) throw new Error('Unknown workspace');
@@ -2053,7 +2093,7 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
       if (error) throw new Error(error);
       return;
     }
-    case 'beginSession': return beginSession(args[0] === undefined ? undefined : text(args[0], 2048), surface);
+    case 'beginSession': return beginSession(args[0] === undefined ? undefined : text(args[0], 2048), surface, args[1] === true);
     case 'chooseSessionProject': {
       if (transition || deletingArchived) throw new Error('Workspace operation in progress');
       const result = await dialog.showOpenDialog(originWindow(), { properties: ['openDirectory'] });
@@ -2092,6 +2132,8 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
           await handle('command', ['set_launch_mode', change, created.runtimeId], surface);
         const worker = runtimes.require(created.runtimeId);
         createdDrafts.set(draftId, worker.id);
+        sessionTitles.register(worker);
+        parkedDrafts.delete(draftId);
         while (createdDrafts.size > 128) createdDrafts.delete(createdDrafts.keys().next().value!);
         composers.promote(draftId, worker.state!.sessionId!);
         if (sessionDraft === draft) selectRuntime('main', worker);
@@ -2552,6 +2594,35 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
       readingSelections.set(readingOwner(), { sessionId: id, revision: args[1] });
       return (surface === 'mini' ? miniNavigation : sessionNavigation).select(id);
     }
+    case 'renameSession': {
+      if (transition || sessionNavigation.busy || miniNavigation.busy || settingsMutation
+        || deletingArchived || undoBusy || quitting || quitPending || updateInstalling)
+        throw new Error('Wait for the current Desktop operation to finish');
+      const id = text(args[0], 200);
+      const name = text(args[1], 200).replace(/[\r\n]+/g, ' ').trim();
+      if (!name || !id || isChildSession(id)) throw new Error('Invalid session name or identity');
+      const worker = [...runtimes.workers.values()].find(value => value.state?.sessionId === id);
+      if (worker) {
+        if (worker.status !== 'connected' || worker.mutating || worker.stopping) throw new Error('Session operation in progress');
+        sessionTitles.cancel(worker);
+        await saveLiveSessionName(worker, name);
+        return;
+      } else {
+        // Do not allow a runtime to open this history while the admin owns its writer.
+        transition = true;
+        try {
+          const target = (await listSessions()).find(session => session.id === id);
+          if (!target?.path || [...runtimes.workers.values()].some(value => value.state?.sessionId === id))
+            throw new Error('Conversation is unavailable or opening');
+          const sessionPath = await managedSessionFile(join(dataRoot, 'sessions'), target.path);
+          const result = await admin.request('rename_session', { sessionPath, sessionId: id, name });
+          if (result.name !== name) throw new Error('Could not verify the saved session name');
+          sessionCatalog = sessionCatalog.map(session => session.id === id ? { ...session, name } : session);
+        } finally { transition = false; }
+      }
+      emit({ type: 'desktop_sessions_changed' });
+      return;
+    }
     case 'switchSession': {
       if (transition || deletingArchived) throw new Error('Workspace operation in progress');
       const id = text(args[0], 300);
@@ -2559,8 +2630,7 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
       assertCronOwnerNotOpening(id);
       const resident = [...runtimes.workers.values()].find(worker => worker.state?.sessionId === id);
       if (resident) {
-        sessionDraft = undefined;
-        runtimes.activate(resident);
+        selectRuntime(surface, resident);
         preferences.workspace = resident.cwd;
         void savePreferences().catch(() => emit({ type: 'desktop_error', message: 'Could not save the selected workspace' }));
         return snapshot(resident, false);
@@ -2990,7 +3060,11 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
         }
         if (type === 'set_model') payload = { provider: text(data.provider, 200), modelId: text(data.modelId, 300) };
         if (type === 'set_thinking_level') payload = { level: text(data.level, 30) };
-        if (type === 'set_session_name') payload = { name: text(data.name, 200) };
+        if (type === 'set_session_name') {
+          payload = { name: text(data.name, 200) };
+          sessionTitles.cancel(worker);
+          worker.automaticTitle = undefined;
+        }
         if (type === 'compact') await runtimes.assertIdle(worker);
         if (type === 'abort') { worker.stopping = true; worker.interrupted = true; pendingMessages.pause(worker); }
         worker.operations++;
@@ -3025,6 +3099,7 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
             externalTasks.locallyStopped(worker);
           }
           if (type === 'prompt' && Array.isArray(data.files)) for (const id of data.files) attachedFiles.delete(id);
+          if (type === 'prompt') sessionTitles.accepted(worker, data.message);
           return response;
         } catch (error) {
           if (type === 'prompt') {
@@ -3428,6 +3503,8 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
     }
     case 'preferences': {
       const patch = args[0] ?? {};
+      if (patch.autoGenerateSessionTitles !== undefined && typeof patch.autoGenerateSessionTitles !== 'boolean')
+        throw new Error('Invalid automatic session title preference');
       const notificationPatch = notificationPreferencePatch(patch);
       const panelPatch = panelPreferencePatch(patch);
       const interfaceSettings = patch.interfaceSettings === undefined ? undefined : validateInterfaceSettings(patch.interfaceSettings);
@@ -3468,10 +3545,17 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
       if (interfaceSettings) preferences.interfaceSettings = interfaceSettings;
       const previousFavorites = preferences.favoriteModels;
       const previousNotifications = notificationPreferences(preferences);
+      const previousAutoTitles = preferences.autoGenerateSessionTitles;
+      if (patch.autoGenerateSessionTitles !== undefined) {
+        preferences.autoGenerateSessionTitles = patch.autoGenerateSessionTitles;
+        if (!patch.autoGenerateSessionTitles) sessionTitles.cancelPending();
+      }
       Object.assign(preferences, notificationPatch);
       if (favoriteModels) preferences.favoriteModels = favoriteModels;
       try { await savePreferences(); } catch (error) {
         if (favoriteModels && preferences.favoriteModels === favoriteModels) preferences.favoriteModels = previousFavorites;
+        if (patch.autoGenerateSessionTitles !== undefined && preferences.autoGenerateSessionTitles === patch.autoGenerateSessionTitles)
+          preferences.autoGenerateSessionTitles = previousAutoTitles;
         for (const key of Object.keys(notificationPatch) as (keyof typeof notificationPatch)[]) {
           if (preferences[key] === notificationPatch[key]) preferences[key] = previousNotifications[key];
         }
@@ -3641,6 +3725,7 @@ else app.whenReady().then(async () => {
   await projectProviders(dataRoot, authData);
   crashLog.setPhase('vault loaded');
   try { preferences = { ...preferences, ...JSON.parse(await readFile(preferencesFile, 'utf8')) }; } catch {}
+  preferences.autoGenerateSessionTitles = preferences.autoGenerateSessionTitles !== false;
   await network.start(preferences.network ?? { mode: 'system', proxyUrl: '' });
   preferences = migrateWorkspaceIdentity(preferences);
   Object.assign(preferences, normalizePanelPreferences(preferences));

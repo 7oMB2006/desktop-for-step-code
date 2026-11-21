@@ -26,10 +26,9 @@
 .lane-chevron { display: inline-flex; flex-shrink: 0; transform: rotate(-90deg); color: var(--muted); }
 .process-group-preview, .thinking-preview { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: 12px; font-weight: 400; }
 .process-group-preview { border-left: 1px solid var(--border); padding-left: 9px; }
-.thinking > summary { display: flex; align-items: center; gap: 6px; min-width: 0; max-width: 100%; min-height: 30px; padding: 3px 0; cursor: pointer; list-style: none; }
+.thinking > summary { display: flex; align-items: center; gap: 6px; width: 100%; min-width: 0; min-height: 30px; padding: 3px 0; cursor: pointer; list-style: none; }
 .thinking > summary::-webkit-details-marker { display: none; }
 .compact-process .thinking { font-family: var(--ui-font); font-size: calc(13px + var(--ui-delta)); margin: 0 0 12px; }
-.compact-process .thinking > summary { width: 100%; }
 .compact-process .thinking > summary:hover { color: var(--ink); }
 .thinking > summary > .process-tool-label { flex-shrink: 0; }
 .thinking-chevron { display: flex; flex-shrink: 0; transform: rotate(-90deg); transition: transform .24s cubic-bezier(.215,.61,.355,1); }

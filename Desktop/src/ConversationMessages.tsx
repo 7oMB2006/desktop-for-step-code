@@ -7,6 +7,9 @@ import Markdown, { defaultUrlTransform } from 'react-markdown';
 import { ArrowLeft, ArrowRight, ArrowRightLeft, Bot, Brain, Check, CircleAlert, Copy, FilePenLine, FileText, FolderSearch, GitBranch, Globe, MessagesSquare, MessageSquare, Pencil, Search, Send, Terminal, Undo2, Wrench } from 'lucide-react';
 import type { Content, Message, ModelChange, PendingMessage } from './contracts';
 import { messageRemarkPlugins, messageContentRehypePlugins } from './markdown-math';
+import { sessionLinkId } from './session-reference';
+import { SessionReferenceLabel } from './SessionReferenceLabel';
+import { remarkSessionReferences } from './markdown-references';
 import { pendingCodeClassName, useViewportCodeHighlight } from './useViewportCodeHighlight';
 import type { Element } from 'hast';
 import { redactSensitiveText } from './subagent-redact';
@@ -28,6 +31,8 @@ import { ElapsedLabel } from './ElapsedLabel';
 import { formatElapsedDuration } from './elapsed-time';
 import { quotePresentation } from './chat-quotes';
 import { ScrollThumb } from './ConversationScrollThumb';
+import { ComposerActionIcon } from './ComposerActionIcon';
+import './composer-input.css';
 import { TurnChanges } from './TurnChanges';
 import { turnChanges } from './turn-changes';
 import { MessageLink } from './MessageLink';
@@ -206,6 +211,7 @@ const MarkdownText = memo(function MarkdownText({ text, language, openImage, onE
   const remarkPlugins = useMemo<ComponentProps<typeof Markdown>['remarkPlugins']>(() => [
     ...(source ? [source] : []), ...messageRemarkPlugins!,
     ...(commands ? [[remarkCommandReferences, commands] as [typeof remarkCommandReferences, ComposerCommand[]]] : []),
+    remarkSessionReferences,
   ], [commands, source]);
   const components = useMemo<ComponentProps<typeof Markdown>['components']>(() => ({
     span: ({ node, children, ...props }) => typeof node?.properties['data-command'] === 'string'
@@ -213,11 +219,15 @@ const MarkdownText = memo(function MarkdownText({ text, language, openImage, onE
       : <span {...props}>{children}</span>,
     code: ({ children, className, node }) => className
       ? <Code node={node} className={className} language={language} onError={onError}>{children}</Code> : <code>{children}</code>,
-    a: ({ children, href }) => localReference(href) ? <FileReference href={href!}>{children}</FileReference> : <MessageLink href={href} language={language}>{children}</MessageLink>,
+    a: ({ children, href }) => {
+      const sessionId = sessionLinkId(href);
+      return sessionId ? <SessionReferenceLabel id={sessionId} fallback={children}/>
+        : localReference(href) ? <FileReference href={href!}>{children}</FileReference> : <MessageLink href={href} language={language}>{children}</MessageLink>;
+    },
     img: ({ src, alt }) => src?.startsWith('data:image/')
       ? <PreviewImage src={src} alt={alt ?? 'Image'} language={language} openImage={openImage}/> : <span>{alt}</span>,
   }), [language, onError, openImage]);
-  return <Markdown skipHtml urlTransform={url => localReference(url) ? url : defaultUrlTransform(url)} remarkPlugins={remarkPlugins} rehypePlugins={plugins}
+  return <Markdown skipHtml urlTransform={(url, key) => localReference(url) || key === 'href' && sessionLinkId(url) ? url : defaultUrlTransform(url)} remarkPlugins={remarkPlugins} rehypePlugins={plugins}
     components={components}>{text}</Markdown>;
 });
 function Body({ blocks, ...props }: { blocks: Content[] } & BodyProps) {
@@ -401,7 +411,7 @@ function ProcessGroup({ group, stateKey, children, ...props }: { group: ProcessG
   const defaultExpanded = props.interfaceSettings?.toolsExpanded ?? false;
   const [expanded, setExpanded] = useConversationDisclosure(stateKey, defaultExpanded, props.disclosureReset);
   const id = useId();
-  const single = group.items.length === 1;
+  const single = group.items.length === 1 && props.interfaceSettings?.preset !== 'simple';
   const trigger = useRef<HTMLButtonElement>(null);
   const body = useRef<HTMLDivElement>(null);
   const [focused, setFocused] = useState(false);
@@ -416,7 +426,8 @@ function ProcessGroup({ group, stateKey, children, ...props }: { group: ProcessG
   return <section className={`process-tool-group compact-process${group.running ? ' running' : ''}`} data-message-index={group.index} data-single={single}>
     <button ref={trigger} hidden={single && !focused} onFocus={() => setFocused(true)} onBlur={() => setFocused(false)}
       type="button" className="tool-group-trigger" aria-expanded={open} aria-controls={id} onClick={() => setExpanded(value => !value)}>
-      {group.running ? runningTool ? <Wrench size={14}/> : <Brain size={14}/> : <Check size={14}/>}
+      {group.running ? runningTool ? <Wrench size={14}/> : <Brain size={14}/>
+        : group.failedToolKeys.size ? <Wrench size={14}/> : <Check size={14}/>}
       <ProcessRowLabel label={label} running={group.running}/>
       <span className="tool-group-chevron"><DisclosureChevron/></span>
       {!open && detail && <span className="process-group-preview">{detail}</span>}
@@ -516,7 +527,7 @@ function HistoricalAgents({ count, stateKey, language, children, onLayoutChange 
     const revealMatch = searchEntry && content.some(item => item.index === searchEntry.index && item.type === 'text' && round?.keys.has(item.key));
     const [roundOpen, setRoundOpen] = useConversationDisclosure(turnKey && `turn-process:${turnKey}`, Boolean(revealMatch),
       JSON.stringify([props.disclosureReset, revealMatch ? searchTarget?.requestId : null]));
-    const presentation = simple ? content
+    const presentation = simple ? groupProcesses(content, active, props.awaitingToolCalls, { simple: true, foldableKeys: round?.keys })
       : props.interfaceSettings?.hideProcess ? hideOrdinaryProcess(content, active, props.awaitingToolCalls)
       : props.interfaceSettings?.compactProcess ? groupProcesses(content, active, props.awaitingToolCalls)
       : props.interfaceSettings?.groupTools ? groupConsecutiveTools(content, active, props.awaitingToolCalls) : content;
@@ -545,8 +556,10 @@ function HistoricalAgents({ count, stateKey, language, children, onLayoutChange 
       return key ? `${kind}:${key}` : undefined;
     };
     const slotId = (key: string) => `${turnProcessId}-${key}`;
-    const slotProps = (item: ResponseItem) => {
-      const foldable = round?.keys.has(item.key);
+    const isFoldable = (item: ResponseItem | ProcessGroupData) =>
+      round?.keys.has(item.type === 'process-group' ? item.items[0].key : item.key);
+    const slotProps = (item: ResponseItem | ProcessGroupData) => {
+      const foldable = isFoldable(item);
       const folded = Boolean(foldable && !roundOpen);
       return { id: foldable ? slotId(item.key) : undefined, 'data-folded': folded || undefined,
         inert: folded || undefined, 'aria-hidden': folded || undefined,
@@ -601,7 +614,8 @@ function HistoricalAgents({ count, stateKey, language, children, onLayoutChange 
       {modelChange && <ModelChangeNote change={modelChange} language={props.language}/>}
       <div className="response-content message-body">
         {round && <button type="button" className="tool-group-trigger turn-process-trigger" aria-expanded={roundOpen}
-          aria-controls={[...round.keys].map(slotId).join(' ')} onClick={() => setRoundOpen(!roundOpen)}>
+          aria-controls={presentation.flatMap(item => item.type !== 'tool-group' && isFoldable(item) ? [slotId(item.key)] : []).join(' ')}
+          onClick={() => setRoundOpen(!roundOpen)}>
           <span>{zh ? '用时 ' : 'Worked for '}{formatElapsedDuration(round.duration, props.language)}</span>
           <span className="tool-group-chevron"><DisclosureChevron/></span>
         </button>}
@@ -610,7 +624,12 @@ function HistoricalAgents({ count, stateKey, language, children, onLayoutChange 
           ? <HistoricalAgents key={`history:${item.key}`} stateKey={groupDisclosureKey('history', historicalAgents[0])} count={historicalAgents.length} language={props.language} onLayoutChange={props.onLayoutChange}>
             {historicalAgents.map(member => renderItem(member))}
           </HistoricalAgents> : null
-        : item.type === 'process-group' ? <ProcessGroup key={item.key} group={item} stateKey={groupDisclosureKey('process', item.items[0])} {...props}>{onExpandedChange => item.items.map(member => renderItem(member, onExpandedChange))}</ProcessGroup>
+        : item.type === 'process-group' ? (() => {
+          const group = <ProcessGroup key={item.key} group={item} stateKey={groupDisclosureKey('process', item.items[0])} {...props}>
+            {onExpandedChange => item.items.map(member => renderItem(member, onExpandedChange))}
+          </ProcessGroup>;
+          return simple ? <div className="turn-process-slot" key={item.key} {...slotProps(item)}><div>{group}</div></div> : group;
+        })()
           : item.type === 'tool-group' ? <ToolGroup key={item.key} items={item.items} active={active} stateKey={groupDisclosureKey('tools', item.items[0])} {...props}/>
             : simple && (item.type === 'thinking' || item.type === 'tool')
               ? <div className="turn-process-slot" key={item.key} {...slotProps(item)}><div>{renderItem(item)}</div></div>
@@ -652,7 +671,7 @@ const UserMessage = memo(function UserMessage({ message, index, arriving, editSt
   useLayoutEffect(() => {
     if (!editing || !input.current) return;
     input.current.style.height = 'auto';
-    input.current.style.height = `${Math.min(280, Math.max(72, input.current.scrollHeight))}px`;
+    input.current.style.height = `${input.current.scrollHeight}px`;
     props.onLayoutChange?.();
   }, [editing, text]);
   useEffect(() => { if (editing) input.current?.focus(); }, [editing]);
@@ -670,21 +689,23 @@ const UserMessage = memo(function UserMessage({ message, index, arriving, editSt
   return <article ref={article} className="message user" data-message-index={index} data-message-entry-id={message.entryId}>
     {editing ? <div className="user-message-editor">
       <div className="user-edit-input">
-      <textarea ref={input} id={inputId} aria-label={zh ? '编辑消息' : 'Edit message'} value={text} disabled={submitting}
-        onChange={event => { const value = event.target.value; setEditState(state => state ? { ...state, text: value } : state); }} onKeyDown={event => {
-          if (event.nativeEvent.isComposing) return;
-          if (event.key === 'Escape' && !submitting) { event.preventDefault(); cancel(); }
-          if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void submit(); }
-        }}/>
-      <ScrollThumb scrollRef={input} language={props.language} sessionId={message.entryId}
-        messageCount={text.length} scrollId={inputId} label={zh ? '编辑消息滚动' : 'Scroll edited message'}
-        className="quote-scroll-track user-edit-scroll-track" compact/>
+        <textarea ref={input} id={inputId} aria-label={zh ? '编辑消息' : 'Edit message'} value={text} disabled={submitting}
+          onChange={event => { const value = event.target.value; setEditState(state => state ? { ...state, text: value } : state); }} onKeyDown={event => {
+            if (event.nativeEvent.isComposing) return;
+            if (event.key === 'Escape' && !submitting) { event.preventDefault(); cancel(); }
+            if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void submit(); }
+          }}/>
+        <ScrollThumb scrollRef={input} language={props.language} sessionId={message.entryId}
+          messageCount={text.length} scrollId={inputId} label={zh ? '编辑消息滚动' : 'Scroll edited message'}
+          className="quote-scroll-track user-edit-scroll-track" compact/>
       </div>
       {messageBlocks(message).filter(block => block.type === 'image').map((block, i) => <Image key={i} block={block} {...props}/>)}
       <div className="user-edit-actions">
-        <button type="button" disabled={submitting} onClick={cancel}>{zh ? '取消' : 'Cancel'}</button>
-        <button type="button" className="primary" disabled={submitting || !props.canEdit || (!text.trim() && !hasImages)}
-          onClick={() => void submit()}><Send size={14}/>{zh ? '发送' : 'Send'}</button>
+        <button type="button" className="user-edit-cancel" disabled={submitting} onClick={cancel}>{zh ? '取消' : 'Cancel'}</button>
+        <button type="button" className="icon-button composer-action-button" data-action="send"
+          aria-label={zh ? '发送' : 'Send'} data-tooltip={zh ? '发送' : 'Send'}
+          disabled={submitting || !props.canEdit || (!text.trim() && !hasImages)}
+          onClick={() => void submit()}><ComposerActionIcon stop={false}/></button>
       </div>
     </div> : <>
     <Body blocks={messageBlocks(message)} {...props} searchTarget={searchTarget?.entryId === message.entryId ? searchTarget : undefined}/>

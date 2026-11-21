@@ -1,10 +1,11 @@
 import { settleLayout } from './settle-layout.mjs';
 import { _electron as electron } from 'playwright';
 import assert from 'node:assert/strict';
-import { mkdir, realpath, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, realpath, writeFile } from 'node:fs/promises';
 import { mkdtemp } from './test-profile.mjs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { closeDesktopFixtureAndWait } from './close-desktop-fixture.mjs';
 
 const profile = await realpath(await mkdtemp(join(tmpdir(), 'desktop-settings-dialog-')));
 await mkdir('test-results', { recursive: true });
@@ -83,6 +84,30 @@ try {
   }
   {
     await navigation.getByRole('button', { name: '通用', exact: true }).click();
+    const search = dialog.getByRole('searchbox', { name: '搜索设置' });
+    await search.fill('标题');
+    await search.press('Enter');
+    const titleSwitch = dialog.getByRole('switch', { name: '自动生成会话标题' });
+    const help = dialog.getByRole('button', { name: '自动标题说明' });
+    const tooltip = page.getByRole('tooltip').filter({ hasText: '可能消耗少量额度' });
+    await titleSwitch.waitFor();
+    assert.equal(await titleSwitch.evaluate(element => element === document.activeElement), true);
+    assert.equal(await titleSwitch.isChecked(), true, 'automatic naming defaults on');
+    assert.equal(await tooltip.count(), 0, 'quota wording starts hidden');
+    await titleSwitch.press('Tab');
+    await tooltip.waitFor();
+    assert.equal(await help.evaluate(element => element === document.activeElement), true);
+    await settleLayout(tooltip);
+    await page.screenshot({ path: 'test-results/settings-session-title-tooltip-light.png' });
+    await search.focus();
+    await tooltip.waitFor({ state: 'hidden' });
+    await help.hover();
+    await tooltip.waitFor();
+    await titleSwitch.uncheck();
+    await page.waitForFunction(async () => (await window.desktop.snapshot()).preferences.autoGenerateSessionTitles === false);
+    assert.equal(JSON.parse(await readFile(join(profile, 'preferences.json'), 'utf8')).autoGenerateSessionTitles, false);
+    await titleSwitch.check();
+    await page.waitForFunction(async () => (await window.desktop.snapshot()).preferences.autoGenerateSessionTitles === true);
     const threshold = page.getByRole('spinbutton', { name: '触发比例百分比', exact: true });
     await threshold.waitFor();
     const before = await page.evaluate(() => window.desktop.compactionSettings());
@@ -186,8 +211,5 @@ try {
   await page?.screenshot({ path: 'test-results/settings-dialog-failure.png' }).catch(() => {});
   throw error;
 } finally {
-  if (app) {
-    await app.evaluate(({ BrowserWindow }) => { for (const window of BrowserWindow.getAllWindows()) window.destroy(); }).catch(() => {});
-    await app.close();
-  }
+  if (app) await closeDesktopFixtureAndWait(app);
 }

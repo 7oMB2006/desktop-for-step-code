@@ -64,6 +64,15 @@ Verify mouse and keyboard focus, the first/last field, multiline fields and
 scrolled/resized forms in light/dark and narrow layouts. Acceptance must check
 the focus extent against clipping ancestors, not just the input's border box.
 
+The shared conversation input treatment uses a softened 1px focus outline with a
+2px offset in the main conversation, MiniChat, BTW, background-agent follow-ups
+and inline message editing.
+Its color fades in over 240ms and out over 180ms without changing geometry.
+Reduced motion switches the outline immediately, and forced colors use an
+immediate 2px system highlight. Search fields use the same softened outline and
+fade on the search shell or input, without changing sidebar search disclosure
+motion. Other form controls and file-drop feedback keep their existing treatment.
+
 ## Existing Components
 
 MiniChat is a native view of a normal conversation, not BTW or a second agent.
@@ -102,6 +111,17 @@ their owner. Preserve the existing appearance and viewport gutter; measure
 intrinsic width independently of the previous tooltip position. Keyboard focus
 waits for its automatic scroll before placement. Closing the owning surface or
 removing its trigger also removes the tooltip.
+
+Settings > General > Sessions keeps sidebar ordering beside the default-on
+automatic title switch. The shared tooltip on its help icon discloses the
+extra request and possible model quota use on hover and keyboard focus.
+New Desktop sessions keep the first-message title unless the current Step
+account has a supported lightweight model. The background request sends only
+bounded first-message text, never tools or attachments; no fallback request,
+retry, or transcript row. Manual names take precedence.
+When a generated title replaces a visible temporary title, only the text
+crossfades with a short cubic ease in the title bar and ordinary sidebar rows.
+Manual renames, navigation, restored titles and reduced motion update instantly.
 
 Context maintenance belongs in Settings > General, not its own category or the
 Context inspector. The main percentage is global; the shared animated advanced
@@ -549,7 +569,7 @@ Session selection uses a latest-target queue in the main process. Preparing cold
 
 The delayed sidebar loading ring stays fixed at 12px and cannot inherit title-span flex growth. Closing the browser preserves the shared cubic layout-reservation transition so the conversation returns smoothly. Native webpage content hides immediately because its opaque surface cannot follow the shell fade; switching to another panel still releases the outgoing reservation immediately.
 
-The home screen and all user-facing new-session controls open a proposed session, not a runtime or sidebar entry. Global New inherits the viewed session's registered project; independent history stays independent. Project-level New selects that project. The central searchable project picker offers remembered projects, a native directory chooser for a new project and an independent-session option. Choosing a directory remembers the project without creating a conversation; canceling the chooser leaves the proposal unchanged. Leaving the proposal for an existing conversation discards it without creating history or an independent folder. The first nonempty send creates the worker and then submits the captured message once; failed delivery restores the input. Independent folders under Electron userData `workspaces/independent/` are allocated only at that point and are not project entries. Model and permission selection before sending live in the proposal, using safe model metadata from the Desktop-owned management process. The headline types from left to right with a solid block cursor; its full-width placeholder prevents layout movement, and reduced motion displays the entire text immediately. Restoring history preserves its category. The File menu opens the active session folder; the composer does not duplicate this action.
+The home screen and all user-facing new-session controls open a proposed session, not a runtime or sidebar entry. Global New resumes the latest nonempty unsent proposal with its original project; without one, it inherits the viewed session's registered project or independent status. Project-level New selects that project. The central searchable project picker offers remembered projects, a native directory chooser for a new project and an independent-session option. Choosing a directory remembers the project without creating a conversation; canceling the chooser leaves the proposal unchanged. Leaving the proposal for existing history keeps its text, quotes and attachments in the desktop process without creating history or an independent folder. Proposal drafts survive navigation and renderer reload, not app exit. The first nonempty send creates the worker and then submits the captured message once; failed delivery restores the input. Independent folders under Electron userData `workspaces/independent/` are allocated only at that point and are not project entries. Model and permission selection before sending live in the proposal, using safe model metadata from the Desktop-owned management process. The headline types from left to right with a solid block cursor; its full-width placeholder prevents layout movement, and reduced motion displays the entire text immediately. Restoring history preserves its category. The File menu opens the active session folder; the composer does not duplicate this action.
 
 Session navigation remains available during execution. Viewing a different session does not stop or replace a running worker. Seven-pixel sidebar status dots sit in the empty gutter beneath each group icon, outside the session selection background. Titles use the original nine-pixel padding, without a second empty status slot inside the row. Running uses the transcript's rose pulse; blue means a successful background reply is unread, not merely that history completed. Opening the session clears its unread dot, and completion in the currently viewed session is already read. Unread flags belong to session IDs and survive worker recycling within the app lifetime; they are not inferred from restored history or persisted across app relaunch. Interruption/failure or approval waiting uses static yellow with distinct accessible labels. The dots have no hover tooltip. Reduced-motion disables the pulse. Successful foreground or background task completion plays the supplied camera-dial WAV once; manual stop, failure, crash and history restoration are silent. Resident-session navigation returns the main process's live worker cache immediately and refreshes full history, models, statistics and the catalog after the initial paint. Cold sessions still need worker startup. The composer, stop action, permissions and model controls belong to the viewed session; drafts, quotes, attachments and reading position survive navigation and idle-worker recycling. Background approval never opens over another conversation. A foreground approval can be deferred with Review later and reopened from an inline notice without cancelling it. Shared account/MCP changes remain guarded across all running sessions, and quitting confirms stopping every background task. Same-directory concurrent sends proceed directly without a generic confirmation.
 
@@ -561,7 +581,7 @@ Global instructions supplement the native product prompt, Desktop collaboration 
 
 Desktop-owned extensions expose explicit peer-session tools through a main-process loopback broker. Listing covers resident sessions in this Desktop profile, not cold history; reads return recent user/assistant prose only, never reasoning, tool payloads or images. Reads neither navigate nor clear unread status. Peer text is reference, not an instruction or authorization from the user. Sending one message always requires a source-session confirmation displaying the exact target, folder and text, even in bypass mode; read-only sources cannot send. Background confirmations stay with their source conversation and can be deferred. Accepted messages queue behind an active turn or start an idle peer; there is no cross-session interrupt, stop, broadcast or automatic reply loop. Delivery acknowledgement is not task completion. Tokens are per worker, revoked at disposal and never exposed through the renderer bridge.
 
-Session context menus provide Copy session reference through the existing main-process clipboard bridge. The stable `stepcode-desktop://sessions/<sessionId>` reference contains no filesystem path or broker credentials. Copying does not navigate, clear unread status or require an idle agent. Peer-session tools accept either this reference or the raw session ID; the list tool returns both. This preview does not register a Windows URL handler or make the reference clickable navigation, and a reference does not grant access to another Desktop profile or revive recycled history.
+Session context menus provide Copy session reference through the existing main-process clipboard bridge. The stable `stepcode-desktop://sessions/<sessionId>` reference contains no filesystem path or broker credentials. Copying does not navigate, clear unread status or require an idle agent. Known local references display the current session title and shared link accent in conversation prose and the composer. Code samples and unrecognized references keep their source presentation. The editable prompt, message copy and saved history keep the original reference. Peer-session tools accept either this reference or the raw session ID; the list tool returns both. References do not register a system URL handler, navigate on click or grant access to another Desktop profile.
 
 Sidebar navigation follows Codex-style grouping: independent sessions appear in their own collapsible section, followed by remembered project directories with indented history rows and per-directory new-session actions. A session's history cannot create a project entry by itself. Session dates and message counts live in tooltips. Session names use the explicit name, then the first user message, in both the sidebar and title bar. Project context menus open the directory in Explorer and rename its displayed label without moving the folder. Session context menus rename, archive, copy references and branch sessions. Sidebar Branch copies the selected saved, idle session's complete persisted history through the upstream SessionManager API before loading it in a new worker, so restoring a cold source cannot append metadata to the original. It does not open/read-mark the source. The new session inherits effective permissions, keeps the same workspace, uses a unique branch name and leaves drafts and other active tasks intact. Empty, running and approval-waiting targets cannot be branched. This does not create a Git branch or isolate project files.
 
@@ -573,7 +593,7 @@ Remote preparation is not a global notice. Only a confirmed Remote preparation b
 
 Windows chrome: a 46px application-owned titlebar follows the active theme. A sidebar toggle and File, Edit, View and Help menus occupy the left side; the active session title occupies the flexible drag region, capped at 300px and truncating sooner on narrow windows to leave drag space while retaining the full title in a tooltip. Runtime restart and session statistics remain available from the View menu instead of occupying a separate conversation header. The three 46px window control buttons are excluded from dragging. Window close preserves running-task confirmation. Layout content and modal overlays begin below the titlebar. The transcript fades softly into the composer; a square scroll-to-bottom control appears while the reader is away from the latest message.
 
-The right edge has a permanent narrow tool rail, with Summary above Conversation navigation and tooltips to the left. The conversation keeps native scrolling but hides Chromium's track, replacing its visible thumb with a trackless full-height drag handle. A separate, fixed-pitch user-turn ruler follows the reading position and fades distant turns. Marks preview the turn on hover/focus and scroll to it on click. A navigation panel lists those turns with the original user-message timestamp always visible below each preview, aligned right, using local month/day and 24-hour time. Missing or invalid timestamps are omitted, not replaced by the current clock. A summary panel reserves the same space but has no invented summary data yet. Wide windows allocate layout width for an open panel, while narrow windows overlay it. The existing tool details panel uses that slot instead of stacking another panel.
+The right edge has a permanent narrow tool rail, with Summary above Conversation navigation and tooltips to the left. The conversation keeps native scrolling but hides Chromium's track, replacing its visible thumb with a trackless full-height drag handle. A separate, fixed-pitch user-turn ruler follows the reading position and fades distant turns. Marks preview the turn on hover/focus and scroll to it on click. A navigation panel lists those turns with the original user-message timestamp always visible below each preview, aligned right, using local month/day and 24-hour time. Missing or invalid timestamps are omitted, not replaced by the current clock. A summary panel reserves the same space but has no invented summary data yet. Wide windows allocate layout width for an open panel, while narrow windows overlay it. The existing tool details panel uses that slot instead of stacking another panel. Switching back to a conversation restores its Summary, Browser, Conversation navigation, or Context selection (including the selected Context/Status/CLM tab), or its explicit closure, after navigation resolves. This is window-lifetime presentation, not separate browser tabs per conversation. Panels tied to a specific file, diff, terminal, agent, or side question do not automatically reopen.
 
 Developers use this tool through long work sessions under changing ambient light. Appearance settings group six palettes into Classic / Light and Shadow (天光初霁, 素笺留白, 星河未眠) and Color / Between Mountains and Seas (沧海夜航, 绛夜微醺, 翠林听雨). Plain color labels remain beneath each name. The user-approved concept swatches guide the cool morning light, neutral paper, cold gray night, ocean blue, muted wine and forest green palettes. System follows the OS between Light and Dark; explicit palettes ignore OS changes. Small interface previews show each palette's sidebar, canvas and interaction color. Typography remains independent below the palette controls.
 
@@ -607,7 +627,7 @@ the reader has not paused it, and nested tool-output scrolling stays native.
 
 ## Conversation Presentation
 
-User and assistant messages do not show role headings. User message copy/edit controls and the timestamp appear below the bubble on hover or keyboard focus, reserving their layout space. Edit restores a copy of the message and its images into an empty composer for sending as a new message; it does not rewrite, rewind or fork runtime history. Existing drafts are not overwritten.
+User and assistant messages do not show role headings. User message copy/edit controls and the timestamp appear below the bubble on hover or keyboard focus, reserving their layout space. The latest editable user message opens its editor in place, with one focus outline around the shell, a quiet Cancel and the shared composer send arrow. Opening and cancelling leave history unchanged; sending retries the edited message with its original images in the same conversation. Existing drafts are not overwritten.
 
 Responses group consecutive assistant and tool messages until the next user message for a shared footer. All assistant narration remains in source order. Simple may fold explicitly identified process narration after confirmed settlement; no last-message heuristic extracts a final answer. Visible tool summaries describe the action in the client language instead of exposing raw tool names and commands. Known built-ins and aliases have localized action labels; unknown tools retain their names without invented descriptions. Running summaries have an oblique label and a left-to-right shimmer; only a tool's final result stops that animation and smoothly restores upright text. Failed summaries are upright and red; missing results are explicitly distinguished from success. Reduced-motion disables shimmer and transition effects. Raw names, targets, inputs, outputs and completion status stay in the individual expanded details, with results matched by tool-call ID rather than completion order. Thinking and tool visibility and disclosure defaults follow Interface Complexity settings, including while streaming; later prose, completion and interruption do not override a manual disclosure choice. The footer has Copy and Branch from here, enabled only for the latest saved assistant reply while its session is idle, with the actual message timestamp shown on hover/focus. Copy includes all response prose, excluding thinking and tool payloads. No per-response model policy or invented duration is implemented.
 
@@ -631,7 +651,7 @@ Steering immediately moves the selected draft out of the queue chip into a right
 
 The composer accepts file selection, pasted images and file drops. PNG/JPEG/WebP images are inline model inputs; other regular files are explicit local path references for runtime tools, not natively parsed document inputs. The limit is ten attachments including five images, with 10 MiB per image and 50 MiB per other file. File paths remain behind opaque IDs in the main process.
 
-Composer thumbnails and transcript images share an anchored image preview: cubic expansion from the thumbnail and return on close, drag panning, cursor-centered Ctrl+wheel zoom, keyboard focus return and reduced-motion support. Obvious preview controls and hover-only removal buttons have no tooltip. Image context menus follow the client language: Copy/Save As in the preview and composer; Add to chat/Copy image/Open in Explorer/Download a copy in the transcript. Explorer uses a reusable desktop-owned image cache under userData `cache/image-previews/`, with one replaceable file per image format, separate from configuration and runtime data. The cache is rebuildable, not a permanent image archive; explicit save actions use a native save dialog.
+Composer thumbnails and transcript images share an anchored image preview: cubic expansion from the thumbnail and return on close, drag panning, cursor-centered wheel zoom with or without Ctrl or Command, keyboard focus return and reduced-motion support. Wheel zoom is limited to the preview image area. Obvious preview controls and hover-only removal buttons have no tooltip. Image context menus follow the client language: Copy/Save As in the preview and composer; Add to chat/Copy image/Open in Explorer/Download a copy in the transcript. Explorer uses a reusable desktop-owned image cache under userData `cache/image-previews/`, with one replaceable file per image format, separate from configuration and runtime data. The cache is rebuildable, not a permanent image archive; explicit save actions use a native save dialog.
 
 ## Window Lifecycle
 
@@ -646,13 +666,14 @@ resolved requests, disabled options and new work withdraw obsolete banners.
 Windows Do Not Disturb remains an operating-system choice and is not bypassed.
 The behavior and verification boundary are documented in `docs/NOTIFICATIONS.md`.
 
-The Windows main taskbar icon and macOS Dock show a native numeric badge for
-conversations with an unread successful completion, independently of banners and sound. A
-selected conversation can still count when its window is unfocused or minimized.
-Viewing that conversation in focused main or MiniChat, archiving it, or starting
-its next turn clears its count. The overlay shows at most `9+`; unread state is
-session-scoped and lasts only until application exit. Do not add a duplicate
-in-app badge or change the tray icon.
+The macOS Dock shows a numeric badge for conversations with an unread successful
+completion, independently of banners and sound. A selected conversation can still
+count when its window is unfocused or minimized. Viewing that conversation in
+focused main or MiniChat, archiving it, or starting its next turn clears its count.
+The Dock shows at most `9+`; unread state is session-scoped and lasts only until
+application exit. Windows has no taskbar badge until the system can render it
+natively for this application. Do not draw a fallback, add a duplicate in-app
+badge, or change the tray icon.
 
 Closing the main window hides it to the Windows tray without stopping Agent tasks, queued messages, terminal processes or browser tabs. The tray uses the product icon and supplies Open and Quit in the selected language. Clicking it or launching another instance restores the existing window. File > Quit application and tray Quit perform the existing confirmed shutdown and wait for runtime/terminal cleanup; cancellation keeps the application available. A failed tray creation falls back to the explicit shutdown path instead of hiding an unreachable window. Windows session end does not request interactive task confirmation.
 
@@ -718,12 +739,15 @@ child prompt, without silently substituting another model.
 
 Interface complexity is a dedicated Settings category, separate from typography.
 Simple, Standard and Detailed are presentation presets, not permission or model
-capability tiers. Simple shows live narration, thinking and tools in order.
+capability tiers. Simple leaves live narration in order and groups consecutive
+thinking and ordinary tools, including failed calls, into one process row.
+The same disclosure shows the current action while running. Ordinary tool
+failures remain visible in the expanded details without an outer failure badge.
 After authoritative successful settlement, one elapsed-time control folds
-tool-use narration, thinking and completed ordinary tools in place. Expanding
-restores their original ordering and alignment, without a nested transcript.
-Final prose, approvals, failed or unresolved tools, dedicated interactions and
-deliveries remain visible. Interrupted rounds and history without a reliable
+tool-use narration and process groups in place and displays only the duration.
+Expanding restores their ordering and alignment. Final prose,
+approvals, unresolved tools, dedicated interactions and deliveries remain
+visible. Interrupted rounds and history without a reliable
 completion record are never automatically folded. This changes presentation
 only; copy, saved history, artifacts and runtime controls are unchanged.
 Standard folds consecutive thinking and ordinary tools into one process row
@@ -744,8 +768,9 @@ option reapplies the current defaults to already mounted historical records.
 Only disclosure state is reset; prose and runtime state are not remounted.
 Ordinary tool groups never cross thinking boundaries; compact process groups
 can contain both thinking and tools. Neither crosses prose, image or turn
-boundaries. Approval, error, missing-result,
-Subagent, Workflow, Plan, structured questions and peer-delivery records remain separate. Group
+boundaries. Approval, missing-result, Subagent, Workflow, Plan, structured
+questions and peer-delivery records remain separate. Errors remain separate
+except for ordinary tool failures in Simple. Group
 summaries count actual operations without model-generated narration or inferred
 validation success. Partial tool output remains pending until the final event.
 Expanding a group retains its trigger and uses cubic motion with a reduced-motion

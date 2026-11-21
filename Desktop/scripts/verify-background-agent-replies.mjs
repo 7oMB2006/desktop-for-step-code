@@ -169,6 +169,7 @@ try {
   const main = await page.evaluate(() => window.desktop.snapshot());
   assert.equal(main.messages.some(message => message.role === 'user'
     && ['REPLY-QUEUED', 'REPLY-CONTINUE'].includes(text(message))), false, 'Follow-ups are not parent user turns');
+  await page.emulateMedia({ reducedMotion: 'no-preference', forcedColors: 'none' });
   for (const theme of ['light', 'dark']) {
     await page.evaluate(theme => window.desktop.preferences({ theme }), theme);
     await page.reload();
@@ -184,16 +185,25 @@ try {
       for (let node = composer.parentElement; node; node = node.parentElement) {
         if (/(auto|scroll|hidden|clip)/.test(getComputedStyle(node).overflow)) clips.push(node.getBoundingClientRect().toJSON());
       }
-      return { box: box.toJSON(), clips, outline: getComputedStyle(composer).outlineWidth };
+      const style = getComputedStyle(composer);
+      return { box: box.toJSON(), clips, outline: style.outlineWidth, color: style.outlineColor,
+        duration: style.transitionDuration };
     });
-    assert.equal(focus.outline, '2px');
+    assert.equal(focus.outline, '1px');
+    assert.notEqual(focus.color, 'rgba(0, 0, 0, 0)', 'The softened outline must still be visible');
+    assert.equal(focus.duration, '0.24s', 'Follow-ups reuse the shared composer focus transition');
     for (const clip of focus.clips) {
       assert.ok(focus.box.left - 4 >= clip.left - 1 && focus.box.right + 4 <= clip.right + 1, 'Horizontal focus gutter');
       assert.ok(focus.box.top - 4 >= clip.top - 1 && focus.box.bottom + 4 <= clip.bottom + 1, 'Vertical focus gutter');
     }
     await page.screenshot({ path: `test-results/background-replies/${theme}-narrow.png` });
   }
+  await send.focus();
+  assert.equal(await send.evaluate(element => getComputedStyle(element.closest('.composer')).transitionDuration),
+    '0.24s', 'Moving focus to Send retains the composite outline');
   await page.emulateMedia({ reducedMotion: 'reduce' });
+  assert.equal(await send.evaluate(element => getComputedStyle(element.closest('.composer')).transitionDuration),
+    '0s', 'Reduced motion skips the fade');
   assert.equal(await send.isDisabled(), false, 'A nonempty draft remains sendable');
   const beforeClear = await app.evaluate(() => globalThis.backgroundReplyFixture.requests.length);
   await editor.press('ControlOrMeta+a');

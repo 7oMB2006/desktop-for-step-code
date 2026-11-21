@@ -1,17 +1,17 @@
 import { _electron as electron } from 'playwright';
-import { mkdir, readFile, realpath, writeFile, utimes, rename, stat } from 'node:fs/promises';
+import { appendFile, mkdir, readFile, realpath, writeFile, utimes, rename, stat } from 'node:fs/promises';
 import { mkdtemp } from './test-profile.mjs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import assert from 'node:assert/strict';
 import { settleLayout } from './settle-layout.mjs';
-import { relocateIdleWorkspaceFixture } from './session-fixture.mjs';
+import { relocateIdleWorkspaceFixture, waitForSessionFixtureSnapshot } from './session-fixture.mjs';
 
 // Windows runner TEMP can use an 8.3 alias; match the main process's canonical paths.
 const profile = await realpath(await mkdtemp(join(tmpdir(), 'step-desktop-sidebar-')));
 const projects = ['Desktop For Step Code', 'Frontend', 'Research'].map(name => join(profile, name));
 for (const path of projects) await mkdir(path);
-await writeFile(join(profile, 'preferences.json'), JSON.stringify({ theme: 'light', language: 'zh', workspaces: projects, sessionOrder: Array.from({ length: 5 }, (_, i) => `sidebar-${i}`) }));
+await writeFile(join(profile, 'preferences.json'), JSON.stringify({ theme: 'light', language: 'zh', workspaces: projects }));
 const sessionsDir = join(profile, 'step-runtime', 'sessions');
 await mkdir(sessionsDir, { recursive: true });
 for (let index = 0; index < 5; index++) {
@@ -103,6 +103,34 @@ async function drag(page, from, to, after = false, cancel = false) {
 }
 try {
   let page = await launch();
+  mark('cold rename and default fixed positions');
+  const coldPath = join(sessionsDir, 'sidebar-1.jsonl');
+  const beforeRename = await page.evaluate(() => window.desktop.snapshot());
+  const coldHistory = await readFile(coldPath, 'utf8');
+  await session(page, 1).locator('button').first().click({ button: 'right' });
+  await page.getByRole('menuitem', { name: '重命名', exact: true }).click();
+  const renameDialog = page.getByRole('dialog', { name: '重命名会话', exact: true });
+  await renameDialog.getByRole('textbox').fill('Renamed cold session');
+  await renameDialog.getByRole('textbox').press('Enter');
+  await renameDialog.waitFor({ state: 'detached' });
+  await session(page, 1).getByText('Renamed cold session', { exact: true }).waitFor();
+  const afterRename = await page.evaluate(() => window.desktop.snapshot());
+  assert.equal(afterRename.state.sessionId, beforeRename.state.sessionId);
+  assert.deepEqual(afterRename.runtimes.map(worker => worker.runtimeId), beforeRename.runtimes.map(worker => worker.runtimeId));
+  assert.deepEqual(await rows(project(page, 0)), ['sidebar-0', 'sidebar-1', 'sidebar-2']);
+  const updatedHistory = await readFile(coldPath, 'utf8');
+  assert.ok(updatedHistory.startsWith(coldHistory), 'renaming preserves the original history bytes');
+  const renameEntry = JSON.parse(updatedHistory.slice(coldHistory.length).trim());
+  assert.equal(renameEntry.name, 'Renamed cold session');
+  // The activity sort follows messages, not file mtime or rename metadata.
+  const activityTime = new Date().toISOString();
+  await appendFile(coldPath, JSON.stringify({ type: 'message', id: 'new-activity',
+    parentId: renameEntry.id, timestamp: activityTime,
+    message: { role: 'user', content: [{ type: 'text', text: 'New activity' }], timestamp: Date.parse(activityTime) },
+  }) + '\n');
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].webContents.send('runtime-event', { type: 'desktop_sessions_changed' }));
+  await waitForSessionFixtureSnapshot(page, value => value.sessions[0]?.id === 'sidebar-1', 'updated session catalog');
+  assert.deepEqual(await rows(project(page, 0)), ['sidebar-0', 'sidebar-1', 'sidebar-2']);
   mark('session drag and cancellation');
   const initialOrder = await rows(project(page, 0));
   const initialActive = (await page.evaluate(() => window.desktop.snapshot())).state.sessionId;
@@ -146,7 +174,7 @@ try {
   const sort = page.getByLabel('会话排序', { exact: true });
   assert.equal(await sort.inputValue(), 'manual');
   await sort.selectOption('updated');
-  await page.waitForFunction(() => document.querySelector('[data-reorder-id="sidebar-0"]').parentElement.firstElementChild.dataset.reorderId === 'sidebar-0');
+  await page.waitForFunction(() => document.querySelector('[data-reorder-id="sidebar-1"]').parentElement.firstElementChild.dataset.reorderId === 'sidebar-1');
   assert.deepEqual(await projectOrder(page), [key(projects[1]), key(projects[0]), key(projects[2])]);
   await page.locator('.settings-dialog > header').getByRole('button', { name: /^(?:Close|\u5173\u95ed)$/u }).click();
   await page.locator('.settings-backdrop').waitFor({ state: 'detached' });

@@ -29,7 +29,7 @@ export interface Snapshot { runtimeStartupTiming?: RuntimeStartupTiming }
 export interface StatusAccount { mode: 'plan' | 'api' | 'none' | 'unknown'; region?: 'cn' | 'global'; userId?: string }
 export interface Snapshot { statusAccount?: StatusAccount }
 export interface Snapshot { estimate?: import('./usage-estimates').SessionEstimate; quitReview?: import('./quit-confirmation').QuitReviewState }
-export interface Session { id: string; path: string; cwd: string; workspacePath?: string; name?: string; firstMessage: string; modified: string; messageCount: number; independent?: boolean }
+export interface Session { id: string; path: string; cwd: string; workspacePath?: string; name?: string; automaticTitle?: string; firstMessage: string; created?: string; modified: string; messageCount: number; independent?: boolean }
 export interface SessionReading { sessionId: string; version?: string; messages: Message[]; modelChanges?: ModelChange[] }
 export interface SessionReadingUnavailable {
   sessionId: string;
@@ -39,6 +39,7 @@ export type SessionReadingResult = SessionReading | SessionReadingUnavailable | 
 export interface Model { id: string; provider: string; name: string; providerName?: string; reasoning?: boolean; thinkingLevels?: string[]; thinkingServiceDefault?: boolean; input?: string[]; contextWindow?: number; maxTokens?: number; declaredInput?: string[]; declaredOutput?: string[]; metadataSource?: 'upstream' | 'manual' }
 export interface Preferences { preferredModel?: Pick<Model, 'provider' | 'id' | 'name'> }
 export interface Preferences { favoriteModels?: import('./model-favorites').ModelIdentity[] }
+export interface Preferences { autoGenerateSessionTitles?: boolean }
 export interface Preferences extends Partial<import('./panel-preferences').PanelPreferences> {}
 export interface NotificationPreferences { approvalNotifications: boolean; completionNotifications: boolean; completionSound: boolean }
 export interface Preferences extends Partial<NotificationPreferences> {}
@@ -61,7 +62,7 @@ export type RuntimeEvent = { type: string; [key: string]: any };
 export interface Preferences { interfaceSettings?: import('./interface-presets').InterfacePreferences; appearance?: import('./appearance').Appearance; theme: import('./theme').ThemePreference; accentColor?: string | null; language: 'zh' | 'en'; workspaces: string[]; workspace?: string; workspaceNames?: Record<string, string>; workspaceSessionRedirects?: Record<string, string>; archivedSessionIds?: string[]; sessionSort?: 'manual' | 'updated'; sessionOrder?: string[]; pinnedWorkspaces?: string[]; collapsedWorkspaces?: string[]; fileOpeningApps?: Record<string, string>; filePreviewWidth?: 'standard' | 'wide'; updateChannel?: UpdateChannel; autoCheckUpdates?: boolean }
 export type BackgroundLaneSummary = { id: string; status: 'running' | 'settling' };
 export type BackgroundLaneActivity = { status: 'known'; lanes: BackgroundLaneSummary[] } | { status: 'unavailable' };
-export interface RuntimeSummary { runtimeId: string; sessionId: string; cwd: string; name?: string; firstMessage?: string; backgroundCount?: number; background?: BackgroundLaneActivity; status: 'idle' | 'running' | 'waiting' | 'failed' | 'completed' | 'interrupted' }
+export interface RuntimeSummary { runtimeId: string; sessionId: string; cwd: string; name?: string; automaticTitle?: string; firstMessage?: string; backgroundCount?: number; background?: BackgroundLaneActivity; status: 'idle' | 'running' | 'waiting' | 'failed' | 'completed' | 'interrupted' }
 export interface Preferences { themeMotion?: boolean; themeBrightness?: number }
 export interface Snapshot { themePacks?: import('./theme-packs').ThemePack[] }
 export interface Snapshot { customBackground?: import('./custom-background').CustomBackgroundState }
@@ -233,7 +234,7 @@ export interface DesktopBridge extends SessionImportBridge, BtwBridge, Backgroun
   quitRespond(id: string, confirmed: boolean): Promise<void>;
   systemTheme(): Promise<{ systemDark: boolean }>;
   snapshot(): Promise<Snapshot>;
-  beginSession(workspace?: string): Promise<Snapshot>;
+  beginSession(workspace?: string, resume?: boolean): Promise<Snapshot>;
   chooseSessionProject(): Promise<Snapshot | null>;
   createDraftSession(draftId: string): Promise<Snapshot>;
   newIndependentSession(): Promise<Snapshot>;
@@ -246,6 +247,7 @@ export interface DesktopBridge extends SessionImportBridge, BtwBridge, Backgroun
   searchSessions(query: import('./fulltext-search').FulltextQuery): Promise<import('./fulltext-search').FulltextResult>;
   cancelSessionSearch(id: string): Promise<void>;
   switchSession(id: string): Promise<Snapshot>;
+  renameSession(id: string, name: string): Promise<void>;
   navigateSession(id: string, selectionRevision?: number): Promise<Snapshot | null>;
   sessionReading(id: string): Promise<SessionReading | null>;
   sessionReading(id: string, selectionRevision: number): Promise<SessionReadingResult>;

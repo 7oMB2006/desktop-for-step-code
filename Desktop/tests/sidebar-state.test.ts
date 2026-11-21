@@ -32,6 +32,13 @@ test('runtime names update only their row and preserve first-match and empty-val
   assert.equal(next[1], sessions[1]);
   assert.equal(sessions[0].name, 'a');
 });
+test('only a live automatic title carries its animation source', () => {
+  const automatic = runtime('a', 'idle', { name: 'Generated', automaticTitle: 'Generated' });
+  const titled = updateSidebarSessionNames([session('a', { name: undefined })], [automatic]);
+  assert.equal(titled[0].automaticTitle, 'Generated');
+  assert.equal(updateSidebarSessionNames(titled, [automatic]), titled);
+  assert.equal(updateSidebarSessionNames(titled, [runtime('a', 'idle', { name: 'Manual' })])[0].automaticTitle, undefined);
+});
 test('activity projections retain identity across irrelevant runtime metadata', () => {
   const read = createSidebarActivityReader();
   const saved = new Map([['a', 'running' as const]]);

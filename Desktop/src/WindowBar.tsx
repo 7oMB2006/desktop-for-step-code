@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Minus, Square, Copy, X, PanelLeft, Ellipsis, PictureInPicture2 } from 'lucide-react';
 import { shortcutLabel } from './app-shortcuts';
+import { SessionTitleText } from './SessionTitleText';
 
 export type WindowMenu = { id: string; label: string; items: { label: string; action: () => void; disabled?: boolean; shortcut?: string }[] };
 
-export function WindowBar({ language, sidebarVisible, toggleSidebar, menus, sessionTitle, onMenuOpenChange, miniChat, pluginActions, showSidebarToggle = true, inert = false }: { language: 'zh' | 'en'; sidebarVisible: boolean; toggleSidebar: () => void; menus: WindowMenu[]; sessionTitle?: string; onMenuOpenChange?: (open: boolean) => void; miniChat?: { open: boolean; disabled?: boolean; onOpen: () => void }; pluginActions?: ReactNode; showSidebarToggle?: boolean; inert?: boolean }) {
+export function WindowBar({ language, sidebarVisible, toggleSidebar, menus, sessionTitle, sessionId, automaticTitle, onMenuOpenChange, miniChat, pluginActions, showSidebarToggle = true, inert = false }: { language: 'zh' | 'en'; sidebarVisible: boolean; toggleSidebar: () => void; menus: WindowMenu[]; sessionTitle?: string; sessionId?: string; automaticTitle?: string; onMenuOpenChange?: (open: boolean) => void; miniChat?: { open: boolean; disabled?: boolean; onOpen: () => void }; pluginActions?: ReactNode; showSidebarToggle?: boolean; inert?: boolean }) {
   const [maximized, setMaximized] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
   const [focused, setFocused] = useState(true);
@@ -54,7 +55,8 @@ export function WindowBar({ language, sidebarVisible, toggleSidebar, menus, sess
         </div>)}
       </nav>}
     </div>
-    <div className="window-drag-space">{sessionTitle && <span className="window-session-title" data-tooltip={sessionTitle}>{sessionTitle}</span>}</div>
+    <div className="window-drag-space">{sessionTitle && <SessionTitleText className="window-session-title"
+      sessionId={sessionId} title={sessionTitle} automaticTitle={automaticTitle} tooltip={sessionTitle}/>}</div>
     {pluginActions}
     {mac && miniChat && <div className="window-controls">
       <button type="button" data-tooltip="MiniChat" aria-label="MiniChat" aria-pressed={miniChat.open} disabled={miniChat.disabled}

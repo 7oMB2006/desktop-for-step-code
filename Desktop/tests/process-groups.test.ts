@@ -12,7 +12,7 @@ const tool = (key: string, completed = true, name = 'read_file'): ToolItem => ({
 });
 const prose: ResponseItem = { type: 'text', key: 'prose', index: 0, block: { type: 'text', text: 'Actual reply.' } };
 
-test('Simple only folds verified, same-run process and preserves the original answer and exceptional items', () => {
+test('Simple only folds verified, same-run process, including ordinary tool failures', () => {
   const timing = { run: { startedAt: 1000, endedAt: 17000 }, thinking: {} };
   const earlier: Message = { role: 'assistant', content: 'Independent answer', stopReason: 'stop',
     desktopTiming: { ...timing, run: { startedAt: 0, endedAt: 500 } } };
@@ -26,7 +26,7 @@ test('Simple only folds verified, same-run process and preserves the original an
     tool('approval', true, 'clarify_user'), { ...prose, index: 1, key: 'earlier' }, { ...prose, index: 2 }];
   const before = structuredClone(content);
   assert.deepEqual(settledTurnProcess(items, content, false), {
-    keys: new Set(['narration', 'thought', 'completed']), duration: 16000,
+    keys: new Set(['narration', 'thought', 'completed', 'failed']), duration: 16000,
   });
   assert.deepEqual(content, before);
   assert.equal(settledTurnProcess(items, content, true), undefined, 'streaming final text does not settle the turn');
@@ -89,6 +89,35 @@ test('compact process leaves errors approvals missing results and dedicated tool
   const pending = { ...tool('b'), result: { ...tool('b').result!, desktopToolPending: true } };
   assert.equal((groupProcesses([thought('a'), pending], true)[0] as ProcessGroup).running, true);
   assert.equal(groupProcesses([thought('a'), pending], false)[1], pending);
+});
+
+test('Simple keeps ordinary failures in one process row and excludes them from its success summary', () => {
+  const failed = tool('failed', true, 'run_command');
+  failed.result!.details = { execution: { status: 'exited', exitCode: 2, signal: null, timedOut: false, aborted: false } };
+  const input = [thought('start'), tool('read'), failed, tool('another'), prose];
+  const groups = groupProcesses(input, true, [], { simple: true });
+  assert.equal(groups.length, 2);
+  const [group, answer] = groups;
+  assert.equal(answer, prose);
+  assert.equal(group.type, 'process-group');
+  assert.deepEqual(group.items, input.slice(0, -1));
+  assert.deepEqual(group.failedToolKeys, new Set(['failed']));
+  assert.deepEqual(processGroupSummary(group, 'zh'), { label: '已完成：读取文件 2 项', detail: '' });
+  const [onlyFailure] = groupProcesses([failed], false, [], { simple: true });
+  assert.equal(onlyFailure.type, 'process-group');
+  assert.equal(processGroupSummary(onlyFailure, 'en').label, 'Tool activity');
+});
+
+test('Simple never absorbs approvals, dedicated errors, unresolved results or records from a different fold range', () => {
+  const failed = tool('failed');
+  failed.result!.isError = true;
+  const question = tool('question', true, 'clarify_user');
+  question.result!.isError = true;
+  const missing = tool('missing', false);
+  const first = thought('old');
+  const groups = groupProcesses([first, failed, question, missing, tool('approval')], false, ['approval'],
+    { simple: true, foldableKeys: new Set(['failed']) });
+  assert.deepEqual(groups.map(item => item.key), ['process:old', 'process:failed', 'question', 'missing', 'approval']);
 });
 
 test('thinking activity ends on tools or prose and ignores empty text placeholders', () => {

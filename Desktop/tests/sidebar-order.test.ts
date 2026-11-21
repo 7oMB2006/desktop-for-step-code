@@ -12,6 +12,15 @@ test('manual ordering is the default and ignores updated timestamps and catalog 
   assert.deepEqual(orderSessions(sessions.map(s => ({ ...s, modified: '2030' })), preferences).map(s => s.id), ['b', 'a', 'c']);
 });
 
+test('manual ordering is stable even before sessions have saved ranks', () => {
+  const unranked = sessions.map((session, index) => ({ ...session, created: `2026-10-0${index + 1}` }));
+  const refreshed = [unranked[1], unranked[0], unranked[2]].map(session => ({ ...session, modified: '2030' }));
+  for (const preferences of [{}, { sessionOrder: ['a'] }]) {
+    assert.deepEqual(orderSessions(unranked, preferences).map(session => session.id), ['c', 'b', 'a']);
+    assert.deepEqual(orderSessions(refreshed, preferences).map(session => session.id), ['c', 'b', 'a']);
+  }
+});
+
 test('new sessions enter at the top without disturbing existing order; stale and duplicate IDs are removed', () => {
   assert.deepEqual(reconcileSessionOrder(['b', 'a', 'b', 'gone'], sessions), ['c', 'b', 'a']);
   assert.deepEqual(reconcileSessionOrder([], sessions), ['a', 'b', 'c']);

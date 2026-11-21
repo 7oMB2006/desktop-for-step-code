@@ -26,7 +26,7 @@ async function fixture() {
   const source = ts.createSourceFile('main.ts', await readFile(new URL('../electron/main.ts', import.meta.url), 'utf8'),
     ts.ScriptTarget.Latest, true);
   const names = ['handle', 'beginSession', 'connect', 'replaceMiniRuntime', 'performProviderSettings',
-    'selectedDraft', 'selectDraft', 'selectedRuntime', 'selectRuntime'];
+    'parkedDrafts', 'selectedDraft', 'selectDraft', 'selectedRuntime', 'selectRuntime'];
   const declarations = names.map(name => {
     const declaration = source.statements.find(node =>
       ts.isFunctionDeclaration(node) && node.name?.text === name
@@ -138,6 +138,7 @@ async function fixture() {
       },
     },
     rememberModel: async () => {}, promptNeedsQueue: () => false, isProjectTrustInput: () => false,
+    sessionTitles: { register() {} },
     pendingMessages: { drain() {} },
     externalTasks: { retains: (value: SessionRuntime) => externalWorkers.has(value) },
     externalSessionCommandAllowed,
@@ -165,6 +166,16 @@ async function fixture() {
     readingSelections: context.readingSelections,
     setModels: (models: Model[]) => { availableModels = models; } };
 }
+
+test('global New restores the parked draft in its original project', async () => {
+  const f = await fixture();
+  f.composers.write({ owner: { draftId: f.draft.id }, revision: 0, value: { text: 'Unsent text' } });
+  f.navigateAway('main');
+  const resumed = await f.api.handle('beginSession', [projectB, true], 'main');
+  assert.equal(resumed.draftId, f.draft.id);
+  assert.equal(resumed.preferences.workspace, projectA);
+  assert.equal(f.composers.read({ draftId: resumed.draftId! }).value.text, 'Unsent text');
+});
 
 for (const surface of ['main', 'mini'] as const) test(`read-only ${surface} target rejects execution and old-runtime controls in the main process`, async () => {
   const f = await fixture();

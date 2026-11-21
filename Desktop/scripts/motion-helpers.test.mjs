@@ -234,14 +234,14 @@ test('session search acceptance waits for sidebar entrance and still rejects per
   visit(source);
   assert.ok(statements, 'Exercise the native verifier focus measurement and assertion');
   const inspect = new Function('search', 'settleLayout', 'assert', `return (async () => { ${statements} })();`);
-  const css = (await Promise.all(['layout.css', 'scheduled-tasks.css', 'session-search.css']
+  const css = (await Promise.all(['layout.css', 'scheduled-tasks.css', 'session-search.css', 'search-focus.css']
     .map(name => readFile(new URL(`../src/${name}`, import.meta.url), 'utf8')))).join('\n');
   for (const width of [1200, 600]) {
     const page = await browser.newPage({ viewport: { width, height: 850 } });
     try {
       await page.setContent(`<style>
         * { box-sizing: border-box; }
-        :root { --primary: #267347; }
+        :root { --primary: #267347; --border: #aaa; }
         body { margin: 0; }
         .app { display: flex; height: 100dvh; overflow: hidden; }
         .sidebar { flex-direction: column; }
@@ -279,7 +279,7 @@ test('session search acceptance waits for sidebar entrance and still rejects per
       await page.locator('.sidebar-utility-row').evaluate(element => { element.style.marginLeft = '-20px'; });
       await assert.rejects(inspect(search, settleLayout, assert), error =>
         error instanceof assert.AssertionError && error.actual?.contained === false
-        && error.actual?.outline === '2px', 'A genuinely clipped focus ring must still fail after settling');
+        && error.actual?.outline === '1px', 'A genuinely clipped focus ring must still fail after settling');
     } finally { await page.close(); }
   }
 });

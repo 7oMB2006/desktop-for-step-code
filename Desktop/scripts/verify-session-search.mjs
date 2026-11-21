@@ -147,9 +147,9 @@ try {
         if (/(auto|scroll|hidden|clip)/.test(css.overflowX)) contained &&= rect.left - 4 >= bounds.left && rect.right + 4 <= bounds.right;
         if (/(auto|scroll|hidden|clip)/.test(css.overflowY)) contained &&= rect.top - 4 >= bounds.top && rect.bottom + 4 <= bounds.bottom;
       }
-      return { outline: style.outlineWidth, contained, noOverflow: document.documentElement.scrollWidth <= innerWidth };
+      return { outline: style.outlineWidth, outlineStyle: style.outlineStyle, contained, noOverflow: document.documentElement.scrollWidth <= innerWidth };
     });
-    assert.deepEqual(focus, { outline: '2px', contained: true, noOverflow: true });
+    assert.deepEqual(focus, { outline: '1px', outlineStyle: 'solid', contained: true, noOverflow: true });
     await page.locator('.sidebar').evaluate(async element => {
       await Promise.all(element.getAnimations({ subtree: true }).filter(animation =>
         animation.effect?.getTiming().iterations !== Infinity).map(animation => animation.finished.catch(() => {})));
@@ -166,10 +166,29 @@ try {
   await page.reload();
   await page.locator('.window-sidebar-toggle[aria-expanded=false]').click();
   await page.getByRole('button', { name: 'Search', exact: true }).click();
-  await page.getByRole('textbox', { name: 'Search sessions', exact: true }).fill('missing');
+  const englishSearch = page.getByRole('textbox', { name: 'Search sessions', exact: true });
+  await englishSearch.fill('missing');
   await page.getByText('No matching sessions', { exact: true }).waitFor();
+  phase = 'focus fade and accessible overrides';
+  const row = page.locator('.sidebar-utility-row');
+  const motion = () => row.evaluate(element => {
+    const { transitionProperty, transitionDuration, outlineWidth, outlineStyle } = getComputedStyle(element);
+    return { transitionProperty, transitionDuration, outlineWidth, outlineStyle };
+  });
+  assert.equal((await motion()).transitionProperty, 'outline-color');
+  assert.equal((await motion()).transitionDuration, '0.24s');
+  await englishSearch.evaluate(element => element.blur());
+  assert.equal((await motion()).transitionDuration, '0.18s');
+  await englishSearch.focus();
   await page.emulateMedia({ reducedMotion: 'reduce' });
-  await page.getByRole('textbox', { name: 'Search sessions', exact: true }).press('Escape');
+  const { transitionProperty: _reducedTransition, ...reducedFocus } = await motion();
+  assert.deepEqual(reducedFocus, { transitionDuration: '0s', outlineWidth: '1px', outlineStyle: 'solid' });
+  await page.emulateMedia({ reducedMotion: 'no-preference', forcedColors: 'active' });
+  const { transitionProperty: _forcedTransition, ...forcedFocus } = await motion();
+  assert.deepEqual(forcedFocus, { transitionDuration: '0s', outlineWidth: '2px', outlineStyle: 'solid' });
+  await englishSearch.press('Escape');
+  assert.equal((await motion()).outlineStyle, 'none');
+  assert.equal(await page.getByRole('button', { name: 'Search', exact: true }).evaluate(element => element === document.activeElement), true);
   assert.deepEqual(errors, []);
   console.log('PASS: session search, saved ordering, temporary expansion, archived exclusion, draft/runtime isolation, filtered navigation, IME, focus bounds, themes and narrow layouts');
 } catch (error) {

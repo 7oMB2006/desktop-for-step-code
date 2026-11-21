@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { composerLinks } from '../src/composer-links';
+import { composerLinks, composerSessionReferences } from '../src/composer-links';
 
 test('composer links use Markdown semantics without changing the original draft', () => {
   const draft = '看看 https://example.com/guide 和 [阶跃平台](https://platform.stepfun.com/)。';
@@ -25,4 +25,12 @@ test('reference links resolve definitions and repeated addresses remain one refe
 test('composer reference work is bounded without rewriting the sendable draft', () => {
   assert.equal(composerLinks('x'.repeat(64001) + ' https://example.com/').length, 0);
   assert.equal(composerLinks(Array.from({ length: 50 }, (_, index) => `https://example.com/${index}`).join(' ')).length, 32);
+});
+
+test('session references identify editable source ranges and leave code and web URLs unchanged', () => {
+  const url = 'stepcode-desktop://sessions/example-01';
+  const draft = `See ${url}, [session](${url}). \`${url}\`\n\n\`\`\`text\n${url}\n\`\`\`\nhttps://${url}`;
+  assert.deepEqual(composerSessionReferences(draft).map(({ id, from, to }) => [id, draft.slice(from, to)]),
+    [['example-01', url], ['example-01', `[session](${url})`]]);
+  assert.deepEqual(composerSessionReferences(`${url}?q=1`), []);
 });

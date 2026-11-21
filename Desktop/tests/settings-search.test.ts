@@ -12,6 +12,8 @@ test('finds settings across languages and ranks exact labels ahead of aliases', 
   assert.equal(searchSettings('ＧＥＮＥＲＡＬ  SOUND', categories, 'zh')[0]?.label, '完成提示音');
   assert.equal(searchSettings('外观 字号', categories, 'zh')[0]?.anchor, 'typography');
   assert.equal(searchSettings('用量统计', categories, 'zh')[0]?.anchor, 'usage');
+  assert.equal(searchSettings('标题', categories, 'zh')[0]?.anchor, 'auto-session-title');
+  assert.equal(searchSettings('session title', categories, 'en')[0]?.anchor, 'auto-session-title');
 });
 
 test('matches categories without dumping every setting under that category', () => {

@@ -190,6 +190,10 @@ try {
   await page.mouse.wheel(0, -120);
   await page.keyboard.up(process.platform === 'darwin' ? 'Meta' : 'Control');
   await page.getByText('116%', { exact: true }).waitFor();
+  await page.mouse.wheel(0, -120);
+  await page.getByText('135%', { exact: true }).waitFor();
+  await page.mouse.wheel(0, 120);
+  await page.getByText('116%', { exact: true }).waitFor();
   await page.screenshot({ path: 'test-results/attachment-preview.png' });
   await page.keyboard.press('Escape');
   await previewDialog.waitFor({ state: 'hidden' });

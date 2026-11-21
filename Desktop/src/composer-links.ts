@@ -2,6 +2,7 @@ import { unified } from 'unified';
 import remarkParse from 'remark-parse';
 import remarkGfm from 'remark-gfm';
 import type { Root, RootContent } from 'mdast';
+import { sessionLinkId, sessionLinkRanges } from './session-reference';
 
 const parser = unified().use(remarkParse).use(remarkGfm);
 type Node = Root | RootContent;
@@ -43,4 +44,27 @@ export function composerLinks(draft: string): { href: string; label: string }[] 
   const links = new Map<string, { href: string; label: string }>();
   for (const { href, label } of composerLinkRanges(draft)) if (!links.has(href)) links.set(href, { href, label });
   return [...links.values()];
+}
+
+export function composerSessionReferences(draft: string): { id: string; from: number; to: number }[] {
+  if (!draft.includes('stepcode-desktop://sessions/') || draft.length > 64000) return [];
+  const links: { id: string; from: number; to: number }[] = [];
+  const visit = (node: Node) => {
+    if (links.length >= 32) return;
+    const from = node.position?.start.offset, to = node.position?.end.offset;
+    if (node.type === 'link') {
+      const id = sessionLinkId(node.url);
+      if (id && from !== undefined && to !== undefined) links.push({ id, from, to });
+      return;
+    }
+    if (node.type === 'text' && from !== undefined && to !== undefined) {
+      for (const link of sessionLinkRanges(draft.slice(from, to))) {
+        if (links.length >= 32) break;
+        links.push({ id: link.id, from: from + link.from, to: from + link.to });
+      }
+    }
+    if (node.type !== 'linkReference' && 'children' in node) node.children.forEach(visit);
+  };
+  visit(parser.parse(draft));
+  return links;
 }

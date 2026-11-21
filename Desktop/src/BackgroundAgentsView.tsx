@@ -49,7 +49,7 @@ function FollowUpComposer({ draft, disabled, running, language, onChange, onSend
         : draft.receipt ? draft.receipt.delivery === 'queued' ? zh ? '已排队' : 'Queued' : zh ? '已启动' : 'Started'
           : running ? zh ? '当前轮结束后执行' : 'After the current turn' : zh ? '接着原任务继续' : 'Continue this task'}</span>
     </div>
-    <div className="composer background-agent-follow-up-composer">
+    <div className="composer background-agent-follow-up-composer" data-composer-focus-within>
       <ComposerInput value={draft.text} disabled={disabled || Boolean(draft.pending)} language={language}
         label={zh ? '追加任务内容' : 'Follow-up task text'} placeholder={zh ? '补充任务…' : 'Add a task…'}
         onChange={onChange} onPaste={() => {}}

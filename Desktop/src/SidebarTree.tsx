@@ -6,6 +6,7 @@ import { filterSessions } from './session-search';
 import { orderSessions } from './sidebar-order';
 import { normalizedWorkspaceKey } from './workspace-key';
 import { SessionSearchText } from './SessionSearchText';
+import { SessionTitleText } from './SessionTitleText';
 import { useSidebarMotion } from './use-sidebar-motion';
 import type { SidebarActivity } from './sidebar-state';
 
@@ -90,10 +91,10 @@ const SessionRow = memo(function SessionRow({ session, group, language, activity
       }}>
       <i className={`session-activity ${activity}`} role={activity === 'idle' ? undefined : 'img'}
         aria-hidden={activity === 'idle' ? true : undefined} aria-label={activity === 'idle' ? undefined : label}/>
-      <span title={searching ? `${title}\n${session.firstMessage}\n${session.cwd}` : undefined}>
+      {searching || highlightQuery ? <span title={searching ? `${title}\n${session.firstMessage}\n${session.cwd}` : undefined}>
         <SessionSearchText text={title} query={highlightQuery}/>
         {searching && session.name && session.firstMessage && <small className="session-search-preview"><SessionSearchText text={session.firstMessage} query={highlightQuery}/></small>}
-      </span>
+      </span> : <SessionTitleText sessionId={session.id} title={title} automaticTitle={session.automaticTitle}/>}
       {slow && <span className="session-navigation-spinner" role="status" aria-label={t('正在打开会话', 'Opening conversation')}/>}
     </button>
     <IconButton title={t('更多操作', 'More actions')} aria-haspopup="menu" disabled={loading} onClick={event => {

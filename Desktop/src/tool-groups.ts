@@ -6,13 +6,22 @@ export type GroupedResponseItem = ResponseItem | { type: 'tool-group'; key: stri
 // These have dedicated interaction surfaces or lifecycle ownership.
 const separateTools = new Set(['subagent', 'workflow', 'enter_plan_mode', 'exit_plan_mode', 'desktop_send_message', 'clarify_user']);
 
-export function groupableTool(item: ResponseItem, active: boolean, awaiting: readonly string[]): item is ToolItem {
+function isOrdinaryTool(item: ResponseItem, awaiting: readonly string[]): item is ToolItem {
   return item.type === 'tool' && !item.call?.historical && !item.result?.desktopImported
     && !separateTools.has(item.call?.name ?? '') && !separateTools.has(item.result?.toolName ?? '')
+    && !(item.call?.id && awaiting.includes(item.call.id));
+}
+
+export function groupableTool(item: ResponseItem, active: boolean, awaiting: readonly string[]): item is ToolItem {
+  return isOrdinaryTool(item, awaiting)
     && !item.result?.isError && ['running', 'done'].includes(
       toolPresentation(item.call?.name ?? item.result?.toolName ?? '', item.result, active, 'en', item.call?.arguments).state)
-    && Boolean((item.result && !item.result.desktopToolPending) || active)
-    && !(item.call?.id && awaiting.includes(item.call.id));
+    && Boolean((item.result && !item.result.desktopToolPending) || active);
+}
+
+export function ordinaryToolFailure(item: ResponseItem, awaiting: readonly string[]): item is ToolItem {
+  return isOrdinaryTool(item, awaiting) && Boolean(item.result && !item.result.desktopToolPending)
+    && toolPresentation(item.call?.name ?? item.result?.toolName ?? '', item.result, false, 'en', item.call?.arguments).state === 'failed';
 }
 
 export function groupConsecutiveTools(content: ResponseItem[], active: boolean, awaiting: readonly string[] = []): GroupedResponseItem[] {

@@ -44,6 +44,16 @@ const port = server.address().port;
 const url = `http://127.0.0.1:${port}/`;
 const profile = await mkdtemp(join(tmpdir(), 'step-browser-panel-'));
 await writeFile(join(profile, 'preferences.json'), JSON.stringify({ language: 'zh', theme: 'light', workspaces: [] }));
+const sessions = join(profile, 'step-runtime', 'sessions');
+await mkdir(sessions, { recursive: true });
+for (const id of ['browser-a', 'browser-b']) {
+  const timestamp = new Date().toISOString();
+  await writeFile(join(sessions, `${id}.jsonl`), [
+    { type: 'session', version: 3, id, cwd: profile, timestamp },
+    { type: 'message', id: 'message-1', parentId: null, timestamp,
+      message: { role: 'user', content: [{ type: 'text', text: id }], timestamp: Date.parse(timestamp) } },
+  ].map(value => JSON.stringify(value)).join('\n') + '\n');
+}
 await mkdir('test-results', { recursive: true });
 // WebContentsView targets can be classified as "other", not a BrowserWindow page.
 // Keep Playwright attached to those real native renderers in this isolated test.
@@ -89,9 +99,18 @@ try {
   await page.getByText('Step Code 已连接', { exact: true }).waitFor({ state: 'attached', timeout: 60000 });
   const rail = page.locator('.right-tool-rail').getByRole('button', { name: '浏览器', exact: true });
   const panel = page.locator('#browser-panel');
+  const summary = page.locator('.right-tool-rail').getByRole('button', { name: '摘要', exact: true });
   const list = () => page.evaluate(() => window.desktop.browserList());
   const viewState = () => app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].contentView.children.map(view =>
     ({ url: view.webContents?.getURL(), visible: view.getVisible(), bounds: view.getBounds() })));
+  const selectSession = async id => {
+    const row = page.locator(`[data-reorder-kind="session"][data-reorder-id="${id}"]`);
+    await row.locator('button').first().click();
+    await page.waitForFunction(id => document.querySelector('.session-row.selected')?.dataset.reorderId === id &&
+      document.querySelector('.new-chat')?.disabled === false &&
+      !document.querySelector('.composer-wrap.session-navigation-pending'), id);
+  };
+  await selectSession('browser-a');
   await rail.click();
   await waitForBrowserFixtureSnapshot(page, snapshot => snapshot.tabs.length === 1, 'the first native tab');
   await panel.getByRole('tab', { selected: true }).waitFor();
@@ -99,6 +118,56 @@ try {
   await panel.getByRole('textbox', { name: '网页地址', exact: true }).fill(`127.0.0.1:${port}`);
   await panel.getByRole('textbox', { name: '网页地址', exact: true }).press('Enter');
   await waitForBrowserFixtureSnapshot(page, snapshot => snapshot.tabs[0]?.title === '项目预览', 'the initial page title');
+  const nativePageId = () => app.evaluate(({ webContents }, url) =>
+    webContents.getAllWebContents().find(contents => contents.getURL() === url)?.id, url);
+  const originalPageId = await nativePageId();
+  assert.ok(originalPageId);
+  await selectSession('browser-b');
+  assert.equal(await rail.getAttribute('aria-pressed'), 'false');
+  if (await summary.getAttribute('aria-pressed') === 'true') await summary.click();
+  await summary.click();
+  await page.locator('.summary-board').waitFor({ state: 'visible' });
+  await selectSession('browser-a');
+  await panel.locator('.browser-page').waitFor({ state: 'visible' });
+  assert.equal((await list()).activeId, first);
+  assert.equal(await nativePageId(), originalPageId, 'returning to the conversation retained its native tab');
+  await selectSession('browser-b');
+  await page.locator('.summary-board').waitFor({ state: 'visible' });
+  await summary.click();
+  await selectSession('browser-a');
+  await panel.locator('.browser-page').waitFor({ state: 'visible' });
+  await selectSession('browser-b');
+  assert.equal(await summary.getAttribute('aria-pressed'), 'false', 'explicit closure survives returning');
+  const contextPanel = page.locator('#context-panel');
+  const contextTool = page.locator('.right-tool-rail').getByRole('button', { name: '上下文', exact: true });
+  const turns = page.locator('#conversation-navigation-panel');
+  const turnsTool = page.locator('.right-tool-rail').getByRole('button', { name: '会话导航', exact: true });
+  await contextTool.click();
+  await contextPanel.getByRole('tab', { name: '状态', exact: true }).click();
+  await selectSession('browser-a');
+  await panel.locator('.browser-page').waitFor({ state: 'visible' });
+  await turnsTool.click();
+  await turns.getByText('browser-a', { exact: true }).waitFor();
+  await selectSession('browser-b');
+  await contextPanel.getByRole('tab', { name: '状态', exact: true, selected: true }).waitFor();
+  await contextPanel.getByRole('button', { name: '关闭上下文', exact: true }).click();
+  await selectSession('browser-a');
+  await turns.getByText('browser-a', { exact: true }).waitFor();
+  assert.equal(await turns.getByText('browser-b', { exact: true }).count(), 0, 'navigation lists only the restored conversation');
+  await selectSession('browser-b');
+  assert.equal(await contextTool.getAttribute('aria-pressed'), 'false', 'closed Context stays closed');
+  await contextTool.click();
+  await contextPanel.getByRole('tab', { name: '上下文', exact: true, selected: true }).waitFor();
+  await selectSession('browser-a');
+  await turns.getByText('browser-a', { exact: true }).waitFor();
+  await turnsTool.click();
+  await selectSession('browser-b');
+  await contextPanel.getByRole('tab', { name: '上下文', exact: true, selected: true }).waitFor();
+  await selectSession('browser-a');
+  assert.equal(await turnsTool.getAttribute('aria-pressed'), 'false', 'closed navigation stays closed');
+  await rail.click();
+  await panel.locator('.browser-page').waitFor({ state: 'visible' });
+  assert.equal(await nativePageId(), originalPageId, 'other right panels did not reload the browser');
   await settleLayout(page.locator('.app'));
   await page.waitForFunction(() => {
     const composer = document.querySelector('.composer')?.getBoundingClientRect();
@@ -491,7 +560,7 @@ try {
   assert.deepEqual(errors, []);
   await app.close(); closed = true;
   console.log(JSON.stringify({ profile, isolation, context, permission, screenshots: 'test-results/browser-*.png',
-    checks: 'navigation, editable input, image loading, scroll, zoom, popup tabs, reload restore, modal/native layering, cubic expansion, narrow bounds, error/retry, protocol guards, tab limit and real WebContents cleanup' }, null, 2));
+    checks: 'navigation, per-conversation panel restore, retained native tabs, editable input, image loading, scroll, zoom, popup tabs, reload restore, modal/native layering, cubic expansion, narrow bounds, error/retry, protocol guards, tab limit and real WebContents cleanup' }, null, 2));
 } catch (error) {
   console.error('Browser fixture failed:', error);
   const diagnostic = {

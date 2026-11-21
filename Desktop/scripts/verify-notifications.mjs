@@ -75,16 +75,14 @@ try {
   const mainId = await app.evaluate(({ BrowserWindow, Notification }) => {
     const window = BrowserWindow.getAllWindows()[0];
     window.setOpacity(0); window.setIgnoreMouseEvents(true); window.showInactive(); window.setSize(1200, 850);
-    globalThis.noticeFixture = { notices: [], overlays: [], nativeShow: Notification.prototype.show, nativeClose: Notification.prototype.close,
+    globalThis.noticeFixture = { notices: [], overlayCalls: 0, nativeShow: Notification.prototype.show, nativeClose: Notification.prototype.close,
       focusedId: undefined };
     // Exercise the real foreground predicate without stealing the owner's OS focus.
     BrowserWindow.prototype.isFocused = function () { return globalThis.noticeFixture.focusedId === this.id; };
     Notification.prototype.show = function () { globalThis.noticeFixture.notices.push(this); };
     Notification.prototype.close = function () { this.testClosed = true; this.emit('close', { reason: 'applicationHidden' }); };
-    const setOverlayIcon = BrowserWindow.prototype.setOverlayIcon;
-    if (process.platform === 'win32') BrowserWindow.prototype.setOverlayIcon = function (icon, description) {
-      setOverlayIcon.call(this, icon, description);
-      globalThis.noticeFixture.overlays.push({ id: this.id, size: icon?.getSize() ?? null, description });
+    if (process.platform === 'win32') BrowserWindow.prototype.setOverlayIcon = function () {
+      globalThis.noticeFixture.overlayCalls++;
     };
     return window.id;
   });
@@ -116,10 +114,8 @@ try {
       return;
     }
     if (process.platform !== 'win32') return;
-    assert.deepEqual(await app.evaluate(() => globalThis.noticeFixture.overlays.at(-1)), {
-      id: mainId, size: count ? { width: 16, height: 16 } : null,
-      description: count ? `${count} 个会话有未读回复` : '',
-    });
+    assert.equal(await app.evaluate(() => globalThis.noticeFixture.overlayCalls), 0,
+      'Windows must not draw a fallback taskbar badge');
   };
   const openGeneral = async name => {
     await page.locator('.sidebar-settings').click();
@@ -199,8 +195,27 @@ try {
   checks.push('strict IPC validation and real filesystem save-failure rollback');
   await preferences({ approvalNotifications: true, completionNotifications: false, completionSound: false });
   const a = await start('NOTIFY-A');
+  const aRow = page.locator(`[data-reorder-kind="session"][data-reorder-id="${a.state.sessionId}"]`);
+  await aRow.locator('button').first().click({ button: 'right' });
+  await page.getByRole('menuitem', { name: '重命名', exact: true }).click();
+  const rename = page.getByRole('dialog', { name: '重命名会话', exact: true });
+  await rename.getByRole('textbox').fill('Renamed during streaming');
+  await rename.getByRole('button', { name: '确认', exact: true }).click();
+  await rename.waitFor({ state: 'detached' });
+  await aRow.getByText('Renamed during streaming', { exact: true }).waitFor();
+  const renamed = await snapshot();
+  assert.equal(renamed.runtimeId, a.runtimeId);
+  assert.equal(renamed.state.sessionId, a.state.sessionId);
+  assert.equal(renamed.state.sessionName, 'Renamed during streaming');
+  assert.equal(renamed.state.isStreaming, true);
+  assert.ok(streams.has('NOTIFY-A'), 'rename did not stop or replace the HTTP stream');
+  checks.push('running session rename keeps the same worker, history and uninterrupted stream');
   await page.getByRole('button', { name: '新建会话', exact: true }).click();
   finish('NOTIFY-A'); await idle();
+  const persistedA = (await snapshot()).sessions.find(session => session.id === a.state.sessionId);
+  assert.equal(persistedA.name, 'Renamed during streaming');
+  assert.ok((await readFile(persistedA.path, 'utf8')).split('\n').filter(Boolean).map(JSON.parse)
+    .some(entry => entry.type === 'session_info' && entry.name === 'Renamed during streaming'));
   assert.equal(await count(), 0);
   assert.equal(await page.evaluate(() => window.completionPlays.length), 0);
   await expectBadge(1);
@@ -265,8 +280,10 @@ try {
   await page.waitForFunction(() => document.querySelector('main .composer-input')?.textContent === 'Draft preserved across notification click');
   assert.equal((await snapshot()).state.sessionId, c.state.sessionId);
   assert.equal(await app.evaluate(({ BrowserWindow }, id) => BrowserWindow.fromId(id).isVisible(), mainId), true);
+  await expectBadge(0);
   await page.locator('main .composer-input').fill('');
   checks.push('timed-out notification-center click, tray restore, exact session and shared draft retention');
+  if (process.platform === 'win32') checks.push('no Windows taskbar overlay on completion, focus, or tray restore');
 
   const d = await start('NOTIFY-D');
   await page.getByRole('button', { name: '新建会话', exact: true }).click();

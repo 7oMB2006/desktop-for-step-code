@@ -52,7 +52,6 @@
   border-radius: 6px;
 }
 .settings-search > svg, .settings-search > button { flex-shrink: 0; }
-.settings-search:focus-within { outline: 2px solid var(--primary); outline-offset: 2px; }
 .settings-dialog .settings-search > input {
   flex: 1;
   width: 0;
@@ -96,6 +95,10 @@
   animation: settings-content-enter 160ms ease-out;
 }
 .settings-dialog .settings-content > label { max-width: 560px; }
+.settings-session-title-row { display: flex; align-items: center; gap: 4px; }
+.settings-session-title-row > label { margin: 0; min-width: 0; }
+.settings-session-title-row input { flex-shrink: 0; }
+.settings-session-title-row > .settings-session-title-help { width: 26px; height: 26px; min-height: 26px; color: var(--muted); }
 .settings-dialog .settings-content[hidden] { display: none; }
 .settings-search-results > h3 { margin: 0 0 14px; }
 .settings-search-results > ul { list-style: none; margin: 0; padding: 4px; max-width: 580px; }

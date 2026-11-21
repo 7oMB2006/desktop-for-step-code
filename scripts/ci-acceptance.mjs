@@ -86,6 +86,7 @@ export const acceptanceGroups = {
     'verify-optional-mcp-loop.mjs',
     'verify-mini-chat-electron.mjs',
     'verify-session-branching.mjs',
+    'verify-session-title.mjs',
     'verify-message-order.mjs',
     'verify-send-queue.mjs',
     'verify-model-switch.mjs',

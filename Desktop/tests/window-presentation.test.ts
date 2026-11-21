@@ -145,6 +145,7 @@ test('the actual renderer installer rejects late pre-transfer snapshots and rest
     setAwayFromBottom: () => {}, readingRestore: { current: undefined }, restoreWindowPresentation: () => { restored++; },
     viewId: { current: 'worker' }, setPreparedMarkdown: () => {},
     setUnavailableWorkspace: () => {}, readingCache: { current: { retain: () => {} } },
+    latestData: { current: undefined as unknown },
     setData: () => { installed++; }, setBusy: () => {}, setRequests: () => {}, setRunMetrics: () => {},
     metricsBySession: { current: new Map() },
   };
@@ -152,7 +153,10 @@ test('the actual renderer installer rejects late pre-transfer snapshots and rest
   const value = { runtimeId: 'worker', state: { sessionId: 'one' }, sessions: [], preferences: { language: 'en' }, windowPresentationRevision: 0 };
   assert.equal(install(value), false);
   assert.equal(installed, 0);
-  assert.equal(install({ ...value, windowPresentationRevision: 2 }), true);
+  assert.equal(context.latestData.current, undefined);
+  const transferred = { ...value, windowPresentationRevision: 2 };
+  assert.equal(install(transferred), true);
+  assert.equal(context.latestData.current, transferred, 'same-frame panel actions see the accepted conversation');
   assert.equal(restored, 1, 'Same-session transfers still install their authoritative reading position');
   assert.equal(context.presentationRevision.current, 2);
   assert.equal(installed, 1);

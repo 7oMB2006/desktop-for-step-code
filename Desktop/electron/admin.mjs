@@ -6,7 +6,7 @@ import { scanDesktopUsage } from './usage-overview.mjs';
 import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { reconcileStepPageServers, prepareStepPageServers } from './steppage-config.mjs';
-import { readSessionHistory } from './session-history.mjs';
+import { assertHistoryUnchanged, readHistorySource, readSessionHistory } from './session-history.mjs';
 import { createDesktopSessionSearch } from './session-search.mjs';
 import { projectInstructionsInput, projectInstructionsSnippetCandidate } from './project-instructions.mjs';
 import { createCompactionConfiguration } from './compaction-configuration.mjs';
@@ -145,6 +145,15 @@ async function dispatch(message) {
         .map(({ allMessagesText, ...s }) => s);
     }
     case 'session_history': return readSessionHistory(upstream, sessions, message.sessionPath, message.sessionId);
+    case 'rename_session': {
+      const { sessionPath, sessionId, name } = message;
+      const { source } = await readHistorySource(upstream, sessions, sessionPath, sessionId);
+      await assertHistoryUnchanged(sessions, sessionPath, source);
+      const manager = upstream.SessionManager.open(source.canonical);
+      if (manager.getSessionId() !== sessionId) throw new Error('History identity changed');
+      manager.appendSessionInfo(name);
+      return { name: manager.getSessionName() };
+    }
     case 'copy_session': {
       // Copy before starting an agent: restoring a cold original can append runtime metadata.
       const copy = upstream.SessionManager.forkFrom(message.sessionPath, message.cwd, sessions);

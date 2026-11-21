@@ -57,7 +57,8 @@ try {
     assert.ok(layout.sameLine);
     assert.equal(layout.overlap, false);
     const focus = await input().evaluate(element => {
-      const box = element.closest('.composer').getBoundingClientRect();
+      const composer = element.closest('.composer'), box = composer.getBoundingClientRect();
+      const style = getComputedStyle(composer);
       const extent = { left: box.left - 4, right: box.right + 4, top: box.top - 4, bottom: box.bottom + 4 };
       const clipped = [];
       for (let parent = element.closest('.composer').parentElement; parent; parent = parent.parentElement) {
@@ -69,12 +70,13 @@ try {
           || y && (extent.top < bounds.top - 1 || extent.bottom > bounds.bottom + 1)) clipped.push(parent.className);
       }
       return { ...extent, width: innerWidth, height: innerHeight, clipped,
-        outline: getComputedStyle(element.closest('.composer')).outlineWidth,
+        outline: style.outlineWidth, outlineStyle: style.outlineStyle,
         overflow: document.documentElement.scrollWidth > innerWidth + 1 };
     });
     assert.ok(focus.left >= 0 && focus.right <= focus.width && focus.top >= 0 && focus.bottom <= focus.height);
     assert.deepEqual(focus.clipped, [], 'Keep the entire focus extent inside clipping ancestors');
-    assert.equal(focus.outline, '2px');
+    assert.equal(focus.outline, '1px');
+    assert.equal(focus.outlineStyle, 'solid');
     assert.equal(focus.overflow, false);
   };
   const ready = async title => {

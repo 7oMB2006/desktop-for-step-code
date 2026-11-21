@@ -6,6 +6,7 @@ const entries = [
   ['general', 'completionNotifications', '任务完成通知', 'Task completion notifications', '提醒 banner'],
   ['general', 'completionSound', '完成提示音', 'Completion sound', '声音 音效 铃声 audio'],
   ['general', 'session-order', '会话排序', 'Session order', '左栏 固定顺序 最近更新 sidebar sort'],
+  ['general', 'auto-session-title', '自动生成会话标题', 'Generate session titles automatically', '自动命名 首句 额度 naming quota'],
   ['general', 'context-maintenance', '上下文整理', 'Context maintenance', '上下文压缩 token compaction'],
   ['general', 'speech', '语音听写', 'Voice dictation', '语音输入 麦克风 speech microphone'],
   ['general', 'network', '网络', 'Network', '代理 proxy'],

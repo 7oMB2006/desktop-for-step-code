@@ -416,7 +416,7 @@ try {
     await page.waitForTimeout(260);
     assert.equal(await dialog.locator('.btw-input-row').evaluate(el => {
       const style = getComputedStyle(el), box = el.getBoundingClientRect();
-      if (style.outlineStyle === 'none' || parseFloat(style.outlineWidth) < 2) return false;
+      if (style.outlineStyle !== 'solid' || style.outlineWidth !== '1px' || style.outlineColor === 'rgba(0, 0, 0, 0)') return false;
       for (let parent = el.parentElement; parent; parent = parent.parentElement) {
         const clipStyle = getComputedStyle(parent);
         if (!/(hidden|auto|scroll|clip)/.test(`${clipStyle.overflowX} ${clipStyle.overflowY}`)) continue;

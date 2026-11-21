@@ -70,6 +70,7 @@ export interface SessionRuntime {
   mutating: boolean;
   cronGated?: boolean;
   state?: RuntimeState;
+  automaticTitle?: { sessionId: string; name: string };
   leafId?: string;
   permissionPreset?: PermissionPreset;
   fullAccessCancellationRevision?: number;
@@ -86,6 +87,7 @@ export interface SessionRuntime {
   runActive: boolean;
   revision: number;
   touched: number;
+  createdAt?: number;
   queued?: boolean;
   stopping?: boolean;
   cron?: CronState;
@@ -306,6 +308,8 @@ export class SessionRuntimes {
     return [...this.workers.values()].filter(worker => worker.state?.sessionId && !worker.cronGated).map(worker => ({
       runtimeId: worker.id, sessionId: worker.state!.sessionId!, cwd: worker.cwd,
       firstMessage: firstUserText(worker.messages), name: worker.state?.sessionName,
+      automaticTitle: worker.automaticTitle && worker.automaticTitle.sessionId === worker.state?.sessionId
+        && worker.automaticTitle.name === worker.state.sessionName ? worker.automaticTitle.name : undefined,
       backgroundCount: worker.status === 'connected' ? worker.backgroundLanes?.length : undefined,
       background: this.backgroundActivity(worker),
       status: worker.status === 'disconnected' ? 'failed' as const : worker.pendingUI.size ? 'waiting' as const : this.isBusy(worker) || hasBackgroundWork(worker) ? 'running' as const : worker.failed ? 'failed' as const : worker.interrupted || taskOutcome(worker.messages) === 'interrupted' ? 'interrupted' as const : this.unreadSessionIds.has(worker.state!.sessionId!) ? 'completed' as const : 'idle' as const,
@@ -365,7 +369,7 @@ export class SessionRuntimes {
   private async openWorker(node: string, entry: string, cwd: string, env: NodeJS.ProcessEnv, sessionPath?: string, branch?: BranchOperation, activate = true, existing?: SessionRuntime) {
     const worker: SessionRuntime = existing ?? {
       id: randomUUID(), cwd, rpc: undefined!, status: 'connecting', busy: false,
-      submissions: 0, operations: 0, mutating: false, messages: [], models: [], pendingUI: new Map(), uiTimers: new Map(), fullAccessCancellationRevision: 0, failed: false, interrupted: false, runActive: false, revision: 0, touched: Date.now(),
+      submissions: 0, operations: 0, mutating: false, messages: [], models: [], pendingUI: new Map(), uiTimers: new Map(), fullAccessCancellationRevision: 0, failed: false, interrupted: false, runActive: false, revision: 0, touched: Date.now(), createdAt: Date.now(),
     };
     worker.cronScopeDirectory = env.DESKTOP_CRON_SCOPE_DIR ?? existing?.cronScopeDirectory;
     worker.cronGated = env.DESKTOP_CRON_RECOVERY === '1';

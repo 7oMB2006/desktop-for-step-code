@@ -177,7 +177,7 @@ try {
   await page.waitForFunction(() => document.querySelector('.composer-input')?.value === '');
   assert.ok((await snapshot()).draftId);
   assert.equal((await snapshot()).runtimeId, undefined);
-  // Switching away discards the proposed session without touching saved history.
+  // Switching away never submits a proposal or modifies saved history.
   await page.getByText('队列交互示例（本地模拟）', { exact: true }).click();
   const restoredProject = await waitState(value => value.state?.sessionId === 'queue-demo');
   assert.equal(restoredProject.independent, false, 'registered project history stays project-scoped across Windows path aliases');
@@ -189,7 +189,17 @@ try {
   const abandoned = (await snapshot()).draftId;
   assert.equal((await snapshot()).runtimes.length, 1);
   assert.equal((await snapshot()).sessions.length, 1);
-  await page.getByText('队列交互示例（本地模拟）', { exact: true }).click();
+  const reference = 'stepcode-desktop://sessions/queue-demo';
+  const unsent = `Draft with ${reference}`;
+  await selector.click();
+  await picker.getByRole('button', { name: 'Second project', exact: true }).click();
+  await waitState(value => value.preferences.workspace === other);
+  await input.fill(unsent);
+  const mappedReference = input.locator('.session-reference-label');
+  await mappedReference.waitFor();
+  assert.equal(await mappedReference.textContent(), '队列交互示例（本地模拟）');
+  assert.equal(await input.evaluate(element => element.value), unsent);
+  await page.locator('.workspace-tree').getByText('队列交互示例（本地模拟）', { exact: true }).click();
   await waitState(value => value.state?.sessionId === 'queue-demo');
   await assert.rejects(page.evaluate(id => window.desktop.createDraftSession(id), abandoned), /no longer active/);
   assert.deepEqual(await readdir(join(profile, 'step-runtime', 'sessions')), historyBefore);
@@ -197,6 +207,17 @@ try {
   assert.deepEqual(messagesIn(await readFile(join(profile, 'step-runtime', 'sessions', 'queue-demo.jsonl'), 'utf8')), messagesIn(openedHistory));
   await page.getByRole('button', { name: '新建会话', exact: true }).click();
   await heading.waitFor();
+  await page.waitForFunction(value => document.querySelector('.composer-input')?.value === value, unsent);
+  const resumed = await snapshot();
+  assert.equal(resumed.draftId, abandoned);
+  assert.equal(resumed.preferences.workspace, other, 'Global New resumes the draft with its original project');
+  assert.equal(resumed.runtimeId, undefined);
+  await input.press('End');
+  await input.press('Backspace');
+  assert.equal(await input.evaluate(element => element.value), 'Draft with ', 'Backspace removes the displayed reference as a unit');
+  await input.press('ControlOrMeta+Z');
+  assert.equal(await input.evaluate(element => element.value), unsent, 'Undo restores the canonical reference');
+  await input.fill('');
   await app.evaluate(({ dialog }) => { dialog.showOpenDialog = async () => ({ canceled: true, filePaths: [] }); });
   const beforeCancel = (await snapshot()).draftId;
   await selector.click();
@@ -245,7 +266,7 @@ try {
   await picker.getByRole('button', { name: 'Desktop for Step Code', exact: true }).click();
   await waitForNewSessionButton(page);
   assert.equal((await snapshot()).runtimeId, undefined);
-  await input.fill('FIRST-SEND 验证首次创建');
+  await input.fill(`FIRST-SEND 验证首次创建 ${reference}`);
   await submitColdSessionFixture(page, async () => {
     await input.press('Enter');
     await input.press('Enter');
@@ -258,6 +279,8 @@ try {
   assert.equal(sent.messages.filter(message => message.role === 'user').length, 1);
   assert.equal(sent.preferences.workspace, await realpath(fixture.workspace));
   assert.ok(fixture.requests.some(text => text.includes('FIRST-SEND')));
+  assert.ok(fixture.requests.some(text => text.includes(reference)));
+  assert.equal(await page.locator('.message-body .session-reference-label').first().textContent(), '队列交互示例（本地模拟）');
   assert.equal((await readdir(join(profile, 'step-runtime', 'sessions'))).length, historyBefore.length + 1);
   await page.screenshot({ path: 'test-results/new-session-first-send.png' });
   // New session from an independent history inherits no project.

@@ -145,7 +145,8 @@ try {
   assert.equal(await page.locator('.composer-wrap .performance-metric').count(), 4);
   assert.equal(await messages.locator('.turn-process-trigger').count(), 0, 'history without confirmed settlement stays readable');
   assert.equal(await messages.locator('.thinking').count(), 1);
-  assert.equal(await messages.locator('.process-tool.failed > summary').isVisible(), true);
+  await messages.locator('.compact-process').first().locator('.tool-group-trigger').waitFor();
+  assert.equal(await messages.locator('.process-tool.failed > summary').isVisible(), false);
   assert.equal(await messages.locator('.process-tool.missing > summary').isVisible(), true);
   assert.equal(await page.evaluate(() =>
     globalThis.interfaceNodes.prose === document.querySelector('.messages .response-text')), true, 'Simple retains the original prose node');
@@ -184,19 +185,39 @@ try {
   await openSettings(page);
   await preset(page, '简洁');
   await closeSettings(page);
-  await load(history, true);
+  const simpleHistory = [
+    history[0],
+    { ...history[1], content: [...history[1].content.slice(0, 3), history[4].content[1], history[1].content[3]] },
+    history[2], history[5], history[3],
+    { ...history[4], content: history[4].content.slice(0, 1) },
+    history[6],
+  ];
+  await load(simpleHistory.filter(message => message.toolCallId !== 'interface-read-2'), true);
+  const simpleGroup = messages.locator('.compact-process').first();
+  const simpleTrigger = simpleGroup.locator('.tool-group-trigger');
+  await simpleTrigger.getByText('正在读取文件', { exact: true }).waitFor();
   await page.locator('.working:not(.working-idle)').waitFor();
   assert.equal(await messages.locator('.turn-process-trigger').count(), 0);
-  assert.equal(await messages.locator('.thinking').count(), 1, 'Simple keeps live activity visible');
-  await load(history, true, [awaiting]);
+  assert.equal(await simpleTrigger.getAttribute('aria-expanded'), 'false');
+  assert.equal(await simpleGroup.locator('.process-tool').count(), 3, 'Simple groups both reads and the failure between prose blocks');
+  assert.doesNotMatch(await simpleTrigger.innerText(), /失败/, 'ordinary failures do not add a badge to the running group');
+  await messages.locator('.response-content').screenshot({ path: 'test-results/interface-simple-running.png' });
+  await simpleTrigger.press('Enter');
+  await simpleGroup.locator('.process-tool.failed > summary').waitFor();
+  await load(simpleHistory, true, [awaiting]);
+  await simpleTrigger.getByText('已完成：读取文件 2 项', { exact: true }).waitFor();
+  assert.equal(await simpleTrigger.getAttribute('aria-expanded'), 'true', 'the group retains manual expansion when a tool completes');
   await messages.locator('.process-tool.waiting > summary').waitFor();
   assert.equal(await messages.locator('.process-tool.waiting').locator('xpath=ancestor::*[contains(@class,"tool-group-disclosure")]').count(), 0);
-  await load(history, false);
+  await load(simpleHistory, false);
   await page.locator('.permission-approval').waitFor({ state: 'detached' });
   const run = { startedAt: 1000, endedAt: 17000 };
-  const settled = history.map(message => message.role === 'assistant'
+  const settled = simpleHistory.map(message => message.role === 'assistant'
     ? { ...message, stopReason: 'toolUse', desktopTiming: { run, thinking: {} } } : message)
     .concat({ role: 'assistant', stopReason: 'stop', desktopTiming: { run, thinking: {}, completed: true }, content: '最终答复：检查已结束。' });
+  await load([...settled.slice(0, -1), { ...settled.at(-1), stopReason: 'error', incomplete: 'no_visible_output', content: '' }]);
+  await messages.locator('.incomplete-response.is-failed').waitFor();
+  assert.equal(await messages.locator('.turn-process-trigger').count(), 0, 'failed turns do not auto-fold');
   await load(settled, true);
   const final = messages.getByText('最终答复：检查已结束。', { exact: true });
   const commentary = messages.getByText('正文一：先确认项目结构。', { exact: true });
@@ -204,22 +225,27 @@ try {
   assert.equal(await commentary.isVisible(), true, 'streamed final prose does not fold commentary');
   await page.evaluate(() => { globalThis.simpleFinal = [...document.querySelectorAll('.messages .response-text')].at(-1); });
   await load(settled);
-  const elapsed = messages.getByRole('button', { name: '用时 16秒' });
+  const elapsed = messages.getByRole('button', { name: '用时 16秒', exact: true });
   await elapsed.waitFor();
   assert.equal(await elapsed.getAttribute('aria-expanded'), 'false');
   await commentary.waitFor({ state: 'hidden' });
   assert.equal(await final.isVisible(), true);
-  assert.equal(await messages.locator('.process-tool.failed > summary').isVisible(), true);
   assert.equal(await messages.locator('.process-tool.missing > summary').isVisible(), true);
+  assert.equal(await simpleGroup.locator('.process-tool.failed').evaluate(tool =>
+    tool.closest('.turn-process-slot')?.inert), true);
+  assert.equal(await elapsed.evaluate(button => button.getAttribute('aria-controls').split(' ')
+    .every(id => document.getElementById(id)?.inert)), true);
   assert.equal(await page.evaluate(() => globalThis.simpleFinal === [...document.querySelectorAll('.messages .response-text')].at(-1)), true);
   const foldedHeights = () => {
     const slots = [...document.querySelectorAll('.messages .turn-process-slot[data-folded]')];
     return slots.length > 0 && slots.every(slot => slot.offsetHeight === 0 && slot.inert);
   };
   await page.waitForFunction(foldedHeights);
+  await messages.locator('.response-content').screenshot({ path: 'test-results/interface-simple-settled.png' });
   await elapsed.press('Enter');
   await commentary.waitFor();
   assert.equal(await elapsed.getAttribute('aria-expanded'), 'true');
+  await simpleGroup.locator('.process-tool.failed > summary').waitFor();
   assert.equal(await commentary.evaluate((node) =>
     node.getBoundingClientRect().left === globalThis.simpleFinal.firstElementChild.getBoundingClientRect().left), true);
   assert.equal(await commentary.evaluate(node =>
@@ -298,6 +324,17 @@ try {
   assert.equal(await liveThinking.locator('summary > .thinking-chevron svg').count(), 1, 'thinking uses the existing designed disclosure SVG');
   assert.equal(await liveThinking.locator('.tool-summary-shimmer').evaluate(element => getComputedStyle(element, '::before').animationPlayState), 'running');
   await liveThinking.locator('summary').click();
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(640, 800));
+  await page.waitForFunction(() => innerWidth <= 660);
+  assert.equal(await liveThinking.locator('summary').evaluate(element => {
+    const row = element.getBoundingClientRect();
+    const prose = element.closest('.response-content').querySelector('.response-text').getBoundingClientRect();
+    const preview = element.querySelector('.thinking-preview');
+    return Math.abs(row.left - prose.left) <= 1 && Math.abs(row.right - prose.right) <= 1
+      && preview.scrollWidth > preview.clientWidth && preview.getBoundingClientRect().right <= row.right + 1;
+  }), true, 'Detailed thinking and its long preview stay aligned with prose at narrow width');
+  await messages.locator('.response-content').screenshot({ path: 'test-results/interface-thinking-aligned-narrow.png' });
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1280, 900));
   await load(thinkingHistory.map((message, index) => index === 1 ? {
     ...message, content: [...message.content.slice(0, 1), { type: 'thinking', thinking: '第一段思考。\n\n继续思考，手动折叠保持。' }],
   } : message), true);

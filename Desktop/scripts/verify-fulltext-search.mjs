@@ -255,9 +255,10 @@ try {
         if (/(auto|scroll|hidden|clip)/.test(css.overflowX)) contained &&= rect.left - 4 >= bounds.left && rect.right + 4 <= bounds.right;
         if (/(auto|scroll|hidden|clip)/.test(css.overflowY)) contained &&= rect.top - 4 >= bounds.top && rect.bottom + 4 <= bounds.bottom;
       }
-      return { contained, outline: getComputedStyle(field).outlineWidth, overflow: document.documentElement.scrollWidth > innerWidth };
+      const { outlineWidth, outlineStyle } = getComputedStyle(field);
+      return { contained, outlineWidth, outlineStyle, overflow: document.documentElement.scrollWidth > innerWidth };
     });
-    assert.deepEqual(bounds, { contained: true, outline: '2px', overflow: false });
+    assert.deepEqual(bounds, { contained: true, outlineWidth: '1px', outlineStyle: 'solid', overflow: false });
     await page.screenshot({ path: `test-results/fulltext-search-${theme}-${width}.png` });
   }
   await query.evaluate(element => element.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', isComposing: true, bubbles: true })));

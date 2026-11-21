@@ -76,6 +76,10 @@ export class ComposerStore {
     return record;
   }
   read(input: ComposerOwner) { return structuredClone(this.current(input)); }
+  hasInput(input: ComposerOwner) {
+    const value = this.records.get(composerKey(this.owner(input)))?.value;
+    return Boolean(value && (value.text || value.quotes.length || value.attachments.length));
+  }
   private commit(owner: ComposerOwner, value: ComposerValue, patch?: Partial<ComposerValue>) {
     const previous = this.current(owner);
     const record = { owner: previous.owner, revision: previous.revision + 1, value };

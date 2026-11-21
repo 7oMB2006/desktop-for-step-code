@@ -1,10 +1,14 @@
 import type { Preferences, Session } from './contracts';
 
-export function reconcileSessionOrder(order: readonly string[], sessions: readonly Pick<Session, 'id'>[]): string[] {
+export function reconcileSessionOrder(order: readonly string[], sessions: readonly Pick<Session, 'id' | 'created'>[]): string[] {
   const known = new Set(sessions.map(session => session.id));
   const retained = [...new Set(order)].filter(id => known.has(id));
   const saved = new Set(retained);
-  return [...sessions.filter(session => !saved.has(session.id)).map(session => session.id), ...retained];
+  // The catalog is sorted by activity, not insertion. Unranked rows still
+  // need a stable position before a manual reorder has ever been saved.
+  const unranked = sessions.filter(session => !saved.has(session.id))
+    .sort((a, b) => (b.created ?? '').localeCompare(a.created ?? '') || a.id.localeCompare(b.id));
+  return [...unranked.map(session => session.id), ...retained];
 }
 
 export function orderSessions(sessions: readonly Session[], preferences: Pick<Preferences, 'sessionSort' | 'sessionOrder'>): Session[] {

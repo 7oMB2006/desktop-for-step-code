@@ -63,7 +63,7 @@
 :root[data-theme-material=stellar] .sidebar-search-field {
   background: var(--stellar-control); border-color: var(--stellar-frame);
 }
-:root[data-theme-material=stellar] .sidebar-search-field:focus-within { border-color: var(--primary); }
+:root[data-theme-material=stellar] .sidebar-search-field:focus-within { border-color: color-mix(in srgb, var(--primary) 24%, var(--stellar-frame)); }
 :root[data-theme-material=stellar] .sidebar-search-field > svg { color: var(--stellar-metal); }
 :root[data-theme-material=stellar] .sidebar-search-field > input { color: var(--stellar-record-ink); }
 :root[data-theme-material=stellar] .sidebar-search-field > input::placeholder { color: var(--stellar-record-muted); }

@@ -68,6 +68,5 @@
 .background-agent-follow-up-composer { min-width: 0; }
 .background-agent-follow-up-composer .composer-input { min-height: 56px; max-height: 180px; font-size: 12px; }
 .background-agent-follow-up-composer .composer-tools { padding: 0 8px 6px; min-height: 32px; }
-.background-agent-follow-up-composer:focus-within { outline: 2px solid var(--primary); outline-offset: 2px; }
 .background-agent-follow-up .background-agent-error { margin-bottom: 0; }
 @media (prefers-reduced-motion: reduce) { .background-agent-chevron { transition: none; } }

@@ -181,13 +181,28 @@ try {
   await input.fill('普通输入框草稿');
   await page.locator('.message.user').last().hover();
   await editLatest.click();
-  const editor = page.getByRole('textbox', { name: '编辑消息', exact: true });
+  const editShell = page.locator('.user-message-editor');
+  const editor = editShell.getByRole('textbox', { name: '编辑消息', exact: true });
+  const waitForEditRing = (focused, width = '1px') => page.waitForFunction(({ focused, width }) => {
+    const shell = document.querySelector('.user-message-editor');
+    if (!shell) return false;
+    const { outlineColor, outlineWidth, outlineOffset } = getComputedStyle(shell);
+    return outlineWidth === width && outlineOffset === '2px'
+      && (outlineColor !== 'rgba(0, 0, 0, 0)') === focused
+      && !shell.getAnimations().some(animation => animation.transitionProperty === 'outline-color');
+  }, { focused, width });
   assert.equal(await editor.evaluate(element => element.value), '重复的问题。');
   assert.equal(await editor.evaluate(element => element === document.activeElement), true);
+  assert.equal(await editor.evaluate(element => getComputedStyle(element).outlineStyle), 'none');
+  await waitForEditRing(true);
   assert.equal(await input.evaluate(element => element.value), '普通输入框草稿');
   assert.equal(await page.locator('.user-message-editor img').count(), 1);
   assert.equal((await snapshot()).messages.length, 4, 'opening edit must retain the old answer');
   assert.ok(beforeEdit.equals(await readFile(cloned.state.sessionFile)));
+  await input.click();
+  await waitForEditRing(false);
+  await editor.click();
+  await waitForEditRing(true);
   await editor.fill('取消这个修改');
   await page.locator('.user-message-editor').getByRole('button', { name: '取消', exact: true }).click();
   assert.equal(await editor.count(), 0);
@@ -197,6 +212,8 @@ try {
   await editLatest.click();
   assert.equal(await editor.evaluate(element => element.value), '重复的问题。');
   await editor.fill('修改后的问题。');
+  await page.mouse.move(10, 10);
+  await waitForEditRing(true);
   await page.screenshot({ path: 'test-results/branch-edit-inline.png' });
   await page.locator('.user-message-editor').getByRole('button', { name: '发送', exact: true }).click();
   await page.getByText('分支的新回复。', { exact: true }).waitFor();
@@ -255,7 +272,7 @@ try {
   assert.ok(!JSON.stringify(prompts[1]).includes('重复的问题'));
   streams[1].end(chunk({}, 'stop') + 'data: [DONE]\n\n');
   await page.waitForFunction(async () => !(await window.desktop.snapshot()).state.isStreaming);
-  checkpoint('dark narrow layout and reopen');
+  checkpoint('dark narrow editing');
   await page.locator('.sidebar-settings').click();
   await page.getByRole('button', { name: '外观', exact: true }).click();
   await page.getByRole('button', { name: '暗', exact: true }).click();
@@ -266,20 +283,35 @@ try {
   await page.screenshot({ path: 'test-results/branch-empty-narrow.png' });
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
   await page.evaluate(id => window.desktop.switchSession(id), forked.state.sessionId);
-  await page.evaluate(() => window.desktop.restart());
-  await page.reload();
   await page.getByText('分支的新回复。', { exact: true }).waitFor();
-  assert.equal((await snapshot()).state.sessionId, forked.state.sessionId);
-  const reopened = (await snapshot()).messages;
-  assert.equal(reopened.filter(message => !(message.role === 'custom'
-    && message.customType === 'ultraloop-discovery' && message.display === false)).length, 4);
-  assert.equal(await page.getByRole('button', { name: 'Branch from here', exact: true }).last().isEnabled(), true);
-  assert.equal(await page.getByRole('button', { name: 'Edit and retry', exact: true }).last().isEnabled(), true);
-  await page.screenshot({ path: 'test-results/branch-reopened-dark-narrow.png' });
+  await page.waitForFunction(() => document.querySelector('.new-chat')?.disabled === false);
   await page.locator('.message.user').last().hover();
   await page.getByRole('button', { name: 'Edit and retry', exact: true }).last().click();
   const englishEditor = page.getByRole('textbox', { name: 'Edit message', exact: true });
   await englishEditor.fill('A longer edited message\n'.repeat(24));
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await waitForEditRing(true);
+  assert.equal(await editShell.evaluate(element => getComputedStyle(element).transitionDuration), '0s');
+  await page.emulateMedia({ reducedMotion: 'no-preference', forcedColors: 'active' });
+  await waitForEditRing(true, '2px');
+  assert.equal(await editShell.evaluate(element => getComputedStyle(element).transitionDuration), '0s');
+  await page.emulateMedia({ forcedColors: 'none' });
+  await waitForEditRing(true);
+  await editShell.evaluate(element => element.scrollIntoView({ block: 'center' }));
+  assert.equal(await editShell.evaluate(element => {
+    const rect = element.getBoundingClientRect();
+    const gutter = 4;
+    for (let ancestor = element.parentElement; ancestor; ancestor = ancestor.parentElement) {
+      const clip = ancestor.getBoundingClientRect();
+      const { overflowX, overflowY } = getComputedStyle(ancestor);
+      if (ancestor.clientWidth && overflowX !== 'visible'
+        && (rect.left < clip.left + gutter || rect.right > clip.left + ancestor.clientWidth - gutter)) return false;
+      if (ancestor.clientHeight && overflowY !== 'visible'
+        && (rect.top < clip.top + gutter || rect.bottom > clip.top + ancestor.clientHeight - gutter)) return false;
+    }
+    return true;
+  }), true, 'focused edit shell keeps a full outline gutter in the narrow transcript');
+  await page.screenshot({ path: 'test-results/branch-edit-focused-dark-narrow.png' });
   const editScroll = page.getByRole('scrollbar', { name: 'Scroll edited message', exact: true });
   await editScroll.waitFor();
   assert.equal(await englishEditor.evaluate(element => getComputedStyle(element).scrollbarWidth), 'none');
@@ -302,6 +334,18 @@ try {
   assert.equal(await englishEditor.count(), 0);
   assert.equal(prompts.length, 2);
   assert.equal((await snapshot()).state.sessionId, forked.state.sessionId);
+  checkpoint('reopen after runtime restart');
+  await page.evaluate(() => window.desktop.restart());
+  await page.reload();
+  await page.getByText('分支的新回复。', { exact: true }).waitFor();
+  await page.waitForFunction(() => document.querySelector('.new-chat')?.disabled === false);
+  assert.equal((await snapshot()).state.sessionId, forked.state.sessionId);
+  const reopened = (await snapshot()).messages;
+  assert.equal(reopened.filter(message => !(message.role === 'custom'
+    && message.customType === 'ultraloop-discovery' && message.display === false)).length, 4);
+  assert.equal(await page.getByRole('button', { name: 'Branch from here', exact: true }).last().isEnabled(), true);
+  assert.equal(await page.getByRole('button', { name: 'Edit and retry', exact: true }).last().isEnabled(), true);
+  await page.screenshot({ path: 'test-results/branch-reopened-dark-narrow.png' });
   checkpoint('failed edit draft restoration');
   const restoredSnapshot = await snapshot();
   await app.evaluate(({ ipcMain, BrowserWindow }, saved) => {

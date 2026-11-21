@@ -5,6 +5,7 @@ export interface CompactionConfiguration {
 }
 
 export interface CompactionSettings extends CompactionConfiguration {
+  defaultTriggerRatio: number;
   revision: string;
   policy: 'v2' | 'legacy';
   enabled: boolean;
@@ -17,8 +18,8 @@ export interface CompactionSettingsUpdate {
   useRatioPolicy?: boolean;
 }
 
-export const defaultCompactionConfiguration = (): CompactionConfiguration => ({
-  triggerRatio: .9, tokenLimit: null, modelTriggerRatios: {},
+export const defaultCompactionConfiguration = (triggerRatio = .85): CompactionConfiguration => ({
+  triggerRatio, tokenLimit: null, modelTriggerRatios: {},
 });
 
 export function validCompactionRatio(value: unknown): value is number {

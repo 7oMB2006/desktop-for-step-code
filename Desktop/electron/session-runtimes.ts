@@ -68,6 +68,7 @@ export interface SessionRuntime {
   submissions: number;
   operations: number;
   mutating: boolean;
+  cronGated?: boolean;
   state?: RuntimeState;
   leafId?: string;
   permissionPreset?: PermissionPreset;
@@ -107,9 +108,20 @@ function workspaceKey(cwd: string) {
 }
 interface RuntimeIdleOptions {
   stopHost?: boolean;
+  allowStoppingBackgroundCommands?: boolean;
   allowRemote?: boolean;
   resources?: boolean;
   allowWaitingCron?: boolean;
+}
+class BackgroundCommandStateError extends Error {}
+function backgroundCommandCount(state: unknown, sessionId: string | undefined): number | undefined {
+  if (!sessionId || !state || typeof state !== 'object' || !('sessionId' in state) || state.sessionId !== sessionId
+    || !('desktopBackgroundCommands' in state)) return;
+  const snapshot = state.desktopBackgroundCommands;
+  if (!snapshot || typeof snapshot !== 'object' || !('version' in snapshot) || snapshot.version !== 1
+    || !('count' in snapshot) || typeof snapshot.count !== 'number' || !Number.isSafeInteger(snapshot.count)
+    || snapshot.count < 0) return;
+  return snapshot.count;
 }
 function cronBlocksResourceWrite(state: CronState | undefined, options: RuntimeIdleOptions) {
   if (!options.resources) return false;
@@ -156,7 +168,8 @@ export class SessionRuntimes {
       snapshotSettled?: () => void;
       language?: () => 'zh' | 'en';
       startup?: (diagnostic: RuntimeStartupDiagnostic) => void;
-      idleLimit?: () => number; backgroundAvailable?: () => boolean; retain?: (worker: SessionRuntime) => boolean;
+      idleLimit?: () => number; backgroundAvailable?: () => boolean; backgroundCommandsAvailable?: () => boolean;
+      retain?: (worker: SessionRuntime) => boolean;
       beforePrompt?: (worker: SessionRuntime, message: string) => Promise<void> } = {},
   ) {}
   get active() { return this.activeId ? this.workers.get(this.activeId) : undefined; }
@@ -290,7 +303,7 @@ export class SessionRuntimes {
     await this.assertIdle(worker, { stopHost: true });
   }
   summaries() {
-    return [...this.workers.values()].filter(worker => worker.state?.sessionId).map(worker => ({
+    return [...this.workers.values()].filter(worker => worker.state?.sessionId && !worker.cronGated).map(worker => ({
       runtimeId: worker.id, sessionId: worker.state!.sessionId!, cwd: worker.cwd,
       firstMessage: firstUserText(worker.messages), name: worker.state?.sessionName,
       backgroundCount: worker.status === 'connected' ? worker.backgroundLanes?.length : undefined,
@@ -307,7 +320,7 @@ export class SessionRuntimes {
   }
   require(id = this.activeId) {
     const worker = id && this.workers.get(id);
-    if (!worker || worker.status !== 'connected') throw new Error('This session runtime is not connected');
+    if (!worker || worker.status !== 'connected' || worker.cronGated) throw new Error('This session runtime is not connected');
     return worker;
   }
   async open(node: string, entry: string, cwd: string, env: NodeJS.ProcessEnv, sessionPath?: string, branch?: BranchOperation) {
@@ -324,10 +337,14 @@ export class SessionRuntimes {
       const empty = candidates.find(worker => !worker.operations);
       if (empty) {
         const transport = empty.rpc;
-        await this.hooks.initializeModel?.(empty, false);
-        this.assertStartupOwner(empty, transport);
-        this.activate(empty);
-        return empty;
+        if (!this.hooks.backgroundCommandsAvailable?.() || await this.canRecycleBackgroundCommands(empty)) {
+          if (this.hooks.backgroundCommandsAvailable?.() && (empty.messages.length || empty.operations || empty.mutating || this.isBusy(empty))) break;
+          await this.hooks.initializeModel?.(empty, false);
+          this.assertStartupOwner(empty, transport);
+          this.activate(empty);
+          return empty;
+        }
+        break;
       }
       const refreshing = candidates.find(worker => worker.operations === this.reads.get(worker)?.size);
       if (!refreshing) break;
@@ -351,6 +368,7 @@ export class SessionRuntimes {
       submissions: 0, operations: 0, mutating: false, messages: [], models: [], pendingUI: new Map(), uiTimers: new Map(), fullAccessCancellationRevision: 0, failed: false, interrupted: false, runActive: false, revision: 0, touched: Date.now(),
     };
     worker.cronScopeDirectory = env.DESKTOP_CRON_SCOPE_DIR ?? existing?.cronScopeDirectory;
+    worker.cronGated = env.DESKTOP_CRON_RECOVERY === '1';
     worker.status = 'connecting';
     worker.startupTiming = undefined;
     worker.startup = undefined;
@@ -374,16 +392,22 @@ export class SessionRuntimes {
         if (!state || state.configurationRevision !== worker.startupConfigurationRevision) return;
         event = { ...event, startup: this.observeStartup(worker, state) };
       }
-      // An incomplete turn keeps its provider stop reason. Only agent_settled
-      // decides whether the native recovery produced a usable final answer.
+      // Overflow compaction can follow an unsuccessful attempt even when
+      // willRetry is false (that flag only covers provider retries).
       if (event.type === 'message_end' && event.message?.role === 'assistant' && event.message.incomplete)
         recoveryPending = true;
+      if (event.type === 'agent_end' && worker.runActive) {
+        const last = worker.messages.at(-1);
+        if (event.willRetry === true || last?.role === 'assistant' && ['error', 'length'].includes(last.stopReason ?? ''))
+          recoveryPending = true;
+      }
       if (event.type === 'agent_end' && recoveryPending) event = { ...event, desktopRecoveryPending: true };
       if (event.type === 'agent_start' && recoveryPending && worker.runActive)
         event = { ...event, desktopRecoveryContinuation: true };
       if (event.type === 'agent_settled' && recoveryPending) {
         event = { ...event, desktopRecoverySettled: true };
-        if (event.failure && !worker.interrupted) worker.failed = true;
+        if (!worker.interrupted && (event.failure || taskOutcome(worker.messages) === 'interrupted'))
+          worker.failed = true;
       }
       if ((event.type === 'agent_end' || event.desktopRecoverySettled) && reviewActive(worker.launch?.review))
         event = { ...event, desktopReviewPending: true };
@@ -841,7 +865,8 @@ export class SessionRuntimes {
     return read;
   }
   async assertIdle(worker: SessionRuntime, options: RuntimeIdleOptions = {}) {
-    const rpc = worker.rpc, sessionId = worker.state?.sessionId;
+    const rpc = worker.rpc, sessionId = worker.state?.sessionId, revision = worker.revision;
+    const protectCommands = options.stopHost && !options.allowStoppingBackgroundCommands && this.hooks.backgroundCommandsAvailable?.();
     const requireConnected = options.allowRemote && worker.remoteAttached;
     const assertHost = () => {
       if (this.workers.get(worker.id) !== worker || worker.rpc !== rpc || worker.state?.sessionId !== sessionId)
@@ -860,6 +885,8 @@ export class SessionRuntimes {
       if (this.isBusy(worker)) throw new Error('Stop this session task first');
     };
     assertHost();
+    if (protectCommands && worker.status === 'connecting')
+      throw new BackgroundCommandStateError('Cannot verify background commands for this session; try again once the session is connected');
     if (worker.status === 'connected') {
       const state = await worker.rpc.request('get_state');
       assertHost();
@@ -867,6 +894,38 @@ export class SessionRuntimes {
         && (state?.sessionId !== sessionId || typeof state?.isStreaming !== 'boolean'))
         throw new Error('Runtime is not connected');
       if (state.isStreaming || state.isCompacting || state.pendingMessageCount) throw new Error('Stop this session task first');
+      if (protectCommands) {
+        if (worker.status !== 'connected' || worker.revision !== revision)
+          throw new BackgroundCommandStateError('Cannot verify background commands for this session; try again once the session is connected');
+        this.assertNoBackgroundCommands(state, sessionId);
+      }
+    }
+  }
+  async assertBackgroundCommandsMayStop(worker: SessionRuntime) {
+    if (!this.hooks.backgroundCommandsAvailable?.() || worker.status === 'disconnected') return;
+    if (this.isBusy(worker)) throw new BackgroundCommandStateError('Wait for the current session task to finish before changing its runtime');
+    const { rpc, revision } = worker;
+    const sessionId = worker.state?.sessionId;
+    const state = await rpc.request('get_state', {}, 2000).catch(() => undefined);
+    if (this.workers.get(worker.id) !== worker || worker.rpc !== rpc || worker.revision !== revision
+      || worker.state?.sessionId !== sessionId || worker.status !== 'connected' || typeof state?.isStreaming !== 'boolean')
+      throw new BackgroundCommandStateError('Cannot verify background commands for this session; try again once the session is connected');
+    if (state.isStreaming || state.isCompacting || state.pendingMessageCount || this.isBusy(worker))
+      throw new BackgroundCommandStateError('Wait for the current session task to finish before changing its runtime');
+    this.assertNoBackgroundCommands(state, sessionId);
+  }
+  private assertNoBackgroundCommands(state: unknown, sessionId: string | undefined) {
+    const count = backgroundCommandCount(state, sessionId);
+    if (count === undefined)
+      throw new BackgroundCommandStateError('Cannot verify background commands for this session; try again once the session is connected');
+    if (count > 0)
+      throw new BackgroundCommandStateError('Stop background commands in this session with bash_kill before changing its runtime');
+  }
+  private async canRecycleBackgroundCommands(worker: SessionRuntime) {
+    try { await this.assertBackgroundCommandsMayStop(worker); return true; }
+    catch (error) {
+      if (error instanceof BackgroundCommandStateError) return false;
+      throw error;
     }
   }
   async retryLatest(worker: SessionRuntime, entryId: string, message: string) {
@@ -1192,8 +1251,14 @@ export class SessionRuntimes {
     const requestedLimit = this.hooks.idleLimit?.() ?? 2;
     const idleLimit = Number.isFinite(requestedLimit) ? Math.max(0, Math.min(4, Math.floor(requestedLimit))) : 2;
     idle.sort((a, b) => b.touched - a.touched);
-    for (const worker of idle) if (recyclable(worker) &&
-      (idle.indexOf(worker) >= idleLimit || Date.now() - worker.touched > 5 * 60000)) await this.remove(worker);
+    for (const [index, worker] of idle.entries()) {
+      const due = () => index >= idleLimit || Date.now() - worker.touched > 5 * 60000;
+      if (!recyclable(worker) || !due()) continue;
+      // A read failure or a change while awaiting the reply does not release ownership.
+      if (this.hooks.backgroundCommandsAvailable?.()
+        && (!await this.canRecycleBackgroundCommands(worker) || !recyclable(worker) || !due())) continue;
+      await this.remove(worker);
+    }
   }
   async stopAll() {
     const workers = [...this.workers.values()];

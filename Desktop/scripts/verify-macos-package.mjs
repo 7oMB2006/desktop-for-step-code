@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto';
 import { readFile, readdir, stat, mkdir, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { extractFile } from '@electron/asar';
+import { readRuntimeBaseline } from './runtime-baseline.mjs';
 
 const app = resolve(process.argv[2] ?? 'release/mac-arm64/Desktop for Step Code.app');
 const resources = join(app, 'Contents/Resources');
@@ -20,8 +21,11 @@ assert.equal(marker.version.replace(/-macos\.\d+$/, ''), source.version);
 assert.equal(marker.sourceCommit, execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim());
 assert.equal(marker.sourceDirty, Boolean(execFileSync('git', ['status', '--porcelain'], { encoding: 'utf8' }).trim()));
 const packagedRuntime = JSON.parse(await readFile(join(resources, 'runtime/manifest.json'), 'utf8'));
-const runtimeBaseline = JSON.parse(await readFile('../patches/v017/manifest.json', 'utf8'));
+const { manifest: runtimeBaseline } = await readRuntimeBaseline();
 assert.equal(packagedRuntime.commit, runtimeBaseline.commit);
+assert.deepEqual(packagedRuntime.patchedSourceHashes, { ...runtimeBaseline.patchedSources, ...runtimeBaseline.platforms?.darwin?.patchedSources });
+if (runtimeBaseline.patchIds)
+  assert.deepEqual(packagedRuntime.patches, [...runtimeBaseline.patchIds, ...(runtimeBaseline.platforms?.darwin?.patchIds ?? [])]);
 assert.ok(packagedRuntime.patches.includes('desktop-auto-resume-origin'));
 assert.ok(packagedRuntime.patches.includes('desktop-session-import'));
 assert.ok(packagedRuntime.patches.includes('desktop-cron-recovery'));

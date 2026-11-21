@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import type { CronJobData, CronRecoveryPreview, Model } from '../src/contracts';
 import { RpcCommandError, type RpcProcess } from './runtime';
 import type { SessionRuntime } from './session-runtimes';
+import type { CronRuntimeJob } from './cron-management';
 
 export function assertRecoveryQueues(workers: Iterable<Pick<SessionRuntime, 'queued' | 'state'>>, sessionId: string) {
   if ([...workers].some(worker => worker.state?.sessionId === sessionId && worker.queued))
@@ -13,9 +14,10 @@ export function assertCronRecoveryAccount(account: { loggedIn?: boolean; validit
   if (account.validity === 'invalid') throw new Error('Step account credentials were rejected; sign in again before recovering scheduled tasks');
 }
 
-export async function resumeCronHost(rpc: Pick<RpcProcess, 'request'>, discard: () => Promise<void>, before?: number) {
+export async function resumeCronHost(rpc: Pick<RpcProcess, 'request'>, discard: () => Promise<void>, before?: number,
+  owner?: { sessionId: string; revisions: string[] }) {
   try {
-    await rpc.request('desktop_cron_resume', before === undefined ? {} : { before }, 15000);
+    await rpc.request('desktop_cron_resume', { ...owner, ...(before === undefined ? {} : { before }) }, 15000);
   } catch (error) {
     // Only a negative response proves the gate stayed closed; transport failures are uncertain.
     if (error instanceof RpcCommandError) await discard();
@@ -34,9 +36,36 @@ export interface CronRecoveryPlan {
   account: string;
   model: Model;
   unconfirmed?: boolean;
+  automaticUnavailable?: CronRecoveryPreview['automaticUnavailable'];
   automaticBefore?: number;
+  owner?: { revisions: string[]; before: number };
+  onlineRuntimeId?: string;
 }
 const stamp = (plan: CronRecoveryPlan) => createHash('sha256').update(JSON.stringify(plan)).digest('hex');
+
+export async function inspectOwnedCronJobs(rows: CronRuntimeJob[], selected: Pick<CronJobData, 'id' | 'createdAt' | 'revision'>,
+  sessionId: string, sessionPath: string, sameSessionFile: (actual: string, expected: string) => Promise<boolean>, now = Date.now) {
+  const owned = rows.filter(job => job.durable && job.sessionId === sessionId).sort((a, b) => a.id.localeCompare(b.id));
+  const revisions: string[] = [];
+  for (const job of owned) {
+    if (!job.revision || !job.sessionFile || !await sameSessionFile(job.sessionFile, sessionPath))
+      throw new Error('Cron ownership could not be verified for this conversation');
+    revisions.push(job.revision);
+  }
+  const jobs = owned.filter(job => (job.status === undefined || job.status === 'enabled') && job.enabled !== false
+    && job.statusReason === undefined && job.desktopPausedAt === undefined);
+  if (!jobs.some(job => job.id === selected.id && job.createdAt === selected.createdAt && job.revision === selected.revision))
+    throw new Error('Select a current task owned by this conversation');
+  const before = Math.min(...jobs.flatMap(job => [job.nextFireAt, job.autoExpireAt ?? Infinity]));
+  if (before <= now()) throw new Error('A Cron task is already due or expired; review the current schedule');
+  return { jobs, owner: { revisions: revisions.sort(), before } };
+}
+
+export function assertOwnedRecoveryJobs(sessionId: string, revisions: string[], loaded: CronRuntimeJob[]) {
+  if (loaded.some(job => !job.durable || job.sessionId !== sessionId || !job.revision)
+    || JSON.stringify(loaded.map(job => job.revision).sort()) !== JSON.stringify(revisions))
+    throw new Error('Cron ownership or tasks changed while opening the host; review recovery again');
+}
 
 // Startup may advance nextFireAt or expire jobs, but must not add or change work.
 export function assertRecoveryJobs(approved: CronJobData[], loaded: CronJobData[]) {
@@ -48,7 +77,7 @@ export function assertRecoveryJobs(approved: CronJobData[], loaded: CronJobData[
     throw new Error('Cron tasks changed while opening the host; review recovery again');
 }
 
-// A short-lived, one-use consent binds the whole project, account and history snapshot.
+// A short-lived, one-use consent binds the applicable tasks, account and history snapshot.
 export class CronRecovery {
   private pending = new Map<string, { key: string; plan: CronRecoveryPlan; expires: number }>();
   private recovering = false;
@@ -69,7 +98,7 @@ export class CronRecovery {
     return { token, expires, workspace: plan.workspace, sessionId: plan.sessionId, sessionName: plan.sessionName,
       jobs: plan.jobs.map(job => ({ id: job.id, prompt: job.prompt, nextFireAt: job.nextFireAt })),
       model: { id: plan.model.id, provider: plan.model.provider, name: plan.model.name },
-      account: plan.account, permission: 'ask', unconfirmed: plan.unconfirmed };
+      account: plan.account, permission: 'ask', unconfirmed: plan.unconfirmed, automaticUnavailable: plan.automaticUnavailable };
   }
   async recover(token: unknown, automatic: unknown = false, acknowledgeUnconfirmed: unknown = false) {
     if (typeof automatic !== 'boolean' || typeof acknowledgeUnconfirmed !== 'boolean') throw new Error('Invalid automatic recovery authorization');
@@ -84,8 +113,15 @@ export class CronRecovery {
       const latest = await this.inspect(pending.key, pending.plan.sessionId);
       if (this.now() >= pending.expires || stamp(latest) !== stamp(pending.plan))
         throw new Error('Cron tasks, session or account changed; review recovery again');
+      if (automatic && latest.automaticUnavailable)
+        throw new Error('Automatic Cron wake is unavailable for this execution history');
       if (automatic && latest.unconfirmed && !acknowledgeUnconfirmed)
         throw new Error('Review unconfirmed Cron execution before authorizing automatic recovery');
+      if (latest.onlineRuntimeId) {
+        if (!automatic || !latest.owner) throw new Error('This conversation is already online');
+        await this.remember!(pending.key, latest);
+        return { sessionId: latest.sessionId, runtimeId: latest.onlineRuntimeId };
+      }
       const result = await this.launch(latest);
       if (automatic) {
         await this.remember!(pending.key, latest);

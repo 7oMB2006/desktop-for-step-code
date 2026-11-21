@@ -32,6 +32,7 @@ async function fixture(action: (value: Fixture) => Promise<void>, missing?: stri
   try {
     const script = join(desktop, 'scripts/package-verification.mjs');
     await file(script, await readFile(new URL('../scripts/package-verification.mjs', import.meta.url)));
+    await file(join(desktop, 'scripts/runtime-baseline.mjs'), await readFile(new URL('../scripts/runtime-baseline.mjs', import.meta.url)));
     for (const path of [runtime, terminal, electron, join(desktop, 'node_modules/electron')])
       await mkdir(path, { recursive: true });
     await symlink(runtime, join(desktop, 'runtime'), 'junction');
@@ -63,6 +64,7 @@ async function rejectedBeforeOutput(value: Fixture, output: string, expected: Re
     'The fixture must never pass real package input paths to the CLI');
   const result = spawnSync(process.execPath, [value.script, output], {
     encoding: 'utf8', timeout: 15000, windowsHide: true,
+    env: { ...process.env, DESKTOP_RUNTIME_BASELINE: 'v017' },
   });
   assert.ifError(result.error);
   assert.notEqual(result.status, 0, result.stdout);

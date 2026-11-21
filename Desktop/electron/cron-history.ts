@@ -29,7 +29,7 @@ export class CronHistory {
       if (!Array.isArray(rows) || rows.length > 200 || rows.some(row => !row || typeof row.id !== 'string'
         || !/^[\w-]{1,200}$/.test(row.id) || typeof row.sessionId !== 'string' || !/^[\w-]{1,200}$/.test(row.sessionId)
         || !time(row.at) || !time(row.updatedAt)
-        || row.jobId !== undefined && (typeof row.jobId !== 'string' || !/^[\w-]{1,24}$/.test(row.jobId))
+        || row.jobId !== undefined && (typeof row.jobId !== 'string' || !/^[\w-]{1,64}$/.test(row.jobId))
         || row.createdAt !== undefined && !time(row.createdAt) || row.reviewedAt !== undefined && !time(row.reviewedAt)
         || row.reason !== undefined && !['startup', 'host-exit'].includes(row.reason)
         || !['triggered', 'running', 'waiting', 'completed', 'failed', 'interrupted', 'unknown',
@@ -47,6 +47,9 @@ export class CronHistory {
   list(workspace: string): CronHistoryEntry[] {
     return this.load(workspace).entries;
   }
+  migrationSnapshot(workspace: string): { entries: CronHistoryEntry[]; unconfirmed: boolean } {
+    return this.load(workspace);
+  }
   private persist(workspace: string, entries: CronHistoryEntry[], unconfirmed: boolean) {
     mkdirSync(this.root, { recursive: true });
     const file = this.file(workspace), temporary = `${file}.${randomUUID()}.tmp`;
@@ -63,25 +66,37 @@ export class CronHistory {
   record(workspace: string, sessionId: string, state: CronHistoryEntry['state'], reason?: CronHistoryEntry['reason']) {
     this.write(workspace, { id: randomUUID(), sessionId, state, reason, at: this.now(), updatedAt: this.now() });
   }
-  uncertain(workspace: string) {
+  uncertain(workspace: string, sessionId?: string) {
     const history = this.load(workspace);
-    return history.unconfirmed || history.entries.some(unresolved);
+    return history.unconfirmed || history.entries.some(entry => (!sessionId || entry.sessionId === sessionId) && unresolved(entry));
   }
-  acknowledge(workspace: string) {
-    const entries = this.list(workspace).map(row => row.state === 'unknown' && row.reviewedAt === undefined
+  ownerReview(workspace: string, sessionId: string) {
+    const history = this.load(workspace);
+    const unresolvedRows = history.entries.filter(row => row.sessionId === sessionId && unresolved(row));
+    return {
+      unconfirmed: unresolvedRows.some(row => row.state === 'unknown'),
+      automaticUnavailable: history.unconfirmed ? 'project-history' as const
+        : unresolvedRows.some(row => row.state !== 'unknown') ? 'in-progress' as const : undefined,
+    };
+  }
+  acknowledge(workspace: string, sessionId?: string) {
+    const history = this.load(workspace);
+    const entries = history.entries.map(row => (!sessionId || row.sessionId === sessionId)
+      && row.state === 'unknown' && row.reviewedAt === undefined
       ? { ...row, reviewedAt: this.now() } : row);
-    this.persist(workspace, entries, false);
+    this.persist(workspace, entries, Boolean(sessionId && history.unconfirmed));
   }
-  event(worker: SessionRuntime, event: RuntimeEvent) {
+  event(worker: SessionRuntime, event: RuntimeEvent, sessionOwned = false) {
     if (!worker.state?.sessionId) return;
     let entry = this.active.get(worker.id);
     const message = event.message;
     if (event.type === 'message_start' && message?.role === 'custom' && message.customType === 'step-cron' && message.display !== false) {
+      const details = message.details;
+      if (sessionOwned && details?.kind === 'missed') return;
       if (entry) this.write(worker.cwd, { ...entry, state: 'unknown', updatedAt: this.now() });
       this.assistantStarted.delete(worker.id);
-      const details = message.details;
       entry = { id: randomUUID(), sessionId: worker.state.sessionId, state: 'triggered', at: this.now(), updatedAt: this.now(),
-        ...(typeof details?.id === 'string' && /^[\w-]{1,24}$/.test(details.id) ? { jobId: details.id } : {}),
+        ...(typeof details?.id === 'string' && (sessionOwned ? /^[\w-]{1,64}$/ : /^[\w-]{1,24}$/).test(details.id) ? { jobId: details.id } : {}),
         ...(Number.isFinite(details?.createdAt) ? { createdAt: details.createdAt } : {}) };
       this.active.set(worker.id, entry);
       this.write(worker.cwd, entry);

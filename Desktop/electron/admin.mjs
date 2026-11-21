@@ -59,6 +59,12 @@ async function dispatch(message) {
       const warnings = [];
       const store = new upstream.CronFileStore(join(message.cwd, '.stepcode/cron/tasks.json'), { warn: value => warnings.push(value) });
       const jobs = store.load();
+      if (message.sessionOwned === true) {
+        if (typeof upstream.desktopCronJobRevision !== 'function' || jobs.length > 500)
+          throw new Error('Cron inventory is unavailable');
+        return { trusted: true, incomplete: warnings.length > 0,
+          jobs: jobs.map(job => ({ ...job, revision: upstream.desktopCronJobRevision(job) })) };
+      }
       if (warnings.length) throw new Error('Cron storage is unavailable');
       return { trusted: true, jobs };
     }

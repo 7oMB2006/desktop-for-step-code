@@ -1,19 +1,42 @@
-import { cp, mkdir, writeFile, readFile, rm } from 'node:fs/promises';
+import { cp, lstat, mkdir, realpath, writeFile, readFile, rm } from 'node:fs/promises';
 import { createRequire } from 'node:module';
-import { resolve, dirname, join } from 'node:path';
+import { basename, resolve, dirname, isAbsolute, join, relative, sep } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { build } from 'esbuild';
 import { assertStagingNodeVersion } from './staging-node-version.mjs';
 import { buildRemoteAdapter } from './build-remote-adapter.mjs';
+import { readRuntimeBaseline } from './runtime-baseline.mjs';
+
 const upstream = resolve(process.argv[2] ?? process.env.DESKTOP_STEP_CODE_SOURCE ?? '../Step-Code');
 const runtime = resolve(process.argv[3] ?? 'runtime');
 if (!((process.platform === 'win32' && process.arch === 'x64') || (process.platform === 'darwin' && ['arm64', 'x64'].includes(process.arch)))) throw new Error('Stage on Windows x64 or macOS arm64/x64');
 const nodeExecutable = process.platform === 'win32' ? 'node.exe' : 'node';
-const integrationManifest = JSON.parse(await readFile(new URL('../../patches/v017/manifest.json', import.meta.url), 'utf8'));
+const { name: baseline, manifest: integrationManifest } = await readRuntimeBaseline();
 const platformManifest = integrationManifest.platforms?.[process.platform];
 const PINNED_COMMIT = integrationManifest.commit;
-const patchFile = 'patches/v017/step-code-desktop.patch';
+const patchFile = `patches/${baseline}/step-code-desktop.patch`;
+if (baseline !== 'v017') {
+  const localRuntime = resolve('runtime');
+  const beneath = (root, path) => {
+    const suffix = relative(root, path);
+    return !isAbsolute(suffix) && suffix !== '..' && !suffix.startsWith(`..${sep}`);
+  };
+  if (!process.argv[3] || beneath(localRuntime, runtime)) {
+    throw new Error('Pass a new, explicit runtime output directory for a candidate baseline');
+  }
+  const actualLocalRuntime = await realpath(localRuntime).catch(error => {
+    if (error.code !== 'ENOENT') throw error;
+    return localRuntime;
+  });
+  const actualOutput = join(await realpath(dirname(runtime)), basename(runtime));
+  if (beneath(actualLocalRuntime, actualOutput)) throw new Error('Candidate staging must not modify the default runtime');
+  const exists = await lstat(runtime).then(() => true, error => {
+    if (error.code !== 'ENOENT') throw error;
+    return false;
+  });
+  if (exists) throw new Error('Candidate staging cannot replace an existing runtime output directory');
+}
 const commit = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: upstream, encoding: 'utf8' }).trim();
 if (commit !== PINNED_COMMIT) {
   // Naming both sides keeps a stale build instruction from reading as a broken checkout.
@@ -38,6 +61,7 @@ for (const [name, relative, expected] of patchedFiles) {
   }
   patchedSourceHashes[name] = hash;
 }
+if (baseline !== 'v017') await mkdir(runtime);
 
 const source = join(upstream, 'packages/coding-agent');
 // Source hashes alone do not prove that dist/bundle contains those sources.
@@ -112,7 +136,7 @@ await cp('electron/runtime-compile-cache.mjs', join(runtime, 'runtime-compile-ca
 await build({ entryPoints: ['electron/project-instructions-extension.ts'], outfile: join(runtime, 'project-instructions.mjs'),
   bundle: true, platform: 'node', format: 'esm', target: 'node24' });
 await cp('../LICENSE', join(runtime, 'DESKTOP-LICENSE'));
-await buildRemoteAdapter(upstream, runtime);
+await buildRemoteAdapter(upstream, runtime, integrationManifest);
 const require = createRequire(join(source, 'package.json'));
 async function resolvePackageDirectory(name) {
   let directory = dirname(require.resolve(name));
@@ -133,5 +157,8 @@ for (const name of ['jiti', '@silvia-odwyer/photon-node']) {
   const packageDirectory = await resolvePackageDirectory(name);
   await cp(packageDirectory, join(runtime, 'step/node_modules', name), { recursive: true, dereference: true });
 }
-await writeFile(join(runtime, 'manifest.json'), JSON.stringify({ commit, upstreamCommits: (integrationManifest.upstream?.commits ?? []).map(entry => entry.sha), platform: process.platform, arch: process.arch, node: process.version, nodeSha256, entry: 'step/dist/bundle/step.js', patches: ['windows-build', 'desktop-auth-exports', 'desktop-memory-auth', 'subagent-child-env', 'desktop-summary-rpc', 'desktop-plan-review', 'desktop-clarification-beta', 'desktop-cron-state', 'desktop-cron-management', 'desktop-plugin-management', 'desktop-cron-recovery', 'desktop-cron-management-beta', 'desktop-cron-recovery-guard', 'desktop-session-import', 'desktop-session-cron-scope', 'desktop-auto-resume-origin', 'desktop-background-lifecycle', 'desktop-background-control', 'desktop-btw', 'desktop-template-input', 'desktop-subagent-redaction', 'desktop-background-reply', 'desktop-completion-review', 'desktop-mcp-credential-isolation', 'desktop-plugin-host-launch', 'desktop-ultra-effort', 'desktop-workflow-role', 'desktop-async-startup', 'desktop-plugin-mcp-reload', 'desktop-subagent-role-models', ...(platformManifest?.patchIds ?? [])], patchedSourceHashes }, null, 2));
+const patchIds = integrationManifest.patchIds ?? ['windows-build', 'desktop-auth-exports', 'desktop-memory-auth', 'subagent-child-env', 'desktop-summary-rpc', 'desktop-plan-review', 'desktop-clarification-beta', 'desktop-cron-state', 'desktop-cron-management', 'desktop-plugin-management', 'desktop-cron-recovery', 'desktop-cron-management-beta', 'desktop-cron-recovery-guard', 'desktop-session-import', 'desktop-session-cron-scope', 'desktop-auto-resume-origin', 'desktop-background-lifecycle', 'desktop-background-control', 'desktop-btw', 'desktop-template-input', 'desktop-subagent-redaction', 'desktop-background-reply', 'desktop-completion-review', 'desktop-mcp-credential-isolation', 'desktop-plugin-host-launch', 'desktop-ultra-effort', 'desktop-workflow-role', 'desktop-async-startup', 'desktop-plugin-mcp-reload', 'desktop-subagent-role-models'];
+await writeFile(join(runtime, 'manifest.json'), JSON.stringify({ commit, upstreamCommits: (integrationManifest.upstream?.commits ?? []).map(entry => entry.sha),
+  platform: process.platform, arch: process.arch, node: process.version, nodeSha256, entry: 'step/dist/bundle/step.js',
+  patches: [...patchIds, ...(platformManifest?.patchIds ?? [])], patchedSourceHashes }, null, 2));
 console.log(`Staged Step Code ${commit} with ${process.version}`);

@@ -2195,7 +2195,7 @@ function App() {
     {scheduledOpen && bridge && <main inert={settingsOpen || Boolean(removeProject)}>
       {!!requests.length && <div className="approval-notice"><TriangleAlert size={16}/><span>{t('当前会话有待确认的操作', 'The current session is awaiting approval')}</span>
         <button onClick={() => { setScheduledOpen(false); setApprovalOpen(true); }}>{t('查看', 'Review')}</button></div>}
-      <CronManager bridge={bridge} onOpenHost={async (session, runtimeId) => {
+      <CronManager bridge={bridge} onReturnToConversation={() => setScheduledOpen(false)} onOpenHost={async (session, runtimeId) => {
         if (!await navigateSession(session, runtimeId)) throw new Error('Cron host changed; refresh before opening');
       }}/></main>}
     {pluginsVisited && bridge && <main hidden={!pluginsOpen || Boolean(desktopMainId)} inert={!pluginsOpen || Boolean(desktopMainId) || settingsOpen || Boolean(removeProject)}>

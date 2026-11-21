@@ -25,7 +25,8 @@ const models: Model[] = ['step-5-preview', 'step-4'].map(id => ({ provider: 'ste
 let sequence = 0;
 let readCount = 0;
 let saveCount = 0;
-let stored: SettingsValue = { ...defaultCompactionConfiguration(), revision: String(sequence).padStart(64, '0'),
+const defaultTriggerRatio = params.has('oldRuntime') ? .9 : .85;
+let stored: SettingsValue = { ...defaultCompactionConfiguration(defaultTriggerRatio), defaultTriggerRatio, revision: String(sequence).padStart(64, '0'),
   policy: params.has('legacy') ? 'legacy' : 'v2', enabled: !params.has('disabled'), invalidConfiguration: params.has('invalid') };
 const pause = () => new Promise(resolve => setTimeout(resolve, Number(params.get('delay') ?? 120)));
 const bridge: Pick<DesktopBridge, 'compactionSettings' | 'saveCompactionSettings'> = {

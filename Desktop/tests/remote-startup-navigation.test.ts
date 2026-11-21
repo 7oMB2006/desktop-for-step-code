@@ -18,6 +18,8 @@ function find(predicate: (node: ts.Node) => boolean): ts.Node {
   return result;
 }
 const prepare = find(node => ts.isFunctionDeclaration(node) && node.name?.text === 'prepareRemoteSession').getText(file);
+const cronGuard = find(node => ts.isVariableStatement(node) && node.declarationList.declarations.some(declaration =>
+  declaration.name.getText(file) === 'assertCronOwnerNotOpening')).getText(file);
 const navigate = find(node => ts.isCaseClause(node) && ts.isStringLiteral(node.expression)
   && node.expression.text === 'navigateSession').getText(file);
 const navigationWait = find(node => ts.isIfStatement(node)
@@ -44,6 +46,8 @@ function fixture() {
     const readingSelections = new Map(), readingOwner = () => 'fixture-owner';
     const runtimeRoot = 'runtime', nodePath = 'node', dataRoot = 'data';
     const workers = new Map();
+    const cronWakeLaunches = new Set();
+    ${cronGuard}
     const sessions = ['remote', 'local-a', 'local-b'].map(id => ({
       sessionId: id, id, workspace: 'project', cwd: 'project', path: id + '.jsonl'
     }));
@@ -87,6 +91,7 @@ function fixture() {
     return {
       prepare: (source = 'feishu-recovery', preset = 'ask') => prepareRemoteSession('remote', undefined, source, preset), invoke, active: () => active,
       busy: () => transition, setTransition: value => { transition = value; },
+      reserveCronOwner: id => cronWakeLaunches.add(id),
       setDeleting: value => { deletingArchived = value; },
       setSettings: value => { settingsMutation = value; },
       setUndo: value => { undoBusy = value; },
@@ -98,11 +103,20 @@ function fixture() {
     prepare(source?: RemotePreparationSource, preset?: 'ask' | 'approve-for-me'): Promise<{ permissionPreset: string }>;
     invoke(id: string, surface?: string): Promise<string | null>;
     active(): string; busy(): boolean; setTransition(value: boolean): void;
+    reserveCronOwner(id: string): void;
     setDeleting(value: boolean): void; setStartup(value: Promise<void>): void;
     setSettings(value: boolean): void; setUndo(value: boolean): void;
   };
   return { host, gate, initialized, calls, events };
 }
+
+test('Remote cold preparation cannot also open a session reserved for Cron wake', async () => {
+  const f = fixture();
+  f.host.reserveCronOwner('remote');
+  await assert.rejects(f.host.prepare(), /preparing a scheduled task/);
+  assert.equal(f.host.busy(), false);
+  assert.equal(await f.host.invoke('local-a'), 'local-a');
+});
 
 for (const surface of ['main', 'mini']) {
   test(`${surface} navigation waits for Remote cold preparation instead of exposing workspace-busy`, async () => {

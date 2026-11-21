@@ -8,11 +8,13 @@ import { join, resolve } from 'node:path';
 import { RpcProcess, isolatedEnvironment } from '../electron/runtime';
 import { defaultCompactionConfiguration } from '../src/compaction-settings';
 
+const runtime = resolve(process.env.DESKTOP_COMPACTION_RUNTIME ?? 'runtime');
+
 test('pinned admin saves isolated TOML consumed by native settings, without resetting CLM or project overrides', { timeout: 60000 }, async () => {
   const root = await mkdtemp(join(tmpdir(), 'desktop-compaction-native-'));
   const workspace = join(root, 'workspace');
   await mkdir(join(workspace, '.stepcode'), { recursive: true });
-  const node = resolve('runtime/node', process.platform === 'win32' ? 'node.exe' : 'node');
+  const node = join(runtime, 'node', process.platform === 'win32' ? 'node.exe' : 'node');
   const env = { ...isolatedEnvironment(root), HOME: root, USERPROFILE: root };
   const config = join(root, 'config.toml');
   const original = '# Keep the header\npermissionPreset = "ask"\n[telemetry]\nenabled = false\n'
@@ -25,17 +27,23 @@ test('pinned admin saves isolated TOML consumed by native settings, without rese
     const source = `import { pathToFileURL } from 'node:url';
       const upstream = await import(pathToFileURL(process.argv[1]).href);
       const manager = upstream.createStepSettingsManager(process.cwd(), process.env.STEP_CODING_AGENT_DIR, { projectTrusted: ${trusted} });
-      console.log(JSON.stringify({ trigger: manager.getCompactionTriggerSettings(), compaction: manager.getCompactionSettings() }));`;
-    const result = await promisify(execFile)(node, ['--input-type=module', '-e', source, resolve('runtime/step/dist/bundle/index.js')],
+      console.log(JSON.stringify({ trigger: manager.getCompactionTriggerSettings(), compaction: manager.getCompactionSettings(),
+        defaults: upstream.SettingsManager.inMemory().getCompactionSettings() }));`;
+    const result = await promisify(execFile)(node, ['--input-type=module', '-e', source, join(runtime, 'step/dist/bundle/index.js')],
       { cwd: workspace, env, windowsHide: true, timeout: 15000 });
     return JSON.parse(result.stdout.trim().split(/\r?\n/).at(-1)!);
   };
   try {
-    admin.start(node, resolve('runtime/admin.mjs'), workspace, env);
-    other.start(node, resolve('runtime/admin.mjs'), workspace, env);
+    admin.start(node, join(runtime, 'admin.mjs'), workspace, env);
+    other.start(node, join(runtime, 'admin.mjs'), workspace, env);
     const initial = await admin.request('compaction_settings');
     const stale = await other.request('compaction_settings');
-    assert.equal(initial.triggerRatio, .9);
+    const expected = Number(process.env.DESKTOP_COMPACTION_EXPECTED_DEFAULT ?? .9);
+    const defaultNative = await nativeSettings();
+    assert.equal(initial.defaultTriggerRatio, expected);
+    assert.equal(initial.triggerRatio, expected);
+    assert.equal(defaultNative.trigger.triggerRatio, expected);
+    assert.equal(defaultNative.defaults.contextProjection, expected === .85 ? 'off' : 'clm-v1');
     assert.equal(JSON.stringify(initial).includes('fixture-private-value'), false);
     const saved = await admin.request('save_compaction_settings', { update: { revision: initial.revision,
       configuration: { triggerRatio: .8, tokenLimit: 50000, modelTriggerRatios: { 'step/shared-id': .7, 'custom/shared-id': .6 } } } });
@@ -50,12 +58,19 @@ test('pinned admin saves isolated TOML consumed by native settings, without rese
       revision: stale.revision, configuration: defaultCompactionConfiguration(),
     } }), /compaction:conflict/);
     assert.equal(await readFile(config, 'utf8'), stored);
+    const explicit = await admin.request('save_compaction_settings', { update: { revision: saved.revision,
+      configuration: { triggerRatio: .9, tokenLimit: saved.tokenLimit, modelTriggerRatios: saved.modelTriggerRatios } } });
+    await other.stop();
+    other.start(node, join(runtime, 'admin.mjs'), workspace, env);
+    assert.equal((await other.request('compaction_settings')).triggerRatio, .9);
+    assert.equal((await nativeSettings()).trigger.triggerRatio, .9);
+    if (expected === .85) assert.match(await readFile(config, 'utf8'), /triggerRatio = 0\.9\b/u);
     await writeFile(join(workspace, '.stepcode/config.toml'), '[compaction]\ntriggerRatio = 0.65\n');
     assert.equal((await nativeSettings(true)).trigger.triggerRatio, .65);
     const reset = await admin.request('save_compaction_settings', { update: {
-      revision: saved.revision, configuration: defaultCompactionConfiguration(),
+      revision: explicit.revision, configuration: defaultCompactionConfiguration(expected),
     } });
-    assert.equal(reset.triggerRatio, .9); assert.equal(reset.tokenLimit, null);
+    assert.equal(reset.triggerRatio, expected); assert.equal(reset.tokenLimit, null);
     assert.equal((await nativeSettings()).compaction.contextProjection, 'clm-v1');
     await writeFile(config, 'invalid = [\n# fixture-private-value');
     await assert.rejects(admin.request('compaction_settings'), error =>

@@ -58,7 +58,7 @@ test('native edit receipts remain visible after failed or cancelled then_run', {
   }
 });
 
-test('v017 native empty-turn recovery never announces completion before settlement', {
+test('native recovery never announces completion before settlement', {
   skip: !existsSync(join(runtime, 'step/dist/bundle/step.js')), timeout: 60000,
 }, async () => {
   const root = await mkdtemp(join(tmpdir(), 'step-outcomes-native-'));
@@ -76,12 +76,19 @@ test('v017 native empty-turn recovery never announces completion before settleme
   const server = createServer(async (request, response) => {
     for await (const _chunk of request) { /* Drain this isolated fixture request. */ }
     requests++;
+    if (mode === 'retry-exhaust' || mode === 'retry' && requests === 1) {
+      response.writeHead(503, { 'content-type': 'application/json' });
+      response.end(JSON.stringify({ error: { message: 'Service temporarily unavailable' } }));
+      return;
+    }
     response.writeHead(200, { 'content-type': 'text/event-stream' });
+    if (mode === 'retry' && requests === 2) { held = response; return; }
     if (mode === 'recover' && requests === 2 || mode === 'cancel' && requests === 2) { held = response; return; }
     answer(response, mode === 'recover' && requests > 1 ? 'Recovered answer' : '');
   });
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
-  await writeFile(join(profile, 'config.toml'), 'defaultProvider = "fixture"\ndefaultModel = "fixture"\n[telemetry]\nenabled = false\n');
+  await writeFile(join(profile, 'config.toml'), 'defaultProvider = "fixture"\ndefaultModel = "fixture"\n[telemetry]\nenabled = false\n'
+    + '[retry]\nmaxRetries = 1\nbaseDelayMs = 50\n[retry.provider]\nmaxRetries = 0\n');
   await writeFile(join(profile, 'models.json'), JSON.stringify({ providers: { fixture: {
     api: 'openai-completions', apiKey: 'isolated-outcomes-key',
     baseUrl: `http://127.0.0.1:${(server.address() as { port: number }).port}/v1`,
@@ -127,6 +134,30 @@ test('v017 native empty-turn recovery never announces completion before settleme
     await host.rpc.request('abort');
     await wait(() => events.some(event => event.desktopRecoverySettled), 'Cancellation settles without a success notification');
     assert.equal(host.busy, false);
+    assert.equal(events.filter(event => event.type === 'desktop_task_completed').length, 0);
+
+    mode = 'retry'; requests = 0; events.length = 0; held = undefined;
+    await host.rpc.request('set_auto_retry', { enabled: true });
+    await host.rpc.request('prompt', { message: 'RETRY PROVIDER' });
+    await wait(() => Boolean(held), 'Agent-level retry reaches the second provider request');
+    const retryEnd = events.find(event => event.type === 'agent_end');
+    assert.equal(retryEnd?.willRetry, true, 'Provider SDK retries are disabled for this fixture');
+    assert.equal(retryEnd?.desktopRecoveryPending, true, 'An intermediate provider error cannot end the desktop turn');
+    assert.equal(host.busy, true);
+    assert.equal(events.filter(event => event.type === 'desktop_task_completed').length, 0);
+    answer(held!, 'Recovered from 503'); held = undefined;
+    await wait(() => events.some(event => event.desktopRecoverySettled), 'Provider retry reaches final settlement');
+    assert.equal(host.busy, false);
+    assert.equal(host.failed, false);
+    assert.equal(events.filter(event => event.type === 'desktop_task_completed').length, 1);
+    assert.equal(requests, 2);
+
+    mode = 'retry-exhaust'; requests = 0; events.length = 0;
+    await host.rpc.request('prompt', { message: 'EXHAUST PROVIDER RETRY' });
+    await wait(() => events.some(event => event.desktopRecoverySettled), 'Exhausted provider retries settle');
+    assert.equal(requests, 2, 'Desktop does not add retries after the native budget is exhausted');
+    assert.equal(host.busy, false);
+    assert.equal(host.failed, true);
     assert.equal(events.filter(event => event.type === 'desktop_task_completed').length, 0);
   } finally {
     await pool.stopAll(); server.closeAllConnections();

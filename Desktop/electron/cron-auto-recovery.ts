@@ -21,7 +21,7 @@ export class CronAutoRecovery {
     private safe: (workspace: string) => boolean, private now = Date.now,
     private blocked?: (workspace: string, sessionId: string) => void,
     private unavailable?: (error: unknown) => void,
-    private replace: typeof rename = rename) {}
+    private replace: typeof rename = rename, private legacyAvailable = true) {}
   private file(workspace: string) {
     return join(this.root, createHash('sha256').update(normalizedWorkspaceKey(workspace, process.platform)).digest('hex') + '.json');
   }
@@ -58,18 +58,21 @@ export class CronAutoRecovery {
   async status(workspace: string): Promise<CronAutomaticRecovery | undefined> {
     const grant = await this.read(this.file(workspace));
     if (!grant) return;
-    return { state: grant.expires <= this.now() && grant.state === 'enabled' ? 'blocked' : grant.state, expires: grant.expires };
+    return { state: (!this.legacyAvailable || grant.expires <= this.now()) && grant.state === 'enabled' ? 'blocked' : grant.state, expires: grant.expires };
   }
   async enable(key: string, plan: CronRecoveryPlan) {
+    if (!this.legacyAvailable) throw new Error('This runtime does not support project-wide Cron authorization');
     await this.write({ version: 1, revision: randomUUID(), key, workspace: plan.workspace, sessionId: plan.sessionId, configurationRef: plan.configurationRef,
       model: { id: plan.model.id, provider: plan.model.provider }, jobs: fingerprint(plan), state: 'enabled',
       expires: Math.min(this.now() + 7 * 86400000, ...plan.jobs.map(job => job.autoExpireAt ?? Infinity)) });
   }
   async disable(workspace: string) {
+    if (!this.legacyAvailable) return;
     const grant = await this.read(this.file(workspace));
     if (grant) await this.write({ ...grant, state: 'disabled' });
   }
   async block(workspace: string) {
+    if (!this.legacyAvailable) return;
     const grant = await this.read(this.file(workspace));
     if (grant?.state === 'enabled' || grant?.state === 'blocked') {
       await this.write({ ...grant, revision: randomUUID(), state: 'blocked' });
@@ -101,7 +104,7 @@ export class CronAutoRecovery {
     }
   }
   async run(workspace?: string) {
-    if (this.busy) return;
+    if (this.busy || !this.legacyAvailable) return;
     this.busy = true;
     try {
       let files: string[];

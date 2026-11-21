@@ -96,8 +96,8 @@ try {
     assert.equal(after.messages.length, draft.messages.length, 'Changing thresholds never sends a prompt');
     await page.getByRole('button', { name: '恢复上下文整理默认值', exact: true }).click();
     await page.getByRole('status').filter({ hasText: '已保存，现有会话未更改。' }).waitFor();
-    assert.equal((await page.evaluate(() => window.desktop.compactionSettings())).triggerRatio, .9);
-    assert.equal(before.triggerRatio, .9);
+    assert.equal((await page.evaluate(() => window.desktop.compactionSettings())).triggerRatio, before.defaultTriggerRatio);
+    assert.equal(before.triggerRatio, before.defaultTriggerRatio);
     await page.locator('.compaction-advanced summary').click();
     await capture('settings-compaction-general-light');
   }

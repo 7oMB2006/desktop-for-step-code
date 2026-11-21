@@ -3,7 +3,8 @@ import { test } from 'node:test';
 import { mkdtemp, readFile, readdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { CronRecovery, assertCronRecoveryAccount, assertRecoveryJobs, assertRecoveryQueues, resumeCronHost, type CronRecoveryPlan } from '../electron/cron-recovery';
+import { CronRecovery, assertCronRecoveryAccount, assertOwnedRecoveryJobs, assertRecoveryJobs, assertRecoveryQueues,
+  inspectOwnedCronJobs, resumeCronHost, type CronRecoveryPlan } from '../electron/cron-recovery';
 import { RpcCommandError } from '../electron/runtime';
 import { CronBindings } from '../electron/cron-bindings';
 import type { CronJobData } from '../src/contracts';
@@ -66,6 +67,35 @@ test('Post-start gate allows native time advancement/expiry, never unreviewed wo
   for (const change of [{ prompt: 'Other' }, { id: 'new' }, { createdAt: 101 }, { durable: false },
     { cron: '0 * * * *' }, { recurring: false }, { autoExpireAt: 500 }, { desktopPausedAt: 150 }])
     assert.throws(() => assertRecoveryJobs([job], [{ ...job, ...change }]), /changed/);
+});
+test('Session-owned recovery approves the exact reviewed durable owner set and only previews future work', async () => {
+  const file = 'approved.jsonl';
+  const live = { ...job, sessionId: 'chat', sessionFile: file, revision: 'a'.repeat(64), status: 'enabled' as const };
+  const paused = { ...live, status: 'paused' as const, id: 'paused', revision: 'b'.repeat(64) };
+  const finished = { ...live, status: 'completed' as const, id: 'finished', revision: 'c'.repeat(64) };
+  const foreign = { ...paused, id: 'foreign', sessionId: 'other', sessionFile: 'elsewhere.jsonl', revision: 'd'.repeat(64) };
+  const ownOnly = [live, paused, finished];
+  const compare = async (actual: string, expected: string) => actual === expected;
+  const result = await inspectOwnedCronJobs([...ownOnly, foreign, job], live, 'chat', file, compare, () => 120);
+  assert.deepEqual(result.jobs, [live]);
+  assert.equal(result.owner.before, live.nextFireAt);
+  assert.deepEqual(result.owner.revisions, ownOnly.map(row => row.revision));
+  assertOwnedRecoveryJobs('chat', result.owner.revisions, ownOnly);
+  for (const loaded of [[...ownOnly, foreign], [live], [live, paused, { ...finished, revision: 'e'.repeat(64) }]])
+    assert.throws(() => assertOwnedRecoveryJobs('chat', result.owner.revisions, loaded), /changed/);
+  await assert.rejects(inspectOwnedCronJobs([live, foreign], foreign, 'chat', file, compare, () => 120), /owned/);
+  await assert.rejects(inspectOwnedCronJobs([live, { ...paused, sessionFile: foreign.sessionFile }], live, 'chat', file, compare, () => 120), /ownership/);
+  await assert.rejects(inspectOwnedCronJobs(ownOnly, live, 'chat', file, compare, () => live.nextFireAt), /due or expired/);
+  await assert.rejects(inspectOwnedCronJobs([live, { ...paused, status: 'enabled', autoExpireAt: 120 }], live, 'chat', file, compare, () => 120), /due or expired/);
+
+  let calls = 0;
+  await resumeCronHost({ request: async (type, args) => {
+    calls++;
+    assert.equal(type, 'desktop_cron_resume');
+    assert.deepEqual(args, { before: result.owner.before, sessionId: 'chat', revisions: result.owner.revisions });
+  } }, async () => { assert.fail('A confirmed host must be retained'); }, result.owner.before,
+  { sessionId: 'chat', revisions: result.owner.revisions });
+  assert.equal(calls, 1);
 });
 function fixture() {
   let plan = { workspace: 'D:/project', jobs: [job], sessionId: 'session', sessionName: 'Chat',

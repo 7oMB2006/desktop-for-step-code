@@ -50,6 +50,7 @@ async function fixture() {
   const preferences: Preferences = { language: 'en', theme: 'system', workspaces: [projectA, projectB] };
   const workers = new Map<string, SessionRuntime>();
   const externalWorkers = new Set<SessionRuntime>();
+  const wakingWorkspaces = new Set<string>();
   const creatingDrafts = new Set<string>();
   const createdDrafts = new Map<string, string>();
   const composers = new ComposerStore(() => {});
@@ -112,6 +113,7 @@ async function fixture() {
     projectProviders: async () => {}, authData: {}, dataRoot: 'fixture-data',
     text: (value: string) => value, pathKey: (value: string) => value.toLowerCase(),
     workspaceDirectory: async (value: string) => value,
+    cronWakeLaunches: { hasWorkspace: (workspace: string) => wakingWorkspaces.has(workspace) },
     samePath: async (a: string, b: string) => a === b,
     admin: { stop: async () => {}, start: () => {}, request: async (method: string, args: { cwd: string }) => {
       assert.equal(method, 'session_options'); sessionOptions.push(args.cwd);
@@ -159,7 +161,8 @@ async function fixture() {
     return { started: removalStarted.promise, release: removal.resolve };
   };
   return { api, draft, worker, miniView, runtimes, setup, composers, creatingDrafts, createdDrafts, externalWorkers,
-    observedMainDrafts, sessionOptions, removed, start, navigateAway, holdRemoval, readingSelections: context.readingSelections,
+    observedMainDrafts, sessionOptions, removed, start, navigateAway, holdRemoval, wakingWorkspaces,
+    readingSelections: context.readingSelections,
     setModels: (models: Model[]) => { availableModels = models; } };
 }
 
@@ -193,6 +196,16 @@ for (const mode of ['mini-only', 'separate'] as const) {
     assert.deepEqual(f.sessionOptions, mode === 'separate' ? [projectB] : []);
   });
 }
+
+test('workspace relocation refuses a pending Cron wake without replacing a MiniChat draft', async () => {
+  const f = await fixture();
+  f.navigateAway('main');
+  f.wakingWorkspaces.add(projectA);
+  await assert.rejects(f.api.handle('relocateWorkspace', [projectA], 'main'), /project is preparing a scheduled task/i);
+  assert.equal(f.api.selectedDraft('mini'), f.draft);
+  assert.deepEqual(f.removed, []);
+  assert.deepEqual(f.sessionOptions, []);
+});
 
 for (const mode of ['shared', 'mini-only', 'separate'] as const) {
   test(`provider refresh updates ${mode} drafts without losing composer input`, async () => {

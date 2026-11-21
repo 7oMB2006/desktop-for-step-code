@@ -43,6 +43,25 @@ test('Cron journal distinguishes delivery, execution, approval and authoritative
   assert.ok(!bytes.includes('PRIVATE'));
   assert.equal(new CronHistory(root).list(worker.cwd)[0].state, 'completed');
 });
+test('Native notices of missed deliveries do not create execution rows, and fire identity keeps its generation', async t => {
+  const root = await mkdtemp(join(tmpdir(), 'cron-native-history-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const history = new CronHistory(root, () => 100);
+  const worker = { id: 'host', cwd: 'D:/project', state: { sessionId: 'chat' }, messages: [] } as unknown as SessionRuntime;
+  const notice = { role: 'custom' as const, customType: 'step-cron', display: true };
+  history.event(worker, { type: 'message_start', message: { ...notice, details: { kind: 'missed', count: 1 } } }, true);
+  history.event(worker, { type: 'agent_end' }, true);
+  assert.deepEqual(history.list(worker.cwd), []);
+  const id = 'native-id-more-than-24-characters';
+  history.event(worker, { type: 'message_start', message: { ...notice, details: { kind: 'fire', id, createdAt: 10 } } }, true);
+  history.event(worker, { type: 'desktop_exit' }, true);
+  const [row] = history.list(worker.cwd);
+  assert.equal(row.state, 'unknown');
+  assert.equal(row.jobId, id);
+  assert.equal(row.createdAt, 10);
+  assert.equal(history.uncertain(worker.cwd, 'chat'), true);
+  assert.equal(history.uncertain(worker.cwd, 'other'), false);
+});
 test('Host loss and unrelated user turns are unknown, never successful; records stay bounded', async t => {
   const root = await mkdtemp(join(tmpdir(), 'cron-history-loss-'));
   t.after(() => rm(root, { recursive: true, force: true }));
@@ -59,6 +78,9 @@ test('Host loss and unrelated user turns are unknown, never successful; records 
   assert.equal(history.uncertain(worker.cwd), true, 'Display rotation must not acknowledge unresolved execution');
   const reopened = new CronHistory(root);
   assert.equal(reopened.uncertain(worker.cwd), true, 'The safety latch survives restart');
+  assert.deepEqual(reopened.ownerReview(worker.cwd, 'chat'), { unconfirmed: false, automaticUnavailable: 'project-history' });
+  reopened.acknowledge(worker.cwd, 'chat');
+  assert.equal(reopened.ownerReview(worker.cwd, 'other').automaticUnavailable, 'project-history');
   reopened.acknowledge(worker.cwd);
   assert.equal(new CronHistory(root).uncertain(worker.cwd), false);
 });
@@ -68,6 +90,7 @@ test('Restarted unfinished runs require explicit acknowledgment without being re
   const history = new CronHistory(root, () => 100);
   const worker = { id: 'host', cwd: 'D:/project', state: { sessionId: 'chat' }, messages: [] } as unknown as SessionRuntime;
   history.event(worker, { type: 'message_start', message: { role: 'custom', customType: 'step-cron', display: true } } as any);
+  assert.equal(history.ownerReview(worker.cwd, 'chat').automaticUnavailable, 'in-progress');
   const reopened = new CronHistory(root, () => 200);
   assert.equal(reopened.list(worker.cwd)[0].state, 'unknown');
   assert.equal(reopened.uncertain(worker.cwd), true);

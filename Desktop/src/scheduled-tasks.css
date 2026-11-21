@@ -38,6 +38,7 @@
 .scheduled-presets { display: flex; flex-wrap: wrap; gap: 8px; margin: -8px 0 20px; }
 .scheduled-presets > button { font-size: 11px; min-height: 28px; padding: 4px 8px; }
 .scheduled-editor .scheduled-boundary { margin: 0 0 20px; overflow-wrap: anywhere; }
+.scheduled-editor .scheduled-host-return { flex: 0 0 auto; font-size: 11px; }
 .app > main[hidden], .app > nav[hidden] { display: none; }
 .scheduled-count { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
 .scheduled-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding-bottom: 16px; border-bottom: 1px solid var(--border); }

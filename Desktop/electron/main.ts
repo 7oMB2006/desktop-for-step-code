@@ -38,6 +38,7 @@ import { BvrBridge } from './bvr-bridge';
 import { BvrSettings } from './bvr-settings';
 import { PluginHostLauncher } from './plugin-host-launcher';
 import { StepPluginHostProvider } from './plugin-host-step';
+import { PLUGIN_HOST_ACCOUNT_FIELD, withPluginHostAccount } from './plugin-host-account';
 import { SpeechService, SPEECH_FIELD, speechSettings, saveSpeech, acknowledgeSpeech } from './speech';
 import { isProjectTrustInput, trustProject } from './project-trust';
 import { CronManagement, cronJobs, cronScheduling, type CronRuntimeJob, type SavedCronJobs } from './cron-management';
@@ -154,8 +155,7 @@ const cronHistoryUnavailable = (workspace: string) =>
 const conversationTiming = new ConversationTiming(join(app.getPath('userData'), 'conversation-timing'),
   error => { void crashLog.record('conversation-timing', error); });
 const modelSelections = new ModelSelections(join(app.getPath('userData'), 'model-changes'),
-  worker => publishModelSelection(worker), error => { void crashLog.record('model-changes', error); },
-  worker => pluginHosts.invalidate(worker));
+  worker => publishModelSelection(worker), error => { void crashLog.record('model-changes', error); });
 let window: BrowserWindow;
 let startupWindow: StartupWindow | undefined;
 let browser: BrowserTabs | undefined;
@@ -359,8 +359,13 @@ async function refreshThemePacks() {
   }
 }
 const capabilityService: CapabilityService = new CapabilityService({ root: dataRoot, runtime: runtimeRoot, node: nodePath,
-  beforePluginMutation: () => { pluginHosts.invalidate(); pluginConfirmations.invalidate(); },
+  beforePluginMutation: instance => {
+    if (instance) pluginHosts.invalidateInstance(instance);
+    else { pluginHosts.invalidate(); pluginConfirmations.invalidate(); }
+  },
   hostAvailable: () => runtimeManifest.patches?.includes('desktop-plugin-host-launch') === true,
+  hostAccountChoice: () => pluginHostProvider.choice(),
+  selectHostAccount: ticket => pluginHostProvider.select(ticket),
   hostStatus: (descriptor, binding) => pluginHosts.status(descriptor, binding),
   guardRecovery: async id => {
     const alreadyMutating = settingsMutation;
@@ -436,6 +441,7 @@ const env: NodeJS.ProcessEnv = { ...isolatedEnvironment(dataRoot), NODE_COMPILE_
 const vault = new AuthVault(dataRoot);
 let authData: Record<string, unknown> = {};
 let appliedAuthData: Record<string, unknown> = {};
+let officialAccountChanging = false;
 const usageEstimates = new UsageEstimates(join(app.getPath('userData'), 'usage-estimates'), () => appliedAuthData,
   error => { void crashLog.record('usage-estimates', error); });
 const btwUsageLedger = new BtwUsageLedger(join(app.getPath('userData'), 'btw-usage'),
@@ -454,10 +460,14 @@ const accountAllowance = new AccountAllowanceService(() => appliedAuthData,
       || next.profile !== (credential as Record<string, unknown>).profile
       || next.uid !== (credential as Record<string, unknown>).uid) throw new Error('Invalid refreshed credential');
     settingsMutation = true;
+    officialAccountChanging = true;
     try {
-      await persistAuth({ ...authData, step: next });
-      appliedAuthData = { ...appliedAuthData, step: next };
+      const refreshed = withPluginHostAccount({ ...authData, step: next }, authData, true);
+      await persistAuth(refreshed);
+      appliedAuthData = { ...appliedAuthData, step: next,
+        [PLUGIN_HOST_ACCOUNT_FIELD]: refreshed[PLUGIN_HOST_ACCOUNT_FIELD] };
     } finally {
+      officialAccountChanging = false;
       settingsMutation = !capabilityService.runtimeAvailable;
       await pluginHosts.resumeDeferred();
     }
@@ -480,7 +490,8 @@ const movedSessionEnvironment = () => ({
 async function persistAuth(next: Record<string, unknown>) {
   speech.cancel();
   bvrBridge.invalidate();
-  pluginHosts.invalidate();
+  if (next.step !== authData.step || next[PLUGIN_HOST_ACCOUNT_FIELD] !== authData[PLUGIN_HOST_ACCOUNT_FIELD])
+    pluginHosts.invalidateAccount();
   try { await vault.save(next); }
   catch (error) {
     await admin.stop();
@@ -663,8 +674,6 @@ const runtimes: SessionRuntimes = new SessionRuntimes(event => {
   initializeModel: async (worker, restoring) => {
     const history = restoring ? await worker.rpc.request('get_entries') : undefined;
     const expected = history ? savedSessionModel(history.entries ?? [], history.leafId ?? null) : preferences.preferredModel;
-    if (expected && (worker.state?.model?.provider !== expected.provider || worker.state.model.id !== expected.id))
-      pluginHosts.invalidate(worker);
     await restoreSelectedModel(worker, expected, preferences.language);
   },
   launch: worker => {
@@ -779,11 +788,12 @@ const pluginRemovals = new PluginUpdateCoordinator<PluginRemovalRequest>({
     window.webContents.send('runtime-event', { type: 'desktop_theme_packs', packs: themePacks.packs, preferences });
   },
 });
-const pluginHosts = new PluginHostLauncher({ root: dataRoot, pool: runtimes, capabilities: capabilityService,
-  provider: new StepPluginHostProvider(runtimes, () => appliedAuthData,
-    () => settingsMutation || providerSettingsPending || providerApplyFailed || quitting || quitPending,
+const pluginHostProvider = new StepPluginHostProvider(runtimes, () => appliedAuthData,
+    () => officialAccountChanging || quitting || quitPending,
     (input, init) => net.fetch(input instanceof URL ? input.href : String(input), init),
-    details => crashLog.record('plugin-host-image-provider', new Error('Plugin host image provider failed'), details)),
+    details => crashLog.record('plugin-host-image-provider', new Error('Plugin host image provider failed'), details));
+const pluginHosts = new PluginHostLauncher({ root: dataRoot, pool: runtimes, capabilities: capabilityService,
+  provider: pluginHostProvider,
   language: () => preferences.language,
   available: () => runtimeManifest.patches?.includes('desktop-plugin-host-launch') === true
     && capabilityService.available && capabilityService.runtimeAvailable
@@ -3267,9 +3277,12 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
       await guardIdle();
       accountAllowance.cancel();
       await applyProviderSettings();
-      const next = await admin.request('login', { profile: text(args[0], 40), key: args[1] === undefined ? undefined : text(args[1], 4096) }, 300000);
-      await persistAuth(mergeRuntimeAuth(authData, next));
-      appliedAuthData = authData;
+      officialAccountChanging = true;
+      try {
+        const next = await admin.request('login', { profile: text(args[0], 40), key: args[1] === undefined ? undefined : text(args[1], 4096) }, 300000);
+        await persistAuth(withPluginHostAccount(mergeRuntimeAuth(authData, next)));
+        appliedAuthData = authData;
+      } finally { officialAccountChanging = false; }
       await admin.stop();
       admin.start(nodePath, join(runtimeRoot, 'admin.mjs'), dataRoot, authEnvironment());
       const current = runtimes.active;
@@ -3285,9 +3298,12 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
       await guardIdle();
       accountAllowance.cancel();
       await applyProviderSettings();
-      const next = await admin.request('logout');
-      await persistAuth(mergeRuntimeAuth(authData, next));
-      appliedAuthData = authData;
+      officialAccountChanging = true;
+      try {
+        const next = await admin.request('logout');
+        await persistAuth(withPluginHostAccount(mergeRuntimeAuth(authData, next)));
+        appliedAuthData = authData;
+      } finally { officialAccountChanging = false; }
       await admin.stop();
       admin.start(nodePath, join(runtimeRoot, 'admin.mjs'), dataRoot, authEnvironment());
       const current = runtimes.active;
@@ -3720,6 +3736,10 @@ else app.whenReady().then(async () => {
   // vault.load() also migrates and removes a legacy plaintext auth.json. safeStorage
   // requires the ready state, which whenReady provides.
   authData = await vault.load();
+  if (authData.step && authData[PLUGIN_HOST_ACCOUNT_FIELD] === undefined) {
+    authData = withPluginHostAccount(authData);
+    await vault.save(authData);
+  }
   appliedAuthData = authData;
   await usageEstimates.initialize();
   await projectProviders(dataRoot, authData);

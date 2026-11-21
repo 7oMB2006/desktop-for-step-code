@@ -120,15 +120,15 @@ for (const invalidation of ['worker', 'global', 'transport'] as const) {
     assert.equal(f.calls.length, 0);
   });
 }
-test('an unconfigured plugin previews the current route without issuing a lease or making an RPC', async t => {
+test('an unconfigured plugin does not invent a saved route or issue a lease', async t => {
   const f = await fixture(t, false);
   const binding = await f.store.current(f.descriptor);
   f.worker.rpc.request = async () => assert.fail('A source preview should not make an RPC');
   assert.deepEqual(await f.launcher.status(f.descriptor, binding),
-    { status: 'unconfigured', source: { channel: 'plan', region: 'cn' } });
+    { status: 'unconfigured' });
   f.state.auth.step.profile = 'platform_oversea';
   assert.deepEqual(await f.launcher.status(f.descriptor, binding),
-    { status: 'unconfigured', source: { channel: 'api', region: 'oversea' } });
+    { status: 'unconfigured' });
   f.state.changing = true;
   assert.deepEqual(await f.launcher.status(f.descriptor, binding), { status: 'unconfigured' });
   assert.equal(f.launchState.starts.length + f.state.confirmations.length + f.calls.length, 0);

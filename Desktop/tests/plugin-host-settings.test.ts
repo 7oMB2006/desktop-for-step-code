@@ -6,6 +6,7 @@ import { CapabilityService } from '../electron/capability-service';
 import { PluginHostBindingStore } from '../electron/plugin-host-contract.mjs';
 import { hostService } from './fixtures/plugin-host-service';
 import type { PluginHostSettingsInput } from '../src/capabilities';
+import { withPluginHostAccount } from '../electron/plugin-host-account';
 
 async function fixture(t: test.TestContext, settings = true, available = true) {
   const f = await hostService(t, { configured: false, settings });
@@ -16,14 +17,17 @@ async function fixture(t: test.TestContext, settings = true, available = true) {
     mcp: [{ name: `${f.descriptor.id}__example`, source: 'plugin', pluginId: f.descriptor.id,
       transport: 'stdio', enabled: true, configurable: true }] };
   const service = new CapabilityService({ root: f.root, runtime: '', node: '',
-    environment: () => ({}), hostAvailable: () => available, hostStatus: async () => ({ status: 'no-session' }),
+    environment: () => ({}), hostAvailable: () => available, hostStatus: async (_descriptor, binding) =>
+      ({ status: 'mode' in binding && binding.mode === 'paused' ? 'source-paused' : 'no-session' }),
+    hostAccountChoice: () => f.provider.choice(), selectHostAccount: ticket => f.provider.select(ticket),
     beforePluginMutation: () => { invalidations++; } });
   // Stub only the native catalog subprocess; receipts, files, projections and
   // the production management queue remain real.
   const internals = service as unknown as { request(type: string): Promise<unknown>; hostBindings: PluginHostBindingStore };
   internals.request = async type => { assert.ok(['catalog', 'target-catalog'].includes(type)); return raw; };
   const ref = (await service.catalog()).plugins[0].package!.ref;
-  const save = (input: Omit<PluginHostSettingsInput, 'ref'>) => service.hostSettings({ ref }, { ref, ...input });
+  const save = (input: Omit<PluginHostSettingsInput, 'ref'>) => service.hostSettings({ ref }, { ref,
+    ...(input.mode === 'account' ? { accountTicket: f.provider.choice()?.ticket } : {}), ...input });
   return { ...f, service, raw, ref, save, internals, invalidations: () => invalidations };
 }
 test('host settings expose only a safe projection and never select a mode or call a provider on read', async t => {
@@ -34,8 +38,8 @@ test('host settings expose only a safe projection and never select a mode or cal
   assert.equal(first.independent?.configured, false);
   assert.equal(first.runtime.status, 'no-session');
   assert.equal(f.invalidations(), 0);
-  const saved = await f.save({ revision: first.revision, mode: 'follow' });
-  assert.equal(saved.mode, 'follow');
+  const saved = await f.save({ revision: first.revision, mode: 'account' });
+  assert.equal(saved.mode, 'account');
   assert.equal(saved.configurationCurrent, true);
   assert.equal(saved.independent?.configured, false, 'Follow does not save placeholder keys');
   assert.equal(saved.runtime.status, 'restart-required');
@@ -48,15 +52,51 @@ test('host settings expose only a safe projection and never select a mode or cal
 test('mode writes share the management queue and stale concurrent saves cannot revoke or overwrite the winner', async t => {
   const f = await fixture(t, false);
   const result = await Promise.allSettled([
-    f.save({ revision: 'unconfigured', mode: 'follow' }),
-    f.save({ revision: 'unconfigured', mode: 'follow' }),
+    f.save({ revision: 'unconfigured', mode: 'account' }),
+    f.save({ revision: 'unconfigured', mode: 'account' }),
   ]);
   assert.equal(result.filter(item => item.status === 'fulfilled').length, 1);
   assert.equal(result.filter(item => item.status === 'rejected').length, 1);
   assert.equal(f.invalidations(), 1);
   const selected = await f.service.hostSettings({ ref: f.ref });
-  assert.equal(selected.mode, 'follow');
+  assert.equal(selected.mode, 'account');
   assert.equal(selected.independent, undefined);
+});
+test('a stale account choice cannot bind a different account on the same billing channel', async t => {
+  const f = await fixture(t);
+  const first = await f.service.hostSettings({ ref: f.ref });
+  f.state.auth = withPluginHostAccount({ step: { ...f.state.auth.step, access: 'replacement' } });
+  await assert.rejects(f.save({ revision: first.revision, mode: 'account', accountTicket: first.account!.ticket }),
+    /stale-configuration/);
+  assert.equal(f.invalidations(), 0);
+  assert.equal((await f.store.current(f.descriptor)).revision, 'unconfigured');
+  assert.equal((await f.save({ revision: first.revision, mode: 'account' })).accountMatches, true);
+});
+test('pausing never accepts a renderer binding, retains saved models and cannot launch', async t => {
+  const f = await fixture(t);
+  const saved = await f.save({ revision: 'unconfigured', mode: 'account', models: { 'model.text': 'step-5-preview' } });
+  const oldTicket = f.provider.choice()!.ticket;
+  await assert.rejects(f.save({ revision: saved.revision, mode: 'paused', accountTicket: oldTicket }), /invalid-configuration/);
+  assert.equal(f.invalidations(), 1, 'An invalid pause must not revoke a valid binding');
+
+  f.state.auth = withPluginHostAccount({ step: { ...f.state.auth.step, access: 'replacement' } });
+  const paused = await f.save({ revision: saved.revision, mode: 'paused' });
+  assert.equal(paused.mode, 'paused');
+  assert.equal(paused.runtime.status, 'source-paused');
+  assert.equal(paused.configurationCurrent, false);
+  assert.deepEqual(paused.models, saved.models);
+  assert.equal(paused.accountMatches, false);
+  assert.equal(f.invalidations(), 2);
+  const binding = await f.store.current(f.descriptor);
+  assert.ok('mode' in binding && binding.mode === 'paused' && !binding.configurationCurrent);
+  const pointer = JSON.parse(await readFile(join(f.root, 'desktop-plugins/host/bindings', `${f.receipt.instance}.json`), 'utf8'));
+  assert.equal(pointer.version, 3, 'An older reader must not restore the previous active mode');
+  await assert.rejects(f.save({ revision: paused.revision, mode: 'account', accountTicket: oldTicket, models: paused.models }),
+    /stale-configuration/);
+  const resumed = await f.save({ revision: paused.revision, mode: 'account', models: paused.models });
+  assert.equal(resumed.accountMatches, true);
+  assert.deepEqual(resumed.models, saved.models);
+  assert.equal(f.calls.length, 0);
 });
 test('independent mode commits a validated configuration and returns no stored secrets', async t => {
   const f = await fixture(t);
@@ -73,7 +113,7 @@ test('independent mode commits a validated configuration and returns no stored s
   const binding = await f.store.current(f.descriptor);
   assert.ok('mode' in binding);
   assert.equal(binding.configurationRevision, saved.independent?.revision);
-  const followed = await f.save({ revision: saved.revision, mode: 'follow' });
+  const followed = await f.save({ revision: saved.revision, mode: 'account' });
   assert.equal(followed.independent?.hasSecret.key, true, 'Switching source never deletes saved independent settings');
   assert.equal(f.calls.length, 0);
 });
@@ -102,7 +142,7 @@ test('a failed second pointer commit is explicit and cannot leave the old indepe
   assert.equal(current.mode, 'independent');
   assert.equal(current.revision, first.revision);
   assert.equal(current.configurationCurrent, false);
-  const recovered = await f.save({ revision: current.revision, mode: 'follow' });
+  const recovered = await f.save({ revision: current.revision, mode: 'account' });
   assert.equal(recovered.configurationCurrent, true);
   assert.doesNotMatch(JSON.stringify(current), /replacement-private-key/);
 });
@@ -112,21 +152,21 @@ test('global overrides, duplicate discovery and renderer-chosen identities are r
     if (conflict === 'global') f.raw.mcp[0].source = 'user';
     if (conflict === 'duplicate') f.raw.mcp.push({ ...f.raw.mcp[0] });
     if (conflict === 'transport') f.raw.mcp[0].transport = 'http';
-    await assert.rejects(f.save({ revision: 'unconfigured', mode: 'follow' }), /configuration-consumer-conflict/);
+    await assert.rejects(f.save({ revision: 'unconfigured', mode: 'account' }), /configuration-consumer-conflict/);
     assert.equal(f.invalidations(), 0);
   }
   const f = await fixture(t);
   await assert.rejects(f.service.hostSettings({ ref: f.ref, workerId: f.worker.id } as never), /invalid-input/);
   await assert.rejects(f.service.hostSettings({ ref: f.ref }, {
-    ref: f.ref, revision: 'unconfigured', mode: 'follow', workerId: f.worker.id,
+    ref: f.ref, revision: 'unconfigured', mode: 'account', workerId: f.worker.id,
   } as never), /invalid-input/);
-  await assert.rejects(f.save({ revision: 'unconfigured', mode: 'follow', models: { 'model.text': 'forged-model' } } as never));
+  await assert.rejects(f.save({ revision: 'unconfigured', mode: 'account', models: { 'model.text': 'forged-model' } } as never));
   assert.equal(f.invalidations(), 0);
 });
 test('old hosts can inspect declarations but cannot save or silently enable host access', async t => {
   const f = await fixture(t, false, false);
   assert.equal((await f.service.hostSettings({ ref: f.ref })).runtime.status, 'unsupported');
-  await assert.rejects(f.save({ revision: 'unconfigured', mode: 'follow' }), /host-unavailable/);
+  await assert.rejects(f.save({ revision: 'unconfigured', mode: 'account' }), /host-unavailable/);
   assert.equal(f.invalidations(), 0);
 });
 
@@ -137,7 +177,7 @@ test('pending recovery blocks both host mode writes without revocation or changi
   const journal = join(directory, 'update-transaction.json'), bytes = '{"unfinished":"preserve"}';
   await writeFile(journal, bytes);
   for (const input of [
-    { revision: 'unconfigured', mode: 'follow' as const },
+    { revision: 'unconfigured', mode: 'account' as const },
     { revision: 'unconfigured', mode: 'independent' as const,
       configuration: { ref: f.ref, revision: 'unconfigured', values: {},
         secrets: { key: { action: 'replace' as const, value: 'never-saved-key' } } } },
@@ -153,7 +193,7 @@ test('quarantined management or runtime cannot commit host mode pointers or revo
     const f = await fixture(t);
     const internals = f.service as unknown as { quarantined: boolean; runtimeQuarantined: boolean };
     internals[property] = true;
-    await assert.rejects(f.save({ revision: 'unconfigured', mode: 'follow' }),
+    await assert.rejects(f.save({ revision: 'unconfigured', mode: 'account' }),
       property === 'quarantined' ? /management-unavailable/ : /update-recovery-required/);
     assert.equal(f.invalidations(), 0);
     assert.equal((await f.store.current(f.descriptor)).revision, 'unconfigured');
@@ -163,8 +203,8 @@ test('quarantined management or runtime cannot commit host mode pointers or revo
 test('service disablement does not hide saved mode, but source changes invalidate opaque references', async t => {
   const f = await fixture(t);
   f.raw.mcp[0].enabled = false;
-  const selected = await f.save({ revision: 'unconfigured', mode: 'follow' });
-  assert.equal(selected.mode, 'follow');
+  const selected = await f.save({ revision: 'unconfigured', mode: 'account' });
+  assert.equal(selected.mode, 'account');
   assert.equal(selected.runtime.status, 'disabled');
   const bytes = await readFile(join(f.directory, 'dfsc.host.json'));
   await writeFile(join(f.directory, 'dfsc.host.json'), Buffer.concat([bytes, Buffer.from('\n')]));

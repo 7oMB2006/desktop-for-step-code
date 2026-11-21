@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { fixtureAccount } from './fixtures/plugin-host-service';
 import { mkdtemp, mkdir, writeFile, readFile, realpath, rm, readdir, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -74,9 +75,9 @@ test('a host-only consumer follows without any independent configuration and wri
   const { root, directory, descriptor, store } = await fixture(t);
   const broker = await mockHost(); t.after(() => broker.close());
   assert.equal((await store.current(descriptor)).revision, 'unconfigured');
-  const selection = await store.select(descriptor, { revision: 'unconfigured', mode: 'follow' });
+  const selection = await store.select(descriptor, { revision: 'unconfigured', mode: 'follow', account: fixtureAccount });
   await assert.rejects(store.select(descriptor, { revision: selection.revision,
-    mode: 'follow', models: { 'model.asr': 'not-declared' } }));
+    mode: 'follow', account: fixtureAccount, models: { 'model.asr': 'not-declared' } }));
   const wire = broker.launch();
   const launch = await store.launch(descriptor, wire);
   assert.equal(launch.revision, selection.revision);
@@ -92,7 +93,7 @@ test('a host-only consumer follows without any independent configuration and wri
   assert.equal(broker.counts.provider, 0);
   assert.deepEqual((await readdir(directory)).sort(), ['dfsc.host.json', 'step.plugin.json']);
 });
-test('dedicated speech model selections create new revisions without permitting a stored chat-model override', async t => {
+test('host-only model selections create new revisions without changing the v1 launch format', async t => {
   const { root, directory, descriptor, receipt } = await fixture(t);
   await writeFile(join(directory, 'dfsc.host.json'), JSON.stringify({ ...declaration,
     capabilities: ['model.text', 'model.asr', 'model.tts'] }));
@@ -100,18 +101,23 @@ test('dedicated speech model selections create new revisions without permitting 
   await writeReceipts(root, { version: 1, installations: [{ ...receipt, fingerprint }] });
   const current = { ...descriptor, fingerprint };
   const store = new PluginHostBindingStore(root);
-  const first = await store.select(current, { revision: 'unconfigured', mode: 'follow',
+  const first = await store.select(current, { revision: 'unconfigured', mode: 'follow', account: fixtureAccount,
     models: { 'model.asr': 'fixture-asr', 'model.tts': 'fixture-tts' } });
-  const changed = await store.select(current, { revision: first.revision, mode: 'follow',
+  const changed = await store.select(current, { revision: first.revision, mode: 'follow', account: fixtureAccount,
     models: { 'model.asr': 'fixture-asr-v2', 'model.tts': 'fixture-tts' } });
   assert.notEqual(changed.revision, first.revision);
   assert.equal(changed.models['model.asr'], 'fixture-asr-v2');
-  await assert.rejects(store.select(current, { revision: changed.revision, mode: 'follow',
-    models: { 'model.text': 'forged-chat-model' } } as never));
+  const text = await store.select(current, { revision: changed.revision, mode: 'follow', account: fixtureAccount,
+    models: { 'model.text': 'step-5-preview' } });
+  const broker = await mockHost(); t.after(() => broker.close());
+  const launch = await store.launch(current, broker.launch());
+  assert.equal(text.models['model.text'], 'step-5-preview');
+  assert.deepEqual(launch.models, {});
+  assert.ok(!JSON.stringify(launch).includes(fixtureAccount.id));
 });
 test('mode commits require a valid independent revision; failed and concurrent switches preserve the winner', async t => {
   const { root, descriptor, store } = await fixture(t, true);
-  const saved = await store.select(descriptor, { revision: 'unconfigured', mode: 'follow' });
+  const saved = await store.select(descriptor, { revision: 'unconfigured', mode: 'follow', account: fixtureAccount });
   const path = join(root, 'desktop-plugins/host/bindings', `${descriptor.instance}.json`);
   const original = await readFile(path);
   await assert.rejects(store.select(descriptor, { revision: saved.revision, mode: 'independent' }));
@@ -126,16 +132,43 @@ test('mode commits require a valid independent revision; failed and concurrent s
   const launch = await store.launch(descriptor, broker.launch());
   assert.equal(launch.broker, undefined);
   assert.doesNotMatch(JSON.stringify(launch), /fixture-independent-key/);
+  const paused = await store.select(descriptor, { revision: independent.revision, mode: 'paused' });
+  await assert.rejects(store.launch(descriptor, broker.launch()), /stale-configuration/);
+  assert.equal((await configuration.read(descriptor)).hasSecret.key, true);
   const transitions = await Promise.allSettled([
-    store.select(descriptor, { revision: independent.revision, mode: 'follow' }),
-    store.select(descriptor, { revision: independent.revision, mode: 'follow' }),
+    store.select(descriptor, { revision: paused.revision, mode: 'follow', account: fixtureAccount }),
+    store.select(descriptor, { revision: paused.revision, mode: 'follow', account: fixtureAccount }),
   ]);
   assert.equal(transitions.filter(item => item.status === 'fulfilled').length, 1);
   assert.equal(transitions.filter(item => item.status === 'rejected').length, 1);
 });
+test('legacy follow remains a draft until an explicit new selection commits a downgrade-incompatible pointer', async t => {
+  const { root, descriptor, store } = await fixture(t);
+  const first = await store.select(descriptor, { revision: 'unconfigured', mode: 'follow', account: fixtureAccount });
+  const pointerPath = join(root, 'desktop-plugins/host/bindings', `${descriptor.instance}.json`);
+  const snapshotPath = join(root, 'desktop-plugins/host/selections', descriptor.instance, `${first.revision}.json`);
+  const snapshot = JSON.parse(await readFile(snapshotPath, 'utf8'));
+  delete snapshot.account;
+  snapshot.version = 1;
+  const legacyBytes = JSON.stringify(snapshot);
+  await writeFile(snapshotPath, legacyBytes);
+  await writeFile(pointerPath, JSON.stringify({ version: 1, revision: first.revision,
+    contentHash: createHash('sha256').update(legacyBytes).digest('hex') }));
+  const draft = await store.current(descriptor);
+  assert.ok('mode' in draft && draft.mode === 'follow' && !draft.account && !draft.configurationCurrent);
+  const broker = await mockHost(); t.after(() => broker.close());
+  await assert.rejects(store.launch(descriptor, broker.launch()), /stale-configuration/);
+  await assert.rejects(store.select(descriptor, { revision: draft.revision, mode: 'follow' }));
+  assert.equal((await store.current(descriptor)).revision, draft.revision);
+  const current = await store.select(descriptor, { revision: draft.revision, mode: 'follow', account: fixtureAccount });
+  assert.equal(current.configurationCurrent, true);
+  const rewritten = JSON.parse(await readFile(pointerPath, 'utf8'));
+  assert.equal(rewritten.version, 2, 'Frozen v1 reader checks exact version before following the pointer');
+  assert.equal(await readFile(snapshotPath, 'utf8'), legacyBytes, 'Historic snapshot is not rewritten or reactivated');
+});
 test('orphan snapshots do not commit a mode, and corruption, unknown sources and changed packages fail closed', async t => {
   const { root, directory, descriptor, store } = await fixture(t);
-  const first = await store.select(descriptor, { revision: 'unconfigured', mode: 'follow' });
+  const first = await store.select(descriptor, { revision: 'unconfigured', mode: 'follow', account: fixtureAccount });
   const snapshot = join(root, 'desktop-plugins/host/selections', descriptor.instance);
   await writeFile(join(snapshot, `${'f'.repeat(64)}.json`), '{"mode":"independent"}');
   assert.equal((await store.current(descriptor)).revision, first.revision);
@@ -152,7 +185,7 @@ for (const changedDeclaration of [false, true]) test(`updated packages require e
   const { root, directory, descriptor, receipt, store } = await fixture(t, false, {
     ...declaration, capabilities: ['model.text', 'model.asr'],
   });
-  const first = await store.select(descriptor, { revision: 'unconfigured', mode: 'follow',
+  const first = await store.select(descriptor, { revision: 'unconfigured', mode: 'follow', account: fixtureAccount,
     models: { 'model.asr': 'old-asr' } });
   const pointerPath = join(root, 'desktop-plugins/host/bindings', `${descriptor.instance}.json`);
   const snapshotPath = join(root, 'desktop-plugins/host/selections', descriptor.instance, `${first.revision}.json`);
@@ -172,15 +205,15 @@ for (const changedDeclaration of [false, true]) test(`updated packages require e
   const broker = await mockHost(); t.after(() => broker.close());
   await assert.rejects(store.launch(descriptor, broker.launch()), /stale/);
   await assert.rejects(store.launch(next, broker.launch()), /invalid-configuration/);
-  await assert.rejects(store.select(next, { revision: first.revision, mode: 'follow' }), /stale-configuration/);
-  const selected = await store.select(next, { revision: 'unconfigured', mode: 'follow' });
+  await assert.rejects(store.select(next, { revision: first.revision, mode: 'follow', account: fixtureAccount }), /stale-configuration/);
+  const selected = await store.select(next, { revision: 'unconfigured', mode: 'follow', account: fixtureAccount });
   assert.notEqual(selected.revision, first.revision);
   assert.equal((await store.launch(next, broker.launch())).revision, selected.revision);
   assert.deepEqual(await readFile(snapshotPath), snapshot, 'Explicit reselection does not erase history');
 });
 test('older-package selections must still have a valid identity and structure before being reset', async t => {
   const { root, directory, descriptor, receipt, store } = await fixture(t);
-  const selected = await store.select(descriptor, { revision: 'unconfigured', mode: 'follow' });
+  const selected = await store.select(descriptor, { revision: 'unconfigured', mode: 'follow', account: fixtureAccount });
   const pointerPath = join(root, 'desktop-plugins/host/bindings', `${descriptor.instance}.json`);
   const snapshotPath = join(root, 'desktop-plugins/host/selections', descriptor.instance, `${selected.revision}.json`);
   const pointer = JSON.parse(await readFile(pointerPath, 'utf8'));
@@ -191,9 +224,9 @@ test('older-package selections must still have a valid identity and structure be
   for (const changed of [
     { instance: randomUUID() }, { pluginId: 'foreign-plugin' }, { fingerprint: 'not-a-hash' },
     { declarationHash: 'not-a-hash' }, { consumer: '../foreign' }, { revision: 'f'.repeat(64) },
-    { mode: 'unknown' }, { mode: 'follow', configurationRevision: 'f'.repeat(64) },
+    { mode: 'unknown' }, { mode: 'follow', account: fixtureAccount, configurationRevision: 'f'.repeat(64) },
     { mode: 'independent', configurationRevision: null }, { authorized: true },
-    { models: { 'model.text': 'not-allowed' } }, { models: { 'model.asr': '\0' } },
+    { models: { 'model.unknown': 'not-allowed' } }, { models: { 'model.asr': '\0' } },
     { mode: 'independent', configurationRevision: 'f'.repeat(64), models: { 'model.asr': 'fixture' } },
   ]) {
     const bytes = JSON.stringify({ ...snapshot, ...changed });
@@ -214,13 +247,13 @@ test('changed independent settings stop launches, but never prevent explicit rec
     secrets: { key: { action: 'replace', value: 'second-independent-key' } } });
   const broker = await mockHost(); t.after(() => broker.close());
   await assert.rejects(store.launch(descriptor, broker.launch()), /stale-configuration/);
-  const following = await store.select(descriptor, { revision: selected.revision, mode: 'follow' });
+  const following = await store.select(descriptor, { revision: selected.revision, mode: 'follow', account: fixtureAccount });
   assert.equal(following.mode, 'follow');
   assert.equal((await store.launch(descriptor, broker.launch())).mode, 'follow');
 });
 test('stored pointers and hashed snapshots reject unexpected fields and invalid configuration references', async t => {
   const { root, descriptor, store } = await fixture(t);
-  const selected = await store.select(descriptor, { revision: 'unconfigured', mode: 'follow' });
+  const selected = await store.select(descriptor, { revision: 'unconfigured', mode: 'follow', account: fixtureAccount });
   const pointerPath = join(root, 'desktop-plugins/host/bindings', `${descriptor.instance}.json`);
   const snapshotPath = join(root, 'desktop-plugins/host/selections', descriptor.instance, `${selected.revision}.json`);
   const pointer = JSON.parse(await readFile(pointerPath, 'utf8'));
@@ -243,7 +276,7 @@ test('stored pointers and hashed snapshots reject unexpected fields and invalid 
 });
 test('launch refuses redirected data storage and uninstall, without granting a new installation old bindings', async t => {
   const { root, descriptor, store, receipt } = await fixture(t);
-  await store.select(descriptor, { revision: 'unconfigured', mode: 'follow' });
+  await store.select(descriptor, { revision: 'unconfigured', mode: 'follow', account: fixtureAccount });
   const broker = await mockHost(); t.after(() => broker.close());
   const outside = join(root, 'outside');
   await mkdir(outside);

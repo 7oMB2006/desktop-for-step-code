@@ -33,7 +33,9 @@ await writeFile(join(profile, 'preferences.json'), JSON.stringify({ language: 'z
 
 const keys = { cn: 'isolated-host-account-cn', oversea: 'isolated-host-account-global' };
 let region = 'cn', sequence = 0, phase = 'launch', app, page;
-const errors = [], transportErrors = [], calls = [];
+const errors = [], transportErrors = [], calls = [], chatCalls = [];
+const plainPrompt = 'Reply without the unavailable plugin';
+const plainReply = 'Ordinary chat remains available.';
 let heldResponse;
 const server = createServer(async (request, response) => {
   try {
@@ -54,7 +56,19 @@ const server = createServer(async (request, response) => {
       for await (const chunk of request) { raw += chunk; assert.ok(raw.length < 128 * 1024); }
       const body = JSON.parse(raw);
       assert.equal(body.model, 'step-5-preview');
-      assert.notEqual(body.stream, true, 'This fixture never asks an agent model to choose a tool');
+      if (body.stream === true) {
+        assert.equal(phase, 'ordinary chat after failed plugin startup');
+        assert.match(JSON.stringify(body.messages.at(-1).content), /Reply without the unavailable plugin/);
+        assert.ok(!body.tools?.some(tool => /dfsc-host-example|host_context|summarize_text/.test(tool.function.name)));
+        chatCalls.push({ region });
+        response.setHeader('content-type', 'text/event-stream');
+        const frame = (delta, finish_reason = null) => `data: ${JSON.stringify({
+          id: 'fixture-plain-chat', object: 'chat.completion.chunk', created: 1, model: body.model,
+          choices: [{ index: 0, delta, finish_reason }],
+        })}\n\n`;
+        response.end(frame({ role: 'assistant', content: plainReply }) + frame({}, 'stop') + 'data: [DONE]\n\n');
+        return;
+      }
       assert.equal(body.messages[0].content, 'Summarize the supplied text concisely.');
       const text = body.messages.at(-1).content;
       assert.ok(['approved', 'approved-again', 'cancel-inflight', 'new-account'].includes(text));
@@ -122,7 +136,8 @@ const reloadSession = async () => {
 };
 let ref;
 const settings = () => page.evaluate(ref => window.desktop.pluginHostSettings({ ref }), ref);
-const confirmation = () => page.getByRole('dialog', { name: '允许插件使用当前模型账户？', exact: true });
+const confirmationTitle = '允许插件使用已选额度账户？';
+const confirmation = () => page.getByRole('dialog', { name: confirmationTitle, exact: true });
 const assertPrivate = value => assert.doesNotMatch(JSON.stringify(value),
   /isolated-host-account-|DFSC_INDEPENDENT_PLUGIN|dfsc-launch-v1|DFSC_LAUNCH_CONTEXT|declarationHash|executionHash|"broker"|"token"/);
 try {
@@ -149,15 +164,16 @@ try {
     .some(([name, server]) => /steppage/i.test(name) && server.enabled !== false));
   assert.equal(enabledStepPage, false, 'Isolated acceptance cannot launch a personal StepPage server');
   await page.evaluate(base => window.desktop.saveProvider({
-    id: '', name: 'Disabled transport fixture', baseUrl: `${base}/v1`, api: 'openai-completions', enabled: false, keyless: true,
-    models: [{ id: 'unused', name: 'Unused', reasoning: false, vision: false, contextWindow: 32768, maxTokens: 1024 }],
+    id: '', name: 'Separate chat fixture', baseUrl: `${base}/v1`, api: 'openai-completions', enabled: true, keyless: true,
+    models: [{ id: 'unrelated-chat-model', name: 'Separate chat model', reasoning: false, vision: false, contextWindow: 32768, maxTokens: 1024 }],
   }), base);
   await page.evaluate(key => window.desktop.login('platform_cn', key), keys.cn);
   ref = await page.evaluate(async () => (await window.desktop.capabilityCatalog()).plugins
     .find(plugin => plugin.id === 'dfsc-host-example').package.ref);
   const initial = await settings();
   await page.evaluate(input => window.desktop.pluginSaveHostSettings(input),
-    { ref, revision: initial.revision, mode: 'follow' });
+    { ref, revision: initial.revision, mode: 'account', accountTicket: initial.account.ticket,
+      models: { 'model.text': 'step-5-preview' } });
   await page.evaluate(() => window.desktop.newIndependentSession());
   await reloadSession();
   await until(async () => (await settings()).runtime.status === 'connected', 'Actual SDK consumer did not connect');
@@ -169,19 +185,19 @@ try {
 
   mark('production confirmation denial');
   const beforeConfirmation = await snapshot();
-  await page.evaluate(() => {
+  await page.evaluate(confirmationTitle => {
     window.__hostConfirmationEvents = [];
     window.desktop.onEvent(event => {
-      if (event.type === 'extension_ui_request' && event.title === '允许插件使用当前模型账户？') {
+      if (event.type === 'extension_ui_request' && event.title === confirmationTitle) {
         window.__hostConfirmationEvents.push({ id: event.id, runtimeId: event.runtimeId, runtimeRevision: event.runtimeRevision });
       }
     });
-  });
+  }, confirmationTitle);
   let pending = await tool('summarize_text', 'denied');
   await until(async () => {
     const early = await readFile(join(data, `result-${pending}.json`), 'utf8').catch(() => undefined);
     if (early) throw new Error('Tool returned before confirmation');
-    return (await snapshot()).requests.some(request => request.title === '允许插件使用当前模型账户？');
+    return (await snapshot()).requests.some(request => request.title === confirmationTitle);
   }, 'No pending host confirmation');
   await confirmation().waitFor();
   const arrival = await page.evaluate(() => window.__hostConfirmationEvents.at(-1));
@@ -189,7 +205,7 @@ try {
   assert.ok(Number.isSafeInteger(arrival.runtimeRevision) && arrival.runtimeRevision > beforeConfirmation.runtimeRevision,
     'Host confirmation events must fence delayed pre-confirmation snapshots');
   const waiting = await snapshot();
-  const pendingId = waiting.requests.find(request => request.title === '允许插件使用当前模型账户？').id;
+  const pendingId = waiting.requests.find(request => request.title === confirmationTitle).id;
   await reloadSession();
   await confirmation().waitFor();
   const restored = await snapshot();
@@ -197,8 +213,8 @@ try {
     'Renderer reload must restore the original pending confirmation, not discard or duplicate it');
   assert.deepEqual(calls, [], 'Reloading a pending confirmation cannot approve a provider request');
   assert.match(await confirmation().innerText(), /dfsc-host-example.*model.text/s);
-  assert.match(await confirmation().innerText(), /直调 API.*cn/s);
-  assert.match(await confirmation().innerText(), /可能消耗额度/);
+  assert.match(await confirmation().innerText(), /开放平台 API（按量计费）.*cn/s);
+  assert.match(await confirmation().innerText(), /插件提供的文字.*可能产生按量费用/s);
   assert.deepEqual(calls, []);
   await page.screenshot({ path: join(output, 'confirmation-cn.png') });
   await confirmation().getByRole('button', { name: '取消', exact: true }).click();
@@ -228,6 +244,13 @@ try {
   assert.match(JSON.stringify(await result(await tool('summarize_text', 'approved-again'))), /Isolated summary: approved-again/);
   assert.deepEqual(calls.map(call => call.text), ['approved', 'approved-again']);
   assert.equal((await snapshot()).requests.length, 0, 'Same launch/capability does not ask twice');
+  const beforeSwitch = await snapshot();
+  const separateModel = beforeSwitch.models.find(model => model.id === 'unrelated-chat-model');
+  assert.ok(separateModel && separateModel.provider !== 'step');
+  await page.evaluate(model => window.desktop.command('set_model', { provider: model.provider, modelId: model.id }), separateModel);
+  await until(async () => (await snapshot()).state?.model?.id === separateModel.id, 'Chat model did not switch');
+  assert.equal((await snapshot()).runtimeId, beforeSwitch.runtimeId);
+  assert.equal((await settings()).runtime.capabilities[0].authorization, 'approved', 'Chat model switch must not revoke the grant');
 
   mark('MCP cancellation interrupts an in-flight host request');
   pending = await tool('summarize_text', 'cancel-inflight');
@@ -245,6 +268,36 @@ try {
   await unlink(join(data, 'command.json'));
   region = 'oversea';
   await page.evaluate(key => window.desktop.login('platform_oversea', key), keys.oversea);
+  await reloadSession();
+  await until(async () => (await settings()).runtime.status === 'account-changed', 'Replacement must not inherit the old binding');
+  const changed = await settings();
+  assert.equal(changed.accountMatches, false);
+  await until(async () => {
+    const startup = (await snapshot()).state?.desktopStartup;
+    return startup?.discovery === 'ready' && startup.toolsSettledAt
+      && startup.tools.some(tool => tool.hosted && tool.status === 'failed');
+  }, 'An invalid binding must settle as a failed tool without blocking session startup');
+  assert.equal(calls.length, 3);
+  mark('ordinary chat after failed plugin startup');
+  const failedRuntime = await snapshot();
+  const chatModel = failedRuntime.models.find(model => model.provider === 'step' && model.id === 'step-5-preview');
+  assert.ok(chatModel);
+  if (failedRuntime.state.model.provider !== chatModel.provider || failedRuntime.state.model.id !== chatModel.id)
+    await page.evaluate(model => window.desktop.command('set_model', { provider: model.provider, modelId: model.id }), chatModel);
+  await page.evaluate(({ message, runtimeId }) => window.desktop.command('prompt', { message }, runtimeId),
+    { message: plainPrompt, runtimeId: failedRuntime.runtimeId });
+  await until(async () => {
+    const current = await snapshot();
+    return !current.state?.isStreaming && current.messages.some(message => message.role === 'assistant'
+      && message.content?.some(block => block.type === 'text' && block.text === plainReply));
+  }, 'An ordinary first prompt should get a reply despite the failed plugin');
+  assert.deepEqual(chatCalls, [{ region: 'oversea' }]);
+  assert.equal(calls.length, 3, 'Ordinary chat cannot consume any plugin approval');
+  mark('explicit selection and new account approval');
+  await page.evaluate(input => window.desktop.pluginSaveHostSettings(input), {
+    ref, revision: changed.revision, mode: 'account', accountTicket: changed.account.ticket, models: changed.models,
+  });
+  await page.evaluate(() => window.desktop.restart());
   await reloadSession();
   await until(async () => (await settings()).runtime.status === 'connected', 'Replacement account SDK did not connect');
   const after = await snapshot(), replaced = await settings();
@@ -267,7 +320,7 @@ try {
   assert.equal(calls.length, 3, 'Old launch replay cannot invoke either account');
   pending = await tool('summarize_text', 'new-account');
   await confirmation().waitFor();
-  assert.match(await confirmation().innerText(), /直调 API.*oversea/s);
+  assert.match(await confirmation().innerText(), /开放平台 API（按量计费）.*oversea/s);
   assert.equal(calls.length, 3, 'Replacement account is not invoked before its own approval');
   await page.screenshot({ path: join(output, 'confirmation-oversea.png') });
   await confirmation().getByRole('button', { name: '确认', exact: true }).click();

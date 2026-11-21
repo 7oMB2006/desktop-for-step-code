@@ -220,8 +220,9 @@ const nativePage = async title => {
   throw new Error(`Plugin window missing: ${title}`);
 };
 const configRoute = async plugin => {
-  await center().getByRole('heading', { name: plugin.name, exact: true, level: 2 }).waitFor();
-  assert.equal(await center().getByRole('tab', { name: 'Configuration', exact: true }).getAttribute('aria-selected'), 'true');
+  // The retained detail heading can be visible before the route effect selects its tab.
+  const detail = center().filter({ has: main.getByRole('heading', { name: plugin.name, exact: true, level: 2 }) });
+  await detail.getByRole('tab', { name: 'Configuration', exact: true, selected: true }).waitFor({ timeout: 10000 });
 };
 const assertMetadataProjection = (plugin, pkg, source) => {
   assert.ok(pkg, `${plugin.id}: ${source} package metadata exists`);

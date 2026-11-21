@@ -9,6 +9,13 @@ import { PluginHostBindingStore } from '../../electron/plugin-host-contract.mjs'
 import { installationReceipt, packageFingerprint, writeReceipts } from '../../electron/plugin-files.mjs';
 import type { SessionRuntime, SessionRuntimes } from '../../electron/session-runtimes';
 import type { Capability } from '../../../examples/plugins/host-client/protocol.mjs';
+import { pluginHostAccount, withPluginHostAccount } from '../../electron/plugin-host-account';
+import { STEP_ASR_MODEL, STEP_TTS_MODEL } from '../../src/step-host-catalog';
+import type { PluginHostModels } from '../../src/capabilities';
+
+export const fixtureAccount = { id: '1'.repeat(64), channel: 'plan', region: 'cn' } as const;
+export const fixtureAccountChoice = { channel: fixtureAccount.channel, region: fixtureAccount.region, ticket: 'fixture-choice' };
+export const selectFixtureAccount = (ticket: unknown) => ticket === fixtureAccountChoice.ticket ? fixtureAccount : undefined;
 
 export async function hostService(t: Pick<TestContext, 'after'>, options: {
   capabilities?: Capability[]; model?: string;
@@ -46,8 +53,8 @@ export async function hostService(t: Pick<TestContext, 'after'>, options: {
   await writeReceipts(root, { version: 1, installations: [receipt] });
   const descriptor = { root: directory, kind: 'installed', name: 'example', id: receipt.id,
     fingerprint, instance: receipt.instance, provenance: 'recorded', ref: 'fixture' };
-  const state = { auth: { step: { type: 'oauth', access: 'fixture-main-private-key',
-    profile: options.profile ?? 'step_plan', expires: Date.now() + 3600000 } } as Record<string, any>,
+  const state = { auth: withPluginHostAccount({ step: { type: 'oauth', access: 'fixture-main-private-key',
+    profile: options.profile ?? 'step_plan', expires: Date.now() + 3600000 } }) as Record<string, any>,
     changing: false, transportAllowed: true, approved: true, confirmations: [] as string[],
     confirm: undefined as ((signal?: AbortSignal) => Promise<boolean>) | undefined };
   const worker = { id: randomUUID(), status: 'connected', state: { sessionId: randomUUID(),
@@ -64,9 +71,12 @@ export async function hostService(t: Pick<TestContext, 'after'>, options: {
     return options.request ? options.request(url, init) : Response.json({ choices: [{ message: { content: 'host result' } }] });
   }, options.recordImageFailure);
   const store = new PluginHostBindingStore(root);
-  if (options.configured !== false) await store.select(descriptor, { revision: 'unconfigured', mode: 'follow' });
+  const account = pluginHostAccount(state.auth)!.binding;
+  const models: PluginHostModels = Object.fromEntries((options.capabilities ?? ['model.text']).map(id =>
+    [id, id === 'model.asr' ? STEP_ASR_MODEL : id === 'model.tts' ? STEP_TTS_MODEL : options.model ?? 'step-5-preview']));
+  if (options.configured !== false) await store.select(descriptor, { revision: 'unconfigured', mode: 'follow', account, models });
   broker = new PluginHostBroker({ root, pool, provider, language: () => 'zh',
     validateConsumer: async () => state.transportAllowed, budgets: options.budgets });
   await broker.start();
-  return { root, directory, descriptor, receipt, state, worker, pool, provider, store, broker, calls };
+  return { root, directory, descriptor, receipt, state, worker, pool, provider, store, broker, calls, account, models };
 }

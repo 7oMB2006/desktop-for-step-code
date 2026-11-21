@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { fixtureAccountChoice, selectFixtureAccount } from './fixtures/plugin-host-service';
 import { createServer } from 'node:http';
 import { execFileSync } from 'node:child_process';
 import { cp, copyFile, mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises';
@@ -23,7 +24,8 @@ async function fixture(hostAvailable = false) {
   for (const name of ['capability-admin.mjs', 'capability-failure.mjs', 'marketplace-refresh.mjs', 'capability-settings.mjs', 'plugin-files.mjs', 'plugin-read-scope.mjs', 'plugin-release.mjs', 'theme-composition.mjs', 'plugin-update.mjs', 'plugin-configuration.mjs', 'plugin-schema-update.mjs', 'windows-runtime-job.ps1'])
     await copyFile(resolve('electron', name), join(runtime, name));
   const service = new CapabilityService({ root, runtime, node: join(runtime, 'node', process.platform === 'win32' ? 'node.exe' : 'node'),
-    environment: () => isolatedEnvironment(root), hostAvailable: () => hostAvailable });
+    environment: () => isolatedEnvironment(root), hostAvailable: () => hostAvailable,
+    hostAccountChoice: () => fixtureAccountChoice, selectHostAccount: selectFixtureAccount });
   const market = join(folder, 'market');
   await cp(resolve('../examples/plugins/config-starter'), market, { recursive: true });
   return { folder, root, runtime, service, market };
@@ -128,7 +130,7 @@ for (const host of ['none', 'added', 'existing'] as const) test(`first configura
     const installed = (await service.catalog()).plugins[0];
     assert.equal(installed.package!.configurationAvailable, false);
     if (host === 'existing') await service.hostSettings({ ref: installed.package!.ref },
-      { ref: installed.package!.ref, revision: 'unconfigured', mode: 'follow' });
+      { ref: installed.package!.ref, revision: 'unconfigured', mode: 'account', accountTicket: fixtureAccountChoice.ticket });
     await service.mutate({ action: 'plugin-toggle', id: installed.id, enabled: false });
     const switches = await readFile(join(root, 'config.toml'));
     const receiptPath = join(root, 'desktop-plugins/installations.json');
@@ -240,7 +242,7 @@ test('first configuration upgrades reject invalid schemas, foreign consumers and
     assert.equal(await readFile(bindingPath, 'utf8'), revoked);
   } finally { await service.stop(); await rm(folder, { recursive: true, force: true, maxRetries: 5 }); }
 });
-for (const mode of ['follow', 'independent'] as const) test(`native update preserves configuration but requires host reselection (${mode})`, { timeout: 90000 }, async () => {
+for (const mode of ['account', 'independent'] as const) test(`native update preserves configuration but requires host reselection (${mode})`, { timeout: 90000 }, async () => {
   const { folder, service, market, root } = await fixture(true);
   const broker = await mockHost();
   try {
@@ -263,7 +265,7 @@ for (const mode of ['follow', 'independent'] as const) test(`native update prese
     const configured = await service.hostSettings({ ref }, { ref, revision: initial.revision,
       mode: 'independent', configuration: independent });
     const selected = mode === 'independent' ? configured : await service.hostSettings({ ref },
-      { ref, revision: configured.revision, mode, models: { 'model.asr': 'old-asr' } });
+      { ref, revision: configured.revision, mode, accountTicket: fixtureAccountChoice.ticket, models: { 'model.asr': 'stepaudio-2.5-asr' } });
     const receiptPath = join(root, 'desktop-plugins/installations.json');
     const previous = JSON.parse(await readFile(receiptPath, 'utf8')).installations[0];
     const pointerPath = join(root, 'desktop-plugins/host/bindings', `${previous.instance}.json`);
@@ -291,12 +293,12 @@ for (const mode of ['follow', 'independent'] as const) test(`native update prese
       instance: receipt.instance, fingerprint: receipt.fingerprint, root: join(root, 'plugins', receipt.folder), ref: nextRef };
     await assert.rejects(new PluginHostBindingStore(root).launch(descriptor, broker.launch()), /invalid-configuration/);
     await assert.rejects(service.hostSettings({ ref: nextRef },
-      { ref: nextRef, revision: selected.revision, mode: 'follow' }), /stale-configuration/);
+      { ref: nextRef, revision: selected.revision, mode: 'account', accountTicket: fixtureAccountChoice.ticket }), /stale-configuration/);
     const saved = await service.hostSettings({ ref: nextRef },
       { ref: nextRef, revision: 'unconfigured', mode, ...(mode === 'independent' ? {
         configuration: { ref: nextRef, revision: reset.independent!.revision, values: reset.independent!.values,
           secrets: { key: { action: 'keep' }, asr_key: { action: 'keep' } } },
-      } : {}) });
+      } : { accountTicket: fixtureAccountChoice.ticket }) });
     assert.equal(saved.mode, mode);
     assert.equal(saved.configurationCurrent, true);
     assert.deepEqual(saved.independent!.hasSecret, { key: true, asr_key: true });

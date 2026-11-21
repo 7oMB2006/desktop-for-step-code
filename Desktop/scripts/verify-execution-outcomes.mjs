@@ -23,6 +23,16 @@ try {
     for (const preset of ['simple', 'standard', 'detailed']) for (const width of [1100, 390]) {
       await page.setViewportSize({ width, height: 800 });
       await page.goto(`${url}?theme=${theme}&lang=${lang}&preset=${preset}`);
+      if (preset === 'simple') {
+        const groups = page.locator('.compact-process > .tool-group-trigger');
+        await groups.first().waitFor();
+        assert.equal(await groups.count(), 2);
+        assert.equal(await page.locator('.process-tool').first().isVisible(), false);
+        for (const trigger of await groups.all()) {
+          assert.equal(await trigger.getAttribute('aria-expanded'), 'false');
+          await trigger.click();
+        }
+      }
       await page.locator('.process-tool').first().waitFor();
       assert.equal(await page.locator('.process-tool.failed').count(), 4);
       assert.equal(await page.locator('.process-tool.stopped').count(), 2);

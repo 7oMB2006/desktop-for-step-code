@@ -482,14 +482,16 @@ try {
     return panel.left >= 0 && panel.right <= rail.left && rail.right <= innerWidth;
   }), true);
   await page.getByRole('button', { name: '摘要', exact: true }).click();
-  const titleBounds = await page.locator('.window-session-title').evaluate(element => {
-    const originalTitle = element.textContent;
-    element.textContent = '很长的测试会话标题'.repeat(20);
-    const title = element.getBoundingClientRect();
+  const chromeTitle = page.locator('.window-session-title .session-title-current');
+  const titleBounds = await chromeTitle.evaluate(element => {
+    const text = element.firstChild;
+    const originalTitle = text.data;
+    text.data = '很长的测试会话标题'.repeat(20);
+    const title = element.parentElement.getBoundingClientRect();
     const controls = document.querySelector('.window-controls, .window-macos-menu').getBoundingClientRect();
     const drag = document.querySelector('.window-drag-space').getBoundingClientRect();
     const result = { width: title.width, right: title.right, dragRight: drag.right, controlsLeft: controls.left, overflow: element.scrollWidth > element.clientWidth };
-    element.textContent = originalTitle;
+    text.data = originalTitle;
     return result;
   });
   assert.ok(titleBounds.right <= titleBounds.controlsLeft);
@@ -505,11 +507,12 @@ try {
   await page.screenshot({ path: 'test-results/notice-toast-narrow.png' });
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1320, 880));
   await page.waitForFunction(() => innerWidth >= 840);
-  const wideTitleWidth = await page.locator('.window-session-title').evaluate(element => {
-    const originalTitle = element.textContent;
-    element.textContent = '很长的测试会话标题'.repeat(20);
-    const width = element.getBoundingClientRect().width;
-    element.textContent = originalTitle;
+  const wideTitleWidth = await chromeTitle.evaluate(element => {
+    const text = element.firstChild;
+    const originalTitle = text.data;
+    text.data = '很长的测试会话标题'.repeat(20);
+    const width = element.parentElement.getBoundingClientRect().width;
+    text.data = originalTitle;
     return width;
   });
   assert.ok(wideTitleWidth <= 300 && wideTitleWidth >= 290);

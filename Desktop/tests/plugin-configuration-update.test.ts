@@ -45,7 +45,7 @@ test('all unsupported differences are aggregated, including false, zero and empt
 test('hosted migration preserves the broker boundary and only relaxes existing required fields', () => {
   const host = { schemaVersion: 1, hostApiVersion: 1, consumer: { kind: 'mcp-stdio', server: 'example' },
     capabilities: ['model.text', 'model.asr'] };
-  const routedHost = { ...host, independentCapabilities: ['model.asr'] };
+  const routedHost = { ...host, $schema: 'https://example.test/dfsc.host.schema.json', independentCapabilities: ['model.asr'] };
   const previous = changed(value => { value.groups[0].fields[4].required = true; });
   const next = changed(value => { value.groups[0].fields[4].help = 'Only needed when selected'; });
   assert.equal(compareConfigurationSchemas(previous, next).status, 'unsupported');
@@ -56,6 +56,7 @@ test('hosted migration preserves the broker boundary and only relaxes existing r
   for (const [before, after, replacement] of [
     [host, { ...routedHost, capabilities: ['model.text', 'model.asr', 'model.video'] }, next],
     [host, { ...routedHost, independentCapabilities: ['model.video'] }, next],
+    [host, { ...routedHost, $schema: '' }, next],
     [routedHost, host, next],
     [host, { ...routedHost, consumer: { kind: 'mcp-stdio', server: 'other' } }, next],
     [host, routedHost, changed(value => { value.modelConnection = 'independent'; })],

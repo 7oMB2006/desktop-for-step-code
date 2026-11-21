@@ -18,8 +18,6 @@ await mkdir(join(root, 'plugins'), { recursive: true });
 await cp(resolve('../examples/plugins/sdk-host-starter/plugins/dfsc-host-example'), directory, { recursive: true });
 for (const [file, source] of [
   ['routed-host-start.mjs', '../tests/fixtures/routed-host-start.mjs'],
-  ['client.mjs', '../../examples/plugins/host-client/client.mjs'],
-  ['protocol.mjs', '../../examples/plugins/host-client/protocol.mjs'],
   ['configuration.mjs', '../../examples/plugins/config-starter/plugins/dfsc-config-example/server/configuration.mjs'],
 ]) await cp(new URL(source, import.meta.url), join(directory, file));
 const manifest = JSON.parse(await readFile(join(directory, 'step.plugin.json'), 'utf8'));
@@ -145,8 +143,17 @@ try {
   }, 'native mixed-route consumer');
   assert.deepEqual(routedLive.runtime.independentCapabilities, ['model.asr']);
   assert.deepEqual(routedLive.runtime.capabilities.map(({ id, authorization }) => [id, authorization]), [['model.text', 'required']]);
-  assert.deepEqual(JSON.parse(await readFile(join(root, 'desktop-plugins', 'data', receipt.instance, 'routed-fixture.json'), 'utf8')),
-    { mode: 'follow', independentCapabilities: ['model.asr'], configurationMatched: true });
+  const evidence = join(root, 'desktop-plugins', 'data', receipt.instance, 'routed-fixture.json');
+  await waitForSessionFixtureSnapshot(page, async () => {
+    const observed = await readFile(evidence, 'utf8').catch(error => {
+      if (error.code === 'ENOENT') return '';
+      throw error;
+    });
+    if (!observed) return false;
+    assert.deepEqual(JSON.parse(observed), { mode: 'follow', independentCapabilities: ['model.asr'],
+      configurationMatched: true, brokerCapabilities: ['model.text'] });
+    return true;
+  }, 'the SDK consumer to read its mixed-route Broker context');
   await page.getByRole('button', { name: '插件市场', exact: true }).click();
   await page.getByRole('button', { name: '配置 DFSC SDK Host Example', exact: true }).click();
   const sources = page.getByRole('group', { name: '连接来源', exact: true }).getByRole('switch');

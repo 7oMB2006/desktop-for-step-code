@@ -91,6 +91,15 @@ test('real SDK tool requests use the host fixture with no independent Key, requi
   assert.equal(broker.counts.provider, 0);
   assert.doesNotMatch(JSON.stringify([context, denied, granted, revoked, stderr()]), new RegExp(launch.broker.token));
 });
+test('the copied SDK bundle serves host_context on a mixed route', async t => {
+  const broker = await mockHost(); t.after(() => broker.close());
+  const launch = broker.launch({ configurationRevision: 'a'.repeat(64), independentCapabilities: ['model.asr'] });
+  const { client } = await installed(t, { [HOST_ENV]: JSON.stringify(launch) });
+  const result = await client.callTool({ name: 'host_context', arguments: {} });
+  assert.notEqual(result.isError, true);
+  assert.deepEqual(JSON.parse(result.content[0].text).capabilities.map(item => item.id), ['model.text']);
+  assert.deepEqual(broker.counts, { context: 1, invoke: 0, cancel: 0, provider: 0 });
+});
 for (const name of ['host_context', 'summarize_text']) {
   test(`MCP cancellation aborts the pending host context read for ${name}`, { timeout: 15000 }, async t => {
     const broker = await mockHost(); t.after(() => broker.close());

@@ -21811,13 +21811,16 @@ var errorResult = (error2) => ({ isError: true, content: [{
   type: "text",
   text: error2 instanceof HostClientError ? error2.message : "dfsc-host:HOST_UNAVAILABLE"
 }] });
+async function readHostContext(signal) {
+  if (!host) throw new HostClientError(startupCode);
+  return host.context({ signal });
+}
 server.registerTool("host_context", {
   description: "Read host capability availability; never calls a model.",
   inputSchema: {}
 }, async (_arguments, extra) => {
   try {
-    if (!host) throw new HostClientError(startupCode);
-    return { content: [{ type: "text", text: JSON.stringify(await host.context({ signal: extra.signal })) }] };
+    return { content: [{ type: "text", text: JSON.stringify(await readHostContext(extra.signal)) }] };
   } catch (error2) {
     return errorResult(error2);
   }
@@ -21847,3 +21850,6 @@ server.registerTool("summarize_text", {
 });
 process.on("exit", () => host?.close());
 await server.connect(new StdioServerTransport());
+export {
+  readHostContext
+};

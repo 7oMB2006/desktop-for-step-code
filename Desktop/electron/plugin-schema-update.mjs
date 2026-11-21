@@ -94,11 +94,13 @@ function compareSchemas(previous, next, hosted) {
 
 export function compareHostedConfigurationSchemas(previous, next, oldHost, newHost) {
   const compatible = (value, consumer) => {
-    keys(value, ['schemaVersion', 'hostApiVersion', 'consumer', 'capabilities', 'independentCapabilities']);
+    keys(value, ['$schema', 'schemaVersion', 'hostApiVersion', 'consumer', 'capabilities', 'independentCapabilities']);
     keys(value.consumer, ['kind', 'server']);
     const list = items => Array.isArray(items) && items.every(item => typeof item === 'string')
       && new Set(items).size === items.length;
     return value.schemaVersion === 1 && value.hostApiVersion === 1
+      && (value.$schema === undefined || typeof value.$schema === 'string'
+        && value.$schema.length > 0 && value.$schema.length <= 512 && !value.$schema.includes('\0'))
       && equal(value.consumer, { kind: 'mcp-stdio', server: consumer.server })
       && list(value.capabilities) && value.capabilities.length > 0
       && (value.independentCapabilities === undefined || list(value.independentCapabilities)

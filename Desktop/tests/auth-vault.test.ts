@@ -4,6 +4,7 @@ import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { AuthVault } from '../electron/auth-vault';
+import { PLUGIN_HOST_ACCOUNT_FIELD, withPluginHostAccount } from '../electron/plugin-host-account';
 
 // Plain node has no Electron safeStorage backend; a deterministic byte-wise
 // stand-in keeps the ciphertext free of any readable credential text. These
@@ -37,19 +38,20 @@ test('dpapi credentials with an empty plaintext store keep the vault and drop th
 
 test('dpapi credentials with different real plaintext credentials still fail closed', async () => {
   const root = await mkdtemp(join(tmpdir(), 'auth-vault-conflict-'));
-  await writeFile(join(root, 'auth.dpapi'), safeStorageMock.encryptString(JSON.stringify(credentials)));
+  await vault(root).save(withPluginHostAccount(credentials));
   await writeFile(join(root, 'auth.json'), JSON.stringify({ step: { type: 'oauth', access: 'fixture-only-other-key' } }));
   await assert.rejects(vault(root).load(), /Conflicting desktop credential files/);
 });
 
-test('equivalent credentials with reordered keys preserve the vault and remove redundant plaintext', async () => {
+test('equivalent reordered plaintext preserves the encrypted vault and its private Broker binding', async () => {
   const root = await mkdtemp(join(tmpdir(), 'auth-vault-reordered-'));
-  const encrypted = safeStorageMock.encryptString(JSON.stringify(credentials));
+  const bound = withPluginHostAccount(credentials);
+  const encrypted = safeStorageMock.encryptString(JSON.stringify(bound));
   await writeFile(join(root, 'auth.dpapi'), encrypted);
   await writeFile(join(root, 'auth.json'), JSON.stringify({
     step: { profile: 'platform_cn', expires: Number.MAX_SAFE_INTEGER, refresh: 'fixture', access: marker, type: 'oauth' },
   }));
-  assert.deepEqual(await vault(root).load(), credentials);
+  assert.deepEqual(await vault(root).load(), bound);
   assert.deepEqual(await readFile(join(root, 'auth.dpapi')), encrypted, 'the encrypted vault must not be rewritten');
   await assert.rejects(readFile(join(root, 'auth.json')), { code: 'ENOENT' });
 });
@@ -62,6 +64,23 @@ test('plaintext credentials without a vault migrate into the vault and drop the 
   await assert.rejects(readFile(join(root, 'auth.json')), { code: 'ENOENT' }, 'the plaintext is removed after migration');
   const stored = safeStorageMock.decryptString(await readFile(join(root, 'auth.dpapi')));
   assert.deepEqual(JSON.parse(stored), credentials, 'the vault holds the same credentials');
+});
+
+test('legacy plaintext cannot mint or replace a private Broker binding', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'auth-vault-private-binding-'));
+  const path = join(root, 'auth.json');
+  const forged = withPluginHostAccount(credentials);
+  await writeFile(path, JSON.stringify(forged));
+  assert.deepEqual(await vault(root).load(), credentials);
+  assert.deepEqual(await vault(root).load(), credentials, 'the forged binding was not encrypted');
+
+  const bound = withPluginHostAccount(credentials);
+  assert.notDeepEqual(bound[PLUGIN_HOST_ACCOUNT_FIELD], forged[PLUGIN_HOST_ACCOUNT_FIELD]);
+  await vault(root).save(bound);
+  await writeFile(path, JSON.stringify(forged));
+  assert.deepEqual(await vault(root).load(), bound);
+  assert.deepEqual(await vault(root).load(), bound, 'the encrypted binding was not replaced');
+  await assert.rejects(readFile(path), { code: 'ENOENT' });
 });
 
 test('no vault and no plaintext returns an empty store', async () => {

@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { readFile, rename, unlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
+import { PLUGIN_HOST_ACCOUNT_FIELD } from './plugin-host-account';
 
 type AuthData = Record<string, unknown>;
 type SafeStorageLike = Pick<typeof safeStorageType, 'isEncryptionAvailable' | 'encryptString' | 'decryptString'>;
@@ -32,6 +33,11 @@ function isEmptyAuthValue(value: unknown): boolean {
 function isEmptyAuthData(data: AuthData): boolean {
   return Object.values(data).every(isEmptyAuthValue);
 }
+function legacyCredentials(data: AuthData): AuthData {
+  const { [PLUGIN_HOST_ACCOUNT_FIELD]: _, ...credentials } = data;
+  return credentials;
+}
+
 async function optionalAuthData(path: string): Promise<{ data: AuthData; empty: boolean } | undefined> {
   const raw = await optionalFile(path);
   if (!raw) return undefined;
@@ -42,7 +48,7 @@ async function optionalAuthData(path: string): Promise<{ data: AuthData; empty: 
   catch { throw new Error('Invalid desktop credentials'); }
   if (parsed === null) return { data: {}, empty: true };
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('Invalid desktop credentials');
-  const data = parsed as AuthData;
+  const data = legacyCredentials(parsed as AuthData);
   return { data, empty: isEmptyAuthData(data) };
 }
 
@@ -90,7 +96,8 @@ export class AuthVault {
         // process, not a competing credential set: remove it and keep the
         // vault. Real plaintext credentials that disagree with the vault
         // still fail closed.
-        if (!legacy.empty && !isDeepStrictEqual(legacy.data, data)) {
+        // Broker identity belongs only to the encrypted vault.
+        if (!legacy.empty && !isDeepStrictEqual(legacy.data, legacyCredentials(data))) {
           throw new Error('Conflicting desktop credential files; migration requires manual review');
         }
         await unlink(this.legacyPath);

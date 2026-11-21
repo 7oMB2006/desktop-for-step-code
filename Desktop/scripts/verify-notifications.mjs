@@ -270,10 +270,17 @@ try {
   await page.locator('main .composer-input').fill('Draft preserved across notification click');
   await page.getByRole('button', { name: '新建会话', exact: true }).click();
   finish('NOTIFY-C'); await waitNotices(1);
+  await expectBadge(1);
   assert.equal(await page.evaluate(() => window.completionPlays.length), 1);
   assert.equal(await app.evaluate(() => globalThis.noticeFixture.notices[0].silent), true);
   await app.evaluate(({ BrowserWindow }, id) => {
-    BrowserWindow.fromId(id).hide();
+    const window = BrowserWindow.fromId(id);
+    window.hide();
+    // The no-focus fixture suppresses the OS focus normally gained on a notification click.
+    window.once('show', () => {
+      globalThis.noticeFixture.focusedId = id;
+      window.emit('focus');
+    });
     const notice = globalThis.noticeFixture.notices[0];
     notice.emit('close', { reason: 'timedOut' }); notice.emit('click', {});
   }, mainId);
@@ -281,6 +288,7 @@ try {
   assert.equal((await snapshot()).state.sessionId, c.state.sessionId);
   assert.equal(await app.evaluate(({ BrowserWindow }, id) => BrowserWindow.fromId(id).isVisible(), mainId), true);
   await expectBadge(0);
+  await focus(null);
   await page.locator('main .composer-input').fill('');
   checks.push('timed-out notification-center click, tray restore, exact session and shared draft retention');
   if (process.platform === 'win32') checks.push('no Windows taskbar overlay on completion, focus, or tray restore');

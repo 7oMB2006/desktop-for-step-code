@@ -16318,3 +16318,21 @@ The full `protocol-r11` run completed 258 files with 2766 passed tests,
 projection adds readiness diagnostics without serializing messages, paths,
 tool names/commands or credentials. Latest-head Windows/macOS cloud and
 macOS packaged acceptance remain required for this product revision.
+
+## 2026-11-22: Agent access to session image attachments
+
+On Windows, `node scripts/verify-session-attachments.mjs` drove the real
+Electron composer and pinned Step Code runtime with a mock vision provider.
+It exported a pasted PNG and JPEG with exact bytes in order. After a third
+image arrived, the listed message ID still selected the original JPEG and
+reused its path; an export without an ID selected the newer image. A peer
+session saw no attachments. Reconnecting removed the old exports without
+changing the saved message ID. A persisted compaction omitted the old image
+from model input, but the tool still exported it from the active branch.
+Normal quit cleared the remaining cache files.
+
+Focused tests also cover visible Goal inputs, exclusions for hidden inputs,
+assistant and tool images, stale IDs and sibling branches, concurrent
+requests, cancellation, revocation, and 130 repeated exports without using
+additional slots. Live model tool selection and packaged/macOS acceptance
+were not verified locally.

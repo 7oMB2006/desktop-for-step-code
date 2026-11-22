@@ -96,6 +96,7 @@ try {
     assert.equal(await tooltip.count(), 0, 'quota wording starts hidden');
     await titleSwitch.press('Tab');
     await tooltip.waitFor();
+    assert.match(await tooltip.textContent(), /即使用第三方模型聊天，也会将首条消息的一小段文字发给阶跃/);
     assert.equal(await help.evaluate(element => element === document.activeElement), true);
     await settleLayout(tooltip);
     await page.screenshot({ path: 'test-results/settings-session-title-tooltip-light.png' });
@@ -183,7 +184,7 @@ try {
   assert.equal(await page.locator('.settings-backdrop.is-closing').count(), 0, 'Reopening resets exit state');
   for (const [width, height] of [[800, 650], [640, 720], [480, 600]]) {
     await app.evaluate(({ BrowserWindow }, size) => BrowserWindow.getAllWindows()[0].setSize(...size), [width, height]);
-    for (const title of ['账户', '供应商', '外观', '已归档']) {
+    for (const title of ['账户', '供应商', '通用', '外观', '已归档']) {
       await page.getByRole('button', { name: title, exact: true }).click();
       await settleLayout(dialog);
       const bounds = await dialog.boundingBox();

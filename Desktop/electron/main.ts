@@ -12,6 +12,7 @@ import { RpcProcess, isolatedEnvironment } from './runtime';
 import { SessionImports, importedProjectDirectory } from './session-import';
 import { SessionRuntimes, firstUserText, type SessionRuntime } from './session-runtimes';
 import { SessionTitles } from './session-title';
+import { titleModelIdentity, titleModelProviders } from '../src/session-title-model';
 import { GlobalInstructionsStore } from './global-instructions';
 import { inspectProjectInstructions, projectInstructionsMessage } from './project-instructions';
 import { isProjectInstructionsCommand, projectInstructionsInput } from '../src/project-instructions';
@@ -61,7 +62,7 @@ import { themeBrightnessPatch } from '../src/theme-packs';
 import { ConversationTiming } from './conversation-timing';
 import { ModelSelections, modelThinkingLevels } from './model-selection';
 import { modelPreference, preferredModel, restoreSelectedModel, savedSessionModel, unavailableModel } from './model-preference';
-import { changeFavoriteModel, normalizeFavoriteModels } from '../src/model-favorites';
+import { changeFavoriteModel, modelKey, normalizeFavoriteModels } from '../src/model-favorites';
 import { AuthVault } from './auth-vault';
 import { RemoteStore } from './remote-store';
 import { AccountAllowanceService } from './account-allowance';
@@ -123,7 +124,7 @@ import type { FileTarget, FileDestination, FileOpenResult, FileOpeningOptions } 
 import type { BrowserAction } from '../src/contracts';
 import { conversationEntries } from '../src/conversation-presentation';
 import { turnChanges } from '../src/turn-changes';
-import type { Message, Model, PermissionPreset, Preferences, Session, SessionReadingResult, Snapshot } from '../src/contracts';
+import type { DraftModelUpdate, Message, Model, PermissionPreset, Preferences, Session, SessionReadingResult, Snapshot } from '../src/contracts';
 import { SessionHistoryReaders, historyProcessRunner } from './session-history-readers';
 import { assertReadingBudget } from './session-reading-budget';
 import { validateSidebarPreferences } from '../src/sidebar-order';
@@ -220,6 +221,7 @@ let externalReady: Promise<void> = Promise.resolve();
 let startupError: string | undefined;
 let sessionDraft: { id: string; workspace?: string; model?: Model; models?: Model[]; thinkingLevel?: string;
   permissionPreset?: PermissionPreset; launch?: LaunchState; modelChanged?: boolean; permissionChanged?: boolean; thinkingChanged?: boolean } | undefined = { id: randomUUID() };
+const draftModelWrites = new WeakMap<NonNullable<typeof sessionDraft>, Promise<DraftModelUpdate>>();
 type Surface = 'main' | 'mini';
 const miniView: { draft?: typeof sessionDraft; runtimeId?: string; worker?: SessionRuntime } = {};
 const parkedDrafts = new Map<string, { surface: Surface; draft: NonNullable<typeof sessionDraft> }>();
@@ -565,11 +567,14 @@ function publishModelSelection(worker: import('./session-runtimes').SessionRunti
   emit({ type: 'desktop_model_selection', runtimeId: worker.id, sessionId: worker.state?.sessionId,
     runtimeRevision: ++worker.revision, modelSelection: modelSelections.selection(worker),
     modelChanges: modelSelections.changes(worker),
-    state: worker.state ? { ...worker.state, model: worker.state.model ? providerModelNames([worker.state.model], appliedAuthData)[0] : undefined } : undefined });
+    state: worker.state ? { model: worker.state.model ? providerModelNames([worker.state.model], appliedAuthData)[0] : undefined,
+      thinkingLevel: worker.state.thinkingLevel } : undefined });
 }
 const sessionTitles = new SessionTitles({
   enabled: () => preferences.autoGenerateSessionTitles !== false,
-  auth: () => !settingsMutation && !providerSettingsPending && !providerApplyFailed && !quitting && !quitPending && !updateInstalling
+  model: () => preferences.sessionTitleModel,
+  auth: () => !officialAccountChanging && !settingsMutation && !providerSettingsPending && !providerApplyFailed
+    && !quitting && !quitPending && !updateInstalling
     ? appliedAuthData : undefined,
   live: worker => runtimes.workers.get(worker.id) === worker,
   save: (worker, title) => saveLiveSessionName(worker, title, 'automatic'),
@@ -1269,6 +1274,35 @@ async function rememberModel(model: Model) {
     throw error;
   }
 }
+function draftModelState(draft: NonNullable<typeof sessionDraft>) {
+  return { model: draft.model ? providerModelNames([draft.model], appliedAuthData)[0] : undefined,
+    thinkingLevel: draft.thinkingLevel };
+}
+async function setDraftModel(draft: NonNullable<typeof sessionDraft>, type: 'set_model' | 'set_thinking_level',
+  data: Record<string, unknown>) {
+  const previous = draftModelWrites.get(draft);
+  const write = (async () => {
+    if (previous) await previous.catch(() => {});
+    if (type === 'set_model') {
+      const model = draft.models?.find(model => model.id === data.modelId && model.provider === data.provider);
+      if (!model) throw new Error('Unknown model');
+      await rememberModel(model);
+      draft.model = model; draft.modelChanged = true;
+      if (!model.thinkingLevels?.includes(draft.thinkingLevel!)) draft.thinkingLevel = model.thinkingLevels?.[0];
+      draft.thinkingChanged = Boolean(draft.thinkingLevel);
+    } else {
+      const level = text(data.level, 30);
+      if (!draft.model?.thinkingLevels?.includes(level)) throw new Error('Unsupported thinking level');
+      draft.thinkingLevel = level; draft.thinkingChanged = true;
+    }
+    const update = { draftId: draft.id, state: draftModelState(draft) };
+    emit({ type: 'desktop_draft_model', ...update });
+    return update;
+  })();
+  draftModelWrites.set(draft, write);
+  try { return await write; }
+  finally { if (draftModelWrites.get(draft) === write) draftModelWrites.delete(draft); }
+}
 let sessionCatalog: Session[] = [];
 // Upstream spawns one real session per subagent so it can resume the child transcript.
 // Those are an implementation detail of the subagent feature, not sessions the user opened,
@@ -1399,7 +1433,7 @@ async function snapshot(worker = runtimes.active, refresh = true, ignoreDraft = 
     preferences: { ...preferences, workspace: draft ? draft.workspace : worker?.cwd ?? preferences.workspace }, themePacks: themePacks.packs,
     customBackground: backgroundState, providerSettingsPending,
     status: draft ? 'ready' : worker?.status ?? status, draftId: draft?.id, runtimeId: worker?.id, runtimeStartupTiming: draft ? undefined : worker?.startupTiming, runtimes: runtimeSummaries, unreadSessionIds: [...runtimes.unreadSessionIds],
-    state: draft ? { isStreaming: false, model: draft.model ? providerModelNames([draft.model], appliedAuthData)[0] : undefined, thinkingLevel: draft.thinkingLevel }
+    state: draft ? { isStreaming: false, ...draftModelState(draft) }
       : worker?.state ? { ...worker.state, desktopStartup: worker.startup,
         model: worker.state.model ? providerModelNames([worker.state.model], appliedAuthData)[0] : undefined } : undefined,
     modelSelection: worker ? modelSelections.selection(worker) : undefined,
@@ -1666,6 +1700,7 @@ async function beginSession(workspace?: string, surface: Surface = 'main', resum
   if (workspace !== undefined && !selected) throw new Error('Unknown workspace');
   transition = true;
   try {
+    if (previous) await draftModelWrites.get(previous)?.catch(() => {});
     if (selected) await workspaceDirectory(selected);
     const options = await admin.request('session_options', { cwd: selected ?? app.getPath('documents') });
     options.model = preferredModel(options.models, preferences.preferredModel, options.model);
@@ -2126,11 +2161,14 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
       const draft = selectedDraft(surface);
       if (!draft || draft.id !== draftId) throw new Error('This session draft is no longer active');
       if (creatingDrafts.has(draftId)) throw new Error('This draft is already being created in another window');
-      if (draft.model && !draft.models?.some(model => model.provider === draft.model!.provider && model.id === draft.model!.id))
-        throw unavailableModel(draft.model, preferences.language);
       creatingDrafts.add(draftId);
       let created: Snapshot | undefined;
       try {
+        const modelWrite = draftModelWrites.get(draft);
+        if (modelWrite) await modelWrite;
+        if (selectedDraft(surface) !== draft) throw new Error('This session draft is no longer active');
+        if (draft.model && !draft.models?.some(model => model.provider === draft.model!.provider && model.id === draft.model!.id))
+          throw unavailableModel(draft.model, preferences.language);
         created = await (draft.workspace ? connect(draft.workspace, undefined, true, false, surface) : newIndependentSession(surface));
         if (draft.model && (draft.modelChanged || draft.model.provider !== created.state?.model?.provider || draft.model.id !== created.state?.model?.id))
           await handle('command', ['set_model', { provider: draft.model.provider, modelId: draft.model.id }, created.runtimeId], surface);
@@ -2853,28 +2891,16 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
     }
     case 'command': {
       const type = text(args[0], 80); const data = args[1] ?? {};
+      const modelCommand = type === 'set_model' || type === 'set_thinking_level';
       const sessionDraft = selectedDraft(surface);
       // Obsolete navigation preparation still locks shared account/settings
       // changes, but cannot block commands on the latest confirmed runtime.
       if (transition && !(sessionNavigation.busy && !sessionNavigation.selecting)) throw new Error('Workspace is changing');
+      if (modelCommand && data.draftId !== undefined && (args[2] !== undefined || sessionDraft?.id !== data.draftId))
+        throw new Error('This session draft is no longer active');
       if (sessionDraft && args[2] === undefined) {
         if (creatingDrafts.has(sessionDraft.id)) throw new Error('This draft is being created; wait before changing its options');
-        if (type === 'set_model') {
-          const model = sessionDraft.models?.find(model => model.id === data.modelId && model.provider === data.provider);
-          if (!model) throw new Error('Unknown model');
-          await rememberModel(model);
-          sessionDraft.model = model; sessionDraft.modelChanged = true;
-          if (!model.thinkingLevels?.includes(sessionDraft.thinkingLevel!)) sessionDraft.thinkingLevel = model.thinkingLevels?.[0];
-          sessionDraft.thinkingChanged = Boolean(sessionDraft.thinkingLevel);
-          emit({ type: 'desktop_draft_changed', draftId: sessionDraft.id });
-          return;
-        }
-        if (type === 'set_thinking_level') {
-          if (!sessionDraft.model?.thinkingLevels?.includes(data.level)) throw new Error('Unsupported thinking level');
-          sessionDraft.thinkingLevel = data.level; sessionDraft.thinkingChanged = true;
-          emit({ type: 'desktop_draft_changed', draftId: sessionDraft.id });
-          return;
-        }
+        if (modelCommand) return setDraftModel(sessionDraft, type, data);
         if (type === 'set_permission_preset') {
           if (!permissionPresets.includes(data.preset)) throw new Error('Unknown permission preset');
           sessionDraft.permissionPreset = data.preset; sessionDraft.permissionChanged = true;
@@ -3521,6 +3547,11 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
       const patch = args[0] ?? {};
       if (patch.autoGenerateSessionTitles !== undefined && typeof patch.autoGenerateSessionTitles !== 'boolean')
         throw new Error('Invalid automatic session title preference');
+      const titleModel = patch.sessionTitleModel === null ? null : titleModelIdentity(patch.sessionTitleModel);
+      if (patch.sessionTitleModel !== undefined && titleModel !== null
+        && (!titleModel || !titleModelProviders(providerInfos(authData))
+          .some(provider => provider.id === titleModel.provider && provider.models.some(model => model.id === titleModel.id))))
+        throw new Error('Session title model unavailable');
       const notificationPatch = notificationPreferencePatch(patch);
       const panelPatch = panelPreferencePatch(patch);
       const interfaceSettings = patch.interfaceSettings === undefined ? undefined : validateInterfaceSettings(patch.interfaceSettings);
@@ -3562,9 +3593,15 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
       const previousFavorites = preferences.favoriteModels;
       const previousNotifications = notificationPreferences(preferences);
       const previousAutoTitles = preferences.autoGenerateSessionTitles;
+      const previousTitleModel = preferences.sessionTitleModel;
       if (patch.autoGenerateSessionTitles !== undefined) {
         preferences.autoGenerateSessionTitles = patch.autoGenerateSessionTitles;
         if (!patch.autoGenerateSessionTitles) sessionTitles.cancelPending();
+      }
+      if (titleModel !== undefined) {
+        preferences.sessionTitleModel = titleModel;
+        if ((titleModel && modelKey(titleModel)) !== (previousTitleModel ? modelKey(previousTitleModel) : null))
+          sessionTitles.cancelPending();
       }
       Object.assign(preferences, notificationPatch);
       if (favoriteModels) preferences.favoriteModels = favoriteModels;
@@ -3572,6 +3609,7 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
         if (favoriteModels && preferences.favoriteModels === favoriteModels) preferences.favoriteModels = previousFavorites;
         if (patch.autoGenerateSessionTitles !== undefined && preferences.autoGenerateSessionTitles === patch.autoGenerateSessionTitles)
           preferences.autoGenerateSessionTitles = previousAutoTitles;
+        if (titleModel !== undefined && preferences.sessionTitleModel === titleModel) preferences.sessionTitleModel = previousTitleModel;
         for (const key of Object.keys(notificationPatch) as (keyof typeof notificationPatch)[]) {
           if (preferences[key] === notificationPatch[key]) preferences[key] = previousNotifications[key];
         }
@@ -3746,6 +3784,7 @@ else app.whenReady().then(async () => {
   crashLog.setPhase('vault loaded');
   try { preferences = { ...preferences, ...JSON.parse(await readFile(preferencesFile, 'utf8')) }; } catch {}
   preferences.autoGenerateSessionTitles = preferences.autoGenerateSessionTitles !== false;
+  preferences.sessionTitleModel = titleModelIdentity(preferences.sessionTitleModel) ?? null;
   await network.start(preferences.network ?? { mode: 'system', proxyUrl: '' });
   preferences = migrateWorkspaceIdentity(preferences);
   Object.assign(preferences, normalizePanelPreferences(preferences));

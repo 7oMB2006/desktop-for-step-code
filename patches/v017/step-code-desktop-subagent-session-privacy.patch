@@ -1,0 +1,101 @@
+diff --git a/packages/coding-agent/src/features/subagent/lane-events.ts b/packages/coding-agent/src/features/subagent/lane-events.ts
+--- a/packages/coding-agent/src/features/subagent/lane-events.ts
++++ b/packages/coding-agent/src/features/subagent/lane-events.ts
+@@ -374,11 +374,8 @@
+ 	const lines = [
+ 		`Mode: ${lane.details.mode}; elapsed ${formatDuration(end - lane.startedAt)}; turns ${usage.turns}, tokens in ${usage.input} / out ${usage.output}${usage.cost > 0 ? `, cost $${usage.cost.toFixed(4)}` : ""}`,
+ 	];
++	// This summary also enters the parent model's context; transcript paths are local only.
+ 	const sessions = records
+-		.map((record, index) =>
+-			record.sessionId
+-				? `- ${taskLabel(record, index)}: ${record.sessionId}${record.sessionFile ? ` (${record.sessionFile})` : ""}`
+-				: "",
+-		)
++		.map((record, index) => (record.sessionId ? `- ${taskLabel(record, index)}: ${record.sessionId}` : ""))
+ 		.filter(Boolean);
+ 	if (sessions.length > 0) lines.push(`Child sessions (transcripts stay on disk):\n${sessions.join("\n")}`);
+diff --git a/packages/coding-agent/test/subagent-lane-notifications.test.ts b/packages/coding-agent/test/subagent-lane-notifications.test.ts
+--- a/packages/coding-agent/test/subagent-lane-notifications.test.ts
++++ b/packages/coding-agent/test/subagent-lane-notifications.test.ts
+@@ -3,6 +3,7 @@
+ import { join } from "node:path";
+ import { describe, expect, test, vi } from "vitest";
+ import type { ExtensionAPI } from "../src/core/extensions/types.ts";
++import { convertToLlm } from "../src/core/messages.ts";
+ import type {
+ 	BackgroundAgentLane,
+ 	StepSubagentDetails,
+@@ -24,7 +25,7 @@
+ 
+ interface Sent {
+ 	content: string;
+-	details?: { event?: string; status?: string };
++	details?: { event?: string; status?: string; detail?: string };
+ }
+ 
+ function fakePi(): { pi: ExtensionAPI; sent: Sent[] } {
+@@ -64,6 +65,40 @@
+ 	} as unknown as BackgroundAgentLane;
+ }
+ 
++test.each([
++	["background_done", "completed"],
++	["background_failed", "failed"],
++] as const)("terminal lane notification %s publishes child IDs but not transcript paths", async (event, status) => {
++	const { pi, sent } = fakePi();
++	const sessionId = "subagent-fixture";
++	const sessionFile = String.raw`C:\fixture\profiles\private\child-transcript.jsonl`;
++	const target = lane({
++		status,
++		details: {
++			mode: "single",
++			agentScope: "user",
++			userAgentsDir: "/nonexistent-unused",
++			projectAgentsDir: null,
++			results: [record({ status, sessionId, sessionFile })],
++		},
++	});
++	notifyLaneEvent(pi, target, event, await buildLaneFinalDetail(target, "/nonexistent-unused"));
++	expect(sent).toHaveLength(1);
++	const [notification] = sent;
++	expect(notification.content).toContain(`- task 1 (general): ${sessionId}`);
++	expect(notification.details?.detail).toContain(`- task 1 (general): ${sessionId}`);
++	expect(notification.content).not.toContain("child-transcript.jsonl");
++	expect(notification.details?.detail).not.toContain("child-transcript.jsonl");
++	const projected = convertToLlm([
++		{ ...notification, role: "custom", customType: "agent-notification", display: true, timestamp: 0 },
++	]);
++	expect(projected).toMatchObject([
++		{ role: "user", content: [{ type: "text", text: expect.stringContaining(sessionId) }] },
++	]);
++	expect(JSON.stringify(projected)).not.toContain("child-transcript.jsonl");
++	expect(target.details.results[0]?.sessionFile).toBe(sessionFile);
++});
++
+ test.each(["background_done", "background_failed", "background_needs_input"] as const)(
+ 	"Desktop %s shares a safe notification body and structured detail",
+ 	(event) => {
+diff --git a/packages/coding-agent/test/step-subagent-events.test.ts b/packages/coding-agent/test/step-subagent-events.test.ts
+--- a/packages/coding-agent/test/step-subagent-events.test.ts
++++ b/packages/coding-agent/test/step-subagent-events.test.ts
+@@ -1658,14 +1658,14 @@
+ 	await waitFor(() => sent.some((message) => message.details?.event === "background_done"));
+ 	const done = textOf(await agentSend(tools, { lane_id: lane, action: "status" }));
+ 	expect(done).toContain(`Lane ${lane}: completed (general)`);
+-	expect(done).toMatch(
+-		/Child sessions \(transcripts stay on disk\):\n- task 1 \(general\): subagent-[0-9a-f-]+ \(\/sessions\/child\.jsonl\)/u,
+-	);
++	const childSession = /Child sessions \(transcripts stay on disk\):\n- task 1 \(general\): subagent-[0-9a-f-]+/u;
++	expect(done).toMatch(childSession);
++	expect(done).not.toContain("/sessions/child.jsonl");
+ 	expect(done).toContain("output middle omitted");
+ 	expect(done).toContain("THE END");
+ 	expect(Buffer.byteLength(done)).toBeLessThan(40_000);
+ 	expect(done).not.toContain("still running");
+-	// The final notification names the child session as well.
+ 	const notification = sent.find((message) => message.details?.event === "background_done")!;
+-	expect(notification.content).toContain("/sessions/child.jsonl");
++	expect(notification.content).toMatch(childSession);
++	expect(notification.content).not.toContain("/sessions/child.jsonl");
+ });

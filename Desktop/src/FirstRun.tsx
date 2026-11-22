@@ -6,7 +6,7 @@ import { ModelEffortPicker } from './ModelEffortPicker';
 import { PermissionPicker } from './PermissionPicker';
 import { ProviderSettings } from './ProviderSettings';
 import { StepPlatformIcon } from './ProviderBrand';
-import type { DesktopBridge, Model, Settings, Snapshot } from './contracts';
+import type { DesktopBridge, DraftModelUpdate, Model, Settings, Snapshot } from './contracts';
 import './first-run.css';
 
 type Kind = 'plan' | 'api' | 'custom';
@@ -123,10 +123,13 @@ export function FirstRun({ bridge, snapshot, onSnapshot }: {
   const regionName = region === 'cn' ? t('中国大陆', 'Mainland China') : t('海外', 'International');
   const serviceName = kind === 'custom' ? provider?.name ?? t('其他供应商', 'Other provider') : `${kind === 'plan' ? 'Step Plan' : 'Step API'} · ${regionName}`;
   const billing = kind === 'plan' ? t('套餐额度', 'Plan allowance') : kind === 'api' ? t('API 按量付费', 'Pay-as-you-go API') : t('按供应商规则', 'Provider billing');
-  const selectModel = async (value: Model) => {
-    await bridge.command('set_model', { provider: value.provider, modelId: value.id });
-    await refresh();
+  const selectDraftModel = async (type: 'set_model' | 'set_thinking_level', args: Record<string, unknown>, draft = snapshot) => {
+    if (!draft.draftId || !draft.state) throw new Error('Draft unavailable');
+    const result: DraftModelUpdate = await bridge.command(type, { ...args, draftId: draft.draftId });
+    if (result?.draftId !== draft.draftId) throw new Error('Draft changed');
+    onSnapshot({ ...draft, state: { ...draft.state, ...result.state } });
   };
+  const selectModel = (value: Model, draft = snapshot) => selectDraftModel('set_model', { provider: value.provider, modelId: value.id }, draft);
   const next = () => void act(async () => {
     if (stage === 0) {
       let value: Snapshot;
@@ -135,7 +138,7 @@ export function FirstRun({ bridge, snapshot, onSnapshot }: {
         value = await refresh();
         const selected = value.models.find(model => model.provider === provider.id);
         if (!selected || value.providerSettingsPending) throw new Error('Provider unavailable');
-        await selectModel(selected);
+        await selectModel(selected, value);
       } else {
         if (!settings) setSettings(await bridge.settings());
         if (!accountReady) {
@@ -150,7 +153,7 @@ export function FirstRun({ bridge, snapshot, onSnapshot }: {
         value = await refresh();
         const official = value.models.find(model => model.provider === 'step');
         if (!official) throw new Error('Official model unavailable');
-        if (value.state?.model?.provider !== 'step') await selectModel(official);
+        if (value.state?.model?.provider !== 'step') await selectModel(official, value);
       }
       setStage(1);
     } else if (stage === 1) {
@@ -251,7 +254,7 @@ export function FirstRun({ bridge, snapshot, onSnapshot }: {
               <div><dt>{t('模型与思考', 'Model and thinking')}</dt><dd><ModelEffortPicker model={model} models={snapshot.models.filter(value => kind === 'custom' ? value.provider === provider?.id : value.provider === 'step')}
                 level={snapshot.state?.thinkingLevel ?? ''} levels={model?.thinkingLevels ?? []} language={language} disabled={pending}
                 onModel={value => act(() => selectModel(value))}
-                onEffort={level => act(async () => { await bridge.command('set_thinking_level', { level }); await refresh(); })}/></dd></div>
+                onEffort={level => act(() => selectDraftModel('set_thinking_level', { level }))}/></dd></div>
               <div><dt>{t('权限', 'Permissions')}</dt><dd>{permission}</dd></div>
             </dl>
             <div className="first-run-ready"><Check size={17}/><span>{t('开始会话不会自动发送模型请求。', 'Starting a conversation will not send a model request.')}</span></div>

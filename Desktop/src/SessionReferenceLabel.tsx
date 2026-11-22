@@ -6,5 +6,8 @@ export const SessionReferenceTitles = createContext<ReadonlyMap<string, string> 
 
 export function SessionReferenceLabel({ id, fallback }: { id: string; fallback?: ReactNode }) {
   const title = useContext(SessionReferenceTitles)?.get(id);
-  return title ? <span className="session-reference-label"><MessageSquare size={14} aria-hidden="true"/>{title}</span> : <>{fallback}</>;
+  return title ? <span className="session-reference-label" data-tooltip={title}>
+    <MessageSquare size={14} aria-hidden="true"/>
+    <span className="session-reference-title">{title}</span>
+  </span> : <>{fallback}</>;
 }

@@ -208,6 +208,8 @@ export const localOnly = [
   'verify-stellar-reading.mjs',
   // Comparative startup timings need a quiet machine; navigation correctness runs in CI above.
   'verify-session-navigation-performance.mjs',
+  // Large-history picker timings are a local benchmark; model switching runs in CI above.
+  'verify-model-switch-latency.mjs',
   // Before/after renderer timing needs controlled builds and a quiet host.
   // Continuous-list behavior runs in verify-context-virtualization above.
   'verify-context-performance.mjs',

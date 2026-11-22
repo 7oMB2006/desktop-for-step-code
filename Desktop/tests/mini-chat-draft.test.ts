@@ -26,7 +26,8 @@ async function fixture() {
   const source = ts.createSourceFile('main.ts', await readFile(new URL('../electron/main.ts', import.meta.url), 'utf8'),
     ts.ScriptTarget.Latest, true);
   const names = ['handle', 'beginSession', 'connect', 'replaceMiniRuntime', 'performProviderSettings',
-    'parkedDrafts', 'selectedDraft', 'selectDraft', 'selectedRuntime', 'selectRuntime'];
+    'parkedDrafts', 'draftModelWrites', 'setDraftModel', 'draftModelState',
+    'selectedDraft', 'selectDraft', 'selectedRuntime', 'selectRuntime'];
   const declarations = names.map(name => {
     const declaration = source.statements.find(node =>
       ts.isFunctionDeclaration(node) && node.name?.text === name

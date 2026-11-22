@@ -10,7 +10,7 @@ import { createRoot } from 'react-dom/client';
 import { flushSync } from 'react-dom';
 import { Plus, Folder, FolderOpen, MessageSquare, CircleHelp, Settings as SettingsIcon, PanelLeft, X, Search, ChevronDown, ChevronRight, Terminal, Copy, Check, RotateCcw, Trash2, Pencil, Cpu, AlertCircle, TriangleAlert, ShieldAlert, Info, Download, ArrowRightLeft, BookOpen, LogOut, SunMoon, ExternalLink, FileCode2, Archive, GitBranch, MoreHorizontal, ListTree, Layers3, FileText, ZoomIn, ZoomOut, Pin, PinOff, ScanLine, FileDiff, Globe, Bot } from 'lucide-react';
 import { McpIcon } from './McpIcon';
-import type { Snapshot, Settings, Message, Content, UIRequest, McpServer, Session, ComposerAttachment, RuntimeSummary, RuntimeEvent, Model } from './contracts';
+import type { Snapshot, Settings, Message, Content, UIRequest, McpServer, Session, ComposerAttachment, RuntimeSummary, RuntimeEvent, Model, DraftModelUpdate } from './contracts';
 import { fullAccessRiskPresentation } from './full-access-risk';
 import { pendingPlanReview, planReview } from './plan-review';
 import { conversationEntries } from './conversation-presentation';
@@ -279,6 +279,7 @@ function App() {
   const attachmentsRef = useRef<ComposerAttachment[]>([]);
   attachmentsRef.current = attachments;
   const queueSend = useRef<Promise<{ queued?: boolean; id?: string; version?: number }> | null>(null);
+  const modelRequests = useRef(new Map<string, Promise<unknown>>());
   const [preview, setPreview] = useState<{ name: string; src: string } | null>(null);
   const [imageMenu, setImageMenu] = useState<ImageMenuTarget | null>(null);
   const previewPanel = useRef<HTMLDivElement>(null);
@@ -1079,6 +1080,18 @@ function App() {
   const rawCommand = async (type: string, args?: Record<string, unknown>) => {
     if (navigationPending.current) throw new Error(t('请等待会话打开', 'Wait for the conversation to open'));
     const id = viewId.current;
+    if (type === 'set_model' || type === 'set_thinking_level') {
+      const draftId = latestData.current.draftId;
+      const key = id ?? draftId;
+      if (!key) return;
+      const submit = () => bridge!.command(type, { ...args, draftId }, id);
+      const pending = modelRequests.current.get(key);
+      const request = pending ? pending.catch(() => {}).then(submit) : submit();
+      modelRequests.current.set(key, request);
+      try { await request; }
+      finally { if (modelRequests.current.get(key) === request) modelRequests.current.delete(key); }
+      return;
+    }
     const result = await bridge!.command(type, args, id);
     if (type === 'new_session') installSnapshot(result);
     else if (!['prompt', 'abort', 'extension_ui_response'].includes(type) && id === viewId.current) await refresh();
@@ -1138,6 +1151,11 @@ function App() {
       }
       if (event.type === 'desktop_draft_changed' && event.draftId === view.current.draftId && !switching.current) {
         void run(refresh); return;
+      }
+      if (event.type === 'desktop_draft_model') {
+        const update = event as RuntimeEvent & DraftModelUpdate;
+        setData(d => d.draftId === update.draftId && d.state ? { ...d, state: { ...d.state, ...update.state } } : d);
+        return;
       }
       if (event.type === 'desktop_main_action' && !isMini) {
         void run(() => mainActionRef.current(event)); return;
@@ -1200,7 +1218,10 @@ function App() {
         && !messageRevision.current.acceptEvent(event)) return;
       if (event.type === 'agent_end' || event.type === 'tool_execution_end'
         && ['enter_plan_mode', 'exit_plan_mode'].includes(event.toolName)) setStatusRevision(value => value + 1);
-      if (event.type === 'desktop_model_selection') setData(d => ({ ...d, modelSelection: event.modelSelection, modelChanges: event.modelChanges, state: event.state ?? d.state }));
+      if (event.type === 'desktop_model_selection') setData(d => d.runtimeId === event.runtimeId && d.state?.sessionId === event.sessionId ? ({
+        ...d, modelSelection: event.modelSelection, modelChanges: event.modelChanges,
+        state: d.state && event.state ? { ...d.state, ...event.state } : d.state,
+      }) : d);
       if (event.type === 'desktop_queue') setData(d => ({ ...d, pendingMessages: event.pendingMessages }));
       if (event.type === 'desktop_stats') setData(d => ({ ...d, stats: event.stats }));
       if (event.desktopEstimate) setData(d => ({ ...d, estimate: event.desktopEstimate }));
@@ -1681,7 +1702,20 @@ function App() {
     let receipt: ComposerReceipt | undefined;
     let submittedReceipt = false;
     firstSend.current = true;
-    try { receipt = await composer.client.take({ text: message, quotes: sentQuotes, attachments: attached }); }
+    try {
+      const key = id ?? data.draftId;
+      if (key) {
+        let pending = modelRequests.current.get(key);
+        while (pending) {
+          await pending;
+          const next = modelRequests.current.get(key);
+          if (next === pending) break;
+          pending = next;
+        }
+      }
+      if (navigationPending.current || switching.current || id !== viewId.current || data.draftId !== latestData.current.draftId) return;
+      receipt = await composer.client.take({ text: message, quotes: sentQuotes, attachments: attached });
+    }
     catch (error) { setError(composerErrorText(error, data.preferences.language)); return; }
     finally { firstSend.current = false; }
     const restoreInput = async (error?: unknown) => {
@@ -2891,7 +2925,10 @@ function App() {
             <option value="updated">{t('最新在前', 'Recently updated first')}</option>
           </DisclosureSelect>
         </label>
-        <SessionTitleSetting preferences={data.preferences} onChange={setPreference}/>
+        <SessionTitleSetting preferences={data.preferences} providers={settings.providers ?? []} onChange={async patch => {
+          const preferences = await bridge!.preferences(patch);
+          setData(current => ({ ...current, preferences }));
+        }}/>
       </>}
       {tab === 'import' && bridge ? <SessionImportSettings bridge={bridge} language={data.preferences.language}
         onOpen={async id => { const session = (await bridge.sessions()).find(item => item.id === id); if (!session) throw new Error('Imported session is unavailable'); finishSettingsClose(); await navigateSession(session); }}/>

@@ -32,6 +32,12 @@ export function SpeechInput({ bridge, language, disabled, statusTarget, onText, 
   const active = phase !== 'idle';
   const statusVisible = active || Boolean(error);
   if (statusVisible && !statusPresent) setStatusPresent(true);
+  const lastStatus = useRef({ phase, error, seconds, level, working });
+  useEffect(() => {
+    if (statusVisible) lastStatus.current = { phase, error, seconds, level, working };
+  }, [statusVisible, phase, error, seconds, level, working]);
+  const status = statusVisible ? { phase, error, seconds, level, working } : lastStatus.current;
+  const statusRecording = status.phase === 'recording';
   const current = useRef<Recording | undefined>(undefined);
   const trigger = useRef<HTMLButtonElement>(null);
   const consentPanel = useRef<HTMLDivElement>(null);
@@ -64,7 +70,7 @@ export function SpeechInput({ bridge, language, disabled, statusTarget, onText, 
   useEffect(() => {
     if (statusVisible || !statusPresent) return;
     if (matchMedia('(prefers-reduced-motion: reduce)').matches) { setStatusPresent(false); return; }
-    const timer = setTimeout(() => setStatusPresent(false), 240);
+    const timer = setTimeout(() => setStatusPresent(false), 300);
     return () => clearTimeout(timer);
   }, [statusVisible, statusPresent]);
   useEffect(() => { if (disabled) { cancel(); setConsent(undefined); } }, [disabled]);
@@ -189,22 +195,25 @@ export function SpeechInput({ bridge, language, disabled, statusTarget, onText, 
       }}>
       {phase === 'recording' ? <Square size={15}/> : active ? <LoaderCircle size={17} className="speech-spinner"/> : <Mic size={17}/>}
     </button>
-    {statusPresent && statusTarget && createPortal(<div className={`speech-progress${active ? ' speech-listening' : ''}${error ? ' speech-error' : ''}`}
-      data-open={statusVisible} aria-hidden={!statusVisible} inert={!statusVisible} role={error ? 'alert' : undefined}>
+    {statusPresent && statusTarget && createPortal(<div className={`speech-progress${status.error ? ' speech-error' : ''}`}
+      data-open={statusVisible} aria-hidden={!statusVisible} inert={!statusVisible} role={statusVisible && status.error ? 'alert' : undefined}
+      onTransitionEnd={event => {
+        if (!statusVisible && event.target === event.currentTarget && event.propertyName === 'opacity') setStatusPresent(false);
+      }}>
       <div className="speech-progress-body">
-        {phase === 'recording' ? <span className="speech-level" aria-hidden="true">{[0.6, 1, 0.8, 0.5].map((factor, index) =>
-          <i key={index} style={{ transform: `scaleY(${0.15 + level * factor * 0.85})` }}/>)}</span>
-          : active && <LoaderCircle size={14} className="speech-spinner" aria-hidden="true"/>}
-        <span className="speech-status-label" role={active ? 'status' : undefined} data-tooltip={error || undefined} tabIndex={error ? 0 : undefined}>
-          {error || (phase === 'recording' ? working ? t('正在写入', 'Writing') : t('听写中', 'Listening')
-            : phase === 'starting' ? t('正在打开麦克风…', 'Opening microphone…')
-            : phase === 'finishing' ? t('正在完成听写…', 'Finishing dictation…') : t('听写已结束', 'Dictation ended'))}
+        {statusRecording ? <span className="speech-level" aria-hidden="true">{[0.6, 1, 0.8, 0.5].map((factor, index) =>
+          <i key={index} style={{ transform: `scaleY(${0.15 + status.level * factor * 0.85})` }}/>)}</span>
+          : status.phase !== 'idle' && <LoaderCircle size={14} className="speech-spinner" aria-hidden="true"/>}
+        <span className="speech-status-label" role={active ? 'status' : undefined} data-tooltip={statusVisible && status.error || undefined} tabIndex={statusVisible && status.error ? 0 : undefined}>
+          {status.error || (statusRecording ? status.working ? t('正在写入', 'Writing') : t('听写中', 'Listening')
+            : status.phase === 'starting' ? t('正在打开麦克风…', 'Opening microphone…')
+            : status.phase === 'finishing' ? t('正在完成听写…', 'Finishing dictation…') : '')}
         </span>
-        {phase === 'recording' && <span className="speech-clock" aria-hidden="true">0:{String(seconds).padStart(2, '0')}</span>}
-        {error && <button type="button" className="icon-button" aria-label={t('听写设置', 'Dictation settings')}
+        {statusRecording && <span className="speech-clock" aria-hidden="true">0:{String(status.seconds).padStart(2, '0')}</span>}
+        {status.error && <button type="button" className="icon-button" aria-label={t('听写设置', 'Dictation settings')}
           data-tooltip={t('听写设置', 'Dictation settings')} onClick={() => { setError(''); onConfigure(); }}><Settings size={14}/></button>}
-        <button type="button" className="icon-button" aria-label={error ? t('关闭', 'Dismiss') : t('取消听写', 'Cancel dictation')}
-          data-tooltip={error ? t('关闭', 'Dismiss') : t('取消剩余听写，保留已写入文字', 'Cancel remaining dictation; keep inserted text')}
+        <button type="button" className="icon-button" aria-label={status.error ? t('关闭', 'Dismiss') : t('取消听写', 'Cancel dictation')}
+          data-tooltip={status.error ? t('关闭', 'Dismiss') : t('取消剩余听写，保留已写入文字', 'Cancel remaining dictation; keep inserted text')}
           onClick={() => { if (error) setError(''); else cancel(); trigger.current?.focus({ preventScroll: true }); }}><X size={14}/></button>
       </div>
     </div>, statusTarget)}

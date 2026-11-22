@@ -151,9 +151,10 @@ export function PluginHostSettingsForm({ bridge, pkg, language, busy, visible, f
   };
   const chooseAccount = () => {
     if (!saved || !account) return;
-    setMode(directEnabled ? 'routed' : 'account'); setRouteAccount(directEnabled); setTicket(account.ticket);
+    const mix = directEnabled && canMix;
+    setMode(mix ? 'routed' : 'account'); setRouteAccount(mix); setTicket(account.ticket);
     setReselected(previous => previous || Boolean(saved.source && (!ticket || ticket !== account.ticket)));
-    if (mode === 'independent' || source?.channel !== account.channel || source.region !== account.region) {
+    if ((mode === 'independent' && mix) || source?.channel !== account.channel || source.region !== account.region) {
       setModels({}); setSelectedRows([]);
     }
   };
@@ -188,7 +189,7 @@ export function PluginHostSettingsForm({ bridge, pkg, language, busy, visible, f
   const officialSource = (channel: 'plan' | 'api') => {
     const enabled = accountEnabled && source?.channel === channel;
     if (enabled) return { enabled, toggle: toggleAccount };
-    if (accountEnabled || (directEnabled && !canMix) || account?.channel !== channel) return {};
+    if ((accountEnabled && canMix) || account?.channel !== channel) return {};
     return { toggle: chooseAccount };
   };
   return <form id={formId} hidden={!visible} className="pc-generic-form pc-host-form" onSubmit={event => { event.preventDefault(); void submit(); }}>
@@ -201,11 +202,11 @@ export function PluginHostSettingsForm({ bridge, pkg, language, busy, visible, f
               : t('未启用', 'None enabled')}
           sources={{ plan: officialSource('plan'), api: officialSource('api'), independent: directEnabled
             ? { enabled: true, toggle: toggleIndependent }
-            : !configuration || (accountEnabled && !canMix) ? {} : { toggle: toggleIndependent } }}>
+            : configuration ? { toggle: toggleIndependent } : {} }}>
           <p className="pc-hint">{canMix
             ? t('官方连接使用当前登录的 Step 账户；独立配置可与其同时启用。每项能力只使用所选来源。',
               'The signed-in Step account and independent configuration can be enabled together. Each capability uses only its selected source.')
-            : t('此版本插件仅支持单一连接来源。切换前请关闭当前来源。', 'This plugin version supports one source per launch. Turn it off before switching.')}</p>
+            : t('此版本插件每次仅使用一种连接来源。', 'This plugin version uses one source per launch.')}</p>
           {!account && !directEnabled && <p className="pc-hint">{t('请先在账户设置中连接官方 Step 账户。', 'Connect an official Step account in account settings first.')}</p>}
           {saved.legacyFollow && mode === null && <p className="pc-hint">{t('旧版「跟随会话」已停用，请重新选择额度来源。',
             'The legacy session-following setting is inactive. Select a billing source again.')}</p>}

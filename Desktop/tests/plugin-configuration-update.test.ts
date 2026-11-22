@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { compareConfigurationSchemas, migrateConfigurationSnapshot, parseConfigurationJson,
+import { compareConfigurationSchemas, compareHostedConfigurationSchemas, migrateConfigurationSnapshot, parseConfigurationJson,
   strictConfigurationSchema } from '../electron/plugin-schema-update.mjs';
 import { digest } from '../electron/plugin-files.mjs';
 
@@ -41,6 +41,32 @@ test('all unsupported differences are aggregated, including false, zero and empt
   assert.equal(compareConfigurationSchemas(schema(), changed(value => {
     value.groups[0].fields.push({ id: 'required', type: 'text', label: 'Required', required: true });
   })).status, 'needs-input');
+});
+test('hosted migration preserves the broker boundary and only relaxes existing required fields', () => {
+  const host = { schemaVersion: 1, hostApiVersion: 1, consumer: { kind: 'mcp-stdio', server: 'example' },
+    capabilities: ['model.text', 'model.asr'] };
+  const routedHost = { ...host, $schema: 'https://example.test/dfsc.host.schema.json', independentCapabilities: ['model.asr'] };
+  const previous = changed(value => { value.groups[0].fields[4].required = true; });
+  const next = changed(value => { value.groups[0].fields[4].help = 'Only needed when selected'; });
+  assert.equal(compareConfigurationSchemas(previous, next).status, 'unsupported');
+  assert.deepEqual(compareHostedConfigurationSchemas(previous, next, host, routedHost), {
+    status: 'compatible', changes: [{ code: 'required-relaxed', field: 'key' },
+      { code: 'presentation', field: 'key' }, { code: 'host-reconfigure' }],
+  });
+  for (const [before, after, replacement] of [
+    [host, { ...routedHost, capabilities: ['model.text', 'model.asr', 'model.video'] }, next],
+    [host, { ...routedHost, independentCapabilities: ['model.video'] }, next],
+    [host, { ...routedHost, $schema: '' }, next],
+    [routedHost, host, next],
+    [host, { ...routedHost, consumer: { kind: 'mcp-stdio', server: 'other' } }, next],
+    [host, routedHost, changed(value => { value.modelConnection = 'independent'; })],
+    [host, routedHost, changed(value => { value.groups[0].fields[0].maxLength = 4; })],
+    [host, routedHost, changed(value => { value.groups[0].fields[4].type = 'text'; })],
+  ] as const) {
+    assert.deepEqual(compareHostedConfigurationSchemas(previous, replacement, before, after),
+      { status: 'unsupported', changes: [{ code: 'host-migration-unsupported' }] });
+  }
+  assert.equal(compareHostedConfigurationSchemas(next, previous, host, routedHost).status, 'unsupported');
 });
 test('strict schemas reject unknown and duplicate properties at each level, even escaped keys', () => {
   for (const candidate of [

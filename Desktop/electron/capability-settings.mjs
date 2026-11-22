@@ -7,7 +7,7 @@ import { dataOnlyThemeFingerprint, installationReceipt, object, optionalFile, pa
   sourceIdentity, writePrivateData, writePrivateJson, writeReceipts } from './plugin-files.mjs';
 import { applyPluginUpdate, inspectPluginUpdate, updateBinding } from './plugin-update.mjs';
 import { PluginConfigurationStore } from './plugin-configuration.mjs';
-import { compareConfigurationSchemas, migrateConfigurationSnapshot, parseConfigurationJson, strictConfigurationSchema,
+import { compareConfigurationSchemas, compareHostedConfigurationSchemas, migrateConfigurationSnapshot, parseConfigurationJson, strictConfigurationSchema,
   validateConfigurationSnapshot } from './plugin-schema-update.mjs';
 import { capabilityFailureCode, capabilityFailureDetails, marketplaceFailureCode } from './capability-failure.mjs';
 import { auditPluginRelease } from './plugin-release.mjs';
@@ -677,20 +677,24 @@ export function createCapabilitySettings(upstream, options) {
           let parsedNext;
           if (schemaChanged) {
             try {
-              comparison = firstConfiguration ? { status: 'compatible', changes: [{ code: 'configuration-added' }] }
-                : schema && nextSchema
-                  ? compareConfigurationSchemas(parseConfigurationJson(schema), parseConfigurationJson(nextSchema))
-                  : { status: 'unsupported', changes: [{ code: 'schema-added-or-removed' }] };
+              if (firstConfiguration) {
+                comparison = { status: 'compatible', changes: [{ code: 'configuration-added' }] };
+              } else {
+                const oldHost = await optionalFile(target, 'dfsc.host.json', 65536);
+                const nextHost = await optionalFile(snapshot, 'dfsc.host.json', 65536);
+                const hostBinding = await optionalFile(root, `desktop-plugins/host/bindings/${previous.instance}.json`, 65536);
+                comparison = oldHost || nextHost || hostBinding
+                  ? schema && nextSchema && oldHost && nextHost
+                    ? compareHostedConfigurationSchemas(parseConfigurationJson(schema), parseConfigurationJson(nextSchema),
+                      parseConfigurationJson(oldHost), parseConfigurationJson(nextHost))
+                    : { status: 'unsupported', changes: [{ code: 'host-migration-unsupported' }] }
+                  : schema && nextSchema
+                    ? compareConfigurationSchemas(parseConfigurationJson(schema), parseConfigurationJson(nextSchema))
+                    : { status: 'unsupported', changes: [{ code: 'schema-added-or-removed' }] };
+              }
               if (nextSchema && comparison.status === 'compatible')
                 parsedNext = strictConfigurationSchema(parseConfigurationJson(nextSchema));
             } catch { comparison = { status: 'unsupported', changes: [{ code: 'invalid-schema' }] }; }
-            const exists = async path => {
-              try { await lstat(path); return true; } catch (error) { if (error.code === 'ENOENT') return false; throw error; }
-            };
-            if (!firstConfiguration && (await exists(join(target, 'dfsc.host.json'))
-              || await exists(join(snapshot, 'dfsc.host.json'))
-              || await exists(join(root, 'desktop-plugins/host/bindings', `${previous.instance}.json`))))
-              comparison = { status: 'unsupported', changes: [...comparison.changes, { code: 'host-migration-unsupported' }] };
           }
           const services = async (directory, manifest, consumer) => {
             let servers = manifest.mcpServers;

@@ -16,10 +16,18 @@ const resources = executablePath ? (process.platform === 'darwin'
 const runtime = join(resources, 'runtime');
 await mkdir(join(root, 'plugins'), { recursive: true });
 await cp(resolve('../examples/plugins/sdk-host-starter/plugins/dfsc-host-example'), directory, { recursive: true });
+for (const [file, source] of [
+  ['routed-host-start.mjs', '../tests/fixtures/routed-host-start.mjs'],
+  ['configuration.mjs', '../../examples/plugins/config-starter/plugins/dfsc-config-example/server/configuration.mjs'],
+]) await cp(new URL(source, import.meta.url), join(directory, file));
 const manifest = JSON.parse(await readFile(join(directory, 'step.plugin.json'), 'utf8'));
 manifest.mcpServers.example.command = join(runtime, 'node', process.platform === 'win32' ? 'node.exe' : 'node');
+manifest.mcpServers.example.args = ['routed-host-start.mjs'];
 manifest.mcpServers.example.env = { STEPFUN_API_KEY: 'DFSC_INDEPENDENT_PLUGIN' };
 await writeFile(join(directory, 'step.plugin.json'), JSON.stringify(manifest));
+const declaration = JSON.parse(await readFile(join(directory, 'dfsc.host.json'), 'utf8'));
+await writeFile(join(directory, 'dfsc.host.json'), JSON.stringify({ ...declaration,
+  capabilities: ['model.text', 'model.asr'], independentCapabilities: ['model.asr'] }));
 await writeFile(join(directory, 'dfsc.settings.json'), JSON.stringify({
   schemaVersion: 1, consumer: { kind: 'json-file-v1', server: 'example' },
   groups: [{ id: 'connection', title: 'Independent connection', fields: [
@@ -119,10 +127,48 @@ try {
   const stopped = await page.evaluate(ref => window.desktop.pluginHostSettings({ ref }), first.ref);
   assert.equal(stopped.runtime.status, 'source-paused');
   assert.equal(stopped.independent.hasSecret.key, true);
-  assert.doesNotMatch(JSON.stringify([first, saved, current, independent, connected, switched, observed, snapshot, paused, stopped]),
+  const routed = await page.evaluate(input => window.desktop.pluginSaveHostSettings(input), {
+    ref: first.ref, revision: stopped.revision, ...account, mode: 'routed', independentCapabilities: ['model.asr'],
+    configuration: { ref: first.ref, revision: stopped.independent.revision, values: {}, secrets: { key: { action: 'keep' } } },
+  });
+  assert.deepEqual(routed.supportedIndependentCapabilities, ['model.asr']);
+  assert.equal(routed.runtime.status, 'restart-required');
+  await restartIdleSessionFixture(page, restarted.runtimeId);
+  const runtimeId = (await page.evaluate(() => window.desktop.snapshot())).runtimeId;
+  await waitForSessionFixtureTools(page, runtimeId);
+  let routedLive;
+  await waitForSessionFixtureSnapshot(page, async () => {
+    routedLive = await page.evaluate(ref => window.desktop.pluginHostSettings({ ref }), first.ref);
+    return routedLive.runtime.status === 'connected';
+  }, 'native mixed-route consumer');
+  assert.deepEqual(routedLive.runtime.independentCapabilities, ['model.asr']);
+  assert.deepEqual(routedLive.runtime.capabilities.map(({ id, authorization }) => [id, authorization]), [['model.text', 'required']]);
+  const evidence = join(root, 'desktop-plugins', 'data', receipt.instance, 'routed-fixture.json');
+  await waitForSessionFixtureSnapshot(page, async () => {
+    const observed = await readFile(evidence, 'utf8').catch(error => {
+      if (error.code === 'ENOENT') return '';
+      throw error;
+    });
+    if (!observed) return false;
+    assert.deepEqual(JSON.parse(observed), { mode: 'follow', independentCapabilities: ['model.asr'],
+      configurationMatched: true, brokerCapabilities: ['model.text'] });
+    return true;
+  }, 'the SDK consumer to read its mixed-route Broker context');
+  await page.getByRole('button', { name: '插件市场', exact: true }).click();
+  await page.getByRole('button', { name: '配置 DFSC SDK Host Example', exact: true }).click();
+  const sources = page.getByRole('group', { name: '连接来源', exact: true }).getByRole('switch');
+  await sources.last().waitFor();
+  assert.deepEqual(await sources.allTextContents(), ['使用我的 Step Plan 额度', '开放平台 API（按量计费）', '独立配置']);
+  for (const [index, selected] of [[0, true], [1, false], [2, true]]) {
+    const source = sources.nth(index);
+    assert.equal(await source.getAttribute('aria-checked'), String(selected));
+    assert.equal(await source.isDisabled(), !selected);
+    assert.equal(await source.evaluate(el => Number(getComputedStyle(el).opacity) < 1), !selected);
+  }
+  assert.doesNotMatch(JSON.stringify([first, saved, current, independent, connected, switched, observed, snapshot, paused, stopped, routed, routedLive]),
     /electron-private-independent-key|offline-plugin-settings-account|dfsc-launch-v1|DFSC_LAUNCH_CONTEXT|declarationHash|executionHash|"broker"|"token"/);
   assert.deepEqual(errors, []);
-  console.log('Production Electron host settings passed: explicit source, concurrent gates, independent SDK startup, paused restart, retained settings and no secret exposure. No real account/model invocation.');
+  console.log('Production Electron host settings passed: legacy independent and mixed native startup, concurrent gates, paused restart, retained settings and no secret exposure. No real account/model invocation.');
 } finally {
   await closeDesktopFixtureAndWait(app);
 }

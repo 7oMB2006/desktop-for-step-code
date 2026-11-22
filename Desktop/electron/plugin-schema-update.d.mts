@@ -13,5 +13,7 @@ interface SnapshotContext {
 export function parseConfigurationJson(bytes: Buffer): unknown;
 export function strictConfigurationSchema(raw: unknown): PluginConfigurationSchema;
 export function compareConfigurationSchemas(previous: unknown, next: unknown): PluginUpdateCompatibility;
+export function compareHostedConfigurationSchemas(previous: unknown, next: unknown,
+  oldHost: unknown, newHost: unknown): PluginUpdateCompatibility;
 export function validateConfigurationSnapshot(context: SnapshotContext, nextSchema: PluginConfigurationSchema): void;
 export function migrateConfigurationSnapshot(context: SnapshotContext, nextSchemaHash: string, nextSchema: PluginConfigurationSchema): SnapshotContext['saved'];

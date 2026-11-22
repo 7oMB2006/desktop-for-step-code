@@ -183,14 +183,24 @@ through opaque references, never renderer filesystem access. Tutorials and
 authorship remain author declarations; GitHub Stars are host-queried snapshots.
 
 Host-model plugins reuse this same detail form and save/restart footer. An
-unconfigured installation has no selected source: Follow DFSC and Independent
-are explicit choices, not authorization. Independent fields reuse the author's
-validated schema; stored secrets never return to the renderer. The unframed
+unconfigured installation has no selected source. Source selection is explicit,
+not authorization. For opted-in consumers, the connected official account and
+independent configuration can both be enabled; each capability has at most one
+source. Unassigned rows do not inherit a source. Older consumers retain their
+single-source choices. Independent fields reuse the author's validated schema;
+stored secrets never return to the renderer. The unframed
 connection/authorization list is a query snapshot, not a balance or success
 guarantee. Show actual session model, channel, region and per-capability approval
 only when confirmed. Saving, failed saves, management changes and session/restart
 changes invalidate the observation without discarding unsaved fields. Do not
 restart a session, grant access or renew a lease from this form.
+
+Model connection settings share one three-source group. A plugin that only
+uses its own model provider may explicitly declare the independent connection
+in its settings schema. Show it as a fixed source, not a connection check,
+and disable the two official sources. Source cards show only their label,
+icon and selection mark; unavailable sources use the shared disabled style.
+Keep no-model configuration forms unchanged.
 
 Installed plugins may contribute one data-only desktop workspace with a
 `main-view`, `side-panel` or `window` surface. All three render the same bounded,

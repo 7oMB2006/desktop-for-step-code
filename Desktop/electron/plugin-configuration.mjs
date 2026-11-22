@@ -8,7 +8,8 @@ const fail = () => { throw new PluginFileError('invalid-configuration'); };
 const snapshotLimit = 256 * 1024;
 export function parseConfigurationSchema(value) {
   if (!object(value) || value.schemaVersion !== 1 || value.consumer?.kind !== 'json-file-v1'
-    || !identifier(value.consumer.server) || !Array.isArray(value.groups) || value.groups.length > 8) fail();
+    || !identifier(value.consumer.server) || !Array.isArray(value.groups) || value.groups.length > 8
+    || value.modelConnection !== undefined && value.modelConnection !== 'independent') fail();
   const names = new Set(), groups = [];
   for (const group of value.groups) {
     if (!object(group) || !identifier(group.id) || !label(group.title) || !Array.isArray(group.fields)
@@ -47,7 +48,8 @@ export function parseConfigurationSchema(value) {
     }
     groups.push({ id: group.id, title: group.title, fields });
   }
-  return { schemaVersion: 1, consumer: { kind: 'json-file-v1', server: value.consumer.server }, groups };
+  return { schemaVersion: 1, consumer: { kind: 'json-file-v1', server: value.consumer.server }, groups,
+    ...(value.modelConnection === 'independent' ? { modelConnection: value.modelConnection } : {}) };
 }
 export function validateValue(field, value) {
   if (value === undefined || value === '') { if (field.required) fail(); return; }

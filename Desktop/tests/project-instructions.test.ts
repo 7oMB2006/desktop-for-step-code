@@ -170,6 +170,7 @@ async function submissionFixture(cwd: string) {
   const handle = runInNewContext(javascript + '\nhandle', {
     Error,
     readingSelections: new Map(),
+    playwrightPreviewEnabled: false, localPreviewRuns: new WeakMap(), browser: undefined,
     updateInstalling: false, transition: false, sessionNavigation: {}, sessionDraft: null, runtimes,
     selectedDraft: () => undefined, selectedRuntime: () => worker.id,
     text: (value: string) => value, isProjectInstructionsCommand, projectInstructionsMessage, promptNeedsQueue,

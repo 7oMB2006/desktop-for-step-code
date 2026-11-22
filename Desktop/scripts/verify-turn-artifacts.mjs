@@ -57,14 +57,21 @@ try {
     { role: 'toolResult', timestamp: Date.now() - 3000, toolCallId: 'artifact-edit', toolName: 'write', content: '已创建动画', details: { patch: '--- a/index.html\n+++ b/index.html\n@@ -0,0 +1,3 @@\n+<!doctype html>\n+<title>海岸骑行</title>\n+<h1>海岸骑行</h1>\n' } },
     { role: 'assistant', timestamp: Date.now(), content: '海岸骑行动画已完成，支持暂停、继续和速度调节。\n\n[打开「海岸骑行」动画](./index.html)\n\n使用说明和验收记录也放在这里：[交付说明](./交付说明.md)。\n\n动画采用单文件 HTML，浏览器即可打开；交付说明可以继续编辑。' },
   ];
-  await app.evaluate(({ ipcMain }, { snapshot, messages }) => {
+  const browser = await page.evaluate(() => window.desktop.browserList());
+  await app.evaluate(({ ipcMain }, { snapshot, messages, browser }) => {
     globalThis.artifactFixture = { ...snapshot, messages };
+    globalThis.artifactBrowser = browser;
     ipcMain.removeHandler('desktop');
     ipcMain.handle('desktop', (_event, method, ...args) => {
       if (method === 'snapshot') return globalThis.artifactFixture;
       if (method === 'sessions') return globalThis.artifactFixture.sessions;
-      if (method === 'browserList') return globalThis.artifactBrowser ?? { tabs: [] };
-      if (method === 'browserOpenLink') { globalThis.lastPreviewUrl = args[0]; globalThis.artifactBrowser = { tabs: [{ id: 'preview', url: args[0], title: 'Local preview', zoom: 1, loading: false }], activeId: 'preview' }; return globalThis.artifactBrowser; }
+      if (method === 'browserList') return globalThis.artifactBrowser;
+      if (method === 'browserOpenLink') {
+        globalThis.lastPreview = args;
+        globalThis.artifactBrowser = { ...globalThis.artifactBrowser, revision: globalThis.artifactBrowser.revision + 1, activeId: 'preview',
+          tabs: [{ id: 'preview', url: args[0], title: 'Local preview', zoom: 1, loading: false, canGoBack: false, canGoForward: false }] };
+        return globalThis.artifactBrowser;
+      }
       if (method === 'copyText') { globalThis.lastPreviewCopy = args[0]; return; }
       if (method === 'artifactFiles') { (globalThis.artifactFileRequests ??= []).push(args[1]); return args[1].map(path => ({ path, exists: !path.includes('missing'), canOpen: !path.includes('missing'), kind: path.endsWith('.html') ? 'website' : 'document', size: 1024 })); }
       if (method === 'artifactAction') { globalThis.lastArtifactAction = args; return; }
@@ -78,7 +85,7 @@ try {
       if (method === 'command' && args[0] === 'get_commands') return { commands: [] };
       return {};
     });
-  }, { snapshot, messages });
+  }, { snapshot, messages, browser });
   await page.reload();
   mark('artifact cards ready');
   await page.locator('.artifact-main').first().waitFor();
@@ -198,7 +205,7 @@ try {
   assert.deepEqual(await app.evaluate(() => globalThis.artifactFileRequests), [], 'local preview URLs never enter the filesystem API');
   await page.locator('.artifact-main').click();
   await page.waitForFunction(() => document.querySelector('#browser-panel')?.getAttribute('aria-hidden') === 'false');
-  assert.equal(await app.evaluate(() => globalThis.lastPreviewUrl), 'http://localhost:8765/');
+  assert.deepEqual(await app.evaluate(() => globalThis.lastPreview), ['http://localhost:8765/', browser.context]);
   await page.locator('.artifact-details-trigger').click();
   await page.getByRole('button', { name: '复制链接', exact: true }).click();
   assert.equal(await app.evaluate(() => globalThis.lastPreviewCopy), 'http://localhost:8765/');

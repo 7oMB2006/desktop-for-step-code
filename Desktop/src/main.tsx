@@ -418,6 +418,37 @@ function App() {
       return { owner, selected, remembered };
     });
   }, []);
+  useEffect(() => {
+    if (!bridge || isMini) return;
+    return bridge.onBrowserEvent(event => {
+      if (event.type !== 'open-preview') return;
+      const { owner } = event;
+      const visibleOwner = composerKey(composerOwner(latestData.current));
+      if (visibleOwner === owner && !navigationPending.current && !switching.current) {
+        setDetails('');
+        setRightPanel('browser');
+        return;
+      }
+      setPanelState(previous => {
+        const remembered = new Map(previous.remembered);
+        remembered.delete(owner);
+        remembered.set(owner, 'browser');
+        while (remembered.size > 64) remembered.delete(remembered.keys().next().value!);
+        return { ...previous, remembered, selected: previous.owner === owner ? 'browser' : previous.selected };
+      });
+    });
+  }, [setRightPanel]);
+  const promoteBrowserPanel = (draftId: string, sessionId: string) => {
+    const draftOwner = composerKey({ draftId });
+    const newOwner = composerKey({ sessionId });
+    setPanelState(previous => {
+      if (previous.remembered.get(draftOwner) !== 'browser' || previous.remembered.has(newOwner)) return previous;
+      const remembered = new Map(previous.remembered);
+      remembered.delete(draftOwner);
+      remembered.set(newOwner, 'browser');
+      return { ...previous, remembered };
+    });
+  };
   useLayoutEffect(() => {
     setPanelState(previous => previous.owner === panelOwner ? previous : {
       ...previous, owner: panelOwner, selected: previous.remembered.has(panelOwner) ? previous.remembered.get(panelOwner)! : 'auto',
@@ -465,14 +496,18 @@ function App() {
   }, [capabilityRevision]);
   const openingSequence = useRef(0);
   const openFile = useCallback(async (target?: FileTarget, destination?: string, toggle = true) => {
+    if (navigationPending.current) return;
     if (isMini) { await handoff('file', { target, destination }); return; }
     if (!bridge) throw new Error('Desktop unavailable');
     const sequence = ++openingSequence.current;
-    const owner = composerKey(composerOwner(latestData.current));
-    const before = rightPanel === 'browser' ? await bridge.browserList() : undefined;
-    const result = await bridge.fileOpen(target, destination);
-    if (sequence !== openingSequence.current || owner !== composerKey(composerOwner(latestData.current))
-      || !result || result.destination === 'external') return;
+    const source = latestData.current;
+    const owner = source.browserOwner ?? composerKey(composerOwner(source));
+    const stillCurrent = () => !navigationPending.current && sequence === openingSequence.current
+      && owner === (latestData.current.browserOwner ?? composerKey(composerOwner(latestData.current)));
+    const before = source.browserOwner !== undefined || rightPanel === 'browser' ? await bridge.browserList() : undefined;
+    if (!stillCurrent() || (source.browserOwner !== undefined && before?.owner !== source.browserOwner)) return;
+    const result = await bridge.fileOpen(target, destination, before?.context);
+    if (!stillCurrent() || !result || result.destination === 'external') return;
     setDetails('');
     if (result.destination === 'preview') {
       const same = previewFile && workspaceKey(previewFile.path) === workspaceKey(result.file.path);
@@ -484,17 +519,20 @@ function App() {
     }
   }, [rightPanel, details, previewFile]);
   const openWeb = useCallback(async (address: string, toggle = true) => {
+    if (navigationPending.current) return;
     if (isMini) { await handoff('web', { address }); return; }
     if (!bridge) throw new Error('Desktop unavailable');
     const sequence = ++openingSequence.current;
-    const owner = composerKey(composerOwner(latestData.current));
-    const stillCurrent = () => sequence === openingSequence.current && owner === composerKey(composerOwner(latestData.current));
+    const source = latestData.current;
+    const owner = source.browserOwner ?? composerKey(composerOwner(source));
+    const stillCurrent = () => !navigationPending.current && sequence === openingSequence.current
+      && owner === (latestData.current.browserOwner ?? composerKey(composerOwner(latestData.current)));
     const before = await bridge.browserList();
-    if (!stillCurrent()) return;
+    if (!stillCurrent() || (source.browserOwner !== undefined && before.owner !== source.browserOwner)) return;
     if (toggle && rightPanel === 'browser' && !details && before.tabs.find(tab => tab.id === before.activeId)?.url === address) {
       setRightPanel(null); return;
     }
-    await bridge.browserOpenLink(address);
+    await bridge.browserOpenLink(address, before.context);
     if (!stillCurrent()) return;
     setDetails(''); setRightPanel('browser');
   }, [rightPanel, details]);
@@ -1147,6 +1185,7 @@ function App() {
         }); return;
       }
       if (event.type === 'desktop_draft_created' && event.draftId === view.current.draftId && !switching.current) {
+        if (event.sessionId) promoteBrowserPanel(event.draftId, event.sessionId);
         void run(refresh); return;
       }
       if (event.type === 'desktop_draft_changed' && event.draftId === view.current.draftId && !switching.current) {
@@ -1751,7 +1790,10 @@ function App() {
           try {
             const created = await bridge!.createDraftSession(data.draftId);
             // The creation reply can precede its separately published promotion event.
-            if (created.state?.sessionId) composer.client.promote(data.draftId, created.state.sessionId);
+            if (created.state?.sessionId) {
+              composer.client.promote(data.draftId, created.state.sessionId);
+              promoteBrowserPanel(data.draftId, created.state.sessionId);
+            }
             installSnapshot(created);
             id = created.runtimeId;
             sessionId = created.state?.sessionId;
@@ -2691,7 +2733,7 @@ function App() {
       onToggleExpanded={() => setExpandedRightPanel(expandedRightPanel === 'terminal' ? null : 'terminal')}
       overlay={!summarySpace} runtimeId={data.runtimeId} cwd={data.preferences.workspace} language={data.preferences.language}
       onClose={closeTerminal} onError={setError}/>
-    <BrowserPanel open={visibleRightPanel === 'browser' && !details}
+    <BrowserPanel owner={data.browserOwner} open={visibleRightPanel === 'browser' && !details}
       width={browserWidth} onWidthChange={setBrowserWidth}
       replaced={desktopSideOpen || inspectionOpen || visibleRightPanel === 'turns' || visibleRightPanel === 'review' || visibleRightPanel === 'terminal' || visibleRightPanel === 'file' || visibleRightPanel === 'subagent' || visibleRightPanel === 'btw' || Boolean(details)}
       expanded={inspectorExpanded && visibleRightPanel === 'browser'} onToggleExpanded={() => setExpandedRightPanel(inspectorExpanded ? null : 'browser')}

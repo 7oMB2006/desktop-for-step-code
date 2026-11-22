@@ -26,7 +26,9 @@ export class SessionCollaboration {
   constructor(private pool: SessionRuntimes, private extensionPath: string, private language: () => 'zh' | 'en',
     private enqueue: (worker: SessionRuntime, message: string) => void,
     private remote?: { extensionPath: string; sendImage: (worker: SessionRuntime, path: string, caption?: string, signal?: AbortSignal) => Promise<unknown> },
-    private attachments?: SessionAttachmentExports) {}
+    private attachments?: SessionAttachmentExports,
+    private openPreview?: (worker: SessionRuntime, url: string) => unknown,
+    private playwrightPreview?: (worker: SessionRuntime, request: Record<string, unknown>, signal?: AbortSignal) => unknown) {}
 
   async start() {
     await this.attachments?.clearStale();
@@ -73,13 +75,16 @@ export class SessionCollaboration {
     this.tokens.set(token, worker);
     return {
       env: { DESKTOP_SESSION_URL: this.url, DESKTOP_SESSION_TOKEN: token, DESKTOP_CRON_STATE: '1',
-        ...(this.attachments ? { DESKTOP_SESSION_ATTACHMENTS: '1' } : {}) },
+        ...(this.attachments ? { DESKTOP_SESSION_ATTACHMENTS: '1' } : {}),
+        ...(this.openPreview ? { DESKTOP_BROWSER_PREVIEW: '1' } : {}),
+        ...(this.playwrightPreview ? { DESKTOP_PLAYWRIGHT_PREVIEW: '1' } : {}) },
       // Unknown extension tools otherwise get a generic write/execute prompt.
-      // The broker gates every send itself. Attachments expose only the
-      // images already supplied to the calling worker's conversation.
+      // Desktop-owned tools enforce their own confirmation and session scope.
       args: ['--desktop-plan-review', '--plan-review-surface', '--desktop-clarification', '--extension', this.extensionPath,
         ...(this.remote ? ['--extension', this.remote.extensionPath] : []),
         ...(this.attachments ? ['--tool-override', 'desktop_session_attachments=allow'] : []),
+        ...(this.openPreview ? ['--tool-override', 'desktop_open_preview=allow'] : []),
+        ...(this.playwrightPreview ? ['--tool-override', 'desktop_playwright=allow'] : []),
         '--tool-override', 'desktop_sessions=allow',
         '--tool-override', 'desktop_read_session=allow',
         '--tool-override', 'desktop_send_message=allow'],
@@ -108,6 +113,18 @@ export class SessionCollaboration {
         if (source.status !== 'connected' || source.mutating || source.stopping || source.rpc !== rpc
           || source.state?.sessionId !== sessionId) throw new Error('Source session connection expired');
       });
+    }
+    if (data.action === 'playwright-preview') {
+      if (!this.playwrightPreview || !source.state?.sessionId || source.status !== 'connected' || source.mutating)
+        throw new Error('Desktop Playwright is unavailable for this session');
+      return this.playwrightPreview(source, data, signal);
+    }
+    if (data.action === 'open-preview') {
+      if (!this.openPreview || !source.state?.sessionId || source.status !== 'connected' || source.mutating)
+        throw new Error('Desktop preview is unavailable for this session');
+      if (Object.keys(data).length !== 2 || typeof data.url !== 'string' || data.url.length > 4096)
+        throw new Error('Expected only a local preview URL');
+      return this.openPreview(source, data.url);
     }
     if (data.action === 'remote-image') {
       if (!this.remote || typeof data.path !== 'string' || !data.path || data.path.length > 4096

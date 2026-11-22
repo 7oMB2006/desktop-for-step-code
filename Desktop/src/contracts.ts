@@ -15,6 +15,7 @@ export interface Message { desktopImported?: boolean }
 export interface Message { desktopInput?: { version: 1; text: string } }
 export interface Content { historical?: boolean }
 export interface Snapshot { workspaceIssue?: string }
+export interface Snapshot { browserOwner?: string }
 export interface Snapshot { firstRun?: { required: boolean } }
 export interface RuntimeStartupTiming {
   processReadyMs: number;
@@ -201,9 +202,9 @@ export interface DesktopBridge extends SessionImportBridge, BtwBridge, Backgroun
   cancelUpdateDownload(): Promise<void>;
   installUpdate(): Promise<void>;
   onUpdateEvent(callback: (state: AppUpdateState) => void): () => void;
-  fileOpen(target?: FileTarget, destination?: string): Promise<FileOpenResult | null>;
+  fileOpen(target?: FileTarget, destination?: string, browserContext?: number): Promise<FileOpenResult | null>;
   fileOpenOptions(target: FileTarget): Promise<FileOpeningOptions>;
-  browserOpenLink(address: string): Promise<BrowserSnapshot>;
+  browserOpenLink(address: string, context?: number): Promise<BrowserSnapshot>;
   artifactFiles(runtimeId: string, paths: string[]): Promise<ArtifactFile[]>;
   artifactAction(runtimeId: string, path: string, action: 'open' | 'reveal' | 'copy'): Promise<void>;
   linkPreview(url: string): Promise<LinkPreview>;
@@ -213,11 +214,11 @@ export interface DesktopBridge extends SessionImportBridge, BtwBridge, Backgroun
   clmAction(runtimeId: string, sessionId: string, action: import('./clm').ClmAction, guidance?: string): Promise<void>;
   rightPanelWidthMenu(selected: 'standard' | 'wide' | 'fullscreen', position: { x: number; y: number }): Promise<'standard' | 'wide' | 'fullscreen' | undefined>;
   browserList(): Promise<BrowserSnapshot>;
-  browserCreate(address?: string): Promise<BrowserSnapshot>;
-  browserSelect(id: string): Promise<BrowserSnapshot>;
-  browserClose(id: string): Promise<BrowserSnapshot>;
-  browserAction(id: string, action: BrowserAction, address?: string): Promise<BrowserSnapshot>;
-  browserLayout(bounds: BrowserBounds | null): Promise<void>;
+  browserCreate(address?: string, context?: number): Promise<BrowserSnapshot>;
+  browserSelect(id: string, context?: number): Promise<BrowserSnapshot>;
+  browserClose(id: string, context?: number): Promise<BrowserSnapshot>;
+  browserAction(id: string, action: BrowserAction, address?: string, context?: number): Promise<BrowserSnapshot>;
+  browserLayout(bounds: BrowserBounds | null, context?: number): Promise<void>;
   onBrowserEvent(callback: (event: BrowserEvent) => void): () => void;
   terminalList(runtimeId?: string): Promise<TerminalSnapshot[]>;
   terminalCreate(runtimeId: string): Promise<TerminalSnapshot>;
@@ -318,11 +319,14 @@ export interface FilePreviewData {
 }
 export type FileOpenResult = { destination: 'preview'; file: FilePreviewData }
   | { destination: 'browser'; browser: BrowserSnapshot } | { destination: 'external' };
-export type BrowserAction = 'navigate' | 'back' | 'forward' | 'reload' | 'stop' | 'external' | 'zoomIn' | 'zoomOut' | 'zoomReset';
+export type BrowserAction = 'navigate' | 'back' | 'forward' | 'reload' | 'stop' | 'stopTesting' | 'external' | 'zoomIn' | 'zoomOut' | 'zoomReset';
 export interface BrowserBounds { x: number; y: number; width: number; height: number }
-export interface BrowserTab { id: string; title: string; url: string; loading: boolean; canGoBack: boolean; canGoForward: boolean; zoom: number; error?: string; localFile?: string }
-export interface BrowserSnapshot { revision: number; activeId?: string; tabs: BrowserTab[] }
-export type BrowserEvent = { type: 'snapshot'; snapshot: BrowserSnapshot } | { type: 'address' };
+export interface BrowserTab { id: string; title: string; url: string; loading: boolean; canGoBack: boolean; canGoForward: boolean; zoom: number; error?: string; localFile?: string; testing?: boolean; playwrightBusy?: boolean }
+export interface BrowserSnapshot {
+  revision: number; owner: string; context: number; canCreate: boolean; activeId?: string; tabs: BrowserTab[];
+}
+export type BrowserEvent = { type: 'snapshot'; snapshot: BrowserSnapshot } | { type: 'address'; context: number }
+  | { type: 'open-preview'; owner: string };
 export interface TerminalInfo {
   id: string; cwd: string; title: string; status: 'starting' | 'running' | 'exited' | 'failed';
   cols: number; rows: number; exitCode?: number;

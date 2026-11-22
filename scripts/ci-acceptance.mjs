@@ -46,6 +46,7 @@ export const acceptanceGroups = {
     'verify-terminal-panel.mjs',
     'verify-terminal-scopes.mjs',
     'verify-browser-panel.mjs',
+    'verify-agent-preview.mjs',
     'verify-message-links.mjs',
     'verify-turn-artifacts.mjs',
     'verify-file-preview.mjs',
@@ -141,6 +142,8 @@ export const acceptanceGroups = {
 // Local-only checks are explicitly registered rather than silently skipped.
 // A new verify-*.mjs must be explicitly assigned; never silently default to local-only.
 export const localOnly = [
+  // V2 is opt-in for isolated source runs; packaged app acceptance remains on V1.
+  'verify-playwright-preview.mjs',
   // Menu state/copy preview; native creation/read-only enforcement also has runtime tests.
   'verify-project-instructions-preview.mjs',
   // These checks require an explicitly staged or packaged v018 candidate; CI still pins v017.

@@ -19,6 +19,14 @@ export function browserNavigation(url: string): boolean {
   try { return browserUrl(url) === url; } catch { return false; }
 }
 
+export function browserPreviewUrl(input: unknown): string {
+  if (typeof input === 'string' && /^http:\/\/(?:localhost|127\.0\.0\.1|\[::1\])(?=[:/?#]|$)/iu.test(input.trim())) {
+    const url = new URL(browserUrl(input));
+    if (url.protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname)) return url.href;
+  }
+  throw new Error('Preview requires an explicit local HTTP URL (localhost, 127.0.0.1, or [::1])');
+}
+
 export function browserBounds(input: unknown, width: number, height: number): BrowserBounds | null {
   if (input === null) return null;
   if (!input || typeof input !== 'object') throw new Error('Invalid browser bounds');

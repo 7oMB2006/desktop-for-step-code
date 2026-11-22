@@ -16336,3 +16336,31 @@ assistant and tool images, stale IDs and sibling branches, concurrent
 requests, cancellation, revocation, and 130 repeated exports without using
 additional slots. Live model tool selection and packaged/macOS acceptance
 were not verified locally.
+
+## 2026-11-22: Built-in Playwright preview (source experiment)
+
+The Windows fixture drives the real Step Code tool against a mock provider
+and the pinned Microsoft Playwright MCP. The original Electron guest renders
+an 800 by 600 WebGL screenshot in the tool result while its conversation is
+in the background. A Vite file edit hot-updates the hidden guest without
+losing form state. The network result reports the request path and status
+without the query string. Showing the preview exposes the same guest; explicit
+stop and normal turn completion detach Playwright without closing it. Each
+new turn needs its own approval and denial leaves the previous guest alone.
+No Electron window-focus event was observed in the fixture.
+
+Typecheck, production build, 63 focused tests, V1 agent preview, the native
+browser and session attachment regressions, and CI inventory checks passed
+on Windows after integrating with the attachment change. The V2 tool
+requires `DESKTOP_EXPERIMENTAL_PLAYWRIGHT_PREVIEW=1` in an unpackaged app.
+The packaged app cannot turn it on. Native macOS and offline package
+acceptance remain release gates; this does not verify arbitrary Playwright
+scripts or real model behavior.
+
+The Windows fixture also covers automatic reveal after the first approved
+connection in a turn, including a connection that finishes while another
+conversation is visible. It samples the shared tab pulse during an actual
+Playwright click, checks the fixed tab width and reduced-motion fallback, and
+verifies that closing the panel neither stops the helper nor lets a later
+`show` or same-turn reconnection reopen it. Stop, reapproval in a new turn,
+normal settlement and denial preserve the original guest and its form state.

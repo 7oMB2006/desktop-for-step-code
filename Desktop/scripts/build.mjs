@@ -7,6 +7,7 @@ import './build-terminal.mjs';
 const usagePreview = process.env.DESKTOP_USAGE_OVERVIEW_PREVIEW === '1';
 const define = { DESKTOP_USAGE_OVERVIEW_PREVIEW: JSON.stringify(usagePreview) };
 await build({ entryPoints: ['electron/main.ts', 'electron/preload.ts', 'electron/tray-preload.ts', 'electron/keyless-fetch.ts', 'electron/macos-update-helper.ts'], outdir: 'dist', outExtension: { '.js': '.cjs' }, bundle: true, platform: 'node', format: 'cjs', external: ['electron'], sourcemap: true, define });
+await cp('electron/playwright-preview-helper.cjs', 'dist/playwright-preview-helper.cjs');
 await viteBuild({ base: './', define, build: { outDir: 'dist/renderer', emptyOutDir: true, rolldownOptions: { input: ['index.html', 'tray-menu.html', ...(usagePreview ? ['tests/fixtures/usage-overview.html'] : [])] } } });
 await mkdir('dist/licenses', { recursive: true });
 await mkdir('dist/file-opening', { recursive: true });

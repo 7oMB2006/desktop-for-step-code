@@ -105,6 +105,9 @@ importers:
         specifier: 3.4.0
         version: 3.4.0
     devDependencies:
+      '@playwright/mcp':
+        specifier: 0.0.86
+        version: 0.0.86
       '@resvg/resvg-js':
         specifier: ^2.6.2
         version: 2.6.2
@@ -409,6 +412,11 @@ packages:
   '@pkgjs/parseargs@0.11.0':
     resolution: {integrity: sha512-+1VkjdD0QBLPodGrJUeqarH8VAIvQODIbwh9XpP5Syisf7YoQgsJKPNFoqqLQlu+VQ/tVSshMR6loPMn8U+dPg==}
     engines: {node: '>=14'}
+
+  '@playwright/mcp@0.0.86':
+    resolution: {integrity: sha512-4SL9OSINmik3+EObCYJIxH8BkhcqqGU6CM8XIgztW015iBVR9WR6Q0xF180Ery+xuEVyyK5r6nC2bOg3zjgCoA==}
+    engines: {node: '>=20'}
+    hasBin: true
 
   '@resvg/resvg-js-android-arm-eabi@2.6.2':
     resolution: {integrity: sha512-FrJibrAk6v29eabIPgcTUMPXiEz8ssrAk7TXxsiZzww9UTQ1Z5KAbFJs+Z0Ez+VZTYgnE5IQJqBcoSiMebtPHA==}
@@ -1928,9 +1936,19 @@ packages:
     engines: {node: '>=18'}
     hasBin: true
 
+  playwright-core@1.66.0-alpha-2026-11-18:
+    resolution: {integrity: sha512-VQ60tKPjqhf/3tHJGKuQ8Qn6e28Ziorhpmh4DGBZThgQp5geZeyKmuoJF2o/OwQBs5K7LNkhxNbOclBoAicqPg==}
+    engines: {node: '>=20'}
+    hasBin: true
+
   playwright@1.60.0:
     resolution: {integrity: sha512-hheHdokM8cdqCb0lcE3s+zT4t4W+vvjpGxsZlDnikarzx8tSzMebh3UiFtgqwFwnTnjYQcsyMF8ei2mCO/tpeA==}
     engines: {node: '>=18'}
+    hasBin: true
+
+  playwright@1.66.0-alpha-2026-11-18:
+    resolution: {integrity: sha512-otQ+PFujQwUSpcLjoZ1zocwpEEF/5WhsBKaOuZeRhJ3ifjyRJJskKeosaw55WYdJzwlmfugK7OMX/tey1ExhWQ==}
+    engines: {node: '>=20'}
     hasBin: true
 
   plist@3.1.0:
@@ -2684,6 +2702,11 @@ snapshots:
 
   '@pkgjs/parseargs@0.11.0':
     optional: true
+
+  '@playwright/mcp@0.0.86':
+    dependencies:
+      playwright: 1.66.0-alpha-2026-11-18
+      playwright-core: 1.66.0-alpha-2026-11-18
 
   '@resvg/resvg-js-android-arm-eabi@2.6.2':
     optional: true
@@ -4521,11 +4544,17 @@ snapshots:
 
   playwright-core@1.60.0: {}
 
+  playwright-core@1.66.0-alpha-2026-11-18: {}
+
   playwright@1.60.0:
     dependencies:
       playwright-core: 1.60.0
     optionalDependencies:
       fsevents: 2.3.2
+
+  playwright@1.66.0-alpha-2026-11-18:
+    dependencies:
+      playwright-core: 1.66.0-alpha-2026-11-18
 
   plist@3.1.0:
     dependencies:

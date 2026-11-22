@@ -265,7 +265,7 @@ const bridge: Partial<DesktopBridge> = {
   windowControl: async () => ({ focused: true, maximized: false, fullscreen: false }),
   updateState: async () => ({ status: 'idle', currentVersion: '0.6.0', channel: 'preview' }),
   onUpdateEvent: () => () => {},
-  browserList: async () => ({ revision: 0, tabs: [] }), browserLayout: async () => {}, onBrowserEvent: () => () => {},
+  browserList: async () => ({ revision: 0, owner: '', context: 0, canCreate: true, tabs: [] }), browserLayout: async () => {}, onBrowserEvent: () => () => {},
   terminalList: async () => [], onTerminalEvent: () => () => {},
   settings: async () => ({ account: { loggedIn: false, validity: 'unknown' }, profiles: [], providers: [], mcp: {}, skills: [] }),
   copyText: async text => navigator.clipboard.writeText(text),

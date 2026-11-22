@@ -177,7 +177,7 @@ function deleteSessionFixture() {
   let entered!: () => void, confirm!: () => void;
   const dialogEntered = new Promise<void>(resolve => { entered = resolve; });
   const confirmation = new Promise<void>(resolve => { confirm = resolve; });
-  const state = { dialogs: 0, removes: 0, trashed: 0 };
+  const state = { dialogs: 0, removes: 0, trashed: 0, discardedBrowserOwners: [] as string[] };
   const create = new Function('state', 'confirmation', 'entered', javascript(`
     let settingsMutation = false, transition = false;
     const deletingArchived = false, preferences = { language: 'en' }, miniView = {}, window = {};
@@ -190,6 +190,11 @@ function deleteSessionFixture() {
     const ${cronGuard.getText(file)};
     const dialog = { async showMessageBox() { state.dialogs++; entered(); await confirmation; return { response: 1 }; } };
     const shell = { async trashItem() { if (!transition) throw new Error('missing transition lock'); state.trashed++; } };
+    const composerKey = owner => 'session:' + owner.sessionId;
+    const browser = { discard(owner) {
+      if (!state.trashed) throw new Error('browser owner discarded before session deletion');
+      state.discardedBrowserOwners.push(owner);
+    } };
     const workflowBindings = { async remove() {} }, usageEstimates = { async remove() {} };
     return { worker, lock: () => { settingsMutation = true; }, replace: () => runtimes.workers.set(worker.id, { ...worker }),
       reserveCronOwner: () => cronWakeLaunches.add('saved'),
@@ -222,13 +227,14 @@ test('actual deletion refuses the update lock before prompting and rechecks it a
   assert.equal(await pending, true);
   assert.equal(ready.state.removes, 1);
   assert.equal(ready.state.trashed, 1);
+  assert.deepEqual(ready.state.discardedBrowserOwners, ['session:saved']);
 });
 
 test('actual deletion checks a Cron wake reservation before and after asking for confirmation', async () => {
   const initial = deleteSessionFixture();
   initial.reserveCronOwner();
   await assert.rejects(initial.invoke(), /preparing a scheduled task/);
-  assert.deepEqual(initial.state, { dialogs: 0, removes: 0, trashed: 0 });
+  assert.deepEqual(initial.state, { dialogs: 0, removes: 0, trashed: 0, discardedBrowserOwners: [] });
 
   const during = deleteSessionFixture();
   const pending = during.invoke();
@@ -236,7 +242,7 @@ test('actual deletion checks a Cron wake reservation before and after asking for
   during.reserveCronOwner();
   during.confirm();
   await assert.rejects(pending, /preparing a scheduled task/);
-  assert.deepEqual(during.state, { dialogs: 1, removes: 0, trashed: 0 });
+  assert.deepEqual(during.state, { dialogs: 1, removes: 0, trashed: 0, discardedBrowserOwners: [] });
 });
 
 test('actual snapshot does not query a transport while an update owns its mutation', async () => {

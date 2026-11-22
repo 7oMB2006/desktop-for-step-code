@@ -133,19 +133,19 @@ const bridge: DesktopBridge = {
     ipcRenderer.on('app-update', listener);
     return () => ipcRenderer.removeListener('app-update', listener);
   },
-  fileOpen: (target, destination) => invoke('fileOpen', target, destination),
+  fileOpen: (target, destination, browserContext) => invoke('fileOpen', target, destination, browserContext),
   fileOpenOptions: target => invoke('fileOpenOptions', target),
-  browserOpenLink: address => invoke('browserOpenLink', address),
+  browserOpenLink: (address, context) => invoke('browserOpenLink', address, context),
   artifactFiles: (runtimeId, paths) => invoke('artifactFiles', runtimeId, paths),
   artifactAction: (runtimeId, path, action) => invoke('artifactAction', runtimeId, path, action),
   linkPreview: url => invoke('linkPreview', url),
   rightPanelWidthMenu: (selected, position) => invoke('rightPanelWidthMenu', selected, position),
   browserList: () => invoke('browserList'),
-  browserCreate: address => invoke('browserCreate', address),
-  browserSelect: id => invoke('browserSelect', id),
-  browserClose: id => invoke('browserClose', id),
-  browserAction: (id, action, address) => invoke('browserAction', id, action, address),
-  browserLayout: bounds => invoke('browserLayout', bounds),
+  browserCreate: (address, context) => invoke('browserCreate', address, context),
+  browserSelect: (id, context) => invoke('browserSelect', id, context),
+  browserClose: (id, context) => invoke('browserClose', id, context),
+  browserAction: (id, action, address, context) => invoke('browserAction', id, action, address, context),
+  browserLayout: (bounds, context) => invoke('browserLayout', bounds, context),
   onBrowserEvent: callback => {
     const listener = (_: unknown, event: import('../src/contracts').BrowserEvent) => callback(event);
     ipcRenderer.on('browser-event', listener);

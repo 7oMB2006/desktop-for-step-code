@@ -132,6 +132,7 @@ import { migrateWorkspaceIdentity, relocatedWorkspace, relocateWorkspace, remove
 import { archivedDeletionTargets, deleteManagedSessionFile, managedSessionFile } from './session-deletion';
 import { parseFulltextQuery, projectFulltextResult } from './session-search';
 import { decodeImageUrl, imageFileName, fileReferenceMessage, imageMime, MAX_ATTACHMENTS, MAX_FILE_BYTES, MAX_IMAGE_BYTES, MAX_IMAGES } from './attachment-utils';
+import { SessionAttachmentExports } from './session-attachment-exports';
 
 app.setName('Desktop for Step Code');
 app.setAppUserModelId('community.stepcode.desktop');
@@ -1223,7 +1224,8 @@ async function tryAutomaticCron(workspace?: string) {
 const collaboration: SessionCollaboration = new SessionCollaboration(runtimes, join(runtimeRoot, 'desktop-sessions.mjs'), () => preferences.language,
   (worker, message) => { pendingMessages.enqueue(worker, message, { message }); },
   { extensionPath: join(runtimeRoot, 'desktop-remote.mjs'),
-    sendImage: (worker, path, caption, signal) => remote.deliverImage(worker, path, caption, signal) });
+    sendImage: (worker, path, caption, signal) => remote.deliverImage(worker, path, caption, signal) },
+  new SessionAttachmentExports(join(app.getPath('userData'), 'cache', 'session-attachment-exports')));
 function recycleSessionRuntimes() {
   if (transition && !sessionNavigation.busy) return;
   void runtimes.recycle(worker => sessionNavigation.pending(worker.state?.sessionId))

@@ -3,6 +3,7 @@ import { createServer, type Server } from 'node:http';
 import type { Message } from '../src/contracts';
 import { firstUserText, type SessionRuntime, type SessionRuntimes } from './session-runtimes';
 import { sessionReference, sessionIdFromReference } from '../src/session-reference';
+import type { SessionAttachmentExports } from './session-attachment-exports';
 
 const MAX_TEXT = 4000;
 const MAX_BODY = 24000;
@@ -24,9 +25,11 @@ export class SessionCollaboration {
   private tokens = new Map<string, SessionRuntime>();
   constructor(private pool: SessionRuntimes, private extensionPath: string, private language: () => 'zh' | 'en',
     private enqueue: (worker: SessionRuntime, message: string) => void,
-    private remote?: { extensionPath: string; sendImage: (worker: SessionRuntime, path: string, caption?: string, signal?: AbortSignal) => Promise<unknown> }) {}
+    private remote?: { extensionPath: string; sendImage: (worker: SessionRuntime, path: string, caption?: string, signal?: AbortSignal) => Promise<unknown> },
+    private attachments?: SessionAttachmentExports) {}
 
   async start() {
+    await this.attachments?.clearStale();
     const server = createServer(async (req, res) => {
       const controller = new AbortController();
       res.on('close', () => controller.abort());
@@ -35,7 +38,8 @@ export class SessionCollaboration {
       };
       try {
         if (req.method !== 'POST' || req.url !== '/sessions' || req.headers.origin) return reply(403, { error: 'Request rejected' });
-        const worker = this.tokens.get(req.headers.authorization?.replace(/^Bearer /, '') ?? '');
+        const token = req.headers.authorization?.replace(/^Bearer /, '') ?? '';
+        const worker = this.tokens.get(token);
         if (!worker || this.pool.workers.get(worker.id) !== worker || worker.status !== 'connected') return reply(403, { error: 'Session connection expired' });
         const chunks: Buffer[] = [];
         let size = 0;
@@ -45,7 +49,8 @@ export class SessionCollaboration {
           chunks.push(chunk);
         }
         const value = JSON.parse(Buffer.concat(chunks).toString('utf8'));
-        reply(200, await this.dispatch(worker, value, controller.signal));
+        if (this.tokens.get(token) !== worker) return reply(403, { error: 'Session connection expired' });
+        reply(200, await this.dispatch(worker, value, controller.signal, () => this.tokens.get(token) === worker));
       } catch (error) {
         reply(400, { error: error instanceof Error ? error.message : 'Session request failed' });
       }
@@ -67,12 +72,14 @@ export class SessionCollaboration {
     const token = randomBytes(32).toString('hex');
     this.tokens.set(token, worker);
     return {
-      env: { DESKTOP_SESSION_URL: this.url, DESKTOP_SESSION_TOKEN: token, DESKTOP_CRON_STATE: '1' },
+      env: { DESKTOP_SESSION_URL: this.url, DESKTOP_SESSION_TOKEN: token, DESKTOP_CRON_STATE: '1',
+        ...(this.attachments ? { DESKTOP_SESSION_ATTACHMENTS: '1' } : {}) },
       // Unknown extension tools otherwise get a generic write/execute prompt.
-      // The broker gates every send itself, even under Full Access, so only
-      // these three desktop-owned tools bypass that duplicate approval.
+      // The broker gates every send itself. Attachments expose only the
+      // images already supplied to the calling worker's conversation.
       args: ['--desktop-plan-review', '--plan-review-surface', '--desktop-clarification', '--extension', this.extensionPath,
         ...(this.remote ? ['--extension', this.remote.extensionPath] : []),
+        ...(this.attachments ? ['--tool-override', 'desktop_session_attachments=allow'] : []),
         '--tool-override', 'desktop_sessions=allow',
         '--tool-override', 'desktop_read_session=allow',
         '--tool-override', 'desktop_send_message=allow'],
@@ -81,15 +88,27 @@ export class SessionCollaboration {
 
   detach(worker: SessionRuntime) {
     for (const [token, owner] of this.tokens) if (owner === worker) this.tokens.delete(token);
+    this.attachments?.detach(worker);
   }
 
-  async dispatch(source: SessionRuntime, request: unknown, signal?: AbortSignal) {
+  async dispatch(source: SessionRuntime, request: unknown, signal?: AbortSignal, isAuthorized = () => true) {
     const requireSource = () => {
-      if (signal?.aborted || this.pool.require(source.id) !== source) throw new Error('Source session connection expired');
+      if (signal?.aborted || !isAuthorized() || this.pool.require(source.id) !== source)
+        throw new Error('Source session connection expired');
     };
     requireSource();
     if (!request || typeof request !== 'object' || Array.isArray(request)) throw new Error('Invalid session request');
     const data = request as Record<string, unknown>;
+    if (data.action === 'attachments') {
+      const sessionId = source.state?.sessionId;
+      const rpc = source.rpc;
+      if (!this.attachments || !sessionId) throw new Error('Session attachments are unavailable');
+      return this.attachments.request(source, data, () => {
+        requireSource();
+        if (source.status !== 'connected' || source.mutating || source.stopping || source.rpc !== rpc
+          || source.state?.sessionId !== sessionId) throw new Error('Source session connection expired');
+      });
+    }
     if (data.action === 'remote-image') {
       if (!this.remote || typeof data.path !== 'string' || !data.path || data.path.length > 4096
         || data.caption !== undefined && (typeof data.caption !== 'string' || data.caption.length > 500))
@@ -163,5 +182,6 @@ export class SessionCollaboration {
       server.closeAllConnections();
       await closed;
     }
+    await this.attachments?.stop();
   }
 }

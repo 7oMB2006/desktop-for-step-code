@@ -91,6 +91,7 @@ export const acceptanceGroups = {
     'verify-send-queue.mjs',
     'verify-model-switch.mjs',
     'verify-cross-session.mjs',
+    'verify-session-attachments.mjs',
     'verify-session-import.mjs',
     'verify-session-move.mjs',
     'verify-import-large-electron.mjs',

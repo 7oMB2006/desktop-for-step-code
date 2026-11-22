@@ -1,11 +1,18 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { SessionCollaboration, publicMessages } from '../electron/session-collaboration';
+import { SessionAttachmentExports } from '../electron/session-attachment-exports';
+import type { HistoryEntry } from '../electron/session-branching';
 import { SessionRuntimes, type WorkerTransport } from '../electron/session-runtimes';
 import type { RuntimeEvent } from '../src/contracts';
 import { PendingMessages } from '../electron/pending-messages';
 
 class Transport implements WorkerTransport {
+  entries: HistoryEntry[] = [];
+  leafId: string | null = null;
   calls: { type: string; args?: Record<string, unknown> }[] = [];
   env: NodeJS.ProcessEnv = {};
   args: string[] = [];
@@ -15,6 +22,7 @@ class Transport implements WorkerTransport {
     this.calls.push({ type, args });
     if (type === 'get_state') return { sessionId: this.id, isStreaming: false };
     if (type === 'get_messages') return { messages: [] };
+    if (type === 'get_entries') return { entries: this.entries, leafId: this.leafId };
     if (type === 'get_available_models') return { models: [] };
     return {};
   }
@@ -22,7 +30,7 @@ class Transport implements WorkerTransport {
   async stop() {}
 }
 async function fixture(beforePrompt?: (worker: import('../electron/session-runtimes').SessionRuntime, message: string) => Promise<void>,
-  remote?: ConstructorParameters<typeof SessionCollaboration>[4]) {
+  remote?: ConstructorParameters<typeof SessionCollaboration>[4], attachments?: SessionAttachmentExports) {
   const events: RuntimeEvent[] = [];
   const transports: Transport[] = [];
   const pool: SessionRuntimes = new SessionRuntimes(event => events.push(event), () => {
@@ -32,7 +40,7 @@ async function fixture(beforePrompt?: (worker: import('../electron/session-runti
   }, { beforePrompt, launch: worker => broker.attach(worker), dispose: worker => broker.detach(worker) });
   const queue = new PendingMessages(() => {}, () => {}, undefined, (worker, message) => pool.preparePrompt(worker, message));
   const broker: SessionCollaboration = new SessionCollaboration(pool, 'extension.mjs', () => 'zh',
-    (worker, message) => { queue.enqueue(worker, message, { message }); }, remote);
+    (worker, message) => { queue.enqueue(worker, message, { message }); }, remote, attachments);
   await broker.start();
   const a = await pool.open('node', 'step', 'workspace-a', {});
   const b = await pool.open('node', 'step', 'workspace-b', {});
@@ -56,6 +64,90 @@ test('prose snapshots exclude thinking, tool payloads and images and bound their
   assert.equal(snapshot.messages[0].truncated, true);
   assert.equal(snapshot.omittedMessages, 1);
   assert.ok(!JSON.stringify(snapshot).includes('private reasoning'));
+});
+
+test('attachment IDs address saved inputs on the authenticated source branch only', async () => {
+  const profile = await mkdtemp(join(tmpdir(), 'desktop-attachment-test-'));
+  const cache = join(profile, 'cache');
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a/tUAAAAASUVORK5CYII=', 'base64');
+  const jpeg = Buffer.from([0xff, 0xd8, 0xff, 1, 2, 3, 0xff, 0xd9]);
+  const image = (bytes: Buffer, mimeType: string) => ({ type: 'image', mimeType, data: bytes.toString('base64') });
+  const pngImage = image(png, 'image/png');
+  const jpegImage = image(jpeg, 'image/jpeg');
+  await mkdir(cache);
+  await writeFile(join(cache, 'image-00000000-0000-4000-8000-000000000000.png'), 'old export');
+  await writeFile(join(cache, 'unrelated.png'), 'keep');
+  const f = await fixture(undefined, undefined, new SessionAttachmentExports(cache));
+  try {
+    const [source] = f.transports;
+    const goal = { type: 'custom_message', id: 'goal', parentId: 'old', customType: 'desktop-goal-input',
+      display: true, timestamp: '2026-11-22T00:00:00.000Z', content: [pngImage, jpegImage] };
+    source.entries = [
+      { type: 'message', id: 'old', parentId: null, message: { role: 'user', timestamp: 1, content: [jpegImage] } },
+      goal,
+      { ...goal, id: 'hidden', parentId: 'goal', display: false },
+      { type: 'message', id: 'hidden-user', parentId: 'hidden', message: { role: 'user', display: false, content: [pngImage] } },
+      { type: 'message', id: 'assistant', parentId: 'hidden-user', message: { role: 'assistant', content: [pngImage] } },
+      { type: 'message', id: 'tool', parentId: 'assistant', message: { role: 'toolResult', content: [pngImage] } },
+      { type: 'message', id: 'sibling', parentId: 'old', message: { role: 'user', content: [pngImage] } },
+      { type: 'compaction', id: 'compact', parentId: 'tool' },
+    ];
+    source.leafId = 'compact';
+    f.a.messages = [{ role: 'user', content: 'Current compacted context has no images' }];
+    const call = (args: object, transport = source) => fetch(transport.env.DESKTOP_SESSION_URL!, {
+      method: 'POST', headers: { authorization: `Bearer ${transport.env.DESKTOP_SESSION_TOKEN}` },
+      body: JSON.stringify({ action: 'attachments', ...args }),
+    });
+    const list = async () => (await call({ operation: 'list' })).json();
+    assert.equal(source.env.DESKTOP_SESSION_ATTACHMENTS, '1');
+    assert.ok(source.args.includes('desktop_session_attachments=allow'));
+    assert.deepEqual(await list(), { messages: [
+      { messageId: 'goal', timestamp: Date.parse(goal.timestamp), images: [{ imageIndex: 1, mimeType: 'image/png' }, { imageIndex: 2, mimeType: 'image/jpeg' }] },
+      { messageId: 'old', timestamp: 1, images: [{ imageIndex: 1, mimeType: 'image/jpeg' }] },
+    ] });
+    assert.deepEqual(await readdir(cache), ['unrelated.png']);
+    assert.deepEqual(await (await call({ operation: 'list' }, f.transports[1])).json(), { messages: [] });
+    assert.equal((await call({ operation: 'export', messageId: 'goal' }, f.transports[1])).status, 400);
+    for (const args of [{ messageId: 'sibling' }, { messageId: 'missing' }, { messageId: 'hidden' },
+      { messageId: 'hidden-user' }, { sessionId: 'session-1' }, { path: '../other.png' }, { imageIndex: 3 }])
+      assert.equal((await call({ operation: 'export', ...args })).status, 400);
+
+    source.entries.push({ type: 'message', id: 'new', parentId: 'compact', message: { role: 'user', content: [jpegImage] } });
+    source.leafId = 'new';
+    const exportGoal = { action: 'attachments', operation: 'export', messageId: 'goal' };
+    const controller = new AbortController();
+    const cancelled = f.broker.dispatch(f.a, exportGoal, controller.signal);
+    const kept = f.broker.dispatch(f.a, exportGoal);
+    queueMicrotask(() => controller.abort());
+    await assert.rejects(cancelled, /connection expired/);
+    const result = await kept as { messageId: string; images: { imageIndex: number; path: string }[] };
+    assert.equal(result.messageId, 'goal');
+    assert.deepEqual(result.images.map(entry => entry.imageIndex), [1, 2]);
+    for (const [i, bytes] of [png, jpeg].entries()) assert.deepEqual(await readFile(result.images[i].path), bytes);
+    assert.ok(!JSON.stringify(result).includes(pngImage.data));
+    for (let i = 0; i < 130; i++)
+      assert.deepEqual(await f.broker.dispatch(f.a, exportGoal), result);
+    const subset = await (await call({ operation: 'export', messageId: 'goal', imageIndex: 2 })).json();
+    assert.deepEqual(subset.images, [result.images[1]]);
+    assert.equal((await readdir(cache)).length, 3);
+
+    const cancelNew = new AbortController();
+    const abandoned = f.broker.dispatch(f.a, { action: 'attachments', operation: 'export' }, cancelNew.signal);
+    queueMicrotask(() => cancelNew.abort());
+    await assert.rejects(abandoned, /connection expired/);
+    assert.equal((await readdir(cache)).length, 3, 'a cancelled unshared write leaves no export');
+    const latest = await (await call({ operation: 'export' })).json();
+    assert.equal(latest.messageId, 'new');
+    const revoking = f.broker.dispatch(f.a, { ...exportGoal, messageId: 'old' });
+    f.broker.detach(f.a);
+    await assert.rejects(revoking, /connection expired/);
+    assert.equal(f.pool.active, f.b);
+    assert.equal((await call({ operation: 'list' })).status, 403);
+  } finally {
+    await f.close();
+    try { assert.deepEqual(await readdir(cache), ['unrelated.png']); }
+    finally { await rm(profile, { recursive: true, force: true }); }
+  }
 });
 
 test('read/list are snapshots and do not switch sessions, stop workers, or clear unread', async () => {

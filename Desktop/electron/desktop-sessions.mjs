@@ -44,6 +44,16 @@ export default function registerDesktopSessions(pi) {
     return result(value);
   };
   const sessionId = { type: 'string', description: 'Exact sessionId or stepcode-desktop://sessions/<id> reference copied from the sidebar or returned by desktop_sessions. Pass references directly; no need to list first. Never use a file path.' };
+  if (process.env.DESKTOP_SESSION_ATTACHMENTS === '1') pi.registerTool({
+    name: 'desktop_session_attachments', label: 'Session image attachments',
+    description: 'Use the user’s attached images as files. For tasks like putting attachments into a document, call export instead of searching disk or asking the user to save them again. Export returns temporary local file paths with the received bytes in original order. By default it exports the latest user message with images, even if later messages are text only. List returns recent image-bearing messages with stable message IDs and one-based image indices, without saving files. Use the exact message ID from list to select an older message. Only the current active conversation branch is accessible. Use normal tool permissions for reading or writing files; do not move or modify exported cache files.',
+    parameters: { ...object({
+      operation: { type: 'string', enum: ['list', 'export'] },
+      messageId: { type: 'string', minLength: 1, maxLength: 200, description: 'Export only: exact messageId from list. Omit to use the latest user message with images.' },
+      imageIndex: { type: 'integer', minimum: 1, maximum: 5, description: 'Export only: one-based index within the message. Omit to export all its images.' },
+    }), required: ['operation'] },
+    execute: (_id, args, signal) => call('attachments', args, signal),
+  });
   pi.registerTool({
     name: 'desktop_sessions', label: '会话列表',
     description: 'List resident conversations in this Desktop profile on demand. Separate sessions are peers, not your subagents. Listing is not permission to send messages. Recycled history is not included.',

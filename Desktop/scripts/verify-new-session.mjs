@@ -191,6 +191,27 @@ try {
   assert.equal((await snapshot()).sessions.length, 1);
   const reference = 'stepcode-desktop://sessions/queue-demo';
   const unsent = `Draft with ${reference}`;
+  const longReferenceTitle = '某团队上线自动重试后，首次请求失败率和用户手动重试成功率发生了哪些变化？';
+  const verifyCompactReference = async label => {
+    await label.waitFor();
+    assert.equal(await label.textContent(), longReferenceTitle);
+    const layout = await label.evaluate(element => {
+      const title = element.querySelector('.session-reference-title');
+      const style = getComputedStyle(title);
+      const { width, height } = element.getBoundingClientRect();
+      return {
+        width, height,
+        fontSize: parseFloat(style.fontSize),
+        lineHeight: parseFloat(style.lineHeight),
+        clipped: title.scrollWidth > title.clientWidth,
+        ellipsis: style.textOverflow,
+      };
+    });
+    assert.ok(layout.width <= layout.fontSize * 12 + 1, 'reference does not take over the line');
+    assert.ok(layout.height <= layout.lineHeight + 1, 'title stays on one line');
+    assert.equal(layout.clipped, true, 'long title exceeds the visible label width');
+    assert.equal(layout.ellipsis, 'ellipsis');
+  };
   await selector.click();
   await picker.getByRole('button', { name: 'Second project', exact: true }).click();
   await waitState(value => value.preferences.workspace === other);
@@ -213,6 +234,12 @@ try {
   assert.equal(resumed.preferences.workspace, other, 'Global New resumes the draft with its original project');
   assert.equal(resumed.runtimeId, undefined);
   await mappedReference.waitFor();
+  await page.evaluate(name => window.desktop.renameSession('queue-demo', name), longReferenceTitle);
+  await mappedReference.getByText(longReferenceTitle, { exact: true }).waitFor();
+  await verifyCompactReference(mappedReference);
+  await mappedReference.hover();
+  await page.getByRole('tooltip').filter({ hasText: longReferenceTitle }).waitFor();
+  await page.screenshot({ path: 'test-results/new-session-reference-dark.png' });
   await input.evaluate(element => {
     element.focus();
     element.setSelectionRange(element.value.length, element.value.length);
@@ -262,6 +289,10 @@ try {
   await page.reload();
   await heading.waitFor();
   await waitForNewSessionButton(page);
+  await input.fill(reference);
+  await verifyCompactReference(mappedReference);
+  assert.equal(await input.evaluate(element => element.value), reference);
+  await input.fill('');
   assert.equal(await heading.locator('.terminal-heading-output').textContent(), await heading.getAttribute('aria-label'));
   assert.equal(await heading.locator('.terminal-cursor').evaluate(element => getComputedStyle(element).animationName), 'none');
   await page.emulateMedia({ reducedMotion: 'no-preference' });
@@ -285,7 +316,7 @@ try {
   assert.equal(sent.preferences.workspace, await realpath(fixture.workspace));
   assert.ok(fixture.requests.some(text => text.includes('FIRST-SEND')));
   assert.ok(fixture.requests.some(text => text.includes(reference)));
-  assert.equal(await page.locator('.message-body .session-reference-label').first().textContent(), '队列交互示例（本地模拟）');
+  await verifyCompactReference(page.locator('.message-body .session-reference-label').first());
   assert.equal((await readdir(join(profile, 'step-runtime', 'sessions'))).length, historyBefore.length + 1);
   await page.screenshot({ path: 'test-results/new-session-first-send.png' });
   // New session from an independent history inherits no project.

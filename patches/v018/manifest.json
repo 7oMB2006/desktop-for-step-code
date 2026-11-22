@@ -4,7 +4,8 @@
     "commits": []
   },
   "patches": {
-    "step-code-desktop.patch": "815d252274220fe549064fe25e9618af2f46f746"
+    "step-code-desktop.patch": "815d252274220fe549064fe25e9618af2f46f746",
+    "step-code-desktop-subagent-session-privacy.patch": "af8845c60d3f04fd5fd194b022d2205e5593d11c"
   },
   "patchIds": [
     "windows-build",
@@ -37,7 +38,8 @@
     "desktop-plugin-mcp-reload",
     "desktop-subagent-role-models",
     "desktop-cron-session-ownership-v1",
-    "desktop-background-command-state"
+    "desktop-background-command-state",
+    "desktop-subagent-session-privacy"
   ],
   "sources": {
     "apps/cli/src/ui/view/dialogs/settings-selector.ts": "a573544e1ca59cb4963e8e902e7fc4e53f23fc3d",
@@ -140,7 +142,7 @@
     "packages/coding-agent/src/features/subagent/desktop-role-models.ts": "ae2e4e676b26c27d15f6a2b80b6fd97efe76f8ed",
     "packages/coding-agent/src/features/subagent/display-text.ts": "93444f6aac6244c727f944dee9cbf7cc4db3a893",
     "packages/coding-agent/src/features/subagent/execute.ts": "212869bbb5f6f61e1c91870b90ded4d72e446cf0",
-    "packages/coding-agent/src/features/subagent/lane-events.ts": "ee112e40aa849d55c2bd921bda6710cc14333641",
+    "packages/coding-agent/src/features/subagent/lane-events.ts": "6166141a34f1951512b007a7d6f29abaa2dc66e9",
     "packages/coding-agent/src/features/subagent/lane-lifecycle.ts": "7649e1fa56dde947bf047114b5e0e1624fd91b3e",
     "packages/coding-agent/src/features/subagent/projection.ts": "79ec853883b0f70f40d29f8fd01c3a72f5fc82e1",
     "packages/coding-agent/src/features/subagent/rpc-adapter.ts": "74611c8b2bdc3933b417b0b10a6da21887763d83",
@@ -181,12 +183,12 @@
     "packages/coding-agent/test/step-extension.test.ts": "1b12e8113bdb177ad14c10712aef39f8143e903f",
     "packages/coding-agent/test/step-plan-extension.test.ts": "87b700cae1af30892c48fe217ae2842ee7e3b0b4",
     "packages/coding-agent/test/step-plugins.test.ts": "6568fa6648df747f2612f208e19ddb422d8cb797",
-    "packages/coding-agent/test/step-subagent-events.test.ts": "3942b85ea3d4b3159eeafe41173140020b97952e",
+    "packages/coding-agent/test/step-subagent-events.test.ts": "c00622753f34524cb27ea158c97f4ac9d065129c",
     "packages/coding-agent/test/step-usage-lifecycle.test.ts": "f0fe0840c8e94073d11e41aa6b65c1caec54e07e",
     "packages/coding-agent/test/subagent-chain-result.test.ts": "67ff7d6f52e01c328f762e269f4847e1b2ba7887",
     "packages/coding-agent/test/subagent-child-env.test.ts": "ff1c1c34412e178a6faf320b9e63831d9f243841",
     "packages/coding-agent/test/subagent-exit-drain.test.ts": "c70324c48655898cb84d3b7b1fe9598f36626b00",
-    "packages/coding-agent/test/subagent-lane-notifications.test.ts": "ba7442dbbff39ed4c9a7317bb0994c20ee53a817",
+    "packages/coding-agent/test/subagent-lane-notifications.test.ts": "36305e3b2802e8ec4e1614a422d27a4dfd79f061",
     "packages/coding-agent/test/suite/agent-session-prompt.test.ts": "d79ac01281b1b39f2322466c4fdc412705a1b0da",
     "packages/coding-agent/test/suite/plan-storage.test.ts": "e1f28ca03e6ed8e91f8a13b137af622933259591",
     "packages/coding-agent/test/workflow-agent-role.test.ts": "9f4f9cc0ed84306a4a1d69332ad4e8b39f27c779",

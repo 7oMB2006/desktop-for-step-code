@@ -4,8 +4,9 @@
 .message-link-label { text-decoration: none; text-underline-offset: 4px; text-decoration-thickness: 1px; }
 .message-link:hover .message-link-label, .message-link:focus-visible .message-link-label { text-decoration-line: underline; text-decoration-style: dashed; }
 .message-link:focus-visible { outline: 2px solid var(--primary); outline-offset: 3px; border-radius: 2px; }
-.session-reference-label { color: var(--primary); overflow-wrap: anywhere; }
-.session-reference-label > svg { margin-right: .25em; vertical-align: -.15em; }
+.session-reference-label { display: inline-flex; align-items: baseline; gap: .25em; max-inline-size: min(12em, 100%); color: var(--primary); }
+.session-reference-label > svg { flex: none; align-self: center; }
+.session-reference-title { min-inline-size: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .link-preview { position: fixed; z-index: 18; width: min(344px, calc(100vw - 24px)); max-height: 170px; border-radius: 8px; background: var(--bg); color: var(--ink); box-shadow: 0 3px 8px oklch(0 0 0 / .18); overflow: hidden; animation: link-preview-enter 180ms cubic-bezier(.22, 1, .36, 1) both; }
 .link-preview-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 11px 15px; border-bottom: 1px solid var(--border); font-size: 12px; }
 .link-preview-host { display: flex; align-items: center; gap: 7px; min-width: 0; color: var(--muted); }

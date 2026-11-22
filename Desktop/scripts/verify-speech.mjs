@@ -479,7 +479,7 @@ const checkContextRow = async split => {
 };
 const motionOptions = (label, open) => ({
   label, state: { selector: '.speech-progress', attribute: 'data-open', value: String(open) },
-  duration: 240, easing: 'cubic-bezier(0.215, 0.61, 0.355, 1)',
+  duration: 240, easing: open ? 'cubic-bezier(0.215, 0.61, 0.355, 1)' : 'cubic-bezier(0.4, 0, 0.6, 1)',
   targets: [{ name: 'status', selector: '.speech-progress', properties: ['width', 'opacity'] }],
 });
 try {
@@ -710,6 +710,43 @@ try {
   await assertGeometry(contextGeometry);
   assert.equal(await page.getByRole('button', { name: '停止此轮', exact: true }).isEnabled(), true);
   await page.screenshot({ path: join(evidence, 'context-split-dark-quoted.png') });
+  await page.locator('.speech-progress').evaluate(element => {
+    const observer = new MutationObserver(() => {
+      if (element.dataset.open !== 'false') return;
+      window.__speechClosingFrame = {
+        label: element.querySelector('.speech-status-label')?.textContent,
+        clock: element.querySelector('.speech-clock')?.textContent,
+        waveform: element.querySelectorAll('.speech-level i').length,
+      };
+      observer.disconnect();
+    });
+    observer.observe(element, { attributes: true, attributeFilter: ['data-open'] });
+  });
+  const splitMotion = motionOptions('live changes follow the dictation exit back to center', false);
+  splitMotion.targets.push(
+    { name: 'row', selector: '.composer-context-center', properties: ['column-gap'] },
+    { name: 'diff', selector: '.live-turn-context', properties: ['width'] },
+    { name: 'chip', selector: '.live-turn-chip', properties: ['width'] },
+  );
+  const splitExit = await sampleMotion(page, splitMotion,
+    () => page.locator('.speech-progress').getByRole('button', { name: '取消听写', exact: true }).click());
+  const [splitStart, splitMid] = splitExit.frames, splitEnd = splitExit.frames.at(-1);
+  assert.ok(splitMid.status.opacity > .65 && splitMid.status.opacity < splitStart.status.opacity,
+    'The status is already fading, but visibly retained in the first quarter');
+  assert.ok(splitMid.diff.x > splitStart.diff.x && splitMid.diff.x < splitEnd.diff.x,
+    'The changes chip moves toward its resting position during the fade');
+  assert.ok(Math.abs(splitStart.chip.width - splitExit.before.chip.width) < 1,
+    'The changes chip must not jump wider at the start of the collapse');
+  assert.equal(splitStart.status.inert, true, 'The closing status immediately stops receiving interaction');
+  const closingFrame = await page.evaluate(() => window.__speechClosingFrame);
+  assert.match(closingFrame.label, /^(听写中|正在写入)$/);
+  assert.match(closingFrame.clock, /^0:\d\d$/);
+  assert.equal(closingFrame.waveform, 4, 'The closing frame keeps its visible waveform and clock');
+  await page.locator('.speech-progress').waitFor({ state: 'detached' });
+  assert.ok(Math.abs((await page.locator('.live-turn-context').boundingBox()).x - splitEnd.diff.x) < 1,
+    'Unmounting the finished animation must not jump the changes chip');
+  await assertGeometry(contextGeometry);
+  await begin();
   await emit([{ type: 'desktop_queue', pendingMessages: [{ id: 'speech-layout-queued', version: 1, message: '下一条草稿', attachmentCount: 0 }] }]);
   await page.locator('.queue-trigger').waitFor();
   layouts.push({ name: 'split-dark-quoted-queued', boxes: await checkContextRow(true) });
@@ -738,7 +775,7 @@ try {
   await page.locator('.speech-progress').getByRole('button', { name: 'Cancel dictation', exact: true }).click();
   await page.locator('.speech-progress').waitFor({ state: 'detached' });
   mode = 'ok';
-  await writeFile(join(evidence, 'context-layout.json'), JSON.stringify({ entrance, exit, layouts, focus }, null, 2));
+  await writeFile(join(evidence, 'context-layout.json'), JSON.stringify({ entrance, exit, splitExit, closingFrame, layouts, focus }, null, 2));
   const encrypted = await readFile(join(root, 'auth.dpapi'));
   assert.equal(encrypted.includes(Buffer.from('speech-fixture-oversea-key')), false);
   // Persist dictation consent/settings but remove the account before the next
@@ -764,7 +801,8 @@ try {
     'settings loading until the real IPC read resolves',
     'login/logout preservation and overseas API route', 'persisted consent',
     'centered shared context row without composer resize', 'equal diff/dictation halves with quotes and queue',
-    '240ms cubic entrance/exit and reduced motion', 'status focus outline and trigger focus return',
+    '240ms cubic entrance/exit, frozen closing status, live changes recentering and reduced motion',
+    'status focus outline and trigger focus return',
   ], boundary: 'Loopback fixtures only. Native synthetic microphone covers continuous ASR and Finish; controlled PCM covers queue backpressure, not 24 seconds of real-time capture. No real account, entitlement, billing, physical microphone or installer acceptance.' };
   await writeFile(join(evidence, 'verification.json'), JSON.stringify(result, null, 2));
   console.log(JSON.stringify(result, null, 2));

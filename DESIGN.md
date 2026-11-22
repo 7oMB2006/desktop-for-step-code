@@ -114,11 +114,18 @@ removing its trigger also removes the tooltip.
 
 Settings > General > Sessions keeps sidebar ordering beside the default-on
 automatic title switch. The shared tooltip on its help icon discloses the
-extra request and possible model quota use on hover and keyboard focus.
-New Desktop sessions keep the first-message title unless the current Step
-account has a supported lightweight model. The background request sends only
-bounded first-message text, never tools or attachments; no fallback request,
-retry, or transcript row. Manual names take precedence.
+extra request, possible model quota use and where the text is sent on hover
+and keyboard focus. A shared model select below the switch defaults to Automatic
+and groups manual text-model choices by configured provider. The choice saves
+independently of the chat model and is retained while automatic naming is off.
+An unavailable manual choice is shown as such and never falls back to Automatic.
+In Automatic, an active Step Plan account sends the title request to its
+own regional Plan endpoint independently of the chat provider. An Open Platform
+account only generates titles for supported official Step chats. A manual
+choice sends the excerpt only to that exact configured provider and model. New sessions
+keep the first-message title when no eligible route succeeds. The request sends
+only bounded first-message text, never tools or attachments; no fallback
+request, retry, or transcript row. Manual names take precedence.
 When a generated title replaces a visible temporary title, only the text
 crossfades with a short cubic ease in the title bar and ordinary sidebar rows.
 Manual renames, navigation, restored titles and reduced motion update instantly.
@@ -553,6 +560,10 @@ unchanged. Reduced motion disables the shared transition at its source.
 
 The composer model/effort picker remains enabled while a task runs. Choices made during execution are scoped to that worker and shown as the next-task selection; the secondary view displays a quiet "Applies next turn" state. They apply before the next fresh task, including Desktop FIFO dispatch, while steering retains the active configuration. A confirmed switch is a noninteractive client timeline note before the new response, with a 14px ArrowRightLeft icon, accent semibold upright label, muted regular monospace old model, gray arrow and ink semibold monospace new model. It has no card, disclosure or tool identity. Observations persist separately from Step history and never become model context.
 
+Model and effort changes update only the owning draft or runtime. Do not refresh
+the history catalog for a picker selection. Idle runtime changes still await
+Step Code confirmation; an immediate send waits for the pending choice.
+
 The existing fixed-size model selector includes search and explicitly starred
 Favorites ahead of other available models, without duplicates. Its back arrow and
 search share one compact header row instead of a separate title; the saved height
@@ -591,7 +602,7 @@ Global instructions supplement the native product prompt, Desktop collaboration 
 
 Desktop-owned extensions expose explicit peer-session tools through a main-process loopback broker. Listing covers resident sessions in this Desktop profile, not cold history; reads return recent user/assistant prose only, never reasoning, tool payloads or images. Reads neither navigate nor clear unread status. Peer text is reference, not an instruction or authorization from the user. Sending one message always requires a source-session confirmation displaying the exact target, folder and text, even in bypass mode; read-only sources cannot send. Background confirmations stay with their source conversation and can be deferred. Accepted messages queue behind an active turn or start an idle peer; there is no cross-session interrupt, stop, broadcast or automatic reply loop. Delivery acknowledgement is not task completion. Tokens are per worker, revoked at disposal and never exposed through the renderer bridge.
 
-Session context menus provide Copy session reference through the existing main-process clipboard bridge. The stable `stepcode-desktop://sessions/<sessionId>` reference contains no filesystem path or broker credentials. Copying does not navigate, clear unread status or require an idle agent. Known local references display the current session title and shared link accent in conversation prose and the composer. Code samples and unrecognized references keep their source presentation. The editable prompt, message copy and saved history keep the original reference. Peer-session tools accept either this reference or the raw session ID; the list tool returns both. References do not register a system URL handler, navigate on click or grant access to another Desktop profile.
+Session context menus provide Copy session reference through the existing main-process clipboard bridge. The stable `stepcode-desktop://sessions/<sessionId>` reference contains no filesystem path or broker credentials. Copying does not navigate, clear unread status or require an idle agent. Known local references display the current session title and shared link accent in conversation prose and the composer. The reference label stays on one line, with a width cap and ellipsis for long titles and a shared tooltip for the mapped name. Code samples and unrecognized references keep their source presentation. The editable prompt, message copy and saved history keep the original reference. Peer-session tools accept either this reference or the raw session ID; the list tool returns both. References do not register a system URL handler, navigate on click or grant access to another Desktop profile.
 
 Sidebar navigation follows Codex-style grouping: independent sessions appear in their own collapsible section, followed by remembered project directories with indented history rows and per-directory new-session actions. A session's history cannot create a project entry by itself. Session dates and message counts live in tooltips. Session names use the explicit name, then the first user message, in both the sidebar and title bar. Project context menus open the directory in Explorer and rename its displayed label without moving the folder. Session context menus rename, archive, copy references and branch sessions. Sidebar Branch copies the selected saved, idle session's complete persisted history through the upstream SessionManager API before loading it in a new worker, so restoring a cold source cannot append metadata to the original. It does not open/read-mark the source. The new session inherits effective permissions, keeps the same workspace, uses a unique branch name and leaves drafts and other active tasks intact. Empty, running and approval-waiting targets cannot be branched. This does not create a Git branch or isolate project files.
 
@@ -648,6 +659,12 @@ Conversation text and thinking blocks render `$...$` inline math and `$$...$$` d
 Unclosed streaming display formulas remain source until their closing fence arrives. Invalid formulas retain readable source without breaking surrounding Markdown. Single-dollar price pairs such as `$20 and $30` remain text; ambiguous dollar signs can be escaped as `\$`. Formula inputs and macro expansion are bounded, and trusted HTML, external image and link commands are disabled. This is mathematical notation rendering, not full LaTeX document compilation.
 
 ## Composer Attachments
+
+The dictation status shares the fixed composer context row with live changes.
+It opens and collapses with a short cubic width and opacity transition. On
+dismissal, recording stops immediately; the last visible status exits inert
+while the live changes chip returns smoothly to its standalone position.
+Reduced motion removes the status immediately.
 
 ### Pending Sends
 

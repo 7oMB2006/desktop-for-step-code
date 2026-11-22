@@ -10,21 +10,39 @@
 .speech-input > .icon-button { width: 28px; height: 28px; min-height: 28px; }
 .speech-active { color: var(--danger); background: var(--surface); }
 .composer-context-bar { container-type: inline-size; }
-.composer-context-center { grid-column: 2; grid-row: 1; justify-self: center; display: flex; align-items: center; min-width: 0; max-width: 100%; }
+.composer-context-center {
+  --speech-motion: 240ms cubic-bezier(.215,.61,.355,1);
+  grid-column: 2; grid-row: 1; justify-self: center; display: flex; align-items: center; min-width: 0; max-width: 100%;
+  column-gap: 0; transition: column-gap var(--speech-motion);
+}
 .composer-context-center > .live-turn-context { grid-column: auto; grid-row: auto; justify-self: stretch; }
 .composer-context-center:not(:has(.live-turn-context, .speech-progress)) { display: none; }
 .composer-context-center:has(.speech-progress) { max-width: min(440px, 60cqw); }
-.composer-context-center:has(.live-turn-context):has(.speech-progress) { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px; width: 420px; }
-.composer-context-center:has(.speech-progress) > .live-turn-context { padding: 4px; }
-.composer-context-center:has(.speech-progress) .live-turn-chip { width: 100%; min-width: 0; overflow: hidden; }
+.composer-context-center:has(.speech-progress[data-open=false]) { --speech-motion: 240ms cubic-bezier(.4,0,.6,1); }
+.composer-context-center:has(.live-turn-context):has(.speech-progress[data-open=true]) { column-gap: 4px; }
+.composer-context-center:has(.speech-progress) > .live-turn-context {
+  interpolate-size: allow-keywords;
+  width: auto;
+  transition: opacity 200ms cubic-bezier(.22,1,.36,1), width var(--speech-motion);
+}
+.composer-context-center:has(.speech-progress[data-open=true]) > .live-turn-context { width: 208px; }
+.composer-context-center:has(.speech-progress) .live-turn-chip {
+  width: 100%; min-width: 0; overflow: hidden; margin-inline: 0;
+  transition: width var(--speech-motion), margin-inline var(--speech-motion);
+}
+.composer-context-center:has(.speech-progress[data-open=true]) .live-turn-chip {
+  width: calc(100% - 8px); margin-inline: 4px;
+}
 .composer-context-center:has(.speech-progress) .live-turn-chip > span:first-child { overflow: hidden; text-overflow: ellipsis; }
 .composer-context-center:has(.speech-progress) .live-turn-partial { display: none; }
-.composer-context-center:has(.live-turn-context) > .speech-progress[data-open=true] { width: 100%; }
+.composer-context-center:has(.live-turn-context) > .speech-progress[data-open=true] { width: 208px; }
 .composer-context-bar.has-queue > .composer-context-center { margin-left: auto; flex-shrink: 1; }
 .composer-context-bar.has-queue > .composer-context-center .live-turn-context { margin-left: 0; }
-.speech-progress { flex-shrink: 1; min-width: 0; width: 0; max-width: 100%; height: 38px; overflow: hidden; opacity: 0; visibility: hidden; font-size: 12px; transition: width 240ms cubic-bezier(.215,.61,.355,1), opacity 240ms cubic-bezier(.215,.61,.355,1), visibility 0s 240ms; }
+.speech-progress { flex-shrink: 1; min-width: 0; width: 0; max-width: 100%; height: 38px; overflow: hidden; opacity: 0; visibility: hidden; font-size: 12px; transition: width var(--speech-motion), opacity var(--speech-motion), visibility 0s 240ms; }
 .speech-progress[data-open=true] { width: 198px; opacity: 1; visibility: visible; transition-delay: 0s; }
 .speech-progress.speech-error[data-open=true] { width: 280px; }
+.speech-progress[data-open=false] { pointer-events: none; }
+.speech-progress[data-open=false] .speech-spinner { animation-play-state: paused; }
 .speech-progress-body { display: flex; align-items: center; gap: 6px; height: 30px; min-width: 0; margin: 4px; padding: 0 4px 0 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--muted); white-space: nowrap; }
 .speech-error .speech-progress-body { color: var(--danger); }
 .speech-status-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
@@ -43,4 +61,8 @@
   .composer-context-center:has(.live-turn-context) > .speech-progress[data-open=true] { width: 0; opacity: 0; }
 }
 @keyframes speech-spin { to { transform: rotate(360deg); } }
-@media (prefers-reduced-motion: reduce) { .speech-spinner { animation: none; } .speech-progress { transition: none; } }
+@media (prefers-reduced-motion: reduce) {
+  .speech-spinner { animation: none; }
+  .speech-progress, .composer-context-center,
+  .composer-context-center:has(.speech-progress) :is(.live-turn-context, .live-turn-chip) { transition: none; }
+}

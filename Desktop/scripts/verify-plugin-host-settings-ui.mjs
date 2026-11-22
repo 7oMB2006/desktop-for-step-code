@@ -54,7 +54,7 @@ try {
   await plan.focus();
   await plan.press('Space');
   assert.deepEqual(await plan.evaluate(focusClips), [], 'The source switch has a complete focus gutter');
-  assert.equal(await independent.isDisabled(), true, 'The existing v1 consumer has only one launch mode');
+  assert.equal(await independent.isDisabled(), false, 'An available legacy alternative is directly selectable');
   const tts = model('语音合成');
   assert.equal(await tts.isDisabled(), true);
   await pick(source('语音合成'), 'Step Plan');
@@ -83,6 +83,20 @@ try {
   await page.evaluate(() => window.pluginHostTest.approve());
   await form.getByRole('button', { name: '刷新宿主状态', exact: true }).click();
   await page.waitForFunction(() => document.querySelectorAll('.pc-host-approved').length === 5);
+  const beforeSwitch = await page.evaluate(() => window.pluginHostTest.snapshot());
+  await independent.click();
+  assert.equal(await independent.getAttribute('aria-checked'), 'true');
+  assert.equal(await plan.getAttribute('aria-checked'), 'false', 'Legacy sources are still mutually exclusive');
+  assert.equal(await api.isDisabled(), true, 'No metered login means no metered source');
+  await plan.click();
+  assert.equal(await plan.getAttribute('aria-checked'), 'true');
+  assert.equal(await independent.getAttribute('aria-checked'), 'false');
+  assert.match(await tts.innerText(), /stepaudio-2\.5-tts/, 'A same-account draft round trip retains its model');
+  assert.equal(await save.isDisabled(), true, 'A return to the saved draft has no changes to save');
+  const afterSwitch = await page.evaluate(() => window.pluginHostTest.snapshot());
+  assert.deepEqual(afterSwitch.value, beforeSwitch.value, 'Draft changes do not mutate the saved or running source');
+  assert.equal(afterSwitch.saves, beforeSwitch.saves);
+  assert.equal(afterSwitch.restarts, beforeSwitch.restarts);
   await page.screenshot({ path: `${output}/follow-approved.png` });
   for (const theme of ['light', 'dark']) {
     await page.evaluate(theme => window.pluginCenterTest.theme(theme), theme);
@@ -174,7 +188,6 @@ try {
   await page.evaluate(() => window.pluginHostTest.approve());
   await form.getByRole('button', { name: '刷新宿主状态', exact: true }).click();
   await page.waitForFunction(() => document.querySelectorAll('.pc-host-approved').length === 5);
-  await api.click();
   await independent.click();
   await form.getByLabel('API Key', { exact: true }).fill('preview-private-key');
   await form.getByLabel('模型', { exact: true }).fill('step-independent-model');
@@ -223,7 +236,6 @@ try {
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await form.getByText('高级设置', { exact: true }).click();
   assert.equal(await form.locator('.cap-disclosure-body').evaluate(element => element.inert), true);
-  await independent.click();
   await api.click();
   assert.equal(await form.locator('.pc-entrance').count(), 0);
   await page.getByRole('button', { name: 'English', exact: true }).click();
@@ -250,7 +262,6 @@ try {
   await page.waitForFunction(() => document.querySelector('.pc-host-form button[aria-label="Speech recognition · Model"]')?.textContent.includes('stepaudio-2.5-asr'));
   await speech.focus(); await speech.scrollIntoViewIfNeeded();
   assert.deepEqual(await speech.evaluate(focusClips), [], 'ASR focus retains the shared gutter');
-  await form.getByRole('switch', { name: 'Open Platform API (metered)', exact: true }).click();
   await form.getByRole('switch', { name: 'Independent', exact: true }).click();
   await form.getByLabel('模型', { exact: true }).fill('draft-after-commit');
   await page.evaluate(() => window.pluginHostTest.failAfterCommit());

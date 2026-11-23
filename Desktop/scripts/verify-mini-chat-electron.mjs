@@ -547,8 +547,20 @@ try {
     await atTail();
   }
   await mini.screenshot({ path: join(output, 'native-restored-reading-send-tail.png') });
-  await miniScroll.hover(); await mini.mouse.wheel(0, -450);
-  await mini.waitForFunction(() => !!document.querySelector('.jump-to-bottom'));
+  await miniScroll.hover();
+  await miniScroll.evaluate(element => {
+    const startTop = element.scrollTop;
+    window.__miniReadingScrollSettled = false;
+    const settled = () => {
+      if (startTop - element.scrollTop <= 20) return;
+      element.removeEventListener('scrollend', settled);
+      window.__miniReadingScrollSettled = true;
+    };
+    element.addEventListener('scrollend', settled);
+  });
+  await mini.mouse.wheel(0, -450);
+  // The button reacts to wheel intent before the compositor finishes scrolling.
+  await mini.waitForFunction(() => window.__miniReadingScrollSettled && !!document.querySelector('.jump-to-bottom'));
   const readingTop = await miniScroll.evaluate(element => element.scrollTop);
   streaming.write(chunk({ content: '\n\nMini paused tail marker\n\n' + 'Do not steal the reading position.\n\n'.repeat(8) }));
   await mini.getByText('Mini paused tail marker', { exact: true }).waitFor({ state: 'attached' });

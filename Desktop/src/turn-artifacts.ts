@@ -24,7 +24,7 @@ export function artifactKind(path: string): ArtifactKind {
   if (['html', 'htm'].includes(ext!)) return 'website';
   if (['png', 'jpg', 'jpeg', 'webp', 'gif', 'svg'].includes(ext!)) return 'image';
   if (['pdf', 'docx', 'doc', 'md', 'txt'].includes(ext!)) return 'document';
-  if (['xlsx', 'xls', 'csv'].includes(ext!)) return 'spreadsheet';
+  if (['xlsx', 'xls', 'csv', 'tsv'].includes(ext!)) return 'spreadsheet';
   if (['pptx', 'ppt'].includes(ext!)) return 'presentation';
   if (['wav', 'mp3', 'ogg', 'flac'].includes(ext!)) return 'audio';
   if (['mp4', 'webm', 'mov'].includes(ext!)) return 'video';

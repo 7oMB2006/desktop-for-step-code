@@ -3,8 +3,9 @@ import assert from 'node:assert/strict';
 import { mkdtemp, writeFile, mkdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { FilePreviews, readPreview, fileMode, canOpenExternally } from '../electron/file-previews';
+import { FilePreviews, readPreview, fileMode, canOpenExternally, inlineFileExtensions } from '../electron/file-previews';
 import { LocalPagePreview } from '../electron/local-page-preview';
+import { parsePreviewTable, tableColumnLimit, tableRowLimit } from '../src/file-preview-table';
 
 test('file chooser permissions do not grant arbitrary reference paths', async () => {
   const root = await mkdtemp(join(tmpdir(), 'file-preview-boundary-'));
@@ -29,7 +30,9 @@ test('file chooser permissions do not grant arbitrary reference paths', async ()
 test('text preview supports Unicode but refuses binary, sensitive and oversized files', async () => {
   const root = await mkdtemp(join(tmpdir(), 'file-preview-text-'));
   await writeFile(join(root, 'README.md'), '# Hello\n\n你好');
-  assert.match((await readPreview(join(root, 'README.md'))).text, /你好/);
+  const markdown = await readPreview(join(root, 'README.md'));
+  assert.equal(markdown.mode, 'markdown');
+  assert.match(markdown.text, /你好/);
   await writeFile(join(root, 'unicode.txt'), Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from('你好', 'utf16le')]));
   assert.equal((await readPreview(join(root, 'unicode.txt'))).text, '你好');
   await writeFile(join(root, 'binary.txt'), Buffer.from([0, 1, 2]));
@@ -38,6 +41,87 @@ test('text preview supports Unicode but refuses binary, sensitive and oversized 
   await assert.rejects(readPreview(join(root, '.env')), /Sensitive/);
   await writeFile(join(root, 'large.txt'), Buffer.alloc(1024 * 1024 + 1));
   await assert.rejects(readPreview(join(root, 'large.txt')), /1 MiB/);
+});
+
+test('image formats are previewable without adding new external open permissions', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'file-preview-images-'));
+  assert.equal(fileMode('logo.SVG'), 'image');
+  assert.equal(fileMode('movie.mp4'), 'external');
+  assert.equal(fileMode('module.mjs'), 'text');
+  assert.equal(canOpenExternally('module.mjs'), false);
+  for (const extension of ['html', 'svg', 'png', 'jpg', 'jpeg', 'webp', 'gif', 'md', 'tsv']) assert.ok(inlineFileExtensions.includes(extension));
+  for (const extension of ['mp4', 'exe', '*']) assert.ok(!inlineFileExtensions.includes(extension));
+  const svg = '<?xml version="1.0" encoding="UTF-16"?><svg xmlns="http://www.w3.org/2000/svg"/>';
+  const svgBytes = Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(svg, 'utf16le')]);
+  const svgPath = join(root, 'logo.SVG');
+  await writeFile(svgPath, svgBytes);
+  const vector = await readPreview(svgPath);
+  assert.equal(vector.mode, 'image');
+  assert.equal(vector.image, `data:image/svg+xml;base64,${svgBytes.toString('base64')}`);
+  assert.equal(vector.text, svg);
+  assert.equal(vector.language, 'xml');
+  for (const [ext, mime, bytes] of [
+    ['png', 'image/png', Buffer.from('89504e470d0a1a0a', 'hex')],
+    ['jpg', 'image/jpeg', Buffer.from('ffd8ff', 'hex')],
+    ['jpeg', 'image/jpeg', Buffer.from('ffd8ff', 'hex')],
+    ['webp', 'image/webp', Buffer.from('RIFF0000WEBP')],
+    ['gif', 'image/gif', Buffer.from('GIF89a')],
+  ] as const) {
+    const path = join(root, `image.${ext}`);
+    await writeFile(path, bytes);
+    const raster = await readPreview(path);
+    assert.equal(raster.mode, 'image');
+    assert.equal(raster.image, `data:${mime};base64,${bytes.toString('base64')}`);
+    assert.equal(raster.text, undefined);
+  }
+  const wrong = join(root, 'wrong.png');
+  await writeFile(wrong, svg);
+  await assert.rejects(readPreview(wrong), /do not match the image format/);
+  const large = join(root, 'large.png');
+  await writeFile(large, Buffer.alloc(10 * 1024 * 1024 + 1));
+  await assert.rejects(readPreview(large), /10 MiB/);
+});
+
+test('PDF and table previews preserve granted content and enforce file limits', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'file-preview-docs-'));
+  const pdf = join(root, 'report.PDF');
+  const content = Buffer.from('%PDF-1.7\n%%EOF');
+  assert.equal(fileMode(pdf), 'pdf');
+  assert.ok(inlineFileExtensions.includes('pdf'));
+  assert.ok(canOpenExternally(pdf));
+  await writeFile(pdf, content);
+  const preview = await readPreview(pdf);
+  assert.equal(preview.mode, 'pdf');
+  assert.deepEqual(Buffer.from(preview.bytes), content);
+  await writeFile(pdf, '<html>Not a PDF</html>');
+  await assert.rejects(readPreview(pdf), /match the PDF format/);
+  await writeFile(pdf, Buffer.alloc(25 * 1024 * 1024 + 1));
+  await assert.rejects(readPreview(pdf), /25 MiB/);
+  const tsv = join(root, 'table.tsv');
+  await writeFile(tsv, '值\t备注\n0001\t=1+1');
+  const table = await readPreview(tsv);
+  assert.equal(table.mode, 'table');
+  assert.equal(table.format, 'TSV');
+  assert.equal(table.text, '值\t备注\n0001\t=1+1');
+});
+
+test('delimited preview handles quotes, blank fields and multiline values without executing or coercing text', () => {
+  assert.deepEqual(parsePreviewTable('\uFEFFid,name,notes\r\n001,"A, B","one\r\ntwo"\r\n002,"x""y",=1+2', 'CSV'), {
+    records: [['id', 'name', 'notes'], ['001', 'A, B', 'one\r\ntwo'], ['002', 'x"y', '=1+2']],
+    columns: 3, truncated: false,
+  });
+  assert.deepEqual(parsePreviewTable('code\tlabel\t\n0001\t"tab\tinside"\n', 'TSV'), {
+    records: [['code', 'label', ''], ['0001', 'tab\tinside']], columns: 3, truncated: false,
+  });
+  assert.deepEqual(parsePreviewTable('', 'CSV'), { records: [], columns: 0, truncated: false });
+  assert.throws(() => parsePreviewTable('a,"unclosed', 'CSV'));
+  assert.equal(parsePreviewTable('a,b\n'.repeat(tableRowLimit), 'CSV').truncated, false);
+  const tall = parsePreviewTable('a,b\n'.repeat(tableRowLimit + 4), 'CSV');
+  assert.equal(tall.records.length, tableRowLimit);
+  assert.equal(tall.truncated, true);
+  const wide = parsePreviewTable('a,'.repeat(tableColumnLimit) + 'b', 'CSV');
+  assert.equal(wide.records[0].length, tableColumnLimit);
+  assert.equal(wide.truncated, true);
 });
 
 test('local HTML grants only declared assets, enforces request boundaries and refreshes its manifest', async () => {

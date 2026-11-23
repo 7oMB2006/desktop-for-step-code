@@ -32,6 +32,8 @@ for (const [source, name] of [
   ['remark-parse/license', 'remark-parse.txt'],
   ['semver/LICENSE', 'semver.txt'],
   ['@xmldom/xmldom/LICENSE', 'xmldom.txt'],
+  ['csv-parse/LICENSE', 'csv-parse.txt'],
+  ['pdfjs-dist/LICENSE', 'pdfjs.txt'],
   ['yauzl/LICENSE', 'yauzl.txt'],
   ['pend/LICENSE', 'pend.txt'],
   ['electron-updater/LICENSE', 'electron-updater.txt'],

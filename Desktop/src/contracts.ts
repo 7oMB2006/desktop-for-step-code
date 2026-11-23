@@ -314,9 +314,13 @@ export interface ArtifactFile { path: string; exists: boolean; canOpen: boolean;
 export type FileTarget = { runtimeId: string; path: string } | { grantId: string };
 export interface FileDestination { id: string; label: string; icon?: string }
 export interface FileOpeningOptions { choices: FileDestination[]; selected: string }
-export interface FilePreviewData {
-  id: string; path: string; name: string; mode: 'markdown' | 'text'; text: string; size: number; language?: string;
-}
+export type FilePreviewContent = { path: string; name: string; size: number } & (
+  { mode: 'markdown' | 'text'; text: string; language?: string }
+  | { mode: 'table'; text: string; format: 'CSV' | 'TSV'; language?: never }
+  | { mode: 'image'; image: string; format: string; text?: string; language?: string }
+  | { mode: 'pdf'; bytes: Uint8Array; text?: never; language?: never }
+);
+export type FilePreviewData = FilePreviewContent & { id: string };
 export type FileOpenResult = { destination: 'preview'; file: FilePreviewData }
   | { destination: 'browser'; browser: BrowserSnapshot } | { destination: 'external' };
 export type BrowserAction = 'navigate' | 'back' | 'forward' | 'reload' | 'stop' | 'stopTesting' | 'external' | 'zoomIn' | 'zoomOut' | 'zoomReset';

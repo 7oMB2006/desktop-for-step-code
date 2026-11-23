@@ -106,7 +106,7 @@ import { browserPreviewUrl } from './browser-policy';
 import { previewInput } from './playwright-preview';
 import { linkPreview } from './link-preview';
 import { artifactFile } from './artifact-files';
-import { FilePreviews, fileMode, canOpenExternally, readPreview } from './file-previews';
+import { FilePreviews, fileMode, canOpenExternally, inlineFileExtensions, readPreview } from './file-previews';
 import { LocalPagePreview } from './local-page-preview';
 import { associationRequest, fileApplications, macApplicationPath } from './file-applications';
 import { AppUpdates, updatePreferences } from './app-updates';
@@ -2115,10 +2115,12 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
     case 'fileOpen': {
       const browserContext = browser!.assertContext();
       let target: FileTarget = args[0];
-      if (target === undefined) {
+      const fromPicker = target === undefined;
+      if (fromPicker) {
         const selected = await dialog.showOpenDialog(window, {
           title: preferences.language === 'zh' ? '打开文件' : 'Open file', properties: ['openFile'],
           defaultPath: runtimes.active?.cwd ?? preferences.workspace,
+          filters: [{ name: preferences.language === 'zh' ? '可预览文件' : 'Previewable files', extensions: inlineFileExtensions }],
         });
         if (selected.canceled || !selected.filePaths.length) return null;
         target = { grantId: (await filePreviews.grant(selected.filePaths[0])).id };
@@ -2126,6 +2128,9 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
       const file = await filePreviews.resolve(target);
       const destination = args[1] === undefined ? 'internal' : text(args[1], 4200);
       const mode = fileMode(file.path);
+      if (fromPicker && (destination !== 'internal' || mode === 'external')) {
+        throw new Error(preferences.language === 'zh' ? '此文件格式不支持应用内预览' : 'This file type cannot be previewed in the app');
+      }
       const remember = async () => {
         if (args[1] === undefined || destination === 'preview' || destination === 'other') return;
         preferences.fileOpeningApps = { ...preferences.fileOpeningApps, [extname(file.path).toLowerCase()]: destination };
@@ -2140,11 +2145,12 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
         await remember();
         return result;
       }
-      if ((destination === 'internal' || destination === 'preview') && (mode === 'text' || mode === 'markdown')) {
+      if ((destination === 'internal' || destination === 'preview') && mode !== 'external' && mode !== 'browser') {
         const result = { destination: 'preview', file: { ...await readPreview(file.path), id: file.id } } satisfies FileOpenResult;
         await remember();
         return result;
       }
+      if (destination === 'preview') throw new Error('This file type has no inline preview');
       if (!canOpenExternally(file.path)) throw new Error('This file type cannot be opened in an external application');
       if (destination === 'internal' || destination === 'system') {
         const error = await shell.openPath(file.path);

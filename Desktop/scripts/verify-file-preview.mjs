@@ -7,13 +7,18 @@ import { createServer } from 'node:http';
 import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { prepareSessionFixture, restartIdleSessionFixture } from './session-fixture.mjs';
+import { previewPdf } from './file-preview-fixtures.mjs';
 
 const profile = await mkdtemp(join(tmpdir(), 'step-file-preview-'));
 const chosen = join(profile, 'picked.txt');
 await writeFile(chosen, 'Explicitly selected outside the workspace.');
 await writeFile(join(profile, 'preferences.json'), JSON.stringify({ language: 'zh', theme: 'light', workspaces: [], fileOpeningApps: { '.md': 'app:missing-application' } }));
 await mkdir('test-results', { recursive: true });
-const server = createServer((_request, response) => response.end('<title>Web reference</title><h1>Web reference</h1>'));
+const imageRequests = [];
+const server = createServer((request, response) => {
+  if (request.url.startsWith('/image-resource') || request.url.startsWith('/document-resource')) imageRequests.push(request.url);
+  response.end('<title>Web reference</title><h1>Web reference</h1>');
+});
 await new Promise(done => server.listen(0, '127.0.0.1', done));
 const address = `http://127.0.0.1:${server.address().port}/`;
 const env = { ...process.env, DESKTOP_TEST_USER_DATA: profile, DESKTOP_TEST_NO_FOCUS: '1' };
@@ -67,6 +72,29 @@ try {
   const snapshot = await prepareSessionFixture(page);
   const runtimeId = snapshot.runtimeId;
   const cwd = snapshot.runtimes.find(item => item.runtimeId === runtimeId).cwd;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="760" height="400" viewBox="0 0 760 400">
+<rect id="sample" width="760" height="400" fill="#2563eb"/>
+<path fill="#21b388" d="M0 310L195 105 350 260 504 148 760 333V400H0Z"/>
+<circle cx="615" cy="104" r="44" fill="#f8cf63"/>
+</svg>`;
+  const svgWithExternalContent = svg.replace('</svg>', `<image href="${address}image-resource.svg" x="30" y="40" width="120" height="100"/>
+<script>document.getElementById('sample').setAttribute('fill', '#f00');</script></svg>`);
+  await writeFile(join(cwd, 'landscape.svg'), svg);
+  const png = await page.evaluate(() => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 320; canvas.height = 180;
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#21b388'; ctx.fillRect(0, 0, 320, 180);
+    return canvas.toDataURL().split(',')[1];
+  });
+  await writeFile(join(cwd, 'sample.png'), Buffer.from(png, 'base64'));
+  const pdfPath = join(cwd, 'review.pdf');
+  await writeFile(pdfPath, previewPdf(`${address}document-resource`));
+  const csvPath = join(cwd, 'review.csv');
+  const csv = '编号,任务,状态,备注\n001,"检查布局, 窄窗与深色",已通过,"两行备注\n继续保留"\n002,检查公式,已通过,=1+2\n'
+    + Array.from({ length: 102 }, (_, i) => `${i + 3},检查交付 ${i + 3},待复核,文本\n`).join('');
+  await writeFile(csvPath, csv);
+  await writeFile(join(cwd, 'review.tsv'), '编号\t任务\n009\t分隔符');
   await writeFile(join(cwd, 'README.md'), '# 海岸骑行\n\n这是本轮生成的小动画。\n\n## 交付\n\n- 单文件 HTML\n- 支持暂停与继续\n\n```js\nconst speed = 2;\n```\n\n| 文件 | 状态 |\n| --- | --- |\n| index.html | 已完成 |\n');
   await writeFile(join(cwd, 'index.html'), `<!doctype html><meta charset="utf-8"><title>海岸骑行</title>
 <style>body{margin:0;background:#ebf6f4;font:20px sans-serif}h1{padding:16px}canvas{width:100%;height:240px}</style>
@@ -87,7 +115,7 @@ function draw(){if(!window.paused)tick++;x.fillStyle='#85d4be';x.fillRect(0,0,40
   await assert.rejects(page.evaluate(({ runtimeId, chosen }) => window.desktop.fileOpen({ runtimeId, path: chosen }), { runtimeId, chosen }));
   const messages = [
     { role: 'user', timestamp: Date.now() - 10000, content: '做一个海岸骑行小动画，并写一份交付说明。' },
-    { role: 'assistant', timestamp: Date.now(), content: `动画和说明都已经准备好了。\n\n[海岸骑行动画](./index.html)\n\n[交付说明](./README.md)\n\n[网页参考](${address})` },
+    { role: 'assistant', timestamp: Date.now(), content: `动画和说明都已经准备好了。\n\n[海岸骑行动画](./index.html)\n\n[交付说明](./README.md)\n\n[网页参考](${address})\n\n[矢量图](./landscape.svg) · [位图](./sample.png)\n\n[审阅 PDF](./review.pdf) · [审阅 CSV](./review.csv) · [审阅 TSV](./review.tsv)` },
   ];
   await app.evaluate(({ ipcMain }, { snapshot, messages }) => {
     const original = ipcMain._invokeHandlers.get('desktop');
@@ -333,12 +361,138 @@ function draw(){if(!window.paused)tick++;x.fillStyle='#85d4be';x.fillRect(0,0,40
   await widthMenu.waitFor({ state: 'hidden' });
   assert.equal(await page.locator('#file-panel').getAttribute('aria-hidden'), 'false', 'dismissing the width menu keeps file preview open');
   await page.emulateMedia({ reducedMotion: 'no-preference' });
+  stage = 'image-preview';
+  const filePanel = page.locator('#file-panel');
+  const image = filePanel.locator('.file-preview-image img');
+  const svgLink = page.getByRole('link', { name: '矢量图', exact: true });
+  const refresh = filePanel.getByRole('button', { name: '刷新文件', exact: true });
+  const imagePixel = async () => image.evaluate(async element => {
+    await element.decode();
+    const canvas = document.createElement('canvas');
+    canvas.width = 1; canvas.height = 1;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(element, 10, 10, 1, 1, 0, 0, 1, 1);
+    return [...ctx.getImageData(0, 0, 1, 1).data];
+  });
+  await svgLink.click();
+  await image.waitFor();
+  assert.deepEqual(await imagePixel(), [37, 99, 235, 255], 'SVG renders expected pixels');
+  const fit = await image.boundingBox();
+  assert.ok(fit.width < 640 && Math.abs(fit.width / fit.height - 760 / 400) < .02, 'SVG fits a narrow panel without changing aspect ratio');
+  const actual = filePanel.getByRole('button', { name: '原始尺寸', exact: true });
+  await actual.click();
+  assert.equal((await image.boundingBox()).width, 760);
+  assert.equal(await filePanel.locator('.file-preview-scroll').evaluate(el => el.scrollWidth > el.clientWidth), true);
+  await actual.click();
+  await page.screenshot({ path: 'test-results/file-preview-svg-narrow.png' });
+  await resizeWindow(1680, 880);
+  await page.evaluate(() => document.documentElement.dataset.theme = 'light');
+  await settleLayout(page.locator('.app'));
+  await page.screenshot({ path: 'test-results/file-preview-svg.png' });
+  await filePanel.getByRole('button', { name: '查看源码', exact: true }).click();
+  assert.equal(await filePanel.locator('.file-preview-source').textContent(), svg);
+  await page.screenshot({ path: 'test-results/file-preview-svg-source.png' });
+  await writeFile(join(cwd, 'landscape.svg'), svgWithExternalContent.replace('#2563eb', '#a855f7'));
+  await refresh.click();
+  await page.waitForFunction(() => document.querySelector('.file-preview-source')?.textContent.includes('#a855f7'));
+  await filePanel.getByRole('button', { name: '图像预览', exact: true }).click();
+  assert.deepEqual(await imagePixel(), [168, 85, 247, 255], 'SVG renders the refreshed colors without running its script');
+  assert.deepEqual(imageRequests, [], 'SVG image does not request external assets');
+  await writeFile(join(cwd, 'landscape.svg'), '<svg malformed');
+  await refresh.click();
+  await filePanel.getByText('无法显示此图像', { exact: true }).waitFor();
+  await writeFile(join(cwd, 'landscape.svg'), svg);
+  await refresh.click();
+  assert.deepEqual(await imagePixel(), [37, 99, 235, 255], 'refresh recovers after an invalid image');
+  await page.getByRole('link', { name: '位图', exact: true }).click();
+  await filePanel.getByRole('img', { name: 'sample.png' }).waitFor();
+  assert.deepEqual(await imagePixel(), [33, 179, 136, 255]);
+  assert.equal(await filePanel.getByRole('button', { name: '查看源码', exact: true }).count(), 0);
+  assert.deepEqual(imageRequests, []);
+  stage = 'document-previews';
+  const documentLink = name => page.getByRole('link', { name, exact: true });
+  await documentLink('审阅 PDF').click();
+  const pdfCanvas = filePanel.locator('.file-preview-pdf-page canvas[data-ready]');
+  const pdfPixel = () => pdfCanvas.evaluate(el => [...el.getContext('2d').getImageData(8, 8, 1, 1).data]);
+  const assertPdfColor = async (expected, message) => {
+    const actual = await pdfPixel();
+    assert.ok(actual.every((value, index) => Math.abs(value - expected[index]) <= 1),
+      `${message}: expected ${expected}, got ${actual}`);
+  };
+  await pdfCanvas.waitFor({ timeout: 15000 });
+  await assertPdfColor([38, 87, 194, 255], 'first PDF page is rendered');
+  assert.equal(await filePanel.locator('.file-preview-pdf-page a, .file-preview-pdf-page iframe').count(), 0);
+  const pdfTextPainted = await pdfCanvas.evaluate(el => {
+    const { data } = el.getContext('2d').getImageData(0, Math.floor(el.height * .19), el.width, Math.floor(el.height * .09));
+    return data.some((value, index) => index % 4 === 0 && value < 100);
+  });
+  assert.ok(pdfTextPainted, 'PDF text has visible glyph pixels');
+  await page.screenshot({ path: 'test-results/file-preview-pdf.png' });
+  await resizeWindow(640, 800);
+  await page.evaluate(() => document.documentElement.dataset.theme = 'dark');
+  await page.waitForFunction(() => document.querySelector('.file-preview-pdf-page canvas')?.getBoundingClientRect().width < 540);
+  await settleLayout(page.locator('.app'));
+  await page.screenshot({ path: 'test-results/file-preview-pdf-narrow.png' });
+  const pdfActual = filePanel.getByRole('button', { name: '原始尺寸', exact: true });
+  await pdfActual.click();
+  await page.waitForFunction(() => document.querySelector('.file-preview-pdf-page canvas')?.getBoundingClientRect().width > 580);
+  assert.ok(await filePanel.locator('.file-preview-scroll').evaluate(el => el.scrollWidth > el.clientWidth));
+  await pdfActual.click();
+  await resizeWindow(1680, 880);
+  await page.evaluate(() => document.documentElement.dataset.theme = 'light');
+  await filePanel.getByRole('button', { name: '下一页', exact: true }).click();
+  await filePanel.getByRole('img', { name: '第 2 页', exact: true }).waitFor();
+  await assertPdfColor([26, 128, 89, 255], 'next page replaces the canvas');
+  const pageInput = filePanel.getByRole('textbox', { name: '页码', exact: true });
+  await pageInput.fill('1');
+  await pageInput.press('Enter');
+  await filePanel.getByRole('img', { name: '第 1 页', exact: true }).waitFor();
+  await writeFile(pdfPath, previewPdf(`${address}document-resource`, '0.7 0.15 0.1'));
+  await refresh.click();
+  await filePanel.getByRole('button', { name: '下一页', exact: true }).click();
+  await filePanel.getByRole('img', { name: '第 2 页', exact: true }).waitFor();
+  await assertPdfColor([179, 38, 26, 255], 'refresh renders new PDF bytes');
+  assert.deepEqual(imageRequests, []);
+  await writeFile(pdfPath, '%PDF-1.7\nbroken');
+  await refresh.click();
+  await filePanel.getByText('无法读取此 PDF', { exact: true }).waitFor();
+
+  await documentLink('审阅 CSV').click();
+  const grid = filePanel.getByRole('table', { name: 'CSV 表格', exact: true });
+  await grid.getByRole('cell', { name: '001', exact: true }).waitFor();
+  assert.equal(await grid.getByRole('cell', { name: '=1+2', exact: true }).count(), 1);
+  assert.equal(await grid.getByRole('cell', { name: '检查布局, 窄窗与深色', exact: true }).count(), 1);
+  const firstRow = filePanel.getByRole('checkbox', { name: '首行作为表头', exact: true });
+  await firstRow.uncheck();
+  await grid.getByRole('cell', { name: '编号', exact: true }).waitFor();
+  await firstRow.check();
+  await grid.getByRole('columnheader', { name: '编号', exact: true }).waitFor();
+  await page.screenshot({ path: 'test-results/file-preview-csv.png' });
+  await filePanel.getByRole('button', { name: '下一批行', exact: true }).click();
+  await grid.getByRole('cell', { name: '检查交付 103', exact: true }).waitFor();
+  await filePanel.getByRole('button', { name: '查看源码', exact: true }).click();
+  assert.equal(await filePanel.locator('.file-preview-source').textContent(), csv);
+  await filePanel.getByRole('button', { name: '表格预览', exact: true }).click();
+  await grid.getByRole('cell', { name: '001', exact: true }).waitFor();
+  await documentLink('审阅 TSV').click();
+  await filePanel.getByRole('table', { name: 'TSV 表格', exact: true }).getByRole('cell', { name: '009', exact: true }).waitFor();
+  await resizeWindow(640, 800);
   await app.evaluate(({ dialog }, chosen) => {
     globalThis.originalFileDialog = dialog.showOpenDialog;
-    dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [chosen] });
+    globalThis.fileDialogChoice = chosen;
+    dialog.showOpenDialog = async (_window, options) => {
+      globalThis.filePreviewFilters = options.filters;
+      return { canceled: false, filePaths: [globalThis.fileDialogChoice] };
+    };
   }, chosen);
   await page.locator('#file-panel .right-panel-header').getByRole('button', { name: '打开文件', exact: true }).click();
   await page.waitForFunction(() => document.querySelector('.file-preview-source')?.textContent.includes('Explicitly selected'));
+  const filters = await app.evaluate(() => globalThis.filePreviewFilters);
+  assert.equal(filters[0].name, '可预览文件');
+  assert.ok(['svg', 'png', 'pdf', 'csv', 'tsv'].every(ext => filters[0].extensions.includes(ext)));
+  await app.evaluate((_electron, movie) => { globalThis.fileDialogChoice = movie; }, join(profile, 'unsupported.mp4'));
+  await writeFile(join(profile, 'unsupported.mp4'), 'Not launched from the preview picker');
+  await assert.rejects(page.evaluate(() => window.desktop.fileOpen()), /不支持应用内预览/);
   await app.evaluate(({ dialog }) => { dialog.showOpenDialog = globalThis.originalFileDialog; });
   stage = 'local-html-open';
   await resizeWindow(1322, 880);
@@ -465,7 +619,7 @@ function draw(){if(!window.paused)tick++;x.fillStyle='#85d4be';x.fillRect(0,0,40
       try { process.kill(pid, 0); return false; } catch (error) { return error.code === 'ESRCH'; }
     }), pids), true, 'Session restart waits until the old RPC process is gone');
   }
-  console.log('File preview, three widths, in-app menus, selection/open/reopen persistence, chooser permissions and browser integration passed');
+  console.log('File preview, images, PDF, CSV/TSV, panel widths, opening preferences, chooser permissions and browser integration passed');
 } catch (error) {
   const diagnostic = {
     stage, packaged: Boolean(executablePath), rendererErrors: errors,

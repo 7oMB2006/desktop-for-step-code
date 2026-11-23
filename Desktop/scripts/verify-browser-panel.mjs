@@ -44,9 +44,15 @@ const port = server.address().port;
 const url = `http://127.0.0.1:${port}/`;
 const profile = await mkdtemp(join(tmpdir(), 'step-browser-panel-'));
 await writeFile(join(profile, 'preferences.json'), JSON.stringify({ language: 'zh', theme: 'light', workspaces: [] }));
-const sessions = join(profile, 'step-runtime', 'sessions');
+const root = join(profile, 'step-runtime');
+const sessions = join(root, 'sessions');
 await mkdir(sessions, { recursive: true });
-for (const id of ['browser-a', 'browser-b']) {
+await writeFile(join(root, 'config.toml'), 'defaultProvider = "fixture"\ndefaultModel = "fixture"\n[telemetry]\nenabled = false\n[mcp_servers.steppage__steppage]\nenabled = false\n');
+await writeFile(join(root, 'models.json'), JSON.stringify({ providers: {
+  fixture: { baseUrl: `${url}v1`, api: 'openai-completions', apiKey: 'local-test-only',
+    models: [{ id: 'fixture', name: 'Browser fixture' }] },
+} }));
+for (const id of ['browser-a', 'browser-b', 'browser-c']) {
   const timestamp = new Date().toISOString();
   await writeFile(join(sessions, `${id}.jsonl`), [
     { type: 'session', version: 3, id, cwd: profile, timestamp },
@@ -429,6 +435,50 @@ try {
   const second = (await list()).activeId;
   assert.notEqual(second, first);
   await page.evaluate(id => window.desktop.browserSelect(id), first);
+  await webPage.getByRole('textbox', { name: '测试输入' }).fill('保留在会话 A');
+  const originalContext = (await list()).context;
+  await selectSession('browser-b');
+  assert.equal(await rail.getAttribute('aria-pressed'), 'false', 'B does not adopt A’s open panel');
+  assert.deepEqual((await list()).tabs, [], 'two conversations in the same directory do not share browser tabs');
+  await assert.rejects(page.evaluate(id => window.desktop.browserSelect(id), first), /Unknown browser tab/);
+  await assert.rejects(page.evaluate(id => window.desktop.browserClose(id), second), /Unknown browser tab/);
+  await assert.rejects(page.evaluate(({ url, context }) => window.desktop.browserOpenLink(url, context),
+    { url, context: originalContext }), /Browser conversation changed/);
+  await rail.click();
+  const other = await waitForBrowserFixtureSnapshot(page, snapshot => snapshot.tabs.length === 1, 'B starts with a blank tab');
+  assert.ok(other.tabs.every(tab => tab.id !== first && tab.id !== second));
+  await page.evaluate(url => window.desktop.browserOpenLink(url), `${url}details`);
+  const otherPage = await waitForBrowserFixtureSnapshot(page, snapshot =>
+    snapshot.tabs.some(tab => tab.id === snapshot.activeId && tab.url === `${url}details` && !tab.loading), 'B opens the same URL in its own tab');
+  const otherPageId = otherPage.activeId;
+  assert.notEqual(otherPageId, second, 'opening the same URL never reuses A’s tab');
+  await page.evaluate(context => window.desktop.browserLayout(null, context), originalContext);
+  assert.ok((await viewState()).some(view => view.visible && view.url === `${url}details`), 'A’s stale layout cannot hide B');
+  await app.evaluate(async ({ webContents }, id) => {
+    await webContents.fromId(id).executeJavaScript("window.open('/background', '_blank'); void 0");
+  }, originalPageId);
+  assert.deepEqual((await list()).tabs.map(tab => tab.id), [other.activeId, otherPageId], 'a background popup does not enter B');
+  assert.equal((await list()).activeId, otherPageId, 'a background popup does not steal selection');
+  await selectSession('browser-a');
+  const background = await waitForBrowserFixtureSnapshot(page, snapshot =>
+    snapshot.tabs.some(tab => tab.url === `${url}background`), 'the hidden popup stays with A');
+  assert.equal(background.activeId, first);
+  await page.evaluate(id => window.desktop.browserClose(id), background.tabs.find(tab => tab.url === `${url}background`).id);
+  assert.equal(await nativePageId(), originalPageId, 'returning to A does not recreate its native page');
+  assert.equal(await webPage.getByRole('textbox', { name: '测试输入' }).inputValue(), '保留在会话 A',
+    'returning to A retains unsaved in-page input rather than reloading');
+  await selectSession('browser-b');
+  assert.equal(await rail.getAttribute('aria-pressed'), 'true', 'B restores its open browser');
+  assert.equal((await list()).activeId, otherPageId, 'B restores its own selection');
+  await panel.getByRole('button', { name: '关闭浏览器面板', exact: true }).click();
+  await selectSession('browser-a');
+  assert.equal(await rail.getAttribute('aria-pressed'), 'true', 'closing in B does not close A');
+  assert.deepEqual((await list()).tabs.map(tab => tab.id), [first, second]);
+  await selectSession('browser-b');
+  assert.equal(await rail.getAttribute('aria-pressed'), 'false', 'B restores its explicit closure');
+  assert.equal((await list()).activeId, otherPageId, 'panel closure retains B’s selection');
+  for (const tab of (await list()).tabs) await page.evaluate(id => window.desktop.browserClose(id), tab.id);
+  await selectSession('browser-a');
   await page.waitForTimeout(100);
   assert.equal((await viewState()).filter(view => view.visible && view.url?.startsWith('http:')).length, 1);
   await page.locator('.right-tool-rail').getByRole('button', { name: '上下文', exact: true }).click();
@@ -542,11 +592,18 @@ try {
   assert.equal((await viewState()).filter(view => view.visible && view.url?.startsWith('http:')).length, 0);
   await page.evaluate(({ first, url }) => window.desktop.browserAction(first, 'navigate', url), { first, url });
   await waitForBrowserFixtureSnapshot(page, snapshot => snapshot.tabs[0]?.title === '项目预览', 'the retried page title');
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1706, 1066));
   await page.reload();
   await page.getByText('Step Code 已连接', { exact: true }).waitFor({ state: 'attached', timeout: 60000 });
   await rail.click();
   for (let i = (await list()).tabs.length; i < 12; i++) await page.evaluate(() => window.desktop.browserCreate());
   await assert.rejects(page.evaluate(() => window.desktop.browserCreate()), /limit/);
+  await selectSession('browser-c');
+  await rail.click();
+  await panel.getByText('已达标签页上限，请先关闭其他标签页', { exact: true }).waitFor({ state: 'visible' });
+  assert.equal((await list()).canCreate, false, 'the limit counts other conversations without showing their tabs');
+  assert.equal((await list()).tabs.length, 0);
+  await selectSession('browser-a');
   for (const tab of (await list()).tabs) await page.evaluate(id => window.desktop.browserClose(id), tab.id);
   await page.waitForTimeout(200);
   assert.equal((await list()).tabs.length, 0);
@@ -557,10 +614,35 @@ try {
   assert.equal((await list()).tabs.length, 0, 'closing the last tab does not silently create another');
   await page.emulateMedia({ reducedMotion: 'reduce' });
   assert.equal(await panel.evaluate(element => getComputedStyle(element).transitionDuration), '0s');
+  await page.locator('.new-chat').click();
+  const draft = await waitForBrowserFixtureSnapshot(page, snapshot => snapshot.owner.startsWith('draft:'), 'a new proposal owns its browser');
+  assert.deepEqual(draft.tabs, []);
+  await rail.click();
+  await page.evaluate(url => window.desktop.browserOpenLink(url), `${url}draft`);
+  const draftPage = await waitForBrowserFixtureSnapshot(page, snapshot =>
+    snapshot.tabs.some(tab => tab.id === snapshot.activeId && tab.url === `${url}draft` && !tab.loading), 'the proposal page');
+  const draftPageId = await app.evaluate(({ webContents }, url) =>
+    webContents.getAllWebContents().find(contents => contents.getURL() === url)?.id, `${url}draft`);
+  assert.ok(draftPageId);
+  await selectSession('browser-a');
+  assert.deepEqual((await list()).tabs, [], 'proposal pages do not enter an existing conversation');
+  await page.locator('.new-chat').click();
+  const resumed = await waitForBrowserFixtureSnapshot(page, snapshot => snapshot.owner === draft.owner, 'the same parked proposal');
+  assert.equal(resumed.activeId, draftPage.activeId);
+  await panel.getByRole('tab', { selected: true }).waitFor();
+  const created = await page.evaluate(id => window.desktop.createDraftSession(id), draft.owner.slice('draft:'.length));
+  assert.ok(created.state?.sessionId);
+  const promoted = await waitForBrowserFixtureSnapshot(page, snapshot =>
+    snapshot.owner === `session:${created.state.sessionId}`, 'the promoted proposal browser');
+  assert.deepEqual(promoted.tabs.map(tab => tab.id), draftPage.tabs.map(tab => tab.id));
+  assert.equal(promoted.activeId, draftPage.activeId, 'first creation transfers the original tab selection');
+  await panel.getByRole('tab', { selected: true }).waitFor();
+  assert.equal(await app.evaluate(({ webContents }, id) => webContents.fromId(id)?.isDestroyed(), draftPageId), false,
+    'first creation keeps the native proposal page');
   assert.deepEqual(errors, []);
   await app.close(); closed = true;
   console.log(JSON.stringify({ profile, isolation, context, permission, screenshots: 'test-results/browser-*.png',
-    checks: 'navigation, per-conversation panel restore, retained native tabs, editable input, image loading, scroll, zoom, popup tabs, reload restore, modal/native layering, cubic expansion, narrow bounds, error/retry, protocol guards, tab limit and real WebContents cleanup' }, null, 2));
+    checks: 'navigation, same-directory tab isolation, per-conversation panel and selection restore, live page retention, draft promotion, stale IPC, scoped popup tabs, editable input, image loading, scroll, zoom, reload restore, modal/native layering, cubic expansion, narrow bounds, error/retry, protocol guards, global tab limit and real WebContents cleanup' }, null, 2));
 } catch (error) {
   console.error('Browser fixture failed:', error);
   const diagnostic = {

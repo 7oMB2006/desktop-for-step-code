@@ -53,6 +53,7 @@
   },
   "devDependencies": {
     "@types/three": "0.180.0",
+    "@playwright/mcp": "0.0.86",
     "@resvg/resvg-js": "^2.6.2",
     "@types/mdast": "4.0.4",
     "@types/node": "24.10.0",
@@ -89,6 +90,7 @@
     },
     "files": [
       "dist/**",
+      "!dist/playwright-preview-helper.cjs",
       "package.json"
     ],
     "extraResources": [

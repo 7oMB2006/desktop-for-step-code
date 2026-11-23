@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { browserBounds, browserNavigation, browserUrl } from '../electron/browser-policy';
+import { browserBounds, browserNavigation, browserPreviewUrl, browserUrl } from '../electron/browser-policy';
 
 test('browser addresses accept explicit web URLs and normalize local preview hosts', () => {
   assert.equal(browserUrl('localhost:4173/path'), 'http://localhost:4173/path');
@@ -22,6 +22,15 @@ test('page navigation never treats relative URLs or bare hosts as allowed absolu
   assert.equal(browserNavigation('about:blank'), true);
   for (const value of ['example.com', '/relative', 'javascript:alert(1)', 'file:///C:/', 'https://u:p@example.com/'])
     assert.equal(browserNavigation(value), false);
+});
+test('agent previews only accept explicit HTTP URLs on the supported loopback hosts', () => {
+  assert.equal(browserPreviewUrl('http://localhost:5173/preview'), 'http://localhost:5173/preview');
+  assert.equal(browserPreviewUrl('http://127.0.0.1:4173'), 'http://127.0.0.1:4173/');
+  assert.equal(browserPreviewUrl('http://[::1]:4173/#ready'), 'http://[::1]:4173/#ready');
+  for (const value of ['localhost:5173', 'https://localhost', 'http://localhost.example.com/',
+    'http://127.0.0.1@192.168.1.2/', 'http://user:pass@localhost/', 'http://localhost:bad/',
+    'http://2130706433/', 'http://%6cocalhost/', 'about:blank', 'file:///C:/index.html', '///localhost', null])
+    assert.throws(() => browserPreviewUrl(value), String(value));
 });
 test('native browser geometry is finite and clipped to the current content bounds', () => {
   assert.deepEqual(browserBounds({ x: -10, y: 30, width: 400, height: 800 }, 640, 540),

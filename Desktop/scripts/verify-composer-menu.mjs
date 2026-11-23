@@ -26,7 +26,8 @@ try {
   });
   const owner = await prepareSessionFixture(page);
   const snapshot = await waitForSessionFixtureTools(page, owner.runtimeId);
-  await app.evaluate(({ ipcMain }, snapshot) => {
+  const browser = await page.evaluate(() => window.desktop.browserList());
+  await app.evaluate(({ ipcMain }, { snapshot, browser }) => {
     const model = { provider: 'stepfun', id: 'step-3.5-flash', name: 'Step 3.5 Flash', contextWindow: 256000, thinkingLevels: ['low', 'medium', 'high'] };
     globalThis.menuFixture = { ...snapshot, stats: { ...snapshot.stats, contextUsage: { percent: 33, tokens: 84480, contextWindow: 256000 } }, state: { ...snapshot.state, model, thinkingLevel: 'medium' }, models: [model], messages: [
       { role: 'user', content: '请整理 /clm **这个项目** 的结构，再看 /usage。\n`/clm` 和 [/clm](https://example.com) 保留原样。\n\n[label](https://example.com)/clm \\/clm &#47;clm **label**/clm' },
@@ -37,7 +38,7 @@ try {
     globalThis.menuAttachments = [];
     globalThis.menuPermissionsSupported = false;
     globalThis.menuLinkPreviews = [];
-    globalThis.menuBrowser = { revision: 0, tabs: [] };
+    globalThis.menuBrowser = browser;
     globalThis.menuOpenedLinks = [];
     ipcMain.removeHandler('desktop');
     ipcMain.handle('desktop', (_event, method, ...args) => {
@@ -53,9 +54,9 @@ try {
       }
       if (method === 'browserList' || method === 'browserLayout') return globalThis.menuBrowser;
       if (method === 'browserOpenLink') {
-        globalThis.menuOpenedLinks.push(args[0]);
-        globalThis.menuBrowser = { revision: globalThis.menuBrowser.revision + 1, activeId: 'link-tab',
-          tabs: [{ id: 'link-tab', url: args[0], title: '链接预览', canGoBack: false, canGoForward: false, loading: false }] };
+        globalThis.menuOpenedLinks.push(args);
+        globalThis.menuBrowser = { ...globalThis.menuBrowser, revision: globalThis.menuBrowser.revision + 1, activeId: 'link-tab',
+          tabs: [{ id: 'link-tab', url: args[0], title: '链接预览', canGoBack: false, canGoForward: false, loading: false, zoom: 1 }] };
         return globalThis.menuBrowser;
       }
       if (method === 'command') {
@@ -70,7 +71,7 @@ try {
       }
       return {};
     });
-  }, snapshot);
+  }, { snapshot, browser });
   await page.reload();
   const input = page.locator('.composer > .composer-input');
   await input.waitFor();
@@ -335,9 +336,8 @@ try {
   await platform.focus();
   await page.locator('.link-preview[aria-hidden="false"]').waitFor();
   await platform.press('Enter');
-  await page.locator('.browser-panel.is-closing').waitFor({ state: 'detached' });
-  await page.waitForFunction(() => window.desktop && document.querySelector('#browser-panel'));
-  assert.deepEqual(await app.evaluate(() => globalThis.menuOpenedLinks), ['https://platform.stepfun.com/']);
+  await page.locator('#browser-panel[aria-hidden="false"]').waitFor();
+  assert.deepEqual(await app.evaluate(() => globalThis.menuOpenedLinks), [['https://platform.stepfun.com/', browser.context]]);
   assert.equal(await input.evaluate(element => element.value), linkDraft, 'Opening the built-in browser preserves the pending draft');
   await platform.click();
   await page.locator('#browser-panel').waitFor({ state: 'hidden' });

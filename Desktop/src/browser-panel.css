@@ -24,7 +24,13 @@
 .browser-tab.is-active { border-bottom-color: var(--primary); }
 .browser-tab > .text-tab { gap: 6px; font-size: 11px; --tab-padding-inline: 8px; }
 .browser-tab.is-active > button[role="tab"] { color: var(--ink); }
-.browser-tab > button[role="tab"] > span { max-width: 145px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.browser-tab-icon { display: inline-flex; width: 12px; height: 12px; flex: 0 0 12px; }
+.browser-tab-icon .matrix-pulse { width: 12px; height: 12px; }
+.browser-tab-title {
+  max-width: 145px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  transition: color 180ms var(--right-panel-ease);
+}
+.browser-tab.is-testing :is(.browser-tab-icon, .browser-tab-title) { color: var(--primary); }
 .browser-tab .icon-button { width: 20px; height: 22px; }
 .browser-addressbar { position: relative; display: flex; align-items: center; gap: 3px; padding: 9px 10px; border-bottom: 1px solid var(--border); }
 .browser-addressbar.is-loading::after { content: ''; position: absolute; bottom: 0; left: 0; right: 0; height: 2px; background: var(--primary); }
@@ -45,5 +51,9 @@
 .browser-zoom { border: 0; background: transparent; font-size: 10px; padding: 0 2px; min-width: 40px; color: var(--muted); }
 .app[data-native-resize] .browser-track, .app[data-native-resize] .browser-panel.right-inspector-surface { transition: none; }
 @media (prefers-reduced-motion: reduce) {
-  .browser-track, .app .browser-panel.right-inspector-surface { transition: none; }
+  .browser-track, .app .browser-panel.right-inspector-surface, .browser-tab-title { transition: none; }
+}
+@media (forced-colors: active) {
+  .browser-tab.is-testing .browser-tab-title { text-decoration: underline dotted; }
+  .browser-tab-icon .matrix-pulse rect { fill: currentColor; }
 }

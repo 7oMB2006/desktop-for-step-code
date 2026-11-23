@@ -1,12 +1,14 @@
 import { build } from 'esbuild';
 import { execFileSync } from 'node:child_process';
 import { build as viteBuild } from 'vite';
-import { cp, mkdir } from 'node:fs/promises';
+import { cp, mkdir, rm } from 'node:fs/promises';
 import './icons.mjs';
 import './build-terminal.mjs';
 const usagePreview = process.env.DESKTOP_USAGE_OVERVIEW_PREVIEW === '1';
 const define = { DESKTOP_USAGE_OVERVIEW_PREVIEW: JSON.stringify(usagePreview) };
 await build({ entryPoints: ['electron/main.ts', 'electron/preload.ts', 'electron/tray-preload.ts', 'electron/keyless-fetch.ts', 'electron/macos-update-helper.ts'], outdir: 'dist', outExtension: { '.js': '.cjs' }, bundle: true, platform: 'node', format: 'cjs', external: ['electron'], sourcemap: true, define });
+// Older experimental builds copied this source-only helper into package inputs.
+await rm('dist/playwright-preview-helper.cjs', { force: true });
 await viteBuild({ base: './', define, build: { outDir: 'dist/renderer', emptyOutDir: true, rolldownOptions: { input: ['index.html', 'tray-menu.html', ...(usagePreview ? ['tests/fixtures/usage-overview.html'] : [])] } } });
 await mkdir('dist/licenses', { recursive: true });
 await mkdir('dist/file-opening', { recursive: true });

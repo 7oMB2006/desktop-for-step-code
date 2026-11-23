@@ -144,7 +144,7 @@ const bridge: Partial<DesktopBridge> = {
   windowControl: async () => ({ focused: true, maximized: false, fullscreen: false }),
   updateState: async () => ({ status: 'idle', currentVersion: '0.6.0', channel: 'preview' }),
   onUpdateEvent: () => () => {},
-  browserList: async () => ({ revision: 0, tabs: [] }),
+  browserList: async () => ({ revision: 0, owner: '', context: 0, canCreate: true, tabs: [] }),
   browserLayout: async () => {},
   onBrowserEvent: () => () => {},
   terminalList: async () => [],

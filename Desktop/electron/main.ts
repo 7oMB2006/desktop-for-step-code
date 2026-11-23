@@ -102,6 +102,8 @@ import { readWorkflowCatalog } from './workflow-catalog';
 import { workflowsFromMessages, workflowIsActive } from '../src/workflow-state';
 import { TerminalSessions } from './terminal-sessions';
 import { BrowserTabs } from './browser-tabs';
+import { browserPreviewUrl } from './browser-policy';
+import { previewInput } from './playwright-preview';
 import { linkPreview } from './link-preview';
 import { artifactFile } from './artifact-files';
 import { FilePreviews, fileMode, canOpenExternally, readPreview } from './file-previews';
@@ -161,6 +163,8 @@ const modelSelections = new ModelSelections(join(app.getPath('userData'), 'model
 let window: BrowserWindow;
 let startupWindow: StartupWindow | undefined;
 let browser: BrowserTabs | undefined;
+const playwrightPreviewEnabled = !app.isPackaged && process.env.DESKTOP_EXPERIMENTAL_PLAYWRIGHT_PREVIEW === '1';
+const localPreviewRuns = new WeakMap<SessionRuntime, { playwrightRevealed: boolean }>();
 const filePreviews = new FilePreviews(id => runtimes.require(id).cwd);
 const localPages = new LocalPagePreview();
 const localFileGrants = new Map<string, string>();
@@ -232,12 +236,17 @@ let resumeMini = false;
 const presentations = { main: new Map<string, WindowPresentation>(), mini: new Map<string, WindowPresentation>() };
 const presentationRevisions = { main: 0, mini: 0 };
 const selectedDraft = (surface: Surface) => surface === 'mini' ? miniView.draft : sessionDraft;
+const draftHasContent = (id: string) => {
+  const owner = { draftId: id };
+  return composers.hasInput(owner) || browser?.hasTabs(composerKey(owner));
+};
 const selectDraft = (surface: Surface, draft: typeof sessionDraft) => {
   if (draft) parkedDrafts.delete(draft.id);
   if (draft && sessionDraft?.id === draft.id) sessionDraft = draft;
   if (draft && miniView.draft?.id === draft.id) miniView.draft = draft;
   if (surface === 'mini') { miniView.draft = draft; miniView.runtimeId = undefined; miniView.worker = undefined; }
   else { sessionDraft = draft; runtimes.activeId = undefined; }
+  browser?.sync();
 };
 const selectedRuntime = (surface: Surface) => surface === 'mini' ? miniView.runtimeId : runtimes.activeId;
 function replaceMiniRuntime(worker: SessionRuntime) {
@@ -250,7 +259,10 @@ const selectRuntime = (surface: Surface, worker: SessionRuntime) => {
   const draft = selectedDraft(surface);
   if (draft && !creatingDrafts.has(draft.id) && !createdDrafts.has(draft.id)) {
     for (const [id, parked] of parkedDrafts) {
-      if (parked.surface === surface && !composers.hasInput({ draftId: id })) parkedDrafts.delete(id);
+      if (parked.surface === surface && !draftHasContent(id)) {
+        parkedDrafts.delete(id);
+        browser?.discard(composerKey({ draftId: id }));
+      }
     }
     parkedDrafts.set(draft.id, { surface, draft });
   }
@@ -305,6 +317,9 @@ const globalInstructions = new GlobalInstructionsStore(join(dataRoot, 'agent'));
 const outdatedInstructions = new WeakSet<SessionRuntime>();
 const independentRoot = join(app.getPath('userData'), 'workspaces', 'independent');
 const pathKey = (path: string) => normalizedWorkspaceKey(resolve(path), process.platform);
+function browserOwner(draft: typeof sessionDraft, worker?: SessionRuntime) {
+  return composerKey(draft ? { draftId: draft.id } : worker?.state?.sessionId ? { sessionId: worker.state.sessionId } : undefined);
+}
 async function samePath(a: string, b: string) {
   if (pathKey(a) === pathKey(b)) return true;
   try {
@@ -582,6 +597,7 @@ const sessionTitles = new SessionTitles({
   fetch: providerFetch,
 });
 const runtimes: SessionRuntimes = new SessionRuntimes(event => {
+  if (event.type === 'desktop_runtimes') browser?.sync();
   notifications.handle(event);
   if (taskbarBadge) {
     if (event.type === 'desktop_task_completed' && event.sessionId) taskbarBadge.complete(event.sessionId);
@@ -592,6 +608,10 @@ const runtimes: SessionRuntimes = new SessionRuntimes(event => {
   }
   if (event.type === 'desktop_task_completed') event = { ...event, playSound: preferences.completionSound === true };
   const queueWorker = runtimes.workers.get(event.runtimeId);
+  if (queueWorker && (event.type === 'agent_end' || event.type === 'desktop_exit')) {
+    localPreviewRuns.delete(queueWorker);
+    browser?.stopPlaywright(queueWorker.id);
+  }
   if (event.type === 'desktop_btw') {
     if (queueWorker) btw.event(queueWorker, event);
     return;
@@ -693,6 +713,8 @@ const runtimes: SessionRuntimes = new SessionRuntimes(event => {
         '--extension', join(runtimeRoot, 'runtime-compile-cache.mjs')] };
   },
   dispose: worker => {
+    localPreviewRuns.delete(worker);
+    browser?.stopPlaywright(worker.id);
     sessionTitles.cancel(worker);
     externalPreparing.delete(worker);
     externalTasks.dispose(worker);
@@ -1225,7 +1247,39 @@ const collaboration: SessionCollaboration = new SessionCollaboration(runtimes, j
   (worker, message) => { pendingMessages.enqueue(worker, message, { message }); },
   { extensionPath: join(runtimeRoot, 'desktop-remote.mjs'),
     sendImage: (worker, path, caption, signal) => remote.deliverImage(worker, path, caption, signal) },
-  new SessionAttachmentExports(join(app.getPath('userData'), 'cache', 'session-attachment-exports')));
+  new SessionAttachmentExports(join(app.getPath('userData'), 'cache', 'session-attachment-exports')),
+  (worker, url) => {
+    if (quitting || !browser) throw new Error('Desktop browser is unavailable');
+    return browser.openPreview(browserOwner(undefined, worker), url);
+  }, playwrightPreviewEnabled ? async (worker, raw, signal) => {
+    const owner = browserOwner(undefined, worker);
+    const run = localPreviewRuns.get(worker);
+    const requireLocalRun = () => {
+      if (!browser || quitting || quitPending || !owner || !run || localPreviewRuns.get(worker) !== run
+        || !worker.runActive || worker.stopping || worker.mutating || worker.remoteAttached || worker.cronGated
+        || hasScheduledCron(worker.cron)
+        || runtimes.workers.get(worker.id) !== worker || browserOwner(undefined, worker) !== owner || signal?.aborted)
+        throw new Error('Built-in Playwright requires an active local Desktop conversation');
+      return browser;
+    };
+    const tabs = requireLocalRun();
+    const input = previewInput(raw);
+    if (input.action !== 'start') return tabs.controlPlaywright(worker.id, owner, input, signal);
+    const url = browserPreviewUrl(input.url);
+    const origin = new URL(url).origin;
+    const zh = preferences.language === 'zh';
+    const approved = await runtimes.confirm(worker, zh ? '允许 Playwright 验收本地预览？' : 'Allow Playwright to test this local preview?',
+      zh ? `本轮仅可操作当前会话中 ${origin} 的隔离预览。不会读取其他标签的登录状态。你可以随时停止。`
+        : `This turn may control only an isolated ${origin} preview in this conversation. Other tabs and their sign-ins are not accessible. You can stop it at any time.`, signal);
+    if (!approved) throw new Error('Playwright preview was not approved');
+    const preview = await requireLocalRun().startPlaywright(owner, worker.id, url, signal, () => {
+      requireLocalRun();
+      if (!run || run.playwrightRevealed) return false;
+      run.playwrightRevealed = true;
+      return true;
+    });
+    return { content: [{ type: 'text', text: `Playwright connected to the original preview tab at ${new URL(preview.url).origin}. The Browser panel reveals it once per turn in this conversation. Use snapshot before clicking.` }] };
+  } : undefined);
 function recycleSessionRuntimes() {
   if (transition && !sessionNavigation.busy) return;
   void runtimes.recycle(worker => sessionNavigation.pending(worker.state?.sessionId))
@@ -1432,6 +1486,7 @@ async function snapshot(worker = runtimes.active, refresh = true, ignoreDraft = 
     quitReview: quitReview.state,
     statusAccount: statusAccount(appliedAuthData),
     workspaceIssue: unavailableWorkspace,
+    browserOwner: surface === 'main' ? browserOwner(draft, worker) : undefined,
     preferences: { ...preferences, workspace: draft ? draft.workspace : worker?.cwd ?? preferences.workspace }, themePacks: themePacks.packs,
     customBackground: backgroundState, providerSettingsPending,
     status: draft ? 'ready' : worker?.status ?? status, draftId: draft?.id, runtimeId: worker?.id, runtimeStartupTiming: draft ? undefined : worker?.startupTiming, runtimes: runtimeSummaries, unreadSessionIds: [...runtimes.unreadSessionIds],
@@ -1691,7 +1746,7 @@ async function beginSession(workspace?: string, surface: Surface = 'main', resum
   if (transition || deletingArchived) throw new Error('Workspace operation in progress');
   const active = selectedDraft(surface);
   const parked = active ? undefined : [...parkedDrafts.values()].reverse().find(({ surface: owner, draft }) =>
-    owner === surface && composers.hasInput({ draftId: draft.id })
+    owner === surface && draftHasContent(draft.id)
     && (resume || pathKey(draft.workspace ?? '') === pathKey(workspace ?? ''))
     && (!draft.workspace || preferences.workspaces.some(path => pathKey(path) === pathKey(draft.workspace!))));
   const previous = active ?? parked?.draft;
@@ -2053,8 +2108,11 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
       } finally { if (!success) { updateInstalling = false; pluginReloads.resume(); } }
       return;
     }
-    case 'browserOpenLink': return browser!.open(text(args[0], 4096));
+    case 'browserOpenLink':
+      browser!.assertContext(args[1]);
+      return browser!.open(text(args[0], 4096));
     case 'fileOpen': {
+      const browserContext = browser!.assertContext();
       let target: FileTarget = args[0];
       if (target === undefined) {
         const selected = await dialog.showOpenDialog(window, {
@@ -2073,7 +2131,9 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
         await savePreferences();
       };
       if (destination === 'internal' && mode === 'browser') {
+        browser!.assertContext(args[2] ?? browserContext);
         const page = await localPages.open(file.path);
+        browser!.assertContext(browserContext);
         localFileGrants.set(file.path, file.id);
         const result = { destination: 'browser', browser: browser!.openLocal(page.url, file.path, page.origin) } satisfies FileOpenResult;
         await remember();
@@ -2181,6 +2241,7 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
         for (const change of draftLaunchChanges(runtimes.require(created.runtimeId).launch, draft.launch))
           await handle('command', ['set_launch_mode', change, created.runtimeId], surface);
         const worker = runtimes.require(created.runtimeId);
+        browser?.promoteDraft(browserOwner(draft), browserOwner(undefined, worker));
         createdDrafts.set(draftId, worker.id);
         sessionTitles.register(worker);
         parkedDrafts.delete(draftId);
@@ -2201,11 +2262,20 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
         throw error;
       } finally { creatingDrafts.delete(draftId); }
     }
-    case 'browserList': return browser!.snapshot();
-    case 'browserCreate': return browser!.create(args[0] === undefined ? undefined : text(args[0], 8192));
-    case 'browserSelect': return browser!.select(text(args[0], 80));
-    case 'browserClose': return browser!.close(text(args[0], 80));
+    case 'browserList':
+      browser!.sync();
+      return browser!.snapshot();
+    case 'browserCreate':
+      browser!.assertContext(args[1]);
+      return browser!.create(args[0] === undefined ? undefined : text(args[0], 8192));
+    case 'browserSelect':
+      browser!.assertContext(args[1]);
+      return browser!.select(text(args[0], 80));
+    case 'browserClose':
+      browser!.assertContext(args[1]);
+      return browser!.close(text(args[0], 80));
     case 'browserAction': {
+      const browserContext = browser!.assertContext(args[3]);
       const id = text(args[0], 80);
       const action = text(args[1], 20) as BrowserAction;
       const tab = browser!.snapshot().tabs.find(tab => tab.id === id);
@@ -2213,17 +2283,19 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
         const grantId = localFileGrants.get(tab.localFile);
         if (!grantId) throw new Error('Unknown local file permission');
         const file = await filePreviews.resolve({ grantId });
+        browser!.assertContext(browserContext);
         if (action === 'external') {
           const error = await shell.openPath(file.path);
           if (error) throw new Error(error);
           return browser!.snapshot();
         }
         const page = await localPages.open(file.path);
-        return browser!.openLocal(page.url, file.path, page.origin, true);
+        browser!.assertContext(browserContext);
+        return browser!.reloadLocal(id, page.url);
       }
       return browser!.action(id, action, args[2] === undefined ? undefined : text(args[2], 8192));
     }
-    case 'browserLayout': browser!.layout(args[0]); return;
+    case 'browserLayout': browser!.layout(args[0], args[1]); return;
     case 'terminalList': return args[0] === undefined ? terminals.list() : terminals.list(runtimes.require(text(args[0], 80)).cwd);
     case 'terminalCreate': return terminals.create(runtimes.require(text(args[0], 80)).cwd);
     case 'terminalWrite': terminals.write(text(args[0], 80), args[1]); return;
@@ -2821,6 +2893,7 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
             const worker = [...runtimes.workers.values()].find(worker => worker.state?.sessionId === target.id);
             if (worker) await runtimes.remove(worker);
             await deleteManagedSessionFile(join(dataRoot, 'sessions'), target.path);
+            browser?.discard(composerKey({ sessionId: target.id }));
             await conversationTiming.remove(target.id);
             await usageEstimates.remove(target.id);
             await modelSelections.remove(target.id);
@@ -2867,6 +2940,7 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
           await runtimes.remove(worker);
         }
         if (target.path) await shell.trashItem(target.path);
+        browser?.discard(composerKey({ sessionId: target.id }));
         await workflowBindings.remove(target.id);
         await usageEstimates.remove(target.id);
         return true;
@@ -3104,7 +3178,11 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
           worker.automaticTitle = undefined;
         }
         if (type === 'compact') await runtimes.assertIdle(worker);
-        if (type === 'abort') { worker.stopping = true; worker.interrupted = true; pendingMessages.pause(worker); }
+        if (type === 'abort') {
+          worker.stopping = true; worker.interrupted = true; pendingMessages.pause(worker);
+          localPreviewRuns.delete(worker);
+          browser?.stopPlaywright(worker.id);
+        }
         worker.operations++;
         if (type === 'prompt') runtimes.publish();
         try {
@@ -3125,6 +3203,8 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
               await runtimes.preparePrompt(worker, '/init');
               payload.message = await projectInstructionsMessage(worker.cwd, '/init');
             }
+            if (playwrightPreviewEnabled && type === 'prompt' && surface === 'main' && !projectRules
+              && !(payload.message as string).trimStart().startsWith('/')) localPreviewRuns.set(worker, { playwrightRevealed: false });
             const submission = type === 'prompt' ? runtimes.submitPrompt(worker, payload, true)
               : rpc.request(type, payload, type === 'compact' ? 600000 : 30000);
             response = await submission;
@@ -3141,6 +3221,8 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
           return response;
         } catch (error) {
           if (type === 'prompt') {
+            localPreviewRuns.delete(worker);
+            browser?.stopPlaywright(worker.id);
             if (error instanceof Error && error.message.startsWith('STARTUP_NOT_READY:')) restoreLaunch?.();
             else { worker.failed = true; pendingMessages.pause(worker); }
           }
@@ -3739,6 +3821,7 @@ app.on('before-quit', event => {
       await usageEstimates.flush();
       await btwUsageLedger.flush();
       await workflowBindings.flush();
+      await browser?.finishPlaywright();
       browser?.dispose();
       quitting = true;
       app.quit();
@@ -3901,7 +3984,7 @@ else app.whenReady().then(async () => {
   crashLog.setPhase('window created');
   browser = new BrowserTabs(window, event => {
     if (!window.isDestroyed()) window.webContents.send('browser-event', event);
-  }, () => preferences.language);
+  }, () => preferences.language, () => browserOwner(sessionDraft, runtimes.active));
   const windowState = () => window.webContents.send('runtime-event', { type: 'desktop_window_state', maximized: window.isMaximized(), fullscreen: window.isFullScreen(), focused: window.isFocused() });
   window.on('maximize', windowState);
   window.on('unmaximize', windowState);

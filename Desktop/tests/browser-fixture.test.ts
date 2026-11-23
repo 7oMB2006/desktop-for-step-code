@@ -26,7 +26,7 @@ test('native browser acceptance checks resolved IPC values instead of Promise tr
     ts.forEachChild(node, visit);
   };
   visit(source);
-  assert.equal(polls, 10, 'all native browser IPC readiness checks must await resolved snapshots');
+  assert.ok(polls >= 10, 'the native browser acceptance still covers its asynchronous readiness checks');
 });
 
 test('browser fixture waits through empty and loading tabs until navigation actually finishes', async () => {

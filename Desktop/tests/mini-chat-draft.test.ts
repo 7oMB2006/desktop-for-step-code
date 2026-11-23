@@ -27,7 +27,7 @@ async function fixture() {
     ts.ScriptTarget.Latest, true);
   const names = ['handle', 'beginSession', 'connect', 'replaceMiniRuntime', 'performProviderSettings',
     'parkedDrafts', 'draftModelWrites', 'setDraftModel', 'draftModelState',
-    'selectedDraft', 'selectDraft', 'selectedRuntime', 'selectRuntime'];
+    'selectedDraft', 'draftHasContent', 'selectDraft', 'selectedRuntime', 'selectRuntime'];
   const declarations = names.map(name => {
     const declaration = source.statements.find(node =>
       ts.isFunctionDeclaration(node) && node.name?.text === name
@@ -106,7 +106,7 @@ async function fixture() {
   const context = {
     readingSelections: new Map<string, { sessionId: string }>(),
     rendererGenerations: new Map([[1, 0], [2, 0]]),
-    window: { webContents: { id: 1 } }, miniChat: { window: { webContents: { id: 2 } } },
+    window: { webContents: { id: 1 } }, miniChat: { window: { webContents: { id: 2 } } }, browser: undefined,
     sessionDraft: draft as Draft | undefined, miniView, runtimes, preferences,
     creatingDrafts, createdDrafts, composers, snapshot, transition: false, deletingArchived: false,
     updateInstalling: false, status: 'ready', sessionNavigation: { busy: false },

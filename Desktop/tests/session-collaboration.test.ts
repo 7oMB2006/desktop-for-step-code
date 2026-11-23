@@ -30,7 +30,8 @@ class Transport implements WorkerTransport {
   async stop() {}
 }
 async function fixture(beforePrompt?: (worker: import('../electron/session-runtimes').SessionRuntime, message: string) => Promise<void>,
-  remote?: ConstructorParameters<typeof SessionCollaboration>[4], attachments?: SessionAttachmentExports) {
+  remote?: ConstructorParameters<typeof SessionCollaboration>[4], attachments?: SessionAttachmentExports,
+  openPreview?: ConstructorParameters<typeof SessionCollaboration>[6]) {
   const events: RuntimeEvent[] = [];
   const transports: Transport[] = [];
   const pool: SessionRuntimes = new SessionRuntimes(event => events.push(event), () => {
@@ -40,7 +41,7 @@ async function fixture(beforePrompt?: (worker: import('../electron/session-runti
   }, { beforePrompt, launch: worker => broker.attach(worker), dispose: worker => broker.detach(worker) });
   const queue = new PendingMessages(() => {}, () => {}, undefined, (worker, message) => pool.preparePrompt(worker, message));
   const broker: SessionCollaboration = new SessionCollaboration(pool, 'extension.mjs', () => 'zh',
-    (worker, message) => { queue.enqueue(worker, message, { message }); }, remote, attachments);
+    (worker, message) => { queue.enqueue(worker, message, { message }); }, remote, attachments, openPreview);
   await broker.start();
   const a = await pool.open('node', 'step', 'workspace-a', {});
   const b = await pool.open('node', 'step', 'workspace-b', {});
@@ -148,6 +149,32 @@ test('attachment IDs address saved inputs on the authenticated source branch onl
     try { assert.deepEqual(await readdir(cache), ['unrelated.png']); }
     finally { await rm(profile, { recursive: true, force: true }); }
   }
+});
+
+test('the local preview broker binds requests to their live caller, regardless of selection', async () => {
+  const requests: [string | undefined, string][] = [];
+  const f = await fixture(undefined, undefined, undefined, (worker, url) => {
+    requests.push([worker.state?.sessionId, url]);
+    return { opened: true, load: 'loading' };
+  });
+  try {
+    const env = f.transports[0].env;
+    assert.equal(env.DESKTOP_BROWSER_PREVIEW, '1');
+    assert.ok(f.transports[0].args.includes('desktop_open_preview=allow'));
+    const request = (data: object, token = env.DESKTOP_SESSION_TOKEN) => fetch(env.DESKTOP_SESSION_URL!, {
+      method: 'POST', headers: { authorization: `Bearer ${token}` }, body: JSON.stringify(data),
+    });
+    const url = 'http://localhost:5173/';
+    const result = await request({ action: 'open-preview', url });
+    assert.equal(result.status, 200);
+    assert.deepEqual(await result.json(), { opened: true, load: 'loading' });
+    assert.equal(f.pool.active, f.b);
+    assert.equal((await request({ action: 'open-preview', url, sessionId: 'session-1' })).status, 400);
+    assert.equal((await request({ action: 'open-preview', url }, 'wrong')).status, 403);
+    f.broker.detach(f.a);
+    assert.equal((await request({ action: 'open-preview', url })).status, 403);
+    assert.deepEqual(requests, [['session-0', url]]);
+  } finally { await f.close(); }
 });
 
 test('read/list are snapshots and do not switch sessions, stop workers, or clear unread', async () => {

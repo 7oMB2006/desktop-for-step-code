@@ -75,6 +75,39 @@ const mode = async value => app.evaluate((_electron, value) => {
 const chooseChannel = async (page, id) => {
   await page.getByRole('combobox', { name: /^(更新通道|Update channel)$/ }).selectOption(id);
 };
+const assertChannelPickerPlacement = async (trigger, label) => {
+  const geometry = await trigger.evaluate(element => {
+    const picker = getComputedStyle(element, '::picker(select)');
+    const inset = side => parseFloat(picker[`padding${side}`]) + parseFloat(picker[`border${side}Width`]);
+    const options = Array.from(element.options, option => option.getBoundingClientRect());
+    const menu = {
+      top: Math.min(...options.map(rect => rect.top)) - inset('Top'),
+      right: Math.max(...options.map(rect => rect.right)) + inset('Right'),
+      bottom: Math.max(...options.map(rect => rect.bottom)) + inset('Bottom'),
+      left: Math.min(...options.map(rect => rect.left)) - inset('Left'),
+    };
+    return {
+      width: innerWidth, height: innerHeight, count: options.length, menu,
+      trigger: element.getBoundingClientRect().toJSON(),
+    };
+  });
+  const { width, height, count, menu, trigger: anchor } = geometry;
+  const diagnostic = `${label}: ${JSON.stringify(geometry)}`;
+  const epsilon = 1;
+  assert.equal(count, 2, diagnostic);
+  assert.ok(menu.left >= -epsilon && menu.top >= -epsilon
+    && menu.right <= width + epsilon && menu.bottom <= height + epsilon,
+  `entire channel picker fits within the renderer viewport: ${diagnostic}`);
+  const menuHeight = menu.bottom - menu.top;
+  // The OS may clamp the requested window size to the display work area.
+  const fitsBelow = height - anchor.bottom >= menuHeight;
+  if (fitsBelow) {
+    assert.ok(menu.top >= anchor.bottom - epsilon, `channel picker opens below: ${diagnostic}`);
+  } else {
+    assert.ok(menu.bottom <= anchor.top + epsilon, `channel picker flips above: ${diagnostic}`);
+  }
+  console.log(`Channel picker opens ${fitsBelow ? 'below' : 'above'}: ${diagnostic}`);
+};
 try {
   let page = await launch();
   assert.equal(await app.evaluate(() => globalThis.updateFixture.calls.length), 0, 'background acceptance cannot contact GitHub');
@@ -134,11 +167,8 @@ try {
   }));
   assert.ok(Math.abs(channelWidths.picker - channelWidths.trigger) < 0.001,
     `channel picker minimum width matches trigger: ${JSON.stringify(channelWidths)}`);
-  const triggerBox = await channelTrigger.boundingBox();
-  const firstOptionBox = await channelTrigger.getByRole('option').first().boundingBox();
-  assert.ok(triggerBox && firstOptionBox && firstOptionBox.y >= triggerBox.y + triggerBox.height,
-    'channel picker opens below the trigger when there is enough space');
   await page.screenshot({ path: 'test-results/app-updates-channel-menu-light.png' });
+  await assertChannelPickerPlacement(channelTrigger, 'light');
   await page.keyboard.press('Escape');
   await page.waitForFunction(() => !document.querySelector('.update-channel-field select')?.matches(':open'));
   assert.equal(await channelTrigger.evaluate(element => element === document.activeElement), true);
@@ -222,9 +252,8 @@ try {
   await page.screenshot({ path: 'test-results/app-updates-narrow.png' });
   await channelTrigger.click();
   await page.waitForFunction(() => document.querySelector('.update-channel-field select')?.matches(':open'));
-  const menuBox = await channelTrigger.getByRole('option').first().boundingBox();
-  assert.ok(menuBox && menuBox.x >= 0 && menuBox.y >= 0 && menuBox.x + menuBox.width <= 640 && menuBox.y + menuBox.height <= 720);
   await page.screenshot({ path: 'test-results/app-updates-channel-menu-narrow.png' });
+  await assertChannelPickerPlacement(channelTrigger, 'narrow');
   await page.emulateMedia({ reducedMotion: 'reduce' });
   assert.equal(await channelTrigger.evaluate(element => getComputedStyle(element, '::picker-icon').transitionDuration), '0s');
   await page.keyboard.press('Escape');

@@ -501,9 +501,7 @@ const authEnvironment = () => ({
   STEPCODE_DESKTOP_AUTH_DATA: JSON.stringify(runtimeAuth(appliedAuthData)),
   ...keylessEnvironment(appliedAuthData, app.isPackaged ? join(process.resourcesPath, 'runtime-adapters/keyless-fetch.cjs') : join(__dirname, 'keyless-fetch.cjs')),
 });
-const searchAdapter = (file: string) => app.isPackaged
-  ? join(process.resourcesPath, 'runtime-adapters', file) : join(__dirname, '..', 'electron', file);
-const searchWeb = createWebSearch(providerFetch, nativeStepSearch(nodePath, searchAdapter('native-step-search.mjs'),
+const searchWeb = createWebSearch(providerFetch, nativeStepSearch(nodePath, join(runtimeRoot, 'native-step-search.mjs'),
   join(runtimeRoot, 'step/dist/bundle/index.js'), dataRoot, () => ({ ...network.environment(env), DFSC_WEB_SEARCH_ROUTING: undefined })));
 const webSearchRuntimeReady = () => runtimeManifest.patches?.includes('desktop-web-search') === true;
 const webSearchReady = () => {
@@ -724,7 +722,7 @@ const runtimes: SessionRuntimes = new SessionRuntimes(event => {
       ...(runtimeManifest.patches?.includes('desktop-plugin-host-launch') ? { DFSC_RUNTIME_HOST_V1: '1' } : {}) },
       args: [...launch.args, '--extension', join(runtimeRoot, 'project-instructions.mjs'),
         '--extension', join(runtimeRoot, 'runtime-compile-cache.mjs'),
-        '--extension', searchAdapter('desktop-web-search.mjs')] };
+        '--extension', join(runtimeRoot, 'desktop-web-search.mjs')] };
   },
   dispose: worker => {
     localPreviewRuns.delete(worker);

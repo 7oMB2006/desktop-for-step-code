@@ -101,14 +101,6 @@
         "to": "runtime-adapters/keyless-fetch.cjs"
       },
       {
-        "from": "electron/desktop-web-search.mjs",
-        "to": "runtime-adapters/desktop-web-search.mjs"
-      },
-      {
-        "from": "electron/native-step-search.mjs",
-        "to": "runtime-adapters/native-step-search.mjs"
-      },
-      {
         "from": "dist/file-opening",
         "to": "file-opening"
       },

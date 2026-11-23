@@ -82,8 +82,9 @@ try {
   delete env.ELECTRON_RUN_AS_NODE;
   const cwd = resolve(process.env.DESKTOP_VERIFY_ROOT ?? '.');
   phase = 'native Step transport';
-  const child = promisify(execFile)(join(cwd, 'runtime/node', process.platform === 'win32' ? 'node.exe' : 'node'), [
-    '--use-env-proxy', resolve('electron/native-step-search.mjs'), join(cwd, 'runtime/step/dist/bundle/index.js'),
+  const runtime = process.env.DESKTOP_MACOS_RESOURCES ? join(process.env.DESKTOP_MACOS_RESOURCES, 'runtime') : join(cwd, 'runtime');
+  const child = promisify(execFile)(join(runtime, 'node', process.platform === 'win32' ? 'node.exe' : 'node'), [
+    '--use-env-proxy', join(runtime, 'native-step-search.mjs'), join(runtime, 'step/dist/bundle/index.js'),
   ], { cwd: root, windowsHide: true, timeout: 10000, env: { ...env, NO_PROXY: '127.0.0.1', STEPCODE_AUTH_PATH: join(root, 'auth.json') } });
   child.child.stdin.end(JSON.stringify({ key: 'native-fixture-key', url: `${address}/mcp`, query: 'local native MCP fixture' }));
   const native = JSON.parse((await child).stdout);
@@ -185,6 +186,16 @@ try {
   const ranked = page.getByRole('list', { name: '启用的搜索服务' });
   const searxng = ranked.locator('[data-order="searxng"]');
   const tavily = ranked.locator('[data-order="tavily"]');
+  const waitForOrder = async (first, second, revision) => {
+    await page.waitForFunction(({ first, second }) => {
+      const pane = document.querySelector('.web-search-pane[aria-busy="false"]');
+      return pane?.querySelectorAll('[data-order]')[0]?.getAttribute('data-order') === first
+        && pane.querySelectorAll('[data-order]')[1]?.getAttribute('data-order') === second;
+    }, { first, second });
+    const saved = await snapshot();
+    assert.deepEqual(saved.order, [first, second]);
+    assert.equal(saved.revision, revision);
+  };
   const dragTavilyUp = async () => {
     const grip = await tavily.locator('[data-order-grip]').boundingBox();
     const target = await searxng.boundingBox();
@@ -220,20 +231,20 @@ try {
   await page.emulateMedia({ reducedMotion: 'no-preference' });
   await dragTavilyUp();
   await page.mouse.up();
-  await page.waitForFunction(async () => (await window.desktop.webSearchSettings()).order[0] === 'tavily');
+  await waitForOrder('tavily', 'searxng', before.revision + 1);
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await page.getByRole('button', { name: '下移 Tavily', exact: true }).press('Enter');
-  await page.waitForFunction(async () => (await window.desktop.webSearchSettings()).order[0] === 'searxng');
+  await waitForOrder('searxng', 'tavily', before.revision + 2);
   await page.getByRole('button', { name: '上移 Tavily', exact: true }).press('Enter');
-  await page.waitForFunction(async () => (await window.desktop.webSearchSettings()).order[0] === 'tavily');
+  await waitForOrder('tavily', 'searxng', before.revision + 3);
   await page.screenshot({ path: join(evidence, 'order-light.png') });
   await close();
   await submit('Search with fallback fixture');
-  assert.equal(await app.evaluate(() => globalThis.searchFixtureTavilyCalls), 1);
-  assert.equal(queries.length, 2);
   const fallbackTool = page.locator('.process-tool[data-tool-state="done"]').last();
   await fallbackTool.locator('summary').first().click();
   await fallbackTool.getByText('Tavily · 服务限流 → SearXNG · 成功', { exact: true }).waitFor();
+  assert.equal(await app.evaluate(() => globalThis.searchFixtureTavilyCalls), 1);
+  assert.equal(queries.length, 2);
   await page.screenshot({ path: join(evidence, 'fallback.png') });
   await app.evaluate(() => { globalThis.searchFixtureStatus = 401; });
   await submit('Search with invalid credentials fixture');
@@ -263,6 +274,13 @@ try {
   console.log('Web search settings, local execution, attempt trace, and same-session availability passed.');
 } catch (error) {
   console.error(`Web search acceptance failed during ${phase}`);
+  if (page && !page.isClosed()) {
+    console.error('Search settings:', await page.evaluate(async () => {
+      const { order, revision, enabled, fallback } = await window.desktop.webSearchSettings();
+      return { order, revision, enabled, fallback };
+    }).catch(() => undefined));
+    console.error('Search tool traces:', await page.locator('.process-tool').allTextContents().catch(() => []));
+  }
   console.error(payloads.map(body => ({
     user: text(body.messages.findLast(message => message.role === 'user')),
     searchOffered: body.tools?.some(tool => tool.function?.name === 'search_web'),

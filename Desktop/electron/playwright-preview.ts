@@ -1,4 +1,4 @@
-import { type UtilityProcess, type WebContents, utilityProcess } from 'electron';
+import { app, type UtilityProcess, type WebContents, utilityProcess } from 'electron';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -63,7 +63,7 @@ export class PlaywrightPreview {
   private readonly leaseTimeout: NodeJS.Timeout;
 
   constructor(guest: WebContents, private origin: string, private ended: () => void,
-    private helper = join(__dirname, 'playwright-preview-helper.cjs')) {
+    private helper = join(app.getAppPath(), 'electron', 'playwright-preview-helper.cjs')) {
     this.scope = new PreviewProtocolScope(guest, origin, message => this.post({ type: 'cdp-response', message }), () => this.close());
     this.leaseTimeout = setTimeout(() => this.close(), 10 * 60_000);
     this.leaseTimeout.unref();

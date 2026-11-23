@@ -1,5 +1,5 @@
 import { _electron as electron } from 'playwright';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, realpath, writeFile } from 'node:fs/promises';
 import { mkdtemp } from './test-profile.mjs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -222,7 +222,10 @@ try {
   const newDraft = async (kind, release, message) => {
     await until(async () => !(await getSnapshot()).state?.isStreaming);
     await writeFile(join(root, 'config.toml'), config(kind, release));
-    await page.evaluate(project => window.desktop.beginSession(project), project);
+    const { workspaces } = (await getSnapshot()).preferences;
+    assert.equal(workspaces.length, 1);
+    assert.equal(await realpath(workspaces[0]), await realpath(project));
+    await page.evaluate(workspace => window.desktop.beginSession(workspace), workspaces[0]);
     await page.reload();
     await until(async () => Boolean((await getSnapshot()).draftId));
     await input().fill(message);

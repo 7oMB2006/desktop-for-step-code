@@ -76,6 +76,8 @@ test('independent routing is explicitly declared and disjoint from a Broker leas
     .independentCapabilities, ['model.text']);
   for (const independentCapabilities of [[], ['model.asr'], ['model.text', 'model.text']])
     assert.throws(() => parseHostDeclaration({ ...declaration, independentCapabilities }, manifest), /INVALID_REQUEST/);
+  assert.equal(parseHostDeclaration({ ...declaration, independentTools: true }, manifest).independentTools, true);
+  assert.throws(() => parseHostDeclaration({ ...declaration, independentTools: false }, manifest), /INVALID_REQUEST/);
   const broker = await mockHost(); t.after(() => broker.close());
   const launch = broker.launch({ configurationRevision: '7'.repeat(64), independentCapabilities: ['model.asr'] });
   assert.deepEqual(parseLaunch(launch, identity).independentCapabilities, ['model.asr']);

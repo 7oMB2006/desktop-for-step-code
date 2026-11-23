@@ -16,6 +16,8 @@ const entries = [
   ['general', 'diagnostics', '导出脱敏诊断', 'Export diagnostics', '日志 logs'],
   ['appearance', 'theme', '主题', 'Theme', '颜色 深色 浅色 dark light'],
   ['appearance', 'typography', '文字与排版', 'Typography', '字体 字号 行距 font'],
+  ['about', 'build-info', '构建版本', 'Build information', 'Desktop 版本 Step Code 上游 基线 commit version'],
+  ['about', 'app-updates', '版本更新', 'Updates', '检查更新 下载更新 更新通道 自动检查 installer update channel'],
 ] as const;
 
 export function searchSettings(query: string, categories: readonly SettingsCategory[], language: 'zh' | 'en') {

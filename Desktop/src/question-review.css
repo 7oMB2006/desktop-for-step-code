@@ -15,8 +15,8 @@
 .question-option > span { min-width: 0; }
 .question-option strong { font-size: 13px; font-weight: 600; line-height: 1.6; overflow-wrap: anywhere; }
 .question-option small { display: block; margin-top: 3px; font-size: 12px; color: var(--muted); line-height: 1.6; overflow-wrap: anywhere; }
-.question-review-content textarea { width: 100%; min-height: 100px; resize: vertical; margin-top: 10px; }
-.question-review-content textarea:focus, .question-review-content textarea:focus-visible { outline: none; border-color: var(--border); box-shadow: none; }
+.question-review-content:has(> textarea) { padding-top: 4px; }
+.question-review-content textarea { display: block; width: 100%; min-height: clamp(0px, calc(100% - 10px), 100px); max-height: calc(100% - 10px); resize: vertical; margin-top: 10px; }
 .question-review-actions { flex-shrink: 0; margin: 0; padding: 10px 20px 14px; border-top: 1px solid var(--border); gap: 8px; }
 .question-navigation { display: flex; align-items: center; gap: 6px; margin-right: auto; font-size: 12px; color: var(--muted); white-space: nowrap; }
 .question-navigation button { width: 28px; height: 28px; min-height: 28px; padding: 0; border: 0; background: transparent; }

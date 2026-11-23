@@ -21504,11 +21504,11 @@ function parseModelSelection(value, declared) {
     if (!declared.includes(capability) || !text(model, 160) || /[\u0000-\u001f]/u.test(model)) fail();
   return { ...value };
 }
-function capabilities(value) {
-  if (!Array.isArray(value) || !value.length || value.length > CAPABILITIES.length || value.some((item) => !CAPABILITIES.includes(item)) || new Set(value).size !== value.length) fail();
+function capabilities(value, allowEmpty = false) {
+  if (!Array.isArray(value) || !allowEmpty && !value.length || value.length > CAPABILITIES.length || value.some((item) => !CAPABILITIES.includes(item)) || new Set(value).size !== value.length) fail();
 }
-function parseIndependentCapabilities(value, declared) {
-  capabilities(value);
+function parseIndependentCapabilities(value, declared, allowEmpty = false) {
+  capabilities(value, allowEmpty);
   if (value.some((item) => !declared.includes(item))) fail();
   return [...value];
 }
@@ -21557,9 +21557,9 @@ function parseLaunch(value, expected, now = Date.now()) {
   );
   if (value.version !== "dfsc-launch-v1") fail("UNSUPPORTED_VERSION");
   if (!text(value.pluginId, 128) || !id(value.consumer) || !uuid2(value.instance) || !uuid2(value.launchId) || !uuid2(value.runtimeId) || !text(value.sessionId, 128) || !hash(value.fingerprint) || !hash(value.declarationHash) || !hash(value.revision) || !hash(value.accountRevision) || !text(value.dataDirectory, 4096) || !isAbsolute(value.dataDirectory) || value.pluginId !== expected.pluginId || value.consumer !== expected.consumer) fail();
-  capabilities(value.capabilities);
+  capabilities(value.capabilities, value.mode === "independent" && Array.isArray(value.independentCapabilities));
   parseModelSelection(value.models, value.capabilities);
-  const independent = value.independentCapabilities === void 0 ? void 0 : parseIndependentCapabilities(value.independentCapabilities, CAPABILITIES);
+  const independent = value.independentCapabilities === void 0 ? void 0 : parseIndependentCapabilities(value.independentCapabilities, CAPABILITIES, true);
   if (independent && (!hash(value.configurationRevision) || (value.mode === "follow" ? independent.some((item) => value.capabilities.includes(item)) : independent.length !== value.capabilities.length || independent.some((item) => !value.capabilities.includes(item))))) fail();
   if (value.mode === "independent") {
     if (!hash(value.configurationRevision) || value.broker !== void 0 || Object.keys(value.models).length) fail();

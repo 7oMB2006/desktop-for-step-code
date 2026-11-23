@@ -1,6 +1,7 @@
 import { normalizedWorkspaceKey } from './workspace-key';
 import { UsageOverviewPanel } from './UsageOverviewPanel';
 import { searchSettings } from './settings-search';
+import { revealFocusedTextField } from './form-focus';
 import { RemoteAccessPanel } from './RemoteAccessPanel';
 import { RemoteNavigationEntry } from './RemoteNavigationEntry';
 import { remoteNavigationWait, type RemoteNavigationWait } from './remote-navigation';
@@ -103,6 +104,7 @@ import { WebSearchSettings } from './WebSearchSettings';
 import { NetworkSettings } from './NetworkSettings';
 import { DisclosureSelect } from './DisclosureSelect';
 import { CapabilitySettings } from './CapabilitySettings';
+import { SkillsSettings } from './SkillsSettings';
 import { PluginCenter } from './PluginCenter';
 import { PluginActionGroup } from './PluginActionGroup';
 import { PluginWorkspace } from './PluginWorkspace';
@@ -114,7 +116,8 @@ import { capabilityCommand, type CapabilityTarget } from './capability-command';
 import { SessionImportSettings } from './SessionImportSettings';
 import { NewSession } from './NewSession';
 import { FirstRun } from './FirstRun';
-import { AppUpdates, useAppUpdates } from './AppUpdates';
+import { useAppUpdates } from './AppUpdates';
+import { AboutSettings } from './AboutSettings';
 import { AppearanceSettings } from './AppearanceSettings';
 import { CompactionSettings } from './CompactionSettings';
 import { SubagentRoleSettings } from './SubagentRoleSettings';
@@ -1603,8 +1606,8 @@ function App() {
     ['plugins', Plug, '插件', 'Plugins'], ['mcp', McpIcon, 'MCP', 'MCP'], ['skills', BookOpen, 'Skills', 'Skills'],
     ['instructions', FileText, '全局指令', 'Global instructions'], ['general', SunMoon, '通用', 'General'],
     ['interface', SlidersHorizontal, '界面复杂度', 'Interface complexity'], ['appearance', Pencil, '外观', 'Appearance'],
-    ['updates', Download, '版本更新', 'Updates'], ['import', ArrowRightLeft, '会话迁移', 'Session migration'],
-    ['archived', Archive, '已归档', 'Archived'],
+    ['import', ArrowRightLeft, '会话迁移', 'Session migration'], ['archived', Archive, '已归档', 'Archived'],
+    ['about', Info, '关于', 'About'],
   ] as const;
   const searchingSettings = Boolean(settingsQuery.trim());
   const settingsResults = searchingSettings ? searchSettings(settingsQuery,
@@ -2015,6 +2018,12 @@ function App() {
     await bridge!.saveMcp(mcpEdit.name, { ...mcpEdit.config, args: parsed }, secrets);
     closeMcpEdit(); setSettings(await bridge!.settings()); setCapabilityRevision(value => value + 1);
   });
+  const restartCapabilitySession = async () => {
+    const next = await bridge!.restart();
+    setSelectedSubagent(null); setSelectedBackgroundLane(undefined); setSelectedBackgroundAgent(undefined);
+    setSelectedWorkflow(null); setSelectedWorkflowAgent(null); setSubagentView('agent');
+    installSnapshot(next);
+  };
   const archived = new Set(data.preferences.archivedSessionIds ?? []);
   const archivedSessions = data.sessions.filter(session => archived.has(session.id));
   const miniCatalog = useMemo(() => isMini ? miniChatCatalog(data.sessions, data.preferences, bridge?.platform) : undefined,
@@ -2440,7 +2449,7 @@ function App() {
         }}/>
       <div className="sidebar-bottom"><div className="sidebar-remote-utilities">
         <button className="icon-button sidebar-settings" aria-label={updateAvailable ? t('设置，有更新', 'Settings, update available') : t('设置', 'Settings')}
-          data-tooltip={t('设置', 'Settings')} onClick={() => { if (updateAvailable) setTab('updates'); void openSettings(); }} disabled={!bridge}><SettingsIcon size={17}/>{updateAvailable && <i className="update-dot update-indicator"/>}</button>
+          data-tooltip={t('设置', 'Settings')} onClick={() => { if (updateAvailable) setTab('about'); void openSettings(); }} disabled={!bridge}><SettingsIcon size={17}/>{updateAvailable && <i className="update-dot update-indicator"/>}</button>
         <RemoteNavigationEntry waiting={navigationTarget ? remoteWait : undefined}
           target={navigationTarget ? sessionTitle(navigationTarget.session, t('会话', 'Conversation')) : ''}
           language={data.preferences.language} hidden={settingsOpen || Boolean(removeProject) || !sidebarVisible}
@@ -2924,6 +2933,7 @@ function App() {
             mcpBusy={anyBusy || busy || loading || !connected} capabilityRevision={capabilityRevision}
             onMcpChanged={async () => { setSettings(await bridge!.settings()); setCapabilityRevision(value => value + 1); }}
             onManageMcp={() => { setCapabilityTarget(undefined); setTab('mcp'); void openSettings(); }}
+            onManageSkills={() => { selectSettingsTab('skills'); void openSettings(); }}
             onRestart={async () => {
               const next = await bridge!.restart();
               setSelectedSubagent(null); setSelectedWorkflow(null); setSelectedWorkflowAgent(null); setSubagentView('agent'); installSnapshot(next);
@@ -3034,7 +3044,7 @@ function App() {
         </header>
         <div className="settings-layout">
           <nav aria-label={t('设置分类', 'Settings categories')}>{settingsCategories.map(([id, Icon, zh, en]) =>
-            <button key={id} aria-label={t(zh, en)} aria-current={tab === id ? 'page' : undefined} className={`${tab === id ? 'selected' : ''}${id === 'import' ? ' settings-group-start' : ''}`} onClick={() => selectSettingsTab(id)}><Icon size={17}/>{t(zh, en)}</button>
+            <button key={id} aria-label={t(zh, en)} aria-current={tab === id ? 'page' : undefined} className={`${tab === id ? 'selected' : ''}${id === 'import' ? ' settings-group-start' : id === 'about' ? ' settings-about-tab' : ''}`} onClick={() => selectSettingsTab(id)}><Icon size={17}/>{t(zh, en)}</button>
           )}</nav>
           {searchingSettings && <div className="settings-content settings-search-results">
             <h3 role="status">{settingsResults.length ? t(`搜索结果（${settingsResults.length}）`, `Search results (${settingsResults.length})`) : t('没有匹配的设置', 'No matching settings')}</h3>
@@ -3053,7 +3063,8 @@ function App() {
               </button>
             </li>)}</ul>
           </div>}
-      <div key={tab} ref={settingsContent} hidden={searchingSettings} className="settings-content">
+      <div key={tab} ref={settingsContent} hidden={searchingSettings} className={`settings-content${tab === 'skills' ? ' is-skills' : ''}`}
+        onFocusCapture={revealFocusedTextField}>
       {tab === 'web-search' && bridge ? <WebSearchSettings bridge={bridge} language={data.preferences.language} onAccount={() => selectSettingsTab('account')}/>
         : tab === 'instructions' ? <GlobalInstructionsSettings editor={globalInstructionsEditor} language={data.preferences.language}/> : tab === 'interface' ? <InterfaceSettings value={interfaceSettings} language={data.preferences.language} onChange={interfaceSettings => setPreference({ interfaceSettings })}/> : tab === 'appearance' ? <>
         <ThemeSettings preferences={data.preferences} systemDark={systemDark} language={data.preferences.language} packs={data.themePacks}
@@ -3092,7 +3103,8 @@ function App() {
       </>}
       {tab === 'import' && bridge ? <SessionImportSettings bridge={bridge} language={data.preferences.language}
         onOpen={async id => { const session = (await bridge.sessions()).find(item => item.id === id); if (!session) throw new Error('Imported session is unavailable'); finishSettingsClose(); await navigateSession(session); }}/>
-      : tab === 'updates' ? <><h3>{t('版本更新', 'Updates')}</h3><AppUpdates bridge={bridge} state={appUpdate} preferences={data.preferences} onPreferences={setPreference}/></> : tab === 'general' ? <>{bridge && <><CompactionSettings bridge={bridge} language={data.preferences.language} models={data.models} model={data.state?.model}/><SpeechSettings bridge={bridge} language={data.preferences.language}/><NetworkSettings bridge={bridge} language={data.preferences.language} busy={anyBusy || busy}/></>}<h3>{t('语言', 'Language')}</h3><label data-settings-anchor="language">{t('语言', 'Language')}<DisclosureSelect aria-label={t('语言', 'Language')} value={data.preferences.language} onChange={e => void setPreference({ language: e.target.value })}><option value="zh">简体中文</option><option value="en">English</option></DisclosureSelect></label><h3>{t('诊断', 'Diagnostics')}</h3><button data-settings-anchor="diagnostics" onClick={() => void run(() => bridge!.diagnostics())}><Download size={15}/>{t('导出脱敏诊断', 'Export diagnostics')}</button></> : !settings ? <p>{t('加载中…', 'Loading…')}</p> : tab === 'providers' ? <ProviderSettings language={data.preferences.language} providers={settings.providers ?? []} pending={data.providerSettingsPending}
+      : tab === 'about' ? <AboutSettings bridge={bridge} state={appUpdate} preferences={data.preferences} onPreferences={setPreference}/>
+      : tab === 'general' ? <>{bridge && <><CompactionSettings bridge={bridge} language={data.preferences.language} models={data.models} model={data.state?.model}/><SpeechSettings bridge={bridge} language={data.preferences.language}/><NetworkSettings bridge={bridge} language={data.preferences.language} busy={anyBusy || busy}/></>}<h3>{t('语言', 'Language')}</h3><label data-settings-anchor="language">{t('语言', 'Language')}<DisclosureSelect aria-label={t('语言', 'Language')} value={data.preferences.language} onChange={e => void setPreference({ language: e.target.value })}><option value="zh">简体中文</option><option value="en">English</option></DisclosureSelect></label><h3>{t('诊断', 'Diagnostics')}</h3><button data-settings-anchor="diagnostics" onClick={() => void run(() => bridge!.diagnostics())}><Download size={15}/>{t('导出脱敏诊断', 'Export diagnostics')}</button></> : !settings ? <p>{t('加载中…', 'Loading…')}</p> : tab === 'providers' ? <ProviderSettings language={data.preferences.language} providers={settings.providers ?? []} pending={data.providerSettingsPending}
         onDiscover={(provider, key) => bridge!.discoverProviderModels(provider, key)}
         onTest={(provider, modelId, key) => bridge!.testProvider(provider, modelId, key)}
         onCancelTest={() => bridge!.cancelProviderTest()}
@@ -3105,9 +3117,13 @@ function App() {
           <EstimateRules key={`${settings.account.profile}:${settings.account.userId ?? ''}`} bridge={bridge!} account={settings.account}
             language={data.preferences.language} disabled={loggingIn || anyBusy} onChanged={async () => { await applySnapshot(() => bridge!.snapshot()); }}/></>}/>
           <button data-settings-anchor="usage" onClick={openUsage}><BarChart3 size={15}/>{t('用量统计', 'Usage overview')}</button></>
-      : (tab === 'plugins' || tab === 'mcp' || tab === 'skills') ? <CapabilitySettings
+      : tab === 'skills' ? <SkillsSettings bridge={bridge!} language={data.preferences.language}
+        busy={anyBusy || busy} runtimeId={data.runtimeId} revision={capabilityRevision}
+        target={capabilityTarget?.page === 'skills' ? capabilityTarget : undefined} commands={commands}
+        onRestart={restartCapabilitySession}/>
+      : (tab === 'plugins' || tab === 'mcp') ? <CapabilitySettings
         key={`${tab}:${capabilityRevision}`} page={tab} bridge={bridge!} language={data.preferences.language}
-        busy={anyBusy || busy} runtimeId={data.runtimeId} settings={settings} target={capabilityTarget?.page === tab ? capabilityTarget : undefined} commands={commands}
+        busy={anyBusy || busy} runtimeId={data.runtimeId} settings={settings} target={capabilityTarget?.page === tab ? capabilityTarget : undefined}
         onEditMcp={name => {
           mcpEditRequestRevision.current++;
           const config = name ? settings.mcp[name] : undefined;
@@ -3115,16 +3131,28 @@ function App() {
             args: JSON.stringify(config?.args ?? []), secrets: '{}' });
         }}
         onChanged={async () => { setSettings(await bridge!.settings()); }}
-        onRestart={async () => {
-          const next = await bridge!.restart();
-          setSelectedSubagent(null); setSelectedBackgroundLane(undefined); setSelectedBackgroundAgent(undefined); setSelectedWorkflow(null); setSelectedWorkflowAgent(null); setSubagentView('agent');
-          installSnapshot(next);
-        }}/> : null}
+        onRestart={restartCapabilitySession}/> : null}
       </>}
     </div></div></section></div>}
-    {mcpEdit && <div className="modal-backdrop higher"><section className="small-dialog" role="dialog" aria-modal="true" aria-label="MCP"><header><h2>MCP server</h2><IconButton title="Close" onClick={closeMcpEdit}><X size={18}/></IconButton></header><label>{t('名称', 'Name')}<input value={mcpEdit.name} disabled={Boolean(mcpEdit.original)} onChange={e => setMcpEdit({ ...mcpEdit, name: e.target.value })}/></label><label>{t('传输', 'Transport')}<DisclosureSelect value={mcpEdit.config.url !== undefined ? 'http' : 'stdio'} onChange={e => setMcpEdit({ ...mcpEdit, config: e.target.value === 'http' ? { url: '', enabled: true } : { command: '', args: [], enabled: true } })}><option value="stdio">stdio</option><option value="http">HTTP</option></DisclosureSelect></label>{mcpEdit.config.url !== undefined ? <label>URL<input value={mcpEdit.config.url} onChange={e => setMcpEdit({ ...mcpEdit, config: { ...mcpEdit.config, url: e.target.value } })}/></label> : <><label>{t('可执行文件', 'Executable')}<input value={mcpEdit.config.command ?? ''} onChange={e => setMcpEdit({ ...mcpEdit, config: { ...mcpEdit.config, command: e.target.value } })}/></label><label>{t('参数（JSON 数组）', 'Arguments (JSON array)')}<textarea value={mcpEdit.args} onChange={e => setMcpEdit({ ...mcpEdit, args: e.target.value })}/></label></>}<label>{t('新增或替换环境变量（JSON）', 'Add or replace environment variables (JSON)')}<textarea value={mcpEdit.secrets} onChange={e => setMcpEdit({ ...mcpEdit, secrets: e.target.value })}/></label><label className="checkbox"><input type="checkbox" checked={mcpEdit.config.enabled !== false} onChange={e => setMcpEdit({ ...mcpEdit, config: { ...mcpEdit.config, enabled: e.target.checked } })}/>{t('启用', 'Enabled')}</label><button className="primary" onClick={() => void saveMcp()}>{t('保存', 'Save')}</button></section></div>}
+    {mcpEdit && <div className="modal-backdrop higher">
+      <section className="small-dialog form-text-focus" role="dialog" aria-modal="true" aria-label="MCP"
+        onFocusCapture={revealFocusedTextField}>
+        <header><h2>MCP server</h2><IconButton title="Close" onClick={closeMcpEdit}><X size={18}/></IconButton></header>
+        <label>{t('名称', 'Name')}<input value={mcpEdit.name} disabled={Boolean(mcpEdit.original)} onChange={e => setMcpEdit({ ...mcpEdit, name: e.target.value })}/></label>
+        <label>{t('传输', 'Transport')}<DisclosureSelect value={mcpEdit.config.url !== undefined ? 'http' : 'stdio'} onChange={e => setMcpEdit({ ...mcpEdit, config: e.target.value === 'http' ? { url: '', enabled: true } : { command: '', args: [], enabled: true } })}>
+          <option value="stdio">stdio</option><option value="http">HTTP</option>
+        </DisclosureSelect></label>
+        {mcpEdit.config.url !== undefined ? <label>URL<input value={mcpEdit.config.url} onChange={e => setMcpEdit({ ...mcpEdit, config: { ...mcpEdit.config, url: e.target.value } })}/></label> : <>
+          <label>{t('可执行文件', 'Executable')}<input value={mcpEdit.config.command ?? ''} onChange={e => setMcpEdit({ ...mcpEdit, config: { ...mcpEdit.config, command: e.target.value } })}/></label>
+          <label>{t('参数（JSON 数组）', 'Arguments (JSON array)')}<textarea value={mcpEdit.args} onChange={e => setMcpEdit({ ...mcpEdit, args: e.target.value })}/></label>
+        </>}
+        <label>{t('新增或替换环境变量（JSON）', 'Add or replace environment variables (JSON)')}<textarea value={mcpEdit.secrets} onChange={e => setMcpEdit({ ...mcpEdit, secrets: e.target.value })}/></label>
+        <label className="checkbox"><input type="checkbox" checked={mcpEdit.config.enabled !== false} onChange={e => setMcpEdit({ ...mcpEdit, config: { ...mcpEdit.config, enabled: e.target.checked } })}/>{t('启用', 'Enabled')}</label>
+        <button className="primary" onClick={() => void saveMcp()}>{t('保存', 'Save')}</button>
+      </section>
+    </div>}
     {renaming && <div className="modal-backdrop higher">
-      <form className="small-dialog" role="dialog" aria-modal="true" aria-labelledby="rename-title"
+      <form className="small-dialog form-text-focus" role="dialog" aria-modal="true" aria-labelledby="rename-title"
         onKeyDown={event => {
           if (event.key !== 'Escape' || event.nativeEvent.isComposing || event.keyCode === 229) return;
           event.preventDefault(); event.stopPropagation(); closeRename();

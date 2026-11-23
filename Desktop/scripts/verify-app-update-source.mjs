@@ -32,7 +32,7 @@ try {
     installer: result.release?.installer?.name, source: result.source, checkedAt: result.checkedAt, error: result.error, retryAt: result.retryAt }, null, 2));
   await page.waitForFunction(() => !document.querySelector('.new-chat')?.disabled);
   await page.locator('.sidebar-settings').click();
-  await page.getByRole('button', { name: '版本更新', exact: true }).click();
+  await page.getByRole('button', { name: '关于', exact: true }).click();
   const updates = page.getByRole('region', { name: '应用更新' });
   await updates.waitFor();
   await updates.scrollIntoViewIfNeeded();

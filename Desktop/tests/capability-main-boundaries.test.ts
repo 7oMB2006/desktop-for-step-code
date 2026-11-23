@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import ts from 'typescript';
 import { CapabilityGate } from '../electron/capability-gate';
 import type { CapabilityPolicy } from '../electron/capability-policy';
-import { capabilityFailureDetails } from '../electron/capability-failure.mjs';
+import { capabilityFailureCode, capabilityFailureDetails } from '../electron/capability-failure.mjs';
 import { CapabilityService } from '../electron/capability-service';
 import { RpcManagementStopError, type RpcProcess } from '../electron/runtime';
 import { pluginWindowMethodAllowed } from '../electron/plugin-window-policy';
@@ -144,7 +144,7 @@ function ipcFixture(handler: (method: string, args: unknown[], surface: 'main' |
 test('actual main passive capability reads never trigger pending provider application or recovery', async () => {
   const f = ipcFixture();
   for (const method of [
-    'capabilityCatalog', 'pluginDesktopCatalog', 'pluginDocument', 'pluginRepositoryInfo', 'pluginConfiguration', 'pluginHostSettings', 'pluginChoosePath', 'pluginWindowOpen',
+    'capabilityCatalog', 'capabilitySkillDetail', 'capabilitySkillFile', 'pluginDesktopCatalog', 'pluginDocument', 'pluginRepositoryInfo', 'pluginConfiguration', 'pluginHostSettings', 'pluginChoosePath', 'pluginWindowOpen',
     'pluginConnectionState', 'pluginConnectionChooseProfile', 'pluginConnectionForgetProfile',
     'themeScene', 'themePoster', 'themeImage',
     'customBackgroundState', 'customBackgroundImage', 'customBackgroundImport', 'customBackgroundSave', 'customBackgroundRemove',
@@ -157,6 +157,69 @@ test('actual main passive capability reads never trigger pending provider applic
   await f.read('beginSession');
   assert.equal(f.state.applications, 1);
 });
+
+test('skill read IPC stays passive and inaccessible to MiniChat and untrusted frames', async () => {
+  const id = 'a'.repeat(64), fileId = 'b'.repeat(64);
+  const calls: unknown[] = [];
+  const f = ipcFixture((method, args, surface) => { calls.push([method, args, surface]); return method; });
+  await f.read('capabilitySkillDetail', id);
+  await f.read('capabilitySkillFile', id, fileId);
+  for (const method of ['capabilitySkillDetail', 'capabilitySkillFile']) {
+    await assert.rejects(f.miniRead(method, id, fileId), /main window/);
+    await assert.rejects(f.untrustedRead(method), /Untrusted sender/);
+    assert.equal(pluginWindowMethodAllowed(method, [id, fileId], 'plugin-ref'), false);
+  }
+  assert.deepEqual(calls, [
+    ['capabilitySkillDetail', [id], 'main'],
+    ['capabilitySkillFile', [id, fileId], 'main'],
+  ]);
+  assert.equal(f.state.applications, 0);
+  assert.equal(f.state.resumes, 0);
+});
+
+test('actual main skill read handler refuses during mutations and sanitizes errors', async () => {
+  const node = find(node => ts.isCaseClause(node) && ts.isStringLiteral(node.expression)
+    && node.expression.text === 'capabilitySkillFile') as ts.CaseClause;
+  const create = new Function('capabilityService', 'capabilityFailureCode', 'settingsMutation', javascript(`
+    const updateInstalling = false, quitting = false, quitPending = false;
+    return async (method, args) => { ${node.statements.map(statement => statement.getText(file)).join('\n')} };
+  `));
+  const calls: unknown[] = [];
+  const service = {
+    async skillDetail(id: string) { calls.push([id]); return { files: [] }; },
+    async skillFile(id: string, fileId: string) { calls.push([id, fileId]); throw new Error('C:\\private\\skill.md'); },
+  };
+  const invoke = create(service, capabilityFailureCode, false);
+  assert.deepEqual(await invoke('capabilitySkillDetail', ['skill-id']), { files: [] });
+  await assert.rejects(invoke('capabilitySkillFile', ['skill-id', 'file-id']), /^Error: capability:operation-failed$/u);
+  await assert.rejects(create(service, capabilityFailureCode, true)('capabilitySkillDetail', ['skill-id']), /capability:busy/u);
+  assert.deepEqual(calls, [['skill-id'], ['skill-id', 'file-id']]);
+});
+
+test('skill data service forwards only validated opaque IDs through passive management RPC', async () => {
+  const id = 'a'.repeat(64), fileId = 'b'.repeat(64);
+  const calls: unknown[] = [];
+  const service = new CapabilityService({
+    root: 'unused', node: 'unused', runtime: 'unused', environment: () => ({}),
+    createWorker: () => ({
+      start() {},
+      async request(type: string, args: unknown, timeout: number) {
+        calls.push([type, args, timeout]);
+        return type === 'skill-detail' ? { files: [] } : { text: 'sample', revision: 'r' };
+      },
+      async stopManagement() {},
+    }) as unknown as RpcProcess,
+  });
+  await assert.rejects(service.skillDetail('C:\\private\\skill.md'), /capability:invalid-input/u);
+  await assert.rejects(service.skillFile(id, '../other'), /capability:invalid-input/u);
+  assert.deepEqual(await service.skillDetail(id), { files: [] });
+  assert.deepEqual(await service.skillFile(id, fileId), { text: 'sample', revision: 'r' });
+  assert.deepEqual(calls, [
+    ['skill-detail', { skillId: id }, 30000],
+    ['skill-file', { skillId: id, fileId }, 30000],
+  ]);
+});
+
 test('plugin reload IPC stays main-only and does not dispatch from MiniChat or untrusted frames', async () => {
   const calls: string[] = [];
   const f = ipcFixture(method => { calls.push(method); return method; });

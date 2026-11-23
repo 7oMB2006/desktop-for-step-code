@@ -3,6 +3,7 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { chromium } from 'playwright';
 import { createServer } from 'vite';
 import { settleLayout } from './settle-layout.mjs';
+import { assertFocusVisible } from './assert-focus-visible.mjs';
 
 const output = process.env.DESKTOP_VERIFY_OUTPUT || 'test-results/external-connectors-browser';
 await mkdir(output, { recursive: true });
@@ -22,22 +23,7 @@ try {
   };
   const focus = async locator => {
     await locator.scrollIntoViewIfNeeded();
-    await page.keyboard.press('Tab'); await locator.focus();
-    const issues = await locator.evaluate(element => {
-      const bounds = element.getBoundingClientRect(), style = getComputedStyle(element);
-      const gutter = parseFloat(style.outlineWidth) + Math.max(0, parseFloat(style.outlineOffset));
-      const issues = [];
-      if (style.outlineStyle === 'none' || gutter < 4) issues.push('Missing shared focus');
-      for (let ancestor = element.parentElement; ancestor; ancestor = ancestor.parentElement) {
-        const clip = getComputedStyle(ancestor), rect = ancestor.getBoundingClientRect();
-        if (/(auto|scroll|hidden|clip)/.test(clip.overflowX)
-          && (bounds.left - gutter < rect.left - 1 || bounds.right + gutter > rect.right + 1)) issues.push(`Horizontal: ${ancestor.className}`);
-        if (/(auto|scroll|hidden|clip)/.test(clip.overflowY)
-          && (bounds.top - gutter < rect.top - 1 || bounds.bottom + gutter > rect.bottom + 1)) issues.push(`Vertical: ${ancestor.className}`);
-      }
-      return issues;
-    });
-    assert.deepEqual(issues, []);
+    await assertFocusVisible(page, locator, `External connector ${locator}`, { checkTreatment: true });
   };
   for (const [theme, width, language] of [['light', 1360, 'zh'], ['dark', 1360, 'en'], ['light', 390, 'zh'], ['dark', 390, 'en']]) {
     await page.setViewportSize({ width, height: 900 });

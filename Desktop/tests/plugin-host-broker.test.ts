@@ -89,6 +89,40 @@ test('independent mode receives no broker and never reads or requires a host acc
   assert.equal(fixture.state.confirmations.length, 0);
   assert.equal(fixture.calls.length, 0);
 });
+test('only explicitly assigned model rows enter the lease, and tools work without a lease or account', async t => {
+  const f = await hostService(t, { settings: true, configured: false, independentTools: true,
+    capabilities: ['model.text', 'model.asr'], independentCapabilities: ['model.text'] });
+  const configured = await new PluginConfigurationStore(f.root).save(f.descriptor, { ref: f.descriptor.ref,
+    revision: 'unconfigured', values: {}, secrets: { key: { action: 'replace', value: 'fixture-tools-key' } } });
+  const draft = await f.store.select(f.descriptor, { revision: 'unconfigured', mode: 'follow', account: f.account });
+  await assert.rejects(f.broker.issue(f.descriptor, f.worker), /AUTHORIZATION_REQUIRED/);
+  const official = await f.store.select(f.descriptor, { revision: draft.revision, mode: 'routed', account: f.account,
+    models: { 'model.text': 'step-5-preview' }, independentCapabilities: [], configurationRevision: configured.revision });
+  const { launch, client } = await clientFor(t, f);
+  assert.deepEqual(launch.capabilities, ['model.text']);
+  assert.deepEqual(client.independentCapabilities, []);
+  const context = await client.context();
+  assert.deepEqual(context.capabilities.map(item => item.id), ['model.text']);
+  const denied = await post(launch, 'invoke', { revision: context.revision, requestId: newRequestId(),
+    capability: 'model.asr', input: { audio: { mimeType: 'audio/wav', data: 'YQ==' } } });
+  assert.equal(denied.value.error.code, 'DENIED');
+  const direct = await f.store.select(f.descriptor, { revision: official.revision, mode: 'routed',
+    independentCapabilities: ['model.text'], configurationRevision: configured.revision });
+  await assert.rejects(client.context(), /STALE_CONTEXT/);
+  f.state.auth = {};
+  f.provider.read = async () => assert.fail('No official routes; must not read the account');
+  assert.deepEqual((await f.broker.issue(f.descriptor, f.worker)).capabilities, ['model.text']);
+  await f.store.select(f.descriptor, { revision: direct.revision, mode: 'routed', account: f.account,
+    independentCapabilities: [], configurationRevision: configured.revision });
+  const tools = await f.broker.issue(f.descriptor, f.worker);
+  assert.equal(tools.mode, 'independent');
+  assert.equal(tools.broker, undefined);
+  assert.deepEqual(tools.capabilities, []);
+  assert.deepEqual(tools.independentCapabilities, []);
+  assert.equal(tools.configurationRevision, configured.revision);
+  assert.equal(f.calls.length, 0);
+  assert.equal(f.state.confirmations.length, 0);
+});
 test('pausing rejects old Broker grants and reopening does not restore them', async t => {
   const fixture = await hostService(t);
   const { client, launch } = await clientFor(t, fixture);

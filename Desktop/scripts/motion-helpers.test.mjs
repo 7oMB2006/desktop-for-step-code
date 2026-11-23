@@ -234,7 +234,7 @@ test('session search acceptance waits for sidebar entrance and still rejects per
   visit(source);
   assert.ok(statements, 'Exercise the native verifier focus measurement and assertion');
   const inspect = new Function('search', 'settleLayout', 'assert', `return (async () => { ${statements} })();`);
-  const css = (await Promise.all(['layout.css', 'scheduled-tasks.css', 'session-search.css', 'search-focus.css']
+  const css = (await Promise.all(['layout.css', 'scheduled-tasks.css', 'session-search.css', 'form-focus.css']
     .map(name => readFile(new URL(`../src/${name}`, import.meta.url), 'utf8')))).join('\n');
   for (const width of [1200, 600]) {
     const page = await browser.newPage({ viewport: { width, height: 850 } });

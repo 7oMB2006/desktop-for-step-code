@@ -1,4 +1,4 @@
-@import './search-focus.css';
+@import './form-focus.css';
 
 :root{font-family:Inter,"Segoe UI","Microsoft YaHei",sans-serif;font-size:14px;letter-spacing:0;color-scheme:light;--bg:oklch(1 0 0);--side:oklch(.97 0 0);--surface:oklch(.95 0 0);--ink:oklch(.23 0 0);--muted:oklch(.47 0 0);--border:oklch(.88 0 0);--primary:oklch(.49 .18 7);--green:oklch(.46 .12 155);--danger:oklch(.48 .19 25);--shadow:0 20px 70px oklch(0 0 0/.18)}
 :root[data-theme=dark]{color-scheme:dark;--bg:oklch(.19 0 0);--side:oklch(.16 0 0);--surface:oklch(.24 0 0);--ink:oklch(.93 0 0);--muted:oklch(.72 0 0);--border:oklch(.31 0 0);--primary:oklch(.62 .19 7);--green:oklch(.72 .14 155);--danger:oklch(.73 .16 25);--shadow:0 20px 70px oklch(0 0 0/.5)}

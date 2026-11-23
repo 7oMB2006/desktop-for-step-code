@@ -14,10 +14,14 @@ import semver from 'semver';
 import type { PluginConfigurationInput, PluginHostRuntime, PluginHostSettings, PluginHostSettingsInput } from '../src/capabilities';
 import type { PluginHostSourceChoice } from '../src/capabilities';
 import { stepHostUnavailable } from '../src/step-host-catalog';
-import type { CapabilityCatalog, CapabilityMutation, CapabilityPlugin, MarketplacePlugin, CapabilityResult } from '../src/capabilities';
+import type { CapabilityCatalog, CapabilityMutation, CapabilityPlugin, MarketplacePlugin, CapabilityResult,
+  CapabilitySkillDetail, CapabilitySkillText } from '../src/capabilities';
 import type { PluginRemovalRequest, PluginUpdateCompatibility, PluginUpdateRequest } from '../src/plugin-update';
 import type { PluginConfirmationBinding, PluginConfirmationSource } from '../src/plugin-confirmations';
 import { parsePluginConfirmations, validPluginConfirmationBinding } from './plugin-confirmation-contract.mjs';
+
+const passiveRequests = new Set(['catalog', 'desktop-catalog', 'host-descriptor', 'target-catalog', 'skill-detail', 'skill-file']);
+const skillId = (value: unknown): value is string => typeof value === 'string' && /^[0-9a-f]{64}$/u.test(value);
 
 export async function assertPluginUnused(id: string, workers: Iterable<{
   rpc: { request(type: string): Promise<unknown> };
@@ -79,7 +83,7 @@ export class CapabilityService {
       worker.start(node, join(runtime, 'capability-admin.mjs'), root, {
         ...this.options.environment(), HOME: root, USERPROFILE: root,
       });
-      const result = await worker.request(type, args, ['catalog', 'desktop-catalog', 'host-descriptor', 'target-catalog'].includes(type) ? 30000 : 150000);
+      const result = await worker.request(type, args, passiveRequests.has(type) ? 30000 : 150000);
       succeeded = true;
       return result;
     } finally {
@@ -94,7 +98,7 @@ export class CapabilityService {
           this.quarantined = true;
           this.runtimeQuarantined ||= protectsRuntime;
         }
-        throw new Error(['catalog', 'desktop-catalog', 'host-descriptor', 'target-catalog'].includes(type) ? 'capability:management-unavailable'
+        throw new Error(passiveRequests.has(type) ? 'capability:management-unavailable'
           : succeeded ? 'capability:management-committed' : 'capability:management-uncertain');
       }
       if (protectsRuntime) {
@@ -160,6 +164,14 @@ export class CapabilityService {
     finally { this.desktopRevision++; release?.(); }
   }); }
   catalog(): Promise<CapabilityCatalog> { return this.enqueue(() => this.readCatalog()); }
+  skillDetail(id: unknown): Promise<CapabilitySkillDetail> {
+    if (!skillId(id)) return Promise.reject(new Error('capability:invalid-input'));
+    return this.enqueue(() => this.request('skill-detail', { skillId: id }));
+  }
+  skillFile(id: unknown, fileId: unknown): Promise<CapabilitySkillText> {
+    if (!skillId(id) || !skillId(fileId)) return Promise.reject(new Error('capability:invalid-input'));
+    return this.enqueue(() => this.request('skill-file', { skillId: id, fileId }));
+  }
   desktopCatalog(): Promise<CapabilityCatalog> {
     if (this.desktopUnavailable) return Promise.reject(new Error('capability:management-unavailable'));
     if (this.desktopRead) return this.desktopRead;
@@ -402,6 +414,7 @@ export class CapabilityService {
         const routed = save.mode === 'routed', direct = routed || save.mode === 'independent';
         const canUseAccount = save.mode === 'account' || routed;
         if (!['account', 'independent', 'paused', 'routed'].includes(save.mode)
+          || save.mode === 'independent' && binding.declaration.independentTools
           || !canUseAccount && (save.models !== undefined || save.accountTicket !== undefined)
           || !routed && save.independentCapabilities !== undefined
           || (direct ? !save.configuration || save.configuration.ref !== input.ref : save.configuration !== undefined)
@@ -409,7 +422,9 @@ export class CapabilityService {
           throw new Error('capability:invalid-configuration');
         // Validate before revocation or committing the independent configuration.
         const models = canUseAccount ? parseHostModels(save.models ?? {}, binding.declaration.capabilities) : undefined;
-        const needsAccount = save.mode === 'account' || routed && Object.keys(models!).length > 0;
+        const independentTools = binding.declaration.independentTools;
+        const needsAccount = save.mode === 'account' || routed
+          && (Object.keys(models!).length > 0 || independentTools && save.accountTicket !== undefined);
         if (!needsAccount && save.accountTicket !== undefined) throw new Error('capability:invalid-configuration');
         const account = needsAccount ? this.options.selectHostAccount?.(save.accountTicket) : undefined;
         if (needsAccount && !account) throw new Error('capability:stale-configuration');
@@ -417,7 +432,7 @@ export class CapabilityService {
           stepHostUnavailable(capability as keyof typeof models, account, model)))
           throw new Error('capability:invalid-configuration');
         const independentCapabilities = routed
-          ? parseHostIndependent(save.independentCapabilities, binding.declaration.independentCapabilities ?? [], models!) : undefined;
+          ? parseHostIndependent(save.independentCapabilities, binding.declaration.independentCapabilities ?? [], models!, independentTools) : undefined;
         if (direct) {
           const config = await this.configurations.read(descriptor, scope);
           if (config.schema.consumer.server !== binding.declaration.consumer.server)
@@ -468,6 +483,7 @@ export class CapabilityService {
         account, source, legacyFollow, accountMatches,
         models: selected ? { ...selected.models } : {}, configurationCurrent: selected?.configurationCurrent ?? false,
         independent, independentError, runtime,
+        ...(binding.declaration.independentTools ? { independentTools: true } : {}),
         ...(binding.declaration.independentCapabilities
           ? { supportedIndependentCapabilities: [...binding.declaration.independentCapabilities] } : {}),
         ...(selected?.independentCapabilities ? { independentCapabilities: [...selected.independentCapabilities] } : {}) };
@@ -548,10 +564,13 @@ export class CapabilityService {
   }
   mutate(input: CapabilityMutation, guard?: CapabilityGuard,
     checked?: { stamp: string; identity: string; removal?: PluginRemovalRequest }): Promise<CapabilityResult> {
-    if (!input || typeof input !== 'object' || Array.isArray(input)
-      || JSON.stringify(input).length > 150000) throw new Error('capability:invalid-input');
+    if (!input || typeof input !== 'object' || Array.isArray(input)) throw new Error('capability:invalid-input');
+    const request = JSON.stringify(input);
+    // A 128 KiB UTF-8 document can expand to six JSON characters per byte.
+    const limit = ['skill-create', 'skill-save', 'skill-file-save'].includes(input.action) ? 6 * 128 * 1024 + 8 * 1024 : 150000;
+    if (request.length > limit) throw new Error('capability:invalid-input');
     // Freeze caller-owned input before the operation waits in the serial queue.
-    input = JSON.parse(JSON.stringify(input));
+    input = JSON.parse(request);
     return this.enqueue(async () => {
       this.assertHealthy();
       capabilityPolicy(input.action);

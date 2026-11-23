@@ -141,7 +141,7 @@ try {
   assert.equal(await page.getByTestId('trend-total').innerText(), rangeTotal.toLocaleString('zh-CN'));
   await page.getByRole('button', { name: '近 90 天', exact: true }).click();
   await page.screenshot({ path: join(evidence, 'trend-card-light.png') });
-  await page.locator('.usage-overview-scroll').evaluate(element => { element.scrollTop -= 10; });
+  await page.locator('.usage-overview-preview .page-loading-scroll').evaluate(element => { element.scrollTop -= 10; });
   await card.waitFor({ state: 'hidden' });
   await page.evaluate(() => window.desktop.preferences({ theme: 'wine' }));
   await page.reload();

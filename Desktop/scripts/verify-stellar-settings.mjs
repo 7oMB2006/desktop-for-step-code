@@ -24,7 +24,7 @@ try {
       border: s.borderColor, radius: s.borderRadius, shadow: s.boxShadow,
       animation: s.animation, transition: s.transition };
   });
-  const focus = async (control, indicator = control) => {
+  const focus = async (control, indicator = control, minimumWidth = 2) => {
     await control.scrollIntoViewIfNeeded();
     await control.focus(); await page.keyboard.press('Tab'); await page.keyboard.press('Shift+Tab');
     assert.equal(await control.evaluate(e => e === document.activeElement), true);
@@ -38,7 +38,8 @@ try {
       }
       return { width: parseFloat(s.outlineWidth), fits };
     });
-    assert.ok(state.width >= 2 && state.fits.every(Boolean), JSON.stringify(state));
+    assert.ok(state.width >= minimumWidth && state.fits.every(Boolean), JSON.stringify(state));
+    return state.width;
   };
   for (const theme of ['plugin:stellar-cruise', 'original-light', 'original-dark']) {
     for (const width of [1440, 390]) {
@@ -65,13 +66,13 @@ try {
       await page.setViewportSize({ width, height: 960 });
       await read('general', ['.settings-backdrop', '.settings-dialog', '.settings-dialog > header', '.settings-layout > nav',
         '.settings-layout > nav .selected', '.settings-content > h3', '.settings-content > label > select']);
-      await focus(page.getByRole('combobox', { name: '会话排序', exact: true }));
+      assert.equal(await focus(page.getByRole('combobox', { name: '会话排序', exact: true }), undefined, 1), 1);
       await shot('general');
       await nav.getByRole('button', { name: '外观', exact: true }).click();
       await page.locator('.appearance-settings').scrollIntoViewIfNeeded();
       await read('appearance', ['.appearance-heading', '.appearance-row', '.appearance-number input', '.appearance-preview']);
-      await focus(page.getByRole('spinbutton', { name: '界面字号', exact: true }));
-      await focus(page.getByRole('spinbutton', { name: '代码字号', exact: true }));
+      assert.equal(await focus(page.getByRole('spinbutton', { name: '界面字号', exact: true }), undefined, 1), 1);
+      assert.equal(await focus(page.getByRole('spinbutton', { name: '代码字号', exact: true }), undefined, 1), 1);
       await shot('typography');
       await nav.getByRole('button', { name: '界面复杂度', exact: true }).click();
       const toggle = page.getByRole('switch', { name: '工具详情默认展开', exact: true });
@@ -91,7 +92,7 @@ try {
       await rename.waitFor(); await page.setViewportSize({ width, height: 960 });
       await read('rename', ['.modal-backdrop', '.small-dialog', '.small-dialog > h2', '.small-dialog > input', '.small-dialog .primary']);
       const input = rename.getByRole('textbox'), previous = await input.inputValue();
-      await focus(input);
+      assert.equal(await focus(input, input, 1), 1, 'Rename uses the softened text-field outline');
       await input.fill(''); assert.equal(await rename.getByRole('button', { name: '确认', exact: true }).isDisabled(), true);
       await input.fill(previous); assert.equal(await rename.getByRole('button', { name: '确认', exact: true }).isEnabled(), true);
       await shot('rename');

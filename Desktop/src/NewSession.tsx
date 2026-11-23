@@ -153,6 +153,5 @@ export function NewSession({ emblem, renderGreeting, language, workspace, worksp
       </div>, document.body)}
     </div>
     <button type="button" className="new-session-settings" disabled={disabled} onClick={onSettings}><Settings size={14}/>{zh ? '账户设置' : 'Account settings'}</button>
-    <span className="community-note">Desktop for Step Code · {zh ? '独立社区项目' : 'Independent community project'}</span>
   </section>;
 }

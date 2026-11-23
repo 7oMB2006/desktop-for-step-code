@@ -59,9 +59,10 @@ export function PluginHostSettingsForm({ bridge, pkg, language, busy, visible, f
   const routed = mode === 'routed', accountEnabled = mode === 'account' || routed && routeAccount;
   const directEnabled = mode === 'independent' || routed;
   const independentSupport = saved?.supportedIndependentCapabilities;
-  const canMix = Boolean(independentSupport?.length && saved?.independent);
+  const independentTools = saved?.independentTools;
+  const canMix = Boolean((independentSupport?.length || independentTools) && saved?.independent);
   const incomplete = accountEnabled && selectedRows.some(id => !models[id]);
-  const missingRoutes = routed && (!independentRows.length || routeAccount && !selectedRows.length);
+  const missingRoutes = routed && !independentTools && (!independentRows.length || routeAccount && !selectedRows.length);
   const dirty = Boolean(saved && mode && (saved.mode !== mode || mode !== 'paused' && !saved.configurationCurrent
     || accountEnabled && (reselected || incomplete || saved.capabilities.some(id => models[id] !== saved.models[id]))
     || routed && (routeAccount !== Boolean(saved.source) || saved.capabilities.some(id =>
@@ -189,7 +190,7 @@ export function PluginHostSettingsForm({ bridge, pkg, language, busy, visible, f
   const officialSource = (channel: 'plan' | 'api') => {
     const enabled = accountEnabled && source?.channel === channel;
     if (enabled) return { enabled, toggle: toggleAccount };
-    if ((accountEnabled && canMix) || account?.channel !== channel) return {};
+    if ((accountEnabled && canMix && !independentTools) || account?.channel !== channel) return {};
     return { toggle: chooseAccount };
   };
   return <form id={formId} hidden={!visible} className="pc-generic-form pc-host-form" onSubmit={event => { event.preventDefault(); void submit(); }}>
@@ -203,7 +204,10 @@ export function PluginHostSettingsForm({ bridge, pkg, language, busy, visible, f
           sources={{ plan: officialSource('plan'), api: officialSource('api'), independent: directEnabled
             ? { enabled: true, toggle: toggleIndependent }
             : configuration ? { toggle: toggleIndependent } : {} }}>
-          <p className="pc-hint">{canMix
+          <p className="pc-hint">{canMix && independentTools
+            ? t('官方连接和独立配置可同时启用。模型调用使用各行所选来源；插件的其他工具由独立配置提供。',
+              'Both connections can be enabled. Each model call uses the source selected below; independent settings support other plugin tools.')
+            : canMix
             ? t('官方连接使用当前登录的 Step 账户；独立配置可与其同时启用。每项能力只使用所选来源。',
               'The signed-in Step account and independent configuration can be enabled together. Each capability uses only its selected source.')
             : t('此版本插件每次仅使用一种连接来源。', 'This plugin version uses one source per launch.')}</p>
@@ -260,7 +264,7 @@ export function PluginHostSettingsForm({ bridge, pkg, language, busy, visible, f
                     : state?.authorization === 'required' ? t('首次调用需确认', 'First use needs confirmation')
                       : state?.unavailable ? unavailable(state.unavailable)
                         : state ? t('不可用', 'Unavailable')
-                          : runtime?.status === 'connected' && saved.mode === 'routed' ? t('未启用', 'Not enabled')
+                          : runtime?.status === 'connected' && (saved.mode === 'routed' || independentTools) ? t('未启用', 'Not enabled')
                             : t('未确认授权', 'Authorization unconfirmed')}</span>
                 {state?.available && state.channel && state.region && <small>{channelName(state.channel)} · {regionName(state.region)} · {state.model}</small>}
               </div>
@@ -269,7 +273,7 @@ export function PluginHostSettingsForm({ bridge, pkg, language, busy, visible, f
           {incomplete && <p className="pc-hint" role="status">{t('请为已选来源的能力补选模型。', 'Select a model for each capability with a source.')}</p>}
           {missingRoutes && <p className="pc-hint" role="status">{t('请为每个已启用的来源至少分配一项能力。',
             'Assign at least one capability to each enabled source.')}</p>}
-          {accountEnabled && <div className="pc-permission-row"><ShieldCheck size={17}/><div>
+          {accountEnabled && (!independentTools || selectedRows.length > 0) && <div className="pc-permission-row"><ShieldCheck size={17}/><div>
             <strong>{t('逐项调用前确认', 'Per-capability request confirmation')}</strong>
             <p>{t('使用官方账户的能力，首次调用仍需确认。', 'First use of each capability routed to the official account requires confirmation.')}</p></div></div>}
         </section>

@@ -16,6 +16,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import * as fs from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
+import { isDeepStrictEqual } from 'node:util';
 import { SourceTextModule, SyntheticModule, createContext } from 'node:vm';
 
 const scenario = process.argv[2], repository = process.argv[3];
@@ -25,10 +26,10 @@ const root = await fs.realpath(await fs.mkdtemp(join(tmpdir(), 'dfsc-worker-phas
 const digest = bytes => createHash('sha256').update(bytes).digest('hex');
 const journalPath = join(root, 'desktop-plugins/update-transaction.json');
 const mutations = [], hooks = {};
-const writes = new Set(['mkdir', 'mkdtemp', 'rename', 'rm', 'cp', 'writeFile']);
+const writes = new Set(['mkdir', 'mkdtemp', 'rename', 'rm', 'rmdir', 'cp', 'link', 'writeFile']);
 const filesystem = Object.fromEntries(Object.entries(fs).map(([key, value]) => [key, async (...args) => {
   if (writes.has(key) || key === 'open' && args[1] !== 'r') {
-    for (const target of key === 'rename' || key === 'cp' ? args.slice(0, 2) : args.slice(0, 1)) {
+    for (const target of ['rename', 'cp', 'link'].includes(key) ? args.slice(0, 2) : args.slice(0, 1)) {
       const rel = relative(root, resolve(target));
       assert.ok(rel && rel !== '..' && !rel.startsWith('..' + sep) && !path.isAbsolute(rel),
         'product writes must stay inside the disposable profile');
@@ -38,13 +39,13 @@ const filesystem = Object.fromEntries(Object.entries(fs).map(([key, value]) => [
   await hooks[key]?.(...args);
   return value(...args);
 }]));
-const context = createContext({ Buffer, URL, process: { env: {
+const context = createContext({ Buffer, TextDecoder, URL, process: { env: {
   HOME: root, STEPCODE_STORAGE_ROOT_DIR: root, STEP_CODING_AGENT_DIR: join(root, 'agent'),
 } } });
 const cache = new Map();
 function load(key) {
   if (cache.has(key)) return cache.get(key);
-  const builtins = { 'node:crypto': { createHash, randomUUID }, 'node:fs/promises': filesystem, 'node:path': path,
+  const builtins = { 'node:crypto': { createHash, randomUUID }, 'node:fs/promises': filesystem, 'node:path': path, 'node:util': { isDeepStrictEqual },
     'node:child_process': { execFile() { throw new Error('No Git subprocess in this virtual fixture'); } } };
   let module;
   if (Object.hasOwn(builtins, key)) {

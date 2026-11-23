@@ -289,6 +289,8 @@ let hostConfiguration: PluginHostSettings = {
 };
 if (new URLSearchParams(location.search).has('routed'))
   hostConfiguration.supportedIndependentCapabilities = ['model.asr'];
+if (new URLSearchParams(location.search).has('independent-tools'))
+  hostConfiguration.independentTools = true;
 if (hostPreview) {
   catalog.plugins.unshift({ id: 'dfsc-host-example', name: '宿主模型示例', version: '0.1.0', description: '宿主模型与独立配置的通用示例。',
     mcpServers: ['example'], warnings: [], icon: { kind: 'step' }, installationSource: { status: 'recorded', marketplaces: ['fixture-community'] },
@@ -303,6 +305,8 @@ const hostConnected = () => {
   const source = hostConfiguration.source ?? { channel: hostChannel, region: 'cn' as const };
   hostConfiguration.runtime = hostConfiguration.mode === 'paused' ? { status: 'source-paused' }
     : hostConfiguration.mode === 'independent' ? { status: 'connected' }
+    : hostConfiguration.mode === 'routed' && !Object.keys(hostConfiguration.models).length
+      ? { status: 'connected', independentCapabilities: hostConfiguration.independentCapabilities }
     : { status: 'connected', source, independentCapabilities: hostConfiguration.independentCapabilities,
       capabilities: hostConfiguration.capabilities.filter(id => hostConfiguration.mode !== 'routed' || hostConfiguration.models[id]).map(id => {
       const model = hostConfiguration.models[id];
@@ -473,7 +477,7 @@ const bridge: PluginCenterBridge = {
     }
     return { warnings: [] };
   },
-  capabilityImportSkill: async () => null, saveMcp: async () => {},
+  saveMcp: async () => {},
   summary: async () => ({ sessionId: 'fixture-session', tasks: [], subagents: [], workflows: [], skillCount: 0, mcp: [], commands: [] }),
   stepPageState: async () => ({ status: 'missing', installed: false }),
   prepareStepPage: async () => {

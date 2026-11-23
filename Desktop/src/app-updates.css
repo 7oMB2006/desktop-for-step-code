@@ -1,8 +1,4 @@
 .app-updates { margin: 0 0 24px; font-size: 12px; }
-.update-version { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding: 0 0 18px; }
-.update-version strong { display: block; font-size: 14px; font-weight: 600; }
-.update-version span { display: block; color: var(--muted); font-size: 11px; margin-top: 5px; }
-.update-edition { flex-shrink: 0; }
 .update-status { display: flex; gap: 11px; align-items: center; padding: 16px 0; border-top: 1px solid var(--border); }
 .update-status > svg { color: var(--muted); }
 .update-status strong { font-size: 12px; font-weight: 500; overflow-wrap: anywhere; }
@@ -45,6 +41,5 @@
 .sidebar-bottom > button span.update-indicator { color: var(--primary); display: inline-flex; align-items: center; gap: 5px; }
 .update-indicator i { width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
 @keyframes update-spin { to { transform: rotate(360deg); } }
-@media(max-width:740px) { .update-version { flex-wrap: wrap; gap: 6px; } .update-version .update-edition { margin-top: 0; } }
 @media(prefers-reduced-motion:reduce) { .update-spinning { animation: none; } .update-notes summary svg { transition: none; } }
 @media(prefers-reduced-motion:reduce) { .update-progress progress::-webkit-progress-value { transition: none; } }

@@ -117,13 +117,15 @@ export class PluginHostBroker {
   }
   async issue(descriptor: ConfigurationDescriptor, worker: SessionRuntime): Promise<LaunchContext> {
     if (!this.origin || this.closed) return fail('HOST_UNAVAILABLE');
-    if (this.leases.size >= 64) return fail('BUSY');
     const binding = await this.store.current(descriptor);
     if (!('mode' in binding) || !binding.configurationCurrent) return fail('AUTHORIZATION_REQUIRED');
+    const broker = usesHostBroker(binding);
+    if (binding.mode === 'follow' && !broker) return fail('AUTHORIZATION_REQUIRED');
+    if (broker && this.leases.size >= 64) return fail('BUSY');
     const rpc = worker.rpc, sessionId = worker.state?.sessionId;
     if (!sessionId || !this.sameRuntime(worker, rpc, sessionId)) return fail('STALE_CONTEXT');
     if (!await this.options.validateConsumer(descriptor, binding, worker)) return fail('DENIED');
-    const snapshot = usesHostBroker(binding) ? await this.options.provider.read(worker, binding.models, binding.account) : undefined;
+    const snapshot = broker ? await this.options.provider.read(worker, binding.models, binding.account) : undefined;
     const token = randomBytes(32).toString('base64url');
     const launch = await this.store.launch(descriptor, {
       runtimeId: worker.id, sessionId, accountRevision: snapshot?.revision ?? fresh(),

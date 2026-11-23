@@ -42,6 +42,8 @@ input.on('line', line => {
       if (shuttingDown) throw new CapabilityError('operation-denied');
       active = new AbortController();
       const data = request.type === 'catalog' ? await manager.catalog()
+        : request.type === 'skill-detail' ? await manager.skillDetail(request.skillId)
+        : request.type === 'skill-file' ? await manager.skillFile(request.skillId, request.fileId)
         : request.type === 'desktop-catalog' ? await manager.desktopCatalog()
         : request.type === 'host-descriptor' ? await manager.hostDescriptor(request.input)
         : request.type === 'target-catalog' ? await manager.targetCatalog(request.input)

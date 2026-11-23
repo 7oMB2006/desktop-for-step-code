@@ -53,7 +53,12 @@ Compact inspectors can reduce horizontal padding without removing the focus ring
 
 ## Form Focus Visibility
 
-Inputs, textareas and composite fields reuse the shared theme focus treatment.
+The #262 softened focus ring is the default for ordinary form fields across
+the app, not a search-only style or an opt-in for a few settings pages. It
+covers text, search, URL, password, number and other editable inputs, textareas,
+native selects and field-shaped custom selectors. This includes provider/model
+configuration, global instructions, typography, session migration, rename and
+edit dialogs, and fields added in future sections.
 Their focused/active indicator must remain fully visible on all four sides,
 including rounded corners. Scroll, overflow and animated-disclosure containers
 must reserve enough internal space for the complete outline, offset and shadow;
@@ -69,9 +74,48 @@ The shared conversation input treatment uses a softened 1px focus outline with a
 and inline message editing.
 Its color fades in over 240ms and out over 180ms without changing geometry.
 Reduced motion switches the outline immediately, and forced colors use an
-immediate 2px system highlight. Search fields use the same softened outline and
-fade on the search shell or input, without changing sidebar search disclosure
-motion. Other form controls and file-drop feedback keep their existing treatment.
+immediate 2px system highlight. The
+[shared form styles](Desktop/src/form-focus.css) cover standard fields by
+default. Field-shaped custom selector buttons use `form-focus-trigger`. Draw a
+single ring on the element that owns the field border. Only input focus lights
+a composite search shell; its clear button keeps keyboard focus without
+lighting the shell. Do not add a second accent border or shadow.
+Stellar and other themes supply colors and materials, not a different focus
+width, strength or animation. Keep focus visible during autofocus, scrolling
+and sidebar search disclosure. Toggles, radios, sliders, ordinary action buttons
+and file-drop feedback retain their dedicated indicators.
+
+## Page Loading
+
+The shared [PageLoadingState](Desktop/src/PageLoadingState.tsx) is opt-in, not
+the default for loading or navigation. Use it only when a main view or bounded
+content pane has no usable content yet and its initial load is observably slow
+under representative conditions. Usage Overview's initial scan of local
+history is the reference case. Verify the wait before reusing this pattern;
+an async request, lazy import, or existing use elsewhere is not justification.
+
+Render fast loads as soon as they are ready. Keep established session-history
+placeholders and local button or toolbar feedback where they already apply.
+While refreshing usable content, keep it visible and report progress in place.
+Never delay ready content just to show or finish a loading animation.
+
+When the pattern applies, center the 30px execution `MatrixPulse` above one
+static, localized status line in the theme's muted text color. Keep one loader
+across consecutive wait stages, such as a data read followed by a lazy view
+import. The shared 120ms reveal delay and 160ms fade-in prevent flashing;
+120ms is not a threshold for adopting the pattern. Once the result
+or error view is mounted, crossfade the outgoing loader and incoming content
+over 400ms using the same `cubic-bezier(.3333, 0, .6667, 1)` curve. Overlap the
+two layers without shifting layout or blocking controls; never fade the loader
+to blank before starting the content fade.
+
+Expose one accessible status while waiting and remove it from the accessibility
+tree as it exits. Reduced motion shows the static loader and then the result
+immediately. Mount `PageLoadingState` in a bounded pane, pass a localized
+`message`, and set `pending` only while no usable content is available. Pass the
+result or error view as children; the shared component also waits for lazy
+children to commit. Keep background refresh state inside the content view.
+[Usage Overview](Desktop/src/UsageOverviewPanel.tsx) is the reference integration.
 
 ## Drag And Drop
 
@@ -246,7 +290,11 @@ Host-model plugins reuse this same detail form and save/restart footer. An
 unconfigured installation has no selected source. Source selection is explicit,
 not authorization. For opted-in consumers, the connected official account and
 independent configuration can both be enabled; each capability has at most one
-source. Unassigned rows do not inherit a source. Older consumers retain their
+source. Unassigned rows do not inherit a source. For consumers that declare
+independent tools, connection switches and model assignments are separate:
+independent settings can stay enabled with zero direct model assignments, and an
+official connection without assigned models carries no Broker lease. Turning off
+one connection does not move its rows to the other. Older consumers retain their
 single-source choices. Independent fields reuse the author's validated schema;
 stored secrets never return to the renderer. The unframed
 connection/authorization list is a query snapshot, not a balance or success
@@ -418,6 +466,10 @@ The Usage chart icon sits immediately before Schedules in the same utility row.
 It toggles the local Usage view without replacing the active conversation or
 draft. The brand is non-interactive and the Usage view starts at its own
 heading, with no separate return header. Settings and `/usage` still open it.
+
+Initial Usage loading follows [Page Loading](#page-loading). Refreshing
+existing data keeps the charts in place and reports activity in the toolbar.
+
 Only a scrolled conversation list fades over its top 18px. At scroll origin or
 while a list control has keyboard-visible focus, the list stays fully opaque.
 The fade belongs to list content, never the fixed sidebar action buttons.
@@ -592,6 +644,33 @@ credential scopes, even at a shared address. The selected preset, not the
 address or display name, identifies billing on shared routes. Do not infer
 billing for an existing unclassified connection or fall back to a different
 connection. Show billing in saved connections and the model picker.
+
+Skills settings group searchable local and plugin entries alongside a bounded
+detail pane. Narrow settings show list or detail in place; Back restores focus
+to the selected row. Detail keeps Markdown and exact numbered source views of
+`SKILL.md`, with supporting files in a separate tab. Plugin resources are
+read-only. Desktop-owned edits have explicit Save and Cancel, retain drafts on
+failure, and use confirmation for destructive actions. Import uses the native
+folder picker. File reads and writes are scoped to the selected Skill by
+opaque identity; the renderer never opens a filesystem path.
+
+Invocation uses the shared selector (`AppMenu` and `DisclosureChevron`):
+Automatic permits model discovery, Manual only keeps the slash command without
+model discovery, and Off excludes the Skill from new runtime loads. A save
+updates configuration without restarting a session. Restart is an explicit,
+guarded action for the selected session only; the separately listed session
+commands reflect that session rather than the saved configuration.
+
+Settings > About is the final category and replaces the standalone Updates
+entry. Center the canonical product mark, themed wordmark, third-party
+description and the two GitHub links. The mark and wordmark share one website
+link with a subtle hover shadow and a visible keyboard outline. Show the
+running Desktop version and bundled Step Code source baseline in separate
+columns. Baseline labels come from the packaged source pin, not the release
+feed; an unknown pin keeps its commit without a guessed version. Copy sends the
+full source commit. The existing update controls sit below the identity block
+and retain the existing check, download and installation behavior. The settings
+update badge and search still lead to this page.
 
 Settings search fills the header span from the category rail to the close
 button, without resizing the dialog or clipping the shared focus outline.

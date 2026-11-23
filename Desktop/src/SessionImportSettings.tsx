@@ -5,6 +5,7 @@ import { importWarning } from './session-import';
 import { AppMenu } from './AppMenu';
 import { DisclosureChevron } from './DisclosureChevron';
 import { ImportConfirmation } from './ImportConfirmation';
+import { revealFocusedTextField } from './form-focus';
 import './session-import.css';
 
 const PAGE_SIZE = 20;
@@ -232,7 +233,7 @@ export function SessionImportSettings({ bridge, language, onOpen }: {
         <span>{t('来源目录', 'Source directories')}</span><span className="import-sources-chevron"><DisclosureChevron/></span>
       </button>
       <div id={sourcesId} className={`import-sources-details${sourcesExpanded ? ' is-expanded' : ''}`}
-        inert={!sourcesExpanded} aria-hidden={!sourcesExpanded}><div>
+        inert={!sourcesExpanded} aria-hidden={!sourcesExpanded} onFocusCapture={revealFocusedTextField}><div>
       <label>Codex<input value={codexRoot} placeholder={t('默认使用 CODEX_HOME 或 ~/.codex', 'CODEX_HOME or ~/.codex by default')} disabled={pending} onChange={e => setCodexRoot(e.target.value)}/></label>
       <label>Claude Code<input value={claudeRoot} placeholder={t('默认使用 Claude projects 目录', 'Claude projects directory by default')} disabled={pending} onChange={e => setClaudeRoot(e.target.value)}/></label>
       <label className="import-checkbox"><input type="checkbox" checked={archived} disabled={pending} onChange={e => setArchived(e.target.checked)}/>{t('包含 Codex 归档会话', 'Include archived Codex sessions')}</label>
@@ -242,7 +243,7 @@ export function SessionImportSettings({ bridge, language, onOpen }: {
       <button type="button" disabled={pending} onClick={() => void scan()}><RefreshCw size={15}/>{pending ? t('处理中…', 'Working…') : scanned ? t('重新扫描', 'Scan again') : t('扫描本机会话', 'Scan local sessions')}</button>
       {scanned && <>
       <label className="import-search"><Search size={15}/><input aria-label={t('搜索来源会话', 'Search source sessions')} placeholder={t('搜索会话或项目', 'Search sessions or projects')} value={query} onChange={e => { setQuery(e.target.value); setPage(1); }}/></label>
-      <button type="button" ref={sourceAnchor} className="import-source-select" aria-label={t('来源', 'Source')}
+      <button type="button" ref={sourceAnchor} className="import-source-select form-focus-trigger" aria-label={t('来源', 'Source')}
         aria-haspopup="menu" aria-expanded={sourceMenuOpen} onClick={() => setSourceMenuOpen(value => !value)}>
         <span>{sourceOptions.find(option => option.id === source)?.label}</span><DisclosureChevron/>
       </button>

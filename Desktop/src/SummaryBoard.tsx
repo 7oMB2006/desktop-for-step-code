@@ -1,5 +1,5 @@
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { ArrowUpRight, Bot, Check, FileDiff, GitBranch, Layers3, ListTodo, X } from 'lucide-react';
+import { ArrowUpRight, Bot, Check, FileDiff, GitBranch, Layers3, ListTodo, Settings2, X } from 'lucide-react';
 import { SummaryMcp } from './SummaryMcp';
 import type { Message, RepositoryDiff, SessionSummary, SummaryPlan, SummaryTask } from './contracts';
 import type { SubagentDisplayTask } from './conversation-presentation';
@@ -66,11 +66,12 @@ function TaskHistory({ plans, partial, language }: { plans: SummaryPlan[]; parti
 }
 
 export function SummaryBoard({ runtimeId, sessionId, language, onOpenChanges, messages = [], backgroundActivity, busy = false, stellar = false, onOpenSubagent, onOpenWorkflow, onClose,
-  mcpBusy = busy, capabilityRevision, onMcpChanged, onRestart, onManageMcp, tasksRequest, onTasksRequestHandled }: {
+  mcpBusy = busy, capabilityRevision, onMcpChanged, onRestart, onManageMcp, onManageSkills, tasksRequest, onTasksRequestHandled }: {
   runtimeId?: string; sessionId?: string; language: 'zh' | 'en'; onOpenChanges: () => void;
   tasksRequest?: number; onTasksRequestHandled?: (sequence: number) => void;
   messages?: Message[]; backgroundActivity?: import('./contracts').BackgroundLaneActivity; busy?: boolean; onOpenSubagent?: (task: SubagentDisplayTask) => void; onOpenWorkflow?: (id: string) => void; onClose?: () => void;
   mcpBusy?: boolean; capabilityRevision?: number; onMcpChanged?: () => Promise<void>; onRestart?: () => Promise<void>; onManageMcp?: () => void;
+  onManageSkills?: () => void;
   stellar?: boolean;
 }) {
   const [model, setModel] = useState<SessionSummary>();
@@ -214,6 +215,10 @@ export function SummaryBoard({ runtimeId, sessionId, language, onOpenChanges, me
     </section>
     <SummaryMcp servers={model?.mcp} language={language} busy={mcpBusy} revision={capabilityRevision}
       onChanged={onMcpChanged} onRestart={onRestart} onManage={onManageMcp}/>
-    <section className="sb-skills"><Layers3 size={14}/><span>{t('可用 Skills', 'Available Skills')}</span><strong>{model?.skillCount ?? '--'}</strong></section>
+    <section className="sb-skills">
+      <Layers3 size={14}/><span>{t('可用 Skills', 'Available Skills')}</span><strong>{model?.skillCount ?? '--'}</strong>
+      {onManageSkills && <button type="button" className="icon-button" aria-label={t('Skills 设置', 'Skills settings')}
+        data-tooltip={t('Skills 设置', 'Skills settings')} onClick={onManageSkills}><Settings2 size={13}/></button>}
+    </section>
   </div></div></>;
 }

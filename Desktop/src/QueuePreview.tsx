@@ -66,7 +66,8 @@ export function QueuePreview({ messages, language, disabled, connected, onAction
     const previous = transition.current;
     transition.current = null;
     tween.current?.cancel();
-    if (!element || !previous || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    // The auto-focused editor needs its full outline from the first frame.
+    if (!element || !previous || editing || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
     tween.current = element.animate([
       { height: `${previous.height}px`, opacity: previous.opacity, transform: 'translateX(0)' },
       { opacity: .35, offset: .2 },

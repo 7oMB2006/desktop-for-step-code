@@ -19,6 +19,7 @@ export const selectFixtureAccount = (ticket: unknown) => ticket === fixtureAccou
 
 export async function hostService(t: Pick<TestContext, 'after'>, options: {
   capabilities?: Capability[]; independentCapabilities?: Capability[]; model?: string;
+  independentTools?: true;
   profile?: string; configured?: boolean; settings?: boolean; request?: typeof fetch;
   recordImageFailure?: (details: ImageFailureDiagnostic) => void | Promise<void>;
   packageDirectory?: string;
@@ -41,7 +42,7 @@ export async function hostService(t: Pick<TestContext, 'after'>, options: {
   await writeFile(join(directory, 'step.plugin.json'), JSON.stringify(manifest));
   await writeFile(join(directory, 'dfsc.host.json'), JSON.stringify({ schemaVersion: 1, hostApiVersion: 1,
     consumer: { kind: 'mcp-stdio', server: 'example' }, capabilities: options.capabilities ?? ['model.text'],
-    independentCapabilities: options.independentCapabilities }));
+    independentCapabilities: options.independentCapabilities, independentTools: options.independentTools }));
   if (options.settings) await writeFile(join(directory, 'dfsc.settings.json'), JSON.stringify({
     schemaVersion: 1, consumer: { kind: 'json-file-v1', server: 'example' },
     groups: [{ id: 'connection', title: 'Connection', fields: [

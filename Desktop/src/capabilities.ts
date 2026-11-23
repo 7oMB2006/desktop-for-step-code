@@ -82,6 +82,7 @@ export interface PluginHostSettings {
   capabilities: PluginHostCapability[]; models: PluginHostModels; configurationCurrent: boolean;
   account?: PluginHostSourceChoice; source?: PluginHostSource; legacyFollow?: boolean; accountMatches?: boolean;
   independent?: PluginConfiguration; independentError?: string; runtime: PluginHostRuntime;
+  independentTools?: true;
   supportedIndependentCapabilities?: PluginHostCapability[];
   independentCapabilities?: PluginHostCapability[];
 }
@@ -120,7 +121,15 @@ export interface CapabilityMcp {
 export interface CapabilitySkill {
   id: string; name: string; description: string; location: string;
   source: 'user' | 'plugin'; pluginName?: string;
-  enabled: boolean; toggleable: boolean; deletable: boolean;
+  enabled: boolean; toggleable: boolean; deletable: boolean; manualOnly?: boolean;
+}
+export type CapabilitySkillMode = 'auto' | 'manual' | 'off';
+export interface CapabilitySkillText { text?: string; revision: string }
+export interface CapabilitySkillDetail {
+  document?: CapabilitySkillText & { body?: string; description?: string };
+  files: { id: string; path: string }[];
+  editable: boolean;
+  manageFiles: boolean;
 }
 export interface CapabilityCatalog {
   plugins: CapabilityPlugin[]; available: MarketplacePlugin[]; marketplaces: CapabilityMarketplace[];
@@ -139,5 +148,9 @@ export type CapabilityMutation =
   | { action: 'mcp-toggle'; name: string; enabled: boolean }
   | { action: 'skill-create'; name: string; description: string; instructions: string }
   | { action: 'skill-toggle'; id: string; enabled: boolean }
-  | { action: 'skill-remove'; id: string };
-export interface CapabilityResult { warnings: string[] }
+  | { action: 'skill-save'; id: string; revision: string; description: string; instructions: string }
+  | { action: 'skill-mode'; id: string; mode: CapabilitySkillMode; revision?: string }
+  | { action: 'skill-file-save'; id: string; fileId?: string; revision?: string; path: string; text: string }
+  | { action: 'skill-file-remove'; id: string; fileId: string; revision: string }
+  | { action: 'skill-remove'; id: string; revision?: string };
+export interface CapabilityResult { warnings: string[]; skillId?: string }

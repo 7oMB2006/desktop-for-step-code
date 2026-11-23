@@ -5,6 +5,7 @@ import { searchSettings, type SettingsCategory } from '../src/settings-search';
 const categories: readonly SettingsCategory[] = [
   ['general', '通用', 'General'], ['appearance', '外观', 'Appearance'],
   ['mcp', 'MCP', 'MCP'], ['account', '账户', 'Account'],
+  ['about', '关于', 'About'],
 ];
 
 test('finds settings across languages and ranks exact labels ahead of aliases', () => {
@@ -14,6 +15,13 @@ test('finds settings across languages and ranks exact labels ahead of aliases', 
   assert.equal(searchSettings('用量统计', categories, 'zh')[0]?.anchor, 'usage');
   assert.equal(searchSettings('标题', categories, 'zh')[0]?.anchor, 'auto-session-title');
   assert.equal(searchSettings('session title', categories, 'en')[0]?.anchor, 'auto-session-title');
+});
+
+test('finds About, update controls and build information in either language', () => {
+  assert.equal(searchSettings('About', categories, 'zh')[0]?.category, 'about');
+  assert.equal(searchSettings('版本更新', categories, 'en')[0]?.anchor, 'app-updates');
+  assert.equal(searchSettings('下载更新', categories, 'zh')[0]?.anchor, 'app-updates');
+  assert.equal(searchSettings('Step Code', categories, 'zh').find(result => result.category === 'about')?.anchor, 'build-info');
 });
 
 test('matches categories without dumping every setting under that category', () => {

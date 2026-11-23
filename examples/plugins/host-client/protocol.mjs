@@ -46,18 +46,18 @@ export function parseModelSelection(value, declared) {
     if (!declared.includes(capability) || !text(model, 160) || /[\u0000-\u001f]/u.test(model)) fail();
   return { ...value };
 }
-function capabilities(value) {
-  if (!Array.isArray(value) || !value.length || value.length > CAPABILITIES.length
+function capabilities(value, allowEmpty = false) {
+  if (!Array.isArray(value) || !allowEmpty && !value.length || value.length > CAPABILITIES.length
     || value.some(item => !CAPABILITIES.includes(item)) || new Set(value).size !== value.length) fail();
 }
-export function parseIndependentCapabilities(value, declared) {
-  capabilities(value);
+export function parseIndependentCapabilities(value, declared, allowEmpty = false) {
+  capabilities(value, allowEmpty);
   if (value.some(item => !declared.includes(item))) fail();
   return [...value];
 }
 export function parseHostDeclaration(value, manifest) {
   boundedJson(value, LIMITS.manifest);
-  keys(value, ['$schema', 'schemaVersion', 'hostApiVersion', 'consumer', 'capabilities', 'independentCapabilities'],
+  keys(value, ['$schema', 'schemaVersion', 'hostApiVersion', 'consumer', 'capabilities', 'independentCapabilities', 'independentTools'],
     ['schemaVersion', 'hostApiVersion', 'consumer', 'capabilities']);
   if (value.schemaVersion !== 1 || value.hostApiVersion !== 1) fail('UNSUPPORTED_VERSION');
   if (value.$schema !== undefined && !text(value.$schema, 512)) fail();
@@ -66,6 +66,7 @@ export function parseHostDeclaration(value, manifest) {
   capabilities(value.capabilities);
   const independent = value.independentCapabilities === undefined ? undefined
     : parseIndependentCapabilities(value.independentCapabilities, value.capabilities);
+  if (value.independentTools !== undefined && value.independentTools !== true) fail();
   const server = manifest?.mcpServers?.[value.consumer.server];
   if (!object(manifest?.mcpServers) || !object(server) || !text(server.command, 2048) || !server.command.trim()
     || server.url !== undefined || server.transport !== undefined && server.transport !== 'stdio'
@@ -78,7 +79,8 @@ export function parseHostDeclaration(value, manifest) {
       /^DFSC_(?:HOST|LAUNCH)_/iu.test(key) || typeof item !== 'string' || item.includes('\0')))) fail();
   return Object.freeze({ schemaVersion: 1, hostApiVersion: 1,
     consumer: Object.freeze({ ...value.consumer }), capabilities: Object.freeze([...value.capabilities]),
-    ...(independent ? { independentCapabilities: Object.freeze(independent) } : {}) });
+    ...(independent ? { independentCapabilities: Object.freeze(independent) } : {}),
+    ...(value.independentTools ? { independentTools: true } : {}) });
 }
 export function parseLaunch(value, expected, now = Date.now()) {
   boundedJson(value, LIMITS.launch);
@@ -94,10 +96,10 @@ export function parseLaunch(value, expected, now = Date.now()) {
     || !hash(value.declarationHash) || !hash(value.revision) || !hash(value.accountRevision)
     || !text(value.dataDirectory, 4096) || !isAbsolute(value.dataDirectory)
     || value.pluginId !== expected.pluginId || value.consumer !== expected.consumer) fail();
-  capabilities(value.capabilities);
+  capabilities(value.capabilities, value.mode === 'independent' && Array.isArray(value.independentCapabilities));
   parseModelSelection(value.models, value.capabilities);
   const independent = value.independentCapabilities === undefined ? undefined
-    : parseIndependentCapabilities(value.independentCapabilities, CAPABILITIES);
+    : parseIndependentCapabilities(value.independentCapabilities, CAPABILITIES, true);
   if (independent && (!hash(value.configurationRevision)
     || (value.mode === 'follow' ? independent.some(item => value.capabilities.includes(item))
       : independent.length !== value.capabilities.length || independent.some(item => !value.capabilities.includes(item))))) fail();

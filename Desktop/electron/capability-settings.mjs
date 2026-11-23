@@ -1,8 +1,9 @@
 // Desktop adapter for the upstream MVP's user-scope management operations.
 import { createHash, randomUUID } from 'node:crypto';
 import { execFile } from 'node:child_process';
-import { lstat, mkdir, mkdtemp, readFile, realpath, readdir, rename, rm, cp, writeFile, open } from 'node:fs/promises';
+import { link, lstat, mkdir, mkdtemp, readFile, realpath, readdir, rename, rm, rmdir, cp, writeFile, open } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { isDeepStrictEqual } from 'node:util';
 import { dataOnlyThemeFingerprint, installationReceipt, object, optionalFile, packageFingerprint, plainFile, readReceipts, scanInstalled,
   sourceIdentity, writePrivateData, writePrivateJson, writeReceipts } from './plugin-files.mjs';
 import { applyPluginUpdate, inspectPluginUpdate, updateBinding } from './plugin-update.mjs';
@@ -14,6 +15,9 @@ import { auditPluginRelease } from './plugin-release.mjs';
 
 const NAME = /^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,79}$/;
 const SKILL_NAME = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+const SKILL_TEXT_LIMIT = 128 * 1024;
+const SKILL_ID = /^[a-f0-9]{64}$/u;
+const WINDOWS_DEVICE = /^(?:con|prn|aux|nul|com[1-9¹²³]|lpt[1-9¹²³])(?:\.|$)/iu;
 const record = value => value && typeof value === 'object' && !Array.isArray(value);
 const hash = value => createHash('sha256').update(value).digest('hex');
 const inside = (root, target) => {
@@ -34,12 +38,102 @@ function name(value) {
 }
 function skillName(value) {
   const result = text(value, 64);
-  if (!SKILL_NAME.test(result)) throw new CapabilityError('invalid-input');
+  if (!SKILL_NAME.test(result) || WINDOWS_DEVICE.test(result)) throw new CapabilityError('invalid-input');
   return result;
 }
 function boolean(value) {
   if (typeof value !== 'boolean') throw new CapabilityError('invalid-input');
   return value;
+}
+function skillText(value) {
+  if (typeof value !== 'string' || !value.isWellFormed() || /[\x00-\x08\x0b\x0c\x0e-\x1f]/u.test(value)
+    || Buffer.byteLength(value, 'utf8') > SKILL_TEXT_LIMIT)
+    throw new CapabilityError('invalid-input');
+  return value;
+}
+function validSkillPath(path) {
+  return typeof path === 'string' && path.length <= 180 && path.split('/').every(part =>
+    /^[\p{L}\p{N}][\p{L}\p{N}_. -]*$/u.test(part) && !/[. ]$/u.test(part) && !WINDOWS_DEVICE.test(part)
+    && !/^(?:skill\.md|node_modules|credentials(?:\..*)?|secrets?(?:\..*)?|id_(?:rsa|dsa|ecdsa|ed25519)(?:\..*)?)$/iu.test(part)
+    && !/\.(?:key|pem|ppk|pfx|p12|jks|kdbx)$/iu.test(part));
+}
+function decodeSkillText(bytes) {
+  try {
+    const source = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes);
+    return /[\x00-\x08\x0b\x0c\x0e-\x1f]/u.test(source) ? undefined : source;
+  } catch { return undefined; }
+}
+function revisionMatch(value, expected, optional = false) {
+  if (optional && expected === undefined) return;
+  if (typeof expected !== 'string' || !SKILL_ID.test(expected)) throw new CapabilityError('invalid-input');
+  if (!value || hash(value) !== expected) throw new CapabilityError('stale');
+}
+function skillFrontmatter(upstream, source) {
+  const result = upstream.parseFrontmatter(source);
+  if (!record(result.frontmatter)) throw new CapabilityError('invalid-input');
+  return result;
+}
+function editSkillDocument(upstream, source, changes, instructions) {
+  const eol = source.includes('\r\n') ? '\r\n' : '\n';
+  const bom = source.startsWith('\uFEFF') ? '\uFEFF' : '';
+  const front = /^\uFEFF?---[ \t]*(?:\r?\n)((?:[\s\S]*?\r?\n)?)---[ \t]*(?:\r?\n|$)/u.exec(source);
+  let header = front?.[1] ?? '';
+  let suffix = front ? source.slice(front[0].length) : source.slice(bom.length);
+  const parse = (head, body = suffix) => skillFrontmatter(upstream, `${bom}---${eol}${head}---${eol}${body}`);
+  let before;
+  try { before = skillFrontmatter(upstream, source); }
+  catch { throw new CapabilityError('invalid-input'); }
+  const desired = { ...before.frontmatter, ...changes };
+  // Keep other keys, anchors, comments and formatting in the existing YAML.
+  // Only accept a splice that the pinned parser proves has the intended effect.
+  for (const [key, value] of Object.entries(changes)) {
+    const current = parse(header);
+    if (isDeepStrictEqual(current.frontmatter[key], value)) continue;
+    const expected = { ...current.frontmatter, [key]: value };
+    const line = new RegExp(`^([ \\t]*)(?:${key}|"${key}"|'${key}')[ \\t]*:`, 'u');
+    const lines = header.split(/(?<=\n)/u);
+    let next;
+    let attempts = 0;
+    const accepts = candidate => {
+      try { return isDeepStrictEqual(parse(candidate).frontmatter, expected); }
+      catch { return false; }
+    };
+    for (let i = 0; i < lines.length; i++) {
+      const match = line.exec(lines[i]);
+      if (!match) continue;
+      if (++attempts > 32) break;
+      const indent = match[1];
+      const replacement = `${indent}${key}: ${JSON.stringify(value)}${eol}`;
+      let end = i + 1;
+      for (let j = end; j < lines.length; j++) {
+        if (!lines[j].trim()) continue;
+        if (!lines[j].startsWith(`${indent} `)) break;
+        end = j + 1;
+      }
+      for (const stop of new Set([i + 1, end])) {
+        const candidate = lines.slice(0, i).join('') + replacement + lines.slice(stop).join('');
+        if (accepts(candidate)) { next = candidate; break; }
+      }
+      if (next !== undefined) break;
+    }
+    if (next === undefined && !Object.hasOwn(current.frontmatter, key)) {
+      const candidate = `${header}${key}: ${JSON.stringify(value)}${eol}`;
+      if (accepts(candidate)) next = candidate;
+    }
+    if (next === undefined) throw new CapabilityError('invalid-input');
+    header = next;
+  }
+  if (instructions !== undefined && instructions !== before.body) {
+    suffix = `${eol}${instructions.replace(/\r?\n/gu, eol)}${instructions.endsWith('\n') ? '' : eol}`;
+  }
+  const result = `${bom}---${eol}${header}---${eol}${suffix}`;
+  let checked;
+  try { checked = skillFrontmatter(upstream, result); }
+  catch { throw new CapabilityError('invalid-input'); }
+  if (!isDeepStrictEqual(checked.frontmatter, desired)
+    || checked.body !== (instructions === undefined || instructions === before.body ? before.body : instructions.trim().replace(/\r\n?/gu, '\n')))
+    throw new CapabilityError('invalid-input');
+  return skillText(result);
 }
 // Errors and declarations may contain credentials; only bounded presentation text leaves this process.
 export function capabilityText(value, max = 2048) {
@@ -136,6 +230,101 @@ export function createCapabilitySettings(upstream, options) {
       const { bytesRead } = await file.read(bytes, 0, bytes.length, 0);
       return bytesRead <= limit ? bytes.subarray(0, bytesRead) : undefined;
     } finally { await file.close(); }
+  }
+  const profilePath = path => relative(root, path).split(sep).join('/');
+  const sameEntry = (a, b) => a.dev === b.dev && a.ino === b.ino;
+  async function skillBytes(path) {
+    await plainPath(path);
+    const before = await lstat(path);
+    if (!before.isFile() || before.nlink !== 1) throw new CapabilityError('invalid-path');
+    const bytes = await plainFile(root, profilePath(path), SKILL_TEXT_LIMIT);
+    const after = await lstat(path);
+    if (after.nlink !== 1 || !sameEntry(before, after)) throw new CapabilityError('stale');
+    return bytes;
+  }
+  async function directoryIdentity(path) {
+    if (path !== root) await plainPath(path);
+    const stat = await lstat(path);
+    if (!stat.isDirectory() || stat.isSymbolicLink() || resolve(await realpath(path)) !== path)
+      throw new CapabilityError('invalid-path');
+    return stat;
+  }
+  async function assertDirectory(path, identity) {
+    if (!sameEntry(identity, await directoryIdentity(path))) throw new CapabilityError('stale');
+  }
+  async function ensureSkillDirectory(base, path, rejectNestedSkills = true) {
+    let current = base;
+    let identity = await directoryIdentity(current);
+    for (const part of relative(base, path).split(sep).filter(Boolean)) {
+      await assertDirectory(current, identity);
+      const entries = await readdir(current, { withFileTypes: true });
+      if (rejectNestedSkills && current !== base && entries.some(entry => /^skill\.md$/iu.test(entry.name)))
+        throw new CapabilityError('invalid-path');
+      const existing = entries.find(entry => entry.name.normalize('NFC').toLowerCase() === part.normalize('NFC').toLowerCase());
+      if (existing && (existing.name !== part || !existing.isDirectory() || existing.isSymbolicLink()))
+        throw new CapabilityError('already-exists');
+      current = join(current, part);
+      if (!existing) {
+        try { await mkdir(current); }
+        catch (error) { if (error.code === 'EEXIST') throw new CapabilityError('already-exists'); throw error; }
+      }
+      identity = await directoryIdentity(current);
+    }
+    if (rejectNestedSkills && current !== base && (await readdir(current)).some(name => /^skill\.md$/iu.test(name)))
+      throw new CapabilityError('invalid-path');
+    return identity;
+  }
+  async function replaceSkillFile(path, content, previous, parent) {
+    const directory = dirname(path);
+    parent ??= await directoryIdentity(directory);
+    const temporary = join(directory, `.dfsc-${randomUUID()}.tmp`);
+    let identity;
+    try {
+      await assertDirectory(directory, parent);
+      const handle = await open(temporary, 'wx', 0o600);
+      try {
+        identity = await handle.stat();
+        await assertDirectory(directory, parent);
+        if (!sameEntry(identity, await lstat(temporary))) throw new CapabilityError('stale');
+        await handle.writeFile(content);
+        await handle.sync();
+      } finally { await handle.close(); }
+      if (previous && !(await skillBytes(path)).equals(previous)) throw new CapabilityError('stale');
+      await assertDirectory(directory, parent);
+      if (!sameEntry(identity, await lstat(temporary))) throw new CapabilityError('stale');
+      if (previous) await rename(temporary, path);
+      else {
+        const entries = await readdir(directory);
+        if (entries.some(name => name.normalize('NFC').toLowerCase() === basename(path).normalize('NFC').toLowerCase()))
+          throw new CapabilityError('already-exists');
+        try { await link(temporary, path); }
+        catch (error) { if (error.code === 'EEXIST') throw new CapabilityError('already-exists'); throw error; }
+      }
+    } finally {
+      if (identity) {
+        const current = await lstat(temporary).catch(() => undefined);
+        if (current && sameEntry(identity, current)) await rm(temporary, { force: true });
+      }
+    }
+  }
+  async function removeSkillFile(path, previous) {
+    const directory = dirname(path);
+    const identity = await directoryIdentity(directory);
+    if (!(await skillBytes(path)).equals(previous)) throw new CapabilityError('stale');
+    await assertDirectory(directory, identity);
+    await rm(path);
+  }
+  async function supportingFileSnapshot(path) {
+    await plainPath(path);
+    const info = await lstat(path);
+    if (!info.isFile() || info.nlink !== 1) throw new CapabilityError('invalid-path');
+    if (info.size <= SKILL_TEXT_LIMIT) {
+      const bytes = await skillBytes(path);
+      return { revision: hash(bytes), text: decodeSkillText(bytes), bytes };
+    }
+    // Oversized assets may be removed after explicit confirmation, but never
+    // read into the renderer or offered as editable text.
+    return { revision: hash([path, info.dev, info.ino, info.size, info.mtimeMs, info.ctimeMs].join('\0')) };
   }
   async function pluginPresentation(directory, iconBudget) {
     let manifest;
@@ -256,29 +445,43 @@ export function createCapabilitySettings(upstream, options) {
     for (const resource of resolved.skills) {
       if (resource.metadata.scope !== 'user' || !inside(root, resource.path)) continue;
       await plainPath(resource.path);
-      let metadata = {};
-      try { metadata = upstream.parseFrontmatter(await readFile(resource.path, 'utf8')).frontmatter; } catch {}
+      let metadata;
+      try {
+        const source = decodeSkillText(await skillBytes(resource.path));
+        if (source !== undefined) metadata = skillFrontmatter(upstream, source).frontmatter;
+      } catch {}
       const owned = [join(agentDir, 'skills'), join(root, '.stepcode', 'skills')]
         .find(dir => inside(dir, resource.path));
       skills.push({ resource, settings, owned, id: hash(resource.path),
-        name: capabilityText(typeof metadata.name === 'string' ? metadata.name : basename(dirname(resource.path)), 128),
-        description: capabilityText(metadata.description, 1024),
+        name: capabilityText(typeof metadata?.name === 'string' ? metadata.name : basename(dirname(resource.path)), 128),
+        description: capabilityText(metadata?.description, 1024),
+        manualOnly: metadata ? metadata['disable-model-invocation'] === true : undefined,
         location: relative(root, resource.path), source: 'user',
         enabled: resource.enabled, toggleable: resource.metadata.origin === 'top-level',
         deletable: Boolean(owned) && resource.metadata.origin === 'top-level' });
     }
     return skills;
   }
-  async function pluginSkillEntries(plugins) {
+  async function pluginSkillEntries(plugins = [], verify = false) {
     const discovered = await upstream.discoverStepPluginResourcePaths({ userDir: pluginsDir });
     const skills = [];
     for (const path of discovered.skillPaths) {
-      await plainPath(path, pluginsDir);
+      try {
+        await plainPath(path, pluginsDir);
+        // The upstream loader follows symlinks during discovery. Do not authorize
+        // a renderer detail read from a declared scope with unverified members.
+        if (verify) await rejectLinks(path, { files: 0, bytes: 0, noHardlinks: true });
+      } catch (error) {
+        if (verify && ['invalid-path', 'too-large', 'ENOENT'].includes(error.code)) continue;
+        throw error;
+      }
       const owner = plugins.find(plugin => inside(plugin.rootPath, path) || resolve(plugin.rootPath) === resolve(path));
       for (const skill of upstream.loadSkillsFromDir({ dir: path, source: 'plugin' }).skills) {
         await plainPath(skill.filePath, pluginsDir);
-        skills.push({ id: hash(skill.filePath), name: capabilityText(skill.name, 128),
+        const packageRoot = join(pluginsDir, relative(pluginsDir, path).split(sep)[0]);
+        skills.push({ id: hash(skill.filePath), filePath: skill.filePath, scope: packageRoot, name: capabilityText(skill.name, 128),
           description: capabilityText(skill.description, 1024), location: relative(root, skill.filePath),
+          manualOnly: skill.disableModelInvocation === true,
           source: 'plugin', pluginName: capabilityText(owner?.name, 128),
           enabled: true, toggleable: false, deletable: false });
       }
@@ -571,7 +774,8 @@ export function createCapabilitySettings(upstream, options) {
       marketplaces: markets.map(source => ({ name: source.name, kind: source.kind,
         origin: source.origin ? capabilityText(source.origin) : null })),
       mcp: await mcpEntries(list.plugins),
-      skills: [...skills.map(({ resource, settings, owned, ...skill }) => skill), ...pluginSkills.skills]
+      skills: [...skills.map(({ resource, settings, owned, ...skill }) => skill),
+        ...pluginSkills.skills.map(({ filePath, scope, ...skill }) => skill)]
         .sort((a, b) => a.name.localeCompare(b.name)),
       warnings: warnings([
         ...(recovery ? ['Incomplete plugin update; explicit recovery is required. Configuration is unavailable for affected installations.'] : []),
@@ -587,9 +791,78 @@ export function createCapabilitySettings(upstream, options) {
     if (settings.drainErrors().length) throw new CapabilityError('storage');
   }
   async function skillById(id) {
+    if (typeof id !== 'string' || !SKILL_ID.test(id)) throw new CapabilityError('invalid-input');
     const skill = (await userSkills(true)).find(item => item.id === id);
-    if (!skill) throw new CapabilityError('not-found');
+    if (!skill) throw new CapabilityError((await pluginSkillEntries([], true)).skills.some(item => item.id === id) ? 'read-only' : 'not-found');
     return skill;
+  }
+  async function readableSkill(id) {
+    if (typeof id !== 'string' || !SKILL_ID.test(id)) throw new CapabilityError('invalid-input');
+    // A pending plugin transaction may have moved an installed resource.
+    await assertNoPendingUpdate();
+    return (await userSkills()).find(item => item.id === id)
+      ?? (await pluginSkillEntries([], true)).skills.find(item => item.id === id)
+      ?? (() => { throw new CapabilityError('not-found'); })();
+  }
+  function skillFolder(skill) {
+    const file = skill.resource?.path ?? skill.filePath;
+    if (basename(file) !== 'SKILL.md') return undefined;
+    const folder = dirname(file);
+    // A loose top-level SKILL.md is not permission to enumerate neighboring skills.
+    return inside(skill.owned ?? skill.scope ?? root, folder) ? folder : undefined;
+  }
+  async function supportingFiles(skill) {
+    const base = skillFolder(skill);
+    if (!base || (skill.source === 'user' && !skill.owned)) return [];
+    const files = [];
+    let count = 0;
+    async function visit(directory, prefix = '') {
+      const identity = await directoryIdentity(directory);
+      const entries = await readdir(directory, { withFileTypes: true });
+      await assertDirectory(directory, identity);
+      if (prefix && entries.some(entry => /^skill\.md$/iu.test(entry.name))) return;
+      for (const entry of entries) {
+        if (++count > 10000) throw new CapabilityError('too-large');
+        const path = prefix ? `${prefix}/${entry.name}` : entry.name;
+        if (entry.isSymbolicLink() || !validSkillPath(path)) continue;
+        const diskPath = join(directory, entry.name);
+        if (entry.isDirectory()) await visit(diskPath, path);
+        else if (entry.isFile()) {
+          const info = await lstat(diskPath);
+          if (info.isFile() && info.nlink === 1) files.push({ id: hash(`${skill.id}\0${path}`), path, diskPath });
+        }
+      }
+    }
+    await visit(base);
+    return files.sort((a, b) => a.path.localeCompare(b.path));
+  }
+  async function skillDetail(id) {
+    const skill = await readableSkill(id);
+    let document;
+    try {
+      const bytes = await skillBytes(skill.resource?.path ?? skill.filePath);
+      const text = decodeSkillText(bytes);
+      const parsed = text === undefined ? undefined : (() => {
+        try { return skillFrontmatter(upstream, text); } catch { return undefined; }
+      })();
+      document = { revision: hash(bytes), text, body: parsed?.body,
+        description: typeof parsed?.frontmatter.description === 'string' ? parsed.frontmatter.description : undefined };
+    } catch (error) {
+      if (!['ENOENT', 'invalid-path', 'too-large'].includes(error.code)) throw error;
+    }
+    return { document, files: (await supportingFiles(skill)).map(({ id, path }) => ({ id, path })),
+      editable: Boolean(skill.deletable && document?.body !== undefined), manageFiles: Boolean(skill.deletable && skillFolder(skill)) };
+  }
+  async function findSupportingFile(skill, fileId) {
+    if (typeof fileId !== 'string' || !SKILL_ID.test(fileId)) throw new CapabilityError('invalid-input');
+    const file = (await supportingFiles(skill)).find(item => item.id === fileId);
+    if (!file) throw new CapabilityError('not-found');
+    return file;
+  }
+  async function skillFile(id, fileId) {
+    const file = await findSupportingFile(await readableSkill(id), fileId);
+    const { text, revision } = await supportingFileSnapshot(file.diskPath);
+    return { text, revision };
   }
   async function applySkillPattern(skill, enabled, remove = false) {
     const base = skill.resource.metadata.baseDir ?? agentDir;
@@ -937,13 +1210,19 @@ export function createCapabilitySettings(upstream, options) {
         const description = text(input.description, 1024).replace(/\s+/gu, ' ');
         const instructions = text(input.instructions, 128 * 1024, true);
         const directory = await plainPath(join(agentDir, 'skills', value));
-        await mkdir(dirname(directory), { recursive: true });
+        await ensureSkillDirectory(root, dirname(directory), false);
         try { await mkdir(directory); } catch (error) {
           if (error.code === 'EEXIST') throw new CapabilityError('already-exists'); throw error;
         }
-        await writeFile(join(directory, 'SKILL.md'),
-          `---\nname: ${value}\ndescription: ${JSON.stringify(description)}\n---\n\n${instructions}\n`, { flag: 'wx', encoding: 'utf8' });
-        break;
+        const file = join(directory, 'SKILL.md');
+        const identity = await directoryIdentity(directory);
+        try {
+          await replaceSkillFile(file, skillText(`---\nname: ${value}\ndescription: ${JSON.stringify(description)}\n---\n\n${instructions}\n`), undefined, identity);
+        } catch (error) {
+          await assertDirectory(directory, identity).then(() => rmdir(directory)).catch(() => {});
+          throw error;
+        }
+        return { warnings: [], skillId: hash(file) };
       }
       case 'skill-toggle': {
         const skill = await skillById(text(input.id, 64));
@@ -951,12 +1230,114 @@ export function createCapabilitySettings(upstream, options) {
         await applySkillPattern(skill, boolean(input.enabled));
         break;
       }
+      case 'skill-save': {
+        const skill = await skillById(input.id);
+        if (!skill.deletable) throw new CapabilityError('read-only');
+        const path = skill.resource.path;
+        const bytes = await skillBytes(path);
+        revisionMatch(bytes, input.revision);
+        const source = decodeSkillText(bytes);
+        if (source === undefined) throw new CapabilityError('read-only');
+        const description = text(input.description, 1024);
+        const instructions = skillText(input.instructions);
+        const next = editSkillDocument(upstream, source, { description }, instructions);
+        if (!bytes.equals(Buffer.from(next))) await replaceSkillFile(path, next, bytes);
+        break;
+      }
+      case 'skill-mode': {
+        const { mode } = input;
+        if (!['auto', 'manual', 'off'].includes(mode)) throw new CapabilityError('invalid-input');
+        const skill = await skillById(input.id);
+        if (!skill.toggleable) throw new CapabilityError('read-only');
+        const path = skill.resource.path;
+        if (mode === 'off') {
+          if (input.revision !== undefined) revisionMatch(await skillBytes(path), input.revision);
+          if (skill.enabled) await applySkillPattern(skill, false);
+          break;
+        }
+        if (!skill.deletable) {
+          if (skill.manualOnly !== (mode === 'manual')) throw new CapabilityError('read-only');
+          if (input.revision !== undefined) revisionMatch(await skillBytes(path), input.revision);
+          if (!skill.enabled) await applySkillPattern(skill, true);
+          break;
+        }
+        const bytes = await skillBytes(path);
+        const source = decodeSkillText(bytes);
+        if (source === undefined) throw new CapabilityError('read-only');
+        let current;
+        try { current = skillFrontmatter(upstream, source).frontmatter['disable-model-invocation'] === true; }
+        catch { throw new CapabilityError('invalid-input'); }
+        revisionMatch(bytes, input.revision, current === (mode === 'manual'));
+        // Set the desired visibility before enabling a disabled skill, never expose
+        // a newly enabled skill to the model with a stale invocation flag.
+        const next = current !== (mode === 'manual')
+          ? editSkillDocument(upstream, source, { 'disable-model-invocation': mode === 'manual' }) : source;
+        const changed = !bytes.equals(Buffer.from(next));
+        if (changed) await replaceSkillFile(path, next, bytes);
+        if (!skill.enabled) try { await applySkillPattern(skill, true); }
+        catch (error) {
+          if (changed) try {
+            const state = (await userSkills()).find(item => item.id === skill.id);
+            if (state?.enabled !== false) throw new CapabilityError('storage');
+            await replaceSkillFile(path, bytes, Buffer.from(next));
+          } catch { throw new CapabilityError('settings-committed-unverified'); }
+          throw error;
+        }
+        break;
+      }
+      case 'skill-file-save': {
+        const skill = await skillById(input.id);
+        const base = skillFolder(skill);
+        if (!skill.deletable || !base) throw new CapabilityError('read-only');
+        if (!validSkillPath(input.path)) throw new CapabilityError('invalid-path');
+        const content = skillText(input.text);
+        const path = join(base, input.path);
+        if (input.fileId === undefined) {
+          if (input.revision !== undefined) throw new CapabilityError('invalid-input');
+          await replaceSkillFile(path, content, undefined, await ensureSkillDirectory(base, dirname(path)));
+        } else {
+          const file = await findSupportingFile(skill, input.fileId);
+          const previous = await skillBytes(file.diskPath);
+          revisionMatch(previous, input.revision);
+          if (decodeSkillText(previous) === undefined) throw new CapabilityError('read-only');
+          if (path === file.diskPath) {
+            if (!previous.equals(Buffer.from(content))) await replaceSkillFile(path, content, previous);
+          } else {
+            await replaceSkillFile(path, content, undefined, await ensureSkillDirectory(base, dirname(path)));
+            try { await removeSkillFile(file.diskPath, previous); }
+            catch (error) {
+              try { await removeSkillFile(path, Buffer.from(content)); }
+              catch { throw new CapabilityError('settings-committed-unverified'); }
+              throw error;
+            }
+          }
+        }
+        break;
+      }
+      case 'skill-file-remove': {
+        const skill = await skillById(input.id);
+        if (!skill.deletable) throw new CapabilityError('read-only');
+        const file = await findSupportingFile(skill, input.fileId);
+        if (typeof input.revision !== 'string' || !SKILL_ID.test(input.revision)) throw new CapabilityError('invalid-input');
+        const directory = dirname(file.diskPath);
+        const identity = await directoryIdentity(directory);
+        if ((await supportingFileSnapshot(file.diskPath)).revision !== input.revision) throw new CapabilityError('stale');
+        await assertDirectory(directory, identity);
+        await rm(file.diskPath);
+        break;
+      }
       case 'skill-remove': {
         const skill = await skillById(text(input.id, 64));
         if (!skill.deletable || !skill.owned) throw new CapabilityError('read-only');
         const target = basename(skill.resource.path) === 'SKILL.md' ? dirname(skill.resource.path) : skill.resource.path;
         await plainPath(target, skill.owned);
-        await rm(target, { recursive: (await lstat(target)).isDirectory(), force: false });
+        const identity = await lstat(target);
+        if (identity.isDirectory()) await rejectLinks(target);
+        else if (!identity.isFile() || identity.nlink !== 1) throw new CapabilityError('invalid-path');
+        if (input.revision !== undefined) revisionMatch(await skillBytes(skill.resource.path), input.revision);
+        await plainPath(target, skill.owned);
+        if (!sameEntry(identity, await lstat(target))) throw new CapabilityError('stale');
+        await rm(target, { recursive: identity.isDirectory(), force: false });
         await applySkillPattern(skill, false, true);
         break;
       }
@@ -969,17 +1350,21 @@ export function createCapabilitySettings(upstream, options) {
     const path = await realpath(source);
     await rejectLinks(path);
     const file = join(path, 'SKILL.md');
-    if ((await lstat(file)).size > 128 * 1024) throw new CapabilityError('invalid-input');
-    const metadata = upstream.parseFrontmatter(await readFile(file, 'utf8')).frontmatter;
+    const bytes = await plainFile(path, 'SKILL.md', SKILL_TEXT_LIMIT);
+    const sourceText = decodeSkillText(bytes);
+    let metadata;
+    try { metadata = sourceText !== undefined && skillFrontmatter(upstream, sourceText).frontmatter; }
+    catch { throw new CapabilityError('invalid-input'); }
+    if (typeof metadata?.description !== 'string' || !metadata.description.trim()) throw new CapabilityError('invalid-input');
     const value = skillName(metadata.name ?? basename(path));
     const target = await plainPath(join(agentDir, 'skills', value));
     try { await lstat(target); throw new CapabilityError('already-exists'); }
     catch (error) { if (error.code !== 'ENOENT') throw error; }
     await mkdir(dirname(target), { recursive: true });
     await cp(path, target, { recursive: true, force: false, errorOnExist: true });
-    return { warnings: [] };
+    return { warnings: [], skillId: hash(join(target, 'SKILL.md')) };
   }
-  return { catalog, desktopCatalog, hostDescriptor, targetCatalog, initialize, mutate, importSkill,
+  return { catalog, desktopCatalog, hostDescriptor, targetCatalog, initialize, mutate, importSkill, skillDetail, skillFile,
     preflightUpdate: (input, signal) => {
       if (input?.action !== 'plugin-update') throw new CapabilityError('invalid-input');
       return mutate(input, signal, true);
@@ -988,7 +1373,8 @@ export function createCapabilitySettings(upstream, options) {
 
 async function rejectLinks(root, budget = { files: 0, bytes: 0 }) {
   const info = await lstat(root);
-  if (info.isSymbolicLink()) throw new CapabilityError('invalid-path');
+  if (info.isSymbolicLink() || !info.isDirectory() && !info.isFile() || budget.noHardlinks && info.isFile() && info.nlink !== 1)
+    throw new CapabilityError('invalid-path');
   if (++budget.files > 10000 || (budget.bytes += info.isFile() ? info.size : 0) > 128 * 1024 * 1024)
     throw new CapabilityError('too-large');
   if (info.isDirectory()) for (const entry of await readdir(root, { withFileTypes: true })) {

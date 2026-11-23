@@ -4,7 +4,7 @@ import { capabilityFailureCode, capabilityFailureDetails, type CapabilityFailure
 const actions = new Set([
   'plugin-install', 'plugin-check-updates', 'plugin-update', 'plugin-remove',
   'plugin-toggle', 'marketplace-add', 'marketplace-update', 'marketplace-remove',
-  'mcp-toggle', 'skill-create', 'skill-toggle', 'skill-remove',
+  'mcp-toggle', 'skill-create', 'skill-toggle', 'skill-save', 'skill-mode', 'skill-file-save', 'skill-file-remove', 'skill-remove',
 ]);
 export type CapabilityPhase = 'dispatch' | 'idle-check' | 'resource-check' | 'mutation' | 'theme-refresh';
 export type CapabilityPhaseMarker = (phase: CapabilityPhase) => void;

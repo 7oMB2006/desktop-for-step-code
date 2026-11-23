@@ -7,6 +7,7 @@ import type { WindowConversationBridge, WindowPresentation } from './window-conv
 import type { RemoteBridge } from './remote';
 import type { ExternalConnectorBridge } from './external-connectors';
 import type { SpeechBridge } from './speech';
+import type { WebSearchBridge } from './web-search';
 import type { PluginRemovalBridge, PluginUpdateBridge } from './plugin-update';
 import type { PluginReloadBridge } from './plugin-reload';
 export interface Snapshot { windowPresentation?: WindowPresentation; windowPresentationRevision?: number }
@@ -14,8 +15,8 @@ export interface Message { desktopWorkflow?: WorkflowState; desktopToolPending?:
 export interface Message { desktopImported?: boolean }
 export interface Message { desktopInput?: { version: 1; text: string } }
 export interface Content { historical?: boolean }
-export interface Snapshot { workspaceIssue?: string }
 export interface Snapshot { browserOwner?: string }
+export interface Snapshot { startupWorkspaceIssue?: string }
 export interface Snapshot { firstRun?: { required: boolean } }
 export interface RuntimeStartupTiming {
   processReadyMs: number;
@@ -80,7 +81,7 @@ export interface StepPagePreparation {
 export type ProviderApi = 'openai-completions' | 'openai-responses' | 'anthropic-messages';
 export type CapabilitySource = 'upstream' | 'official' | 'catalog' | 'manual' | 'default';
 export type CapabilitySources = Partial<Record<'contextWindow' | 'maxTokens' | 'vision' | 'thinking', CapabilitySource>>;
-export interface Model { capabilitySources?: CapabilitySources; officialDocumentation?: { url: string; verifiedAt: string } }
+export interface Model { capabilitySources?: CapabilitySources; officialDocumentation?: { url: string; verifiedAt: string }; providerBilling?: import('./provider-presets').ProviderBilling; providerBrand?: import('./provider-presets').ProviderBrandId }
 export interface NetworkConfig { mode: 'system' | 'direct' | 'manual'; proxyUrl: string }
 export interface NetworkProbe { outcome: 'reachable' | 'timeout' | 'network'; status?: number; route: 'direct' | 'proxy' | 'unknown'; elapsedMs: number }
 export interface Preferences { network?: NetworkConfig }
@@ -93,7 +94,7 @@ export interface ProviderThinkingControl { source: 'upstream' | 'official' | 'ca
 export interface CatalogMetadata { provider: import('./provider-catalog').CatalogProvider; modelId: string; retrievedAt: string; stale: boolean; thinkingMapping?: Record<string, string> }
 export interface ProviderModel { id: string; name: string; reasoning: boolean; vision: boolean; contextWindow: number; maxTokens: number; thinkingLevels?: string[]; thinkingControl?: ProviderThinkingControl; declaredThinkingLevels?: string[]; declaredThinkingSource?: 'upstream' | 'official' | 'catalog'; declaredInput?: string[]; declaredOutput?: string[]; capabilitySources?: CapabilitySources; officialDocumentation?: { url: string; verifiedAt: string }; catalogMetadata?: CatalogMetadata; metadataSource?: 'upstream' | 'manual' }
 export interface DiscoveredProviderModel { id: string; name: string; reasoning?: boolean; vision?: boolean; contextWindow?: number; maxTokens?: number; thinkingLevels?: string[]; thinkingDefaultLevel?: string; thinkingMapping?: Record<string, string>; declaredInput?: string[]; declaredOutput?: string[]; capabilitySources?: CapabilitySources; officialDocumentation?: { url: string; verifiedAt: string }; catalogMetadata?: CatalogMetadata; catalogMatch?: 'exact' | 'none' | 'unavailable' }
-export interface CustomProvider { id: string; name: string; baseUrl: string; api: ProviderApi; enabled: boolean; keyless: boolean; catalogProvider?: import('./provider-catalog').CatalogSelection; models: ProviderModel[] }
+export interface CustomProvider { id: string; name: string; baseUrl: string; api: ProviderApi; enabled: boolean; keyless: boolean; presetId?: string; catalogProvider?: import('./provider-catalog').CatalogSelection; models: ProviderModel[] }
 export interface ProviderInfo extends CustomProvider { hasKey: boolean }
 export interface ProviderDiagnostic {
   ok: boolean; outcome: 'reply' | 'authentication' | 'not-found' | 'rate-limit' | 'http-error' | 'invalid-response' | 'timeout' | 'cancelled' | 'network' | 'invalid-config';
@@ -147,7 +148,7 @@ export interface PluginWindowSnapshot {
   plugin: import('./capabilities').CapabilityPlugin;
   preferences: Pick<Preferences, 'language' | 'theme' | 'accentColor' | 'appearance'>;
 }
-export interface DesktopBridge extends SessionImportBridge, BtwBridge, BackgroundAgentClient, WindowConversationBridge, RemoteBridge, ExternalConnectorBridge, SpeechBridge, PluginUpdateBridge, PluginRemovalBridge, PluginReloadBridge {
+export interface DesktopBridge extends SessionImportBridge, BtwBridge, BackgroundAgentClient, WindowConversationBridge, RemoteBridge, ExternalConnectorBridge, SpeechBridge, WebSearchBridge, PluginUpdateBridge, PluginRemovalBridge, PluginReloadBridge {
   pluginWindowOpen(input: { ref: string }): Promise<void>;
   pluginWindowState(): Promise<PluginWindowSnapshot>;
   pluginWindowConfigure(): Promise<void>;
@@ -239,6 +240,7 @@ export interface DesktopBridge extends SessionImportBridge, BtwBridge, Backgroun
   beginSession(workspace?: string, resume?: boolean): Promise<Snapshot>;
   chooseSessionProject(): Promise<Snapshot | null>;
   createDraftSession(draftId: string): Promise<Snapshot>;
+  sessionStartup(runtimeId: string, sessionId: string): Promise<RuntimeState['desktopStartup']>;
   newIndependentSession(): Promise<Snapshot>;
   openSessionFolder(): Promise<void>;
   openWorkspaceFolder(path: string): Promise<void>;
@@ -314,9 +316,13 @@ export interface ArtifactFile { path: string; exists: boolean; canOpen: boolean;
 export type FileTarget = { runtimeId: string; path: string } | { grantId: string };
 export interface FileDestination { id: string; label: string; icon?: string }
 export interface FileOpeningOptions { choices: FileDestination[]; selected: string }
-export interface FilePreviewData {
-  id: string; path: string; name: string; mode: 'markdown' | 'text'; text: string; size: number; language?: string;
-}
+export type FilePreviewContent = { path: string; name: string; size: number } & (
+  { mode: 'markdown' | 'text'; text: string; language?: string }
+  | { mode: 'table'; text: string; format: 'CSV' | 'TSV'; language?: never }
+  | { mode: 'image'; image: string; format: string; text?: string; language?: string }
+  | { mode: 'pdf'; bytes: Uint8Array; text?: never; language?: never }
+);
+export type FilePreviewData = FilePreviewContent & { id: string };
 export type FileOpenResult = { destination: 'preview'; file: FilePreviewData }
   | { destination: 'browser'; browser: BrowserSnapshot } | { destination: 'external' };
 export type BrowserAction = 'navigate' | 'back' | 'forward' | 'reload' | 'stop' | 'stopTesting' | 'external' | 'zoomIn' | 'zoomOut' | 'zoomReset';

@@ -1,7 +1,9 @@
 import { useId, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { Check, ChevronLeft, Search, Star, X } from 'lucide-react';
 import type { Model } from './contracts';
+import { ProviderBrand } from './ProviderBrand';
 import { modelKey, modelListGroups, normalizeFavoriteModels, type ModelIdentity } from './model-favorites';
+import { providerBillingLabels } from './provider-presets';
 
 export function ModelPickerList({ models, favoriteModels, selected, language, onSelect, onFavorite, onBack }: {
   models: Model[]; favoriteModels?: ModelIdentity[]; selected?: Model; language: 'zh' | 'en';
@@ -67,13 +69,16 @@ export function ModelPickerList({ models, favoriteModels, selected, language, on
     const key = modelKey(model);
     const active = Boolean(selected && key === modelKey(selected));
     const starred = favoriteKeys.has(key);
-    const identity = `${model.name || model.id} · ${model.providerName || model.provider}`;
+    const billing = model.providerBilling && providerBillingLabels[model.providerBilling][zh ? 0 : 1];
+    const providerLabel = [model.providerName || model.provider, billing].filter(Boolean).join(' · ');
+    const identity = `${model.name || model.id} · ${providerLabel}`;
     const action = starred ? zh ? '取消收藏' : 'Remove favorite' : zh ? '收藏模型' : 'Favorite model';
     return <div className={`model-picker-row${active ? ' is-selected' : ''}`} key={key} data-model-key={key}>
       <button type="button" className="model-picker-select" aria-pressed={active}
         title={identity} onClick={() => void onSelect(model)}>
+        <ProviderBrand model={model} variant="row"/>
         <span className="model-picker-identity"><span>{model.name || model.id}</span>
-          <small>{model.providerName || model.provider}</small></span>
+          <small>{providerLabel}</small></span>
         <span className="model-picker-check" aria-hidden="true">{active && <Check size={14}/>}</span>
       </button>
       {onFavorite && <button type="button" className={`model-picker-star${starred ? ' is-favorite' : ''}`}

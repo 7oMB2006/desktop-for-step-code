@@ -38,9 +38,10 @@ import { ConversationDisclosureMemory, type ConversationDisclosureState } from '
 import { useWindowComposer } from './use-window-composer';
 import { composerErrorText, composerKey, composerOwner, type ComposerOwner, type ComposerReceipt, type WindowPresentation } from './window-conversation';
 import './session-navigation.css';
-import { startupBlocked, startupNeedsAttention } from './runtime-startup';
+import { startupBlocked, startupNeedsAttention, startupWaiting } from './runtime-startup';
 import { WindowBar, type WindowMenu } from './WindowBar';
 import { NoticeToast, type NoticeToastItem } from './NoticeToast';
+import { unavailableDirectory } from './workspace-directory-error';
 import { PerformanceBar } from './PerformanceBar';
 import { WorkingIndicator } from './WorkingIndicator';
 import { ModelEffortPicker, ModelEffortPlaceholder } from './ModelEffortPicker';
@@ -93,11 +94,12 @@ import { SessionMoveDialog } from './SessionMoveDialog';
 import { ContextPanel } from './ContextPanel';
 import { LiveTurnChanges } from './LiveTurnChanges';
 import { QueuePreview } from './QueuePreview';
-import { ComposerContextBar } from './ComposerContextBar';
+import { ComposerContextBar, ComposerPreparationStatus } from './ComposerContextBar';
 import { ReviewPanel } from './ReviewPanel';
 import { SummaryBoard } from './SummaryBoard';
 import { AccountSettings, ProviderIcon, StepPlatformIcon } from './AccountSettings';
 import { ProviderSettings } from './ProviderSettings';
+import { WebSearchSettings } from './WebSearchSettings';
 import { NetworkSettings } from './NetworkSettings';
 import { DisclosureSelect } from './DisclosureSelect';
 import { CapabilitySettings } from './CapabilitySettings';
@@ -175,6 +177,34 @@ const workspaceKey = (path: string) => normalizedWorkspaceKey(path, window.deskt
 const sessionTitle = (session: Pick<Session, 'name' | 'firstMessage'> | undefined, fallback: string) => session?.name || session?.firstMessage || fallback;
 const mcpFailureName = (message: string) => /^MCP server '([^']+)' could not start:/u.exec(message)?.[1];
 function IconButton({ title, tooltip = true, children, ...props }: React.ButtonHTMLAttributes<HTMLButtonElement> & { title: string; tooltip?: boolean }) { return <button type="button" className="icon-button" data-tooltip={tooltip ? title : undefined} aria-label={title} {...props}>{children}</button>; }
+function ConversationErrorBanner({ message, path, error, actions, onDismiss, dismissLabel }: {
+  message: string; path?: string; error?: string; actions: React.ReactNode; onDismiss: () => void; dismissLabel: string;
+}) {
+  const banner = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const element = banner.current;
+    const app = element?.closest<HTMLElement>('.app');
+    if (!element || !app) return;
+    // The inspector surfaces sit outside the conversation's normal layout.
+    const reserveSpace = () => app.style.setProperty('--conversation-alert-space',
+      element.offsetHeight ? `${element.offsetTop + element.offsetHeight + 4}px` : '0px');
+    const observer = new ResizeObserver(reserveSpace);
+    reserveSpace();
+    observer.observe(element);
+    return () => { observer.disconnect(); app.style.removeProperty('--conversation-alert-space'); };
+  }, []);
+  return <div ref={banner} className="app-error-banner" data-kind={path ? 'workspace' : 'error'} role="alert">
+    {path ? <TriangleAlert size={16} aria-hidden="true"/> : <AlertCircle size={16} aria-hidden="true"/>}
+    <div className="app-error-content">
+      <div className="app-error-message">
+        {path ? <><strong>{message}</strong><span className="app-error-path" title={path}>{path}</span></> : <span>{message}</span>}
+        {error && <span>{error}</span>}
+      </div>
+      {actions && <div className="app-error-actions">{actions}</div>}
+    </div>
+    <IconButton title={dismissLabel} onClick={onDismiss}><X size={15}/></IconButton>
+  </div>;
+}
 function FirstRunShell({ snapshot, onSnapshot }: { snapshot: Snapshot; onSnapshot: (value: Snapshot) => void }) {
   const [systemDark, setSystemDark] = useState(() => window.desktopTheme?.systemDark ?? false);
   const [quitReview, setQuitReview] = useState<QuitReviewState>(snapshot.quitReview ?? { revision: -1 });
@@ -390,6 +420,12 @@ function App() {
   const [windowMenuOpen, setWindowMenuOpen] = useState(false);
   const [projectPickerOpen, setProjectPickerOpen] = useState(false);
   const firstSend = useRef(false);
+  const pendingFirstSend = useRef<object | null>(null);
+  const [preparingFirstSend, setPreparingFirstSend] = useState(false);
+  const cancelFirstSend = () => {
+    pendingFirstSend.current = null;
+    setPreparingFirstSend(false);
+  };
   const [queuePreviewOpen, setQueuePreviewOpen] = useState(false);
   const [liveChangesOpen, setLiveChangesOpen] = useState(false);
   type ContextView = 'context' | 'status' | 'clm';
@@ -598,7 +634,12 @@ function App() {
   const [contextMenu, setContextMenu] = useState<{ type: 'session' | 'workspace'; id: string; x: number; y: number } | null>(null);
   const [removeProject, setRemoveProject] = useState<string | null>(null);
   const [sessionMove, setSessionMove] = useState<{ session: Session; destination?: string } | null>(null);
-  const [unavailableWorkspace, setUnavailableWorkspace] = useState<string | null>(null);
+  const [workspaceAttemptIssue, setWorkspaceAttemptIssue] = useState<string | null>(null);
+  const [dismissedStartupIssue, setDismissedStartupIssue] = useState<string>();
+  const unavailableWorkspace = workspaceAttemptIssue ?? (!navigationTarget && data.startupWorkspaceIssue !== dismissedStartupIssue
+    ? data.startupWorkspaceIssue : undefined);
+  const unavailableProject = !isMini && unavailableWorkspace
+    ? data.preferences.workspaces.find(path => workspaceKey(path) === workspaceKey(unavailableWorkspace)) : undefined;
   const manualOrder = data.preferences.sessionSort !== 'updated';
   const reorderSession = (id: string, target: string, after: boolean) => {
     const order = reconcileSessionOrder(data.preferences.sessionOrder ?? [], data.sessions);
@@ -678,7 +719,11 @@ function App() {
   const [navigationDraft, setNavigationDraft] = useState('');
   const changeComposerDraft = (text: string) => {
     const pending = navigationPending.current;
-    if (!pending) { setDraft(text); return; }
+    if (!pending) {
+      if (pendingFirstSend.current && text !== composer.client.active?.value.text) cancelFirstSend();
+      setDraft(text);
+      return;
+    }
     composer.client.update({ sessionId: pending.session.id }, value => ({ ...value, text }));
     const saved = composerBySession.current.get(pending.session.id);
     composerBySession.current.set(pending.session.id, {
@@ -877,6 +922,7 @@ function App() {
   const anyBusy = data.runtimes?.some(runtime => runtime.status === 'running' || runtime.status === 'waiting') ?? busy;
   const composerBusy = busy || Boolean(data.state?.isCompacting);
   const action = composerAction(composerBusy, draft, attachments.length + quotes.length, speechActive);
+  const preparationLabel = t('正在准备会话', 'Preparing session');
   const current = data.sessions.find(s => s.id === data.state?.sessionId);
   const sessionReferenceTitles = useMemo(() => new Map(data.sessions.flatMap(session => {
     const name = sessionTitle(session, '').trim().replace(/\s+/g, ' ');
@@ -891,7 +937,20 @@ function App() {
   const commandContext = useMemo(() => ({ usage: contextUsage, language: data.preferences.language }),
     [contextUsage, data.preferences.language]);
   const workspaceTitle = (path: string) => data.preferences.workspaceNames?.[workspaceKey(path)] || basename(path);
-  const run = async <T,>(action: () => Promise<T>): Promise<T | undefined> => { try { setError(''); return await action(); } catch (e) { setError(composerErrorText(e, latestData.current.preferences.language)); } };
+  const showOperationError = (error: unknown, path = unavailableDirectory(error)) => {
+    if (path) { setWorkspaceAttemptIssue(path); setError(''); }
+    else setError(composerErrorText(error, latestData.current.preferences.language));
+  };
+  const run = async <T,>(action: () => Promise<T>): Promise<T | undefined> => {
+    const revision = presentationRevision.current;
+    const sequence = navigationSequence.current;
+    const owner = composerKey(composerOwner(latestData.current));
+    try { setError(''); return await action(); } catch (error) {
+      const path = unavailableDirectory(error);
+      if (!path || revision === presentationRevision.current && sequence === navigationSequence.current
+        && owner === composerKey(composerOwner(latestData.current))) showOperationError(error, path);
+    }
+  };
   const rememberView = (persist = true) => {
     const previous = view.current;
     if (previous.sessionId) composerBySession.current.set(previous.sessionId, {
@@ -961,6 +1020,7 @@ function App() {
     const changedOwner = composerKey(composerOwner(value)) !== composerKey(composer.client.active?.owner);
     if (viewId.current !== value.runtimeId || changedOwner || navigationPending.current
       || revision !== presentationRevision.current) {
+      setWorkspaceAttemptIssue(null);
       if (!navigationPending.current) rememberView();
       const saved = value.state?.sessionId ? composerBySession.current.get(value.state.sessionId) : undefined;
       composer.client.select(composerOwner(value));
@@ -980,7 +1040,6 @@ function App() {
     setPreparedMarkdown(previous => previous?.sessionId === value.state?.sessionId ? previous : undefined);
     presentationRevision.current = revision;
     composer.client.select(composerOwner(value));
-    setUnavailableWorkspace(value.workspaceIssue ?? null);
     readingCache.current.retain(value.sessions);
     latestData.current = value;
     setData(value); setBusy(Boolean(value.state?.isStreaming));
@@ -1019,7 +1078,9 @@ function App() {
     setSelectedBackgroundAgent(undefined);
     setSelectedWorkflow(null); setSelectedWorkflowAgent(null); setSubagentView('agent');
     if (switching.current) return;
+    cancelFirstSend();
     leaveReading();
+    setWorkspaceAttemptIssue(null);
     switching.current = true; setLoading(true);
     let succeeded = false;
     await run(async () => { const result = await action(); if (result) installSnapshot(result); succeeded = true; });
@@ -1036,6 +1097,7 @@ function App() {
     if (!cronRuntimeId) setScheduledOpen(false);
     if (!bridge || switching.current && !navigationPending.current) return false;
     if (!cronRuntimeId && !navigationPending.current && session.id === view.current.sessionId && data.status === 'connected') return true;
+    cancelFirstSend();
     if (!navigationPending.current) rememberView();
     else leaveReading();
     markdownPreparation.current?.abort();
@@ -1052,7 +1114,7 @@ function App() {
     previewPosition.current = composerBySession.current.get(session.id) ?? { follow: true, top: 0 };
     readingRestore.current = undefined;
     switching.current = true; setLoading(true);
-    setNavigationTarget({ session, reading }); setError(''); setRequests([]);
+    setNavigationTarget({ session, reading }); setError(''); setWorkspaceAttemptIssue(null); setRequests([]);
     setSelectedSubagent(null); setSelectedBackgroundLane(undefined); setSelectedBackgroundAgent(undefined); setSelectedWorkflow(null); setSelectedWorkflowAgent(null); setSubagentView('agent'); setContextMenu(null);
     setQueuePreviewOpen(false); setLiveChangesOpen(false);
     if (!reading && !cronRuntimeId && bridge.sessionReading) void bridge.sessionReading(session.id, sequence).then(async value => {
@@ -1100,7 +1162,7 @@ function App() {
       // Preview is inert: a failed runtime must not replace it with the prior
       // active conversation. Reading may still complete after startup failed.
       setNavigationTarget(current => current?.session.id === session.id ? { ...current, failed: true } : current);
-      setError(String(error instanceof Error ? error.message : error));
+      showOperationError(error);
     } finally {
       if (navigationPending.current?.sequence === sequence) {
         switching.current = false; setLoading(false); setRemoteWait(undefined);
@@ -1157,6 +1219,7 @@ function App() {
         setData(value => ({ ...value, customBackground: event.state })); return;
       }
       if (event.type === 'desktop_view_changed' && event.surface === (isMini ? 'mini' : 'main')) {
+        cancelFirstSend();
         const wasReading = Boolean(navigationPending.current);
         if (wasReading) {
           leaveReading();
@@ -1204,7 +1267,6 @@ function App() {
         return;
       }
       if (event.type === 'desktop_quit_review') { acceptQuitReview(event.state); return; }
-      if (event.type === 'desktop_workspace_unavailable') { setUnavailableWorkspace(event.path); return; }
       if (event.type === 'desktop_task_completed') {
         if (!isMini) playCompletionSound({ runtimeId: event.runtimeId, sessionId: event.sessionId }, event.playSound === true);
         return;
@@ -1213,6 +1275,7 @@ function App() {
         const previousId = viewId.current;
         if (switching.current || !event.sessionId || previousId !== event.previousRuntimeId
           || view.current.sessionId !== event.sessionId) return;
+        cancelFirstSend();
         void run(async () => {
           const value = await bridge.snapshot();
           if (!switching.current && viewId.current === previousId && view.current.sessionId === event.sessionId
@@ -1536,6 +1599,7 @@ function App() {
   };
   const settingsCategories = [
     ['account', StepPlatformIcon, '账户', 'Account'], ['providers', ProviderIcon, '供应商', 'Providers'],
+    ['web-search', Globe, '联网搜索', 'Web search'],
     ['plugins', Plug, '插件', 'Plugins'], ['mcp', McpIcon, 'MCP', 'MCP'], ['skills', BookOpen, 'Skills', 'Skills'],
     ['instructions', FileText, '全局指令', 'Global instructions'], ['general', SunMoon, '通用', 'General'],
     ['interface', SlidersHorizontal, '界面复杂度', 'Interface complexity'], ['appearance', Pencil, '外观', 'Appearance'],
@@ -1662,7 +1726,7 @@ function App() {
     });
   };
   const send = async () => {
-    if (speechActive) return;
+    if (speechActive || firstSend.current || pendingFirstSend.current) return;
     const capability = capabilityCommand(draft, attachments.length, quotes.length);
     if (!navigationPending.current && !loading && capability) {
       setDraft(value => value === draft ? '' : value);
@@ -1739,7 +1803,9 @@ function App() {
       return;
     }
     let receipt: ComposerReceipt | undefined;
+    let inputTaken = false;
     let submittedReceipt = false;
+    const input = { text: message, quotes: sentQuotes, attachments: attached };
     firstSend.current = true;
     try {
       const key = id ?? data.draftId;
@@ -1753,11 +1819,11 @@ function App() {
         }
       }
       if (navigationPending.current || switching.current || id !== viewId.current || data.draftId !== latestData.current.draftId) return;
-      receipt = await composer.client.take({ text: message, quotes: sentQuotes, attachments: attached });
     }
     catch (error) { setError(composerErrorText(error, data.preferences.language)); return; }
     finally { firstSend.current = false; }
     const restoreInput = async (error?: unknown) => {
+      if (!inputTaken) return true;
       if (receipt) {
         if (!submittedReceipt) await composer.client.restore(receipt);
         if (error !== undefined && sessionId) errorsBySession.current.set(sessionId, String(error instanceof Error ? error.message : error));
@@ -1781,42 +1847,87 @@ function App() {
       setAttachments(value => { const restored = [...attached, ...value]; attachmentsRef.current = restored; return restored; });
       return true;
     };
-    readingRestore.current = undefined;
-    attachmentsRef.current = []; scrollIntent.current = undefined; follow.current = true; setAwayFromBottom(false);
+    const attempt = data.draftId ? {} : undefined;
+    const originalRecord = composer.client.active;
+    const version = originalRecord?.version ?? 0;
+    let preparedStartupEpoch: string | undefined;
+    const stillCurrent = () => pendingFirstSend.current === attempt && composer.client.active === originalRecord
+      && !navigationPending.current && viewId.current === id && latestData.current.state?.sessionId === sessionId;
+    if (attempt) {
+      pendingFirstSend.current = attempt;
+      setPreparingFirstSend(true);
+    }
     await run(async () => {
       try {
         if (data.draftId) {
-          firstSend.current = true; switching.current = true; setLoading(true);
+          firstSend.current = true; switching.current = true;
+          let created: Snapshot;
           try {
-            const created = await bridge!.createDraftSession(data.draftId);
+            created = await bridge!.createDraftSession(data.draftId);
             // The creation reply can precede its separately published promotion event.
             if (created.state?.sessionId) {
               composer.client.promote(data.draftId, created.state.sessionId);
               promoteBrowserPanel(data.draftId, created.state.sessionId);
             }
-            installSnapshot(created);
             id = created.runtimeId;
             sessionId = created.state?.sessionId;
+            if (!id || !sessionId || !installSnapshot(created))
+              throw new Error('STARTUP_NOT_READY: session creation changed');
             deliveryScope = `${created.preferences.workspace ?? ''}:${sessionId ?? ''}`;
             quoteScopeRef.current = deliveryScope;
-            switching.current = false;
-            if (data.permissionPreset === 'full-access') {
-              const permission = await bridge!.command('set_permission_preset', { preset: 'full-access' }, id);
-              if (permission?.cancelled) { await restoreInput(); return; }
-              await refresh();
-            }
           } finally {
-            firstSend.current = false; switching.current = false; setLoading(false);
+            firstSend.current = false; switching.current = false;
           }
+          // Recover events that landed while the new runtime was being adopted.
+          void refresh().catch(() => {});
+          const unchanged = () => stillCurrent() && composer.client.matches(input, version);
+          if (!unchanged()) return;
+          if (data.permissionPreset === 'full-access') {
+            const permission = await bridge!.command('set_permission_preset', { preset: 'full-access' }, id);
+            if (permission?.cancelled || !unchanged()) return;
+          }
+          const startup = created.state?.desktopStartup;
+          if (startup) {
+            const deadline = Date.now() + 190000;
+            while (unchanged()) {
+              const state = await bridge!.sessionStartup(id, sessionId);
+              if (!unchanged()) return;
+              if (!state || state.startupEpoch !== startup.startupEpoch || state.configurationRevision !== startup.configurationRevision
+                || !state.cleanupConfirmed || state.discovery === 'failed' || state.tools.some(tool => tool.cleanupConfirmed === false))
+                throw new Error('STARTUP_NOT_READY: runtime recovery requires reconnection');
+              if (!startupWaiting(state)) { preparedStartupEpoch = state.startupEpoch; break; }
+              if (Date.now() >= deadline) throw new Error('STARTUP_NOT_READY: tool initialization deadline exceeded');
+              await new Promise(resolve => setTimeout(resolve, 200));
+            }
+          }
+          if (!unchanged()) return;
         }
+        firstSend.current = true;
+        try {
+          receipt = await composer.client.take(input);
+          inputTaken = true;
+        } finally {
+          firstSend.current = false;
+        }
+        if (attempt && (!stillCurrent() || originalRecord?.version !== version)) {
+          await restoreInput();
+          return;
+        }
+        if (attempt) cancelFirstSend();
+        readingRestore.current = undefined;
+        attachmentsRef.current = []; scrollIntent.current = undefined; follow.current = true; setAwayFromBottom(false);
         submittedReceipt = Boolean(receipt);
-        const submission = bridge!.command('prompt', { message: prompt, composerReceipt: receipt?.token, images: attached.filter(item => item.kind === 'image').map(item => item.content), files: attached.filter(item => item.kind === 'file').map(item => item.id) }, id);
+        const submission = bridge!.command('prompt', { message: prompt, composerReceipt: receipt?.token, preparedStartupEpoch,
+          images: attached.filter(item => item.kind === 'image').map(item => item.content), files: attached.filter(item => item.kind === 'file').map(item => item.id) }, id);
         if (composerBusy) queueSend.current = submission;
         try {
           await submission;
         } finally { if (queueSend.current === submission) queueSend.current = null; }
       } catch (e) {
-        if (await restoreInput(e)) throw e;
+        const showError = !attempt || inputTaken || pendingFirstSend.current === attempt;
+        if (await restoreInput(e) && showError) throw e;
+      } finally {
+        if (attempt && pendingFirstSend.current === attempt) cancelFirstSend();
       }
     });
   };
@@ -2020,7 +2131,7 @@ function App() {
       await run(async () => {
         const value = await bridge!.relocateWorkspace(path);
         if (!value) return;
-        installSnapshot(value); setUnavailableWorkspace(null); setError('');
+        installSnapshot(value); setWorkspaceAttemptIssue(null); setError('');
       });
     } finally { setLoading(false); }
   };
@@ -2259,7 +2370,7 @@ function App() {
       onCancel={() => setRemoveProject(null)} onConfirm={async () => {
         const result = await run(() => bridge!.removeWorkspace(removeProject));
         if (!result) return false;
-        installSnapshot(result); setUnavailableWorkspace(null); setError(''); return true;
+        installSnapshot(result); setWorkspaceAttemptIssue(null); setError(''); return true;
       }}/>}
     {imageMenu && <ImageContextMenu target={imageMenu} language={data.preferences.language}
       canAdd={Boolean(bridge) && attachments.length < 10 && attachments.filter(item => item.kind === 'image').length < 5}
@@ -2418,17 +2529,21 @@ function App() {
         <button onClick={() => void run(() => composer.client.resolveConflict(true))}>{t('保留本窗草稿', 'Keep this draft')}</button>
         <button onClick={() => void run(() => composer.client.resolveConflict(false))}>{t('采用另一窗口', 'Use other window')}</button>
       </div>}
-      {(error || unavailableWorkspace) && !settingsOpen && !removeProject && !mcpEdit && !requests.length && <div className="app-error-banner" role="alert">
-        <AlertCircle size={16}/><span>{unavailableWorkspace
-          ? t(`项目目录不可用，可能已改名或移动：${unavailableWorkspace}`, `Project directory unavailable; it may have been renamed or moved: ${unavailableWorkspace}`) : reviewErrorText(error, zh)}</span>
-        {unavailableWorkspace && data.preferences.workspaces.some(path => workspaceKey(path) === workspaceKey(unavailableWorkspace)) && <>
-          <button disabled={loading} onClick={() => void repairProject(unavailableWorkspace)}><FolderOpen size={14}/>{t('重新定位', 'Locate folder')}</button>
-          <button disabled={loading} onClick={() => confirmRemoveProject(unavailableWorkspace)}>{t('移除项目', 'Remove project')}</button>
-        </>}
-        {navigationTarget?.failed && <IconButton title={t('重新连接会话', 'Reconnect conversation')}
-          onClick={() => void navigateSession(navigationTarget.session)}><RotateCcw size={14}/></IconButton>}
-        <IconButton title={t('关闭', 'Dismiss')} onClick={() => { setError(''); setUnavailableWorkspace(null); }}><X size={14}/></IconButton>
-      </div>}
+      {(error || unavailableWorkspace) && !settingsOpen && !removeProject && !mcpEdit && !requests.length && <ConversationErrorBanner
+        message={unavailableWorkspace ? t('项目目录不可用', 'Project directory unavailable') : reviewErrorText(error, zh)}
+        path={unavailableWorkspace} error={unavailableWorkspace && error ? reviewErrorText(error, zh) : undefined}
+        actions={(unavailableProject || navigationTarget?.failed) ? <>
+          {unavailableProject && <>
+            <button type="button" disabled={loading} onClick={() => void repairProject(unavailableProject)}><FolderOpen size={14}/>{t('重新定位', 'Locate folder')}</button>
+            <button type="button" disabled={loading} onClick={() => confirmRemoveProject(unavailableProject)}>{t('移除项目', 'Remove project')}</button>
+          </>}
+          {navigationTarget?.failed && <IconButton title={t('重新连接会话', 'Reconnect conversation')}
+            onClick={() => void navigateSession(navigationTarget.session)}><RotateCcw size={14}/></IconButton>}
+        </> : null}
+        dismissLabel={t('关闭', 'Dismiss')} onDismiss={() => {
+          setError(''); setWorkspaceAttemptIssue(null);
+          if (unavailableWorkspace === data.startupWorkspaceIssue) setDismissedStartupIssue(data.startupWorkspaceIssue);
+        }}/>}
       <ConversationSearchLocation active={!navigationTarget && !usageOpen && !remoteOpen && !scheduledOpen && !pluginsOpen && !fulltextOpen}
         location={searchLocation} requestId={searchLocateRequest} sessionId={data.state?.sessionId}
         messages={data.messages} root={transcript} language={data.preferences.language}
@@ -2549,6 +2664,7 @@ function App() {
       <div className={`composer-wrap${navigationTarget ? ' session-navigation-pending' : ''}`} aria-busy={Boolean(navigationTarget && !navigationTarget.failed)}>
         <div className="composer-underlay" inert={Boolean(permissionApproval && approvalOpen)}>
         {!navigationTarget && <ComposerContextBar queued={queuedMessages.length > 0}>
+        <span className="composer-prepare-announcement" role="status">{preparingFirstSend ? preparationLabel : ''}</span>
         <QuotePreview quotes={quotes} language={data.preferences.language}
           onHighlight={setFocusedQuoteId}
           annotate={(id, annotation) => setQuotes(value => value.map(quote => quote.id === id ? { ...quote, annotation } : quote))}
@@ -2567,6 +2683,7 @@ function App() {
           onOpenChange={setQueuePreviewOpen}
           connected={connected} disabled={loading || stopping || settingsOpen || Boolean(preview) || requests.length > 0} onAction={queueAction}/>
         <div ref={setSpeechStatusTarget} className="composer-context-center">
+          <ComposerPreparationStatus active={preparingFirstSend} label={preparationLabel}/>
           <LiveTurnChanges key={`changes-${data.runtimeId}`} messages={data.messages} busy={busy} language={data.preferences.language}
             docked={queuedMessages.length > 0} onOpenChange={setLiveChangesOpen}/>
         </div>
@@ -2608,14 +2725,14 @@ function App() {
           <ComposerInput key={navigationTarget?.session.id ?? data.state?.sessionId ?? data.draftId ?? 'empty'} label={t('消息', 'Message')} language={data.preferences.language} placeholder={navigationTarget || connected ? t('你想做什么？', 'What would you like to work on?') : t('打开项目以开始', 'Open a project to begin')} value={navigationTarget ? navigationDraft : draft} disabled={!navigationTarget && (!connected || loading)} onChange={changeComposerDraft} onPaste={e => { const files = Array.from(e.clipboardData.files); if (files.length) { e.preventDefault(); e.stopPropagation(); if (!navigationPending.current) void importFiles(files); } }} onKeyDown={e => {
             if (e.key !== 'Enter' || e.shiftKey || e.nativeEvent.isComposing || e.nativeEvent.keyCode === 229 || e.repeat) return;
             e.preventDefault();
-            if (navigationPending.current || speechActive) return;
+            if (navigationPending.current || speechActive || pendingFirstSend.current) return;
             if (!draft.trim() && !attachments.length && !quotes.length && !loading && connected && !stopping) {
               void shortcutSteer();
             } else void send();
           }}/>
           <div className="composer-tools" inert={Boolean(navigationTarget)} aria-hidden={Boolean(navigationTarget)}>
             <IconButton title={t('添加附件', 'Add attachments')} aria-expanded={referencesOpen} disabled={!connected || loading} onClick={() => setReferencesOpen(value => !value)}><Plus size={17}/></IconButton>
-            <PermissionPicker preset={data.permissionPreset} language={data.preferences.language} disabled={!connected || loading} supported={Boolean(data.draftId) || commands.some(c => c.name === 'permissions' && c.source === 'extension')} onSelect={preset => command('set_permission_preset', { preset })}
+            <PermissionPicker preset={data.permissionPreset} language={data.preferences.language} disabled={!connected || loading || preparingFirstSend} supported={Boolean(data.draftId) || commands.some(c => c.name === 'permissions' && c.source === 'extension')} onSelect={preset => command('set_permission_preset', { preset })}
               launch={data.launch} busy={busy} launchSupported={{
                 plan: Boolean(data.draftId) || commands.some(c => c.name === 'plan' && c.source === 'extension'),
                 goal: Boolean(data.draftId) || commands.some(c => c.name === 'goal' && c.source === 'extension'),
@@ -2628,14 +2745,14 @@ function App() {
             <LaunchStatus key={data.runtimeId ?? data.draftId}
               state={{ plan: Boolean(data.launch?.planArmed), ultracode: Boolean(data.launch?.ultracodeArmed), goalArmed: Boolean(data.launch?.goalArmed),
                 reviewArmed: data.launch?.reviewArmed }}
-              language={data.preferences.language} disabled={!connected || loading}
+              language={data.preferences.language} disabled={!connected || loading || preparingFirstSend}
               onMode={(mode, enabled) => rawCommand('set_launch_mode', { mode, enabled })}
               onAction={(action, value) => rawCommand('goal_action', { action, value })}/>
             <div className="spacer"/>
             <ContextRing usage={data.stats?.contextUsage} language={data.preferences.language}/>
             {!isMini && bridge && <SpeechInput key={`speech-${data.draftId ?? data.state?.sessionId ?? data.runtimeId ?? 'none'}`} bridge={bridge}
               statusTarget={speechStatusTarget}
-              language={data.preferences.language} disabled={!connected || loading || composer.conflict || Boolean(navigationTarget) || settingsOpen || pluginsOpen || projectPickerOpen || Boolean(quitReview.request)}
+              language={data.preferences.language} disabled={!connected || loading || preparingFirstSend || composer.conflict || Boolean(navigationTarget) || settingsOpen || pluginsOpen || projectPickerOpen || Boolean(quitReview.request)}
               onActiveChange={setSpeechActive} onConsentChange={setSpeechConsentOpen} onText={(text, continuation) => {
                 const latest = latestData.current;
                 if (navigationPending.current || (latest.draftId ?? latest.state?.sessionId ?? latest.runtimeId) !== (data.draftId ?? data.state?.sessionId ?? data.runtimeId)) return;
@@ -2643,15 +2760,15 @@ function App() {
               }}
               onConfigure={() => { setTab('general'); void openSettings(); }}/>}
             {navigationTarget ? <ModelEffortPlaceholder language={data.preferences.language} failed={navigationTarget.failed}/>
-              : <ModelEffortPicker model={data.modelSelection?.model ?? data.state?.model} models={data.models} favoriteModels={data.preferences.favoriteModels} onFavorite={changeModelFavorite} level={data.modelSelection?.thinkingLevel ?? data.state?.thinkingLevel} levels={levels} pending={Boolean(data.modelSelection)} language={data.preferences.language} disabled={!connected || loading} onModel={m => command('set_model', { provider: m.provider, modelId: m.id })} onEffort={level => command('set_thinking_level', { level })} onConfigure={() => {
+              : <ModelEffortPicker model={data.modelSelection?.model ?? data.state?.model} models={data.models} favoriteModels={data.preferences.favoriteModels} onFavorite={changeModelFavorite} level={data.modelSelection?.thinkingLevel ?? data.state?.thinkingLevel} levels={levels} pending={Boolean(data.modelSelection)} language={data.preferences.language} disabled={!connected || loading || preparingFirstSend} onModel={m => command('set_model', { provider: m.provider, modelId: m.id })} onEffort={level => command('set_thinking_level', { level })} onConfigure={() => {
               if (isMini) void run(() => handoff('settings', 'providers'));
               else { setTab('providers'); void openSettings(); }
             }}/>}
-            <IconButton title={action.mode === 'stop' ? stopping ? t('正在停止此轮', 'Stopping response') : t('停止此轮', 'Stop response') : composerBusy ? t('加入队列', 'Queue message') : t('发送', 'Send')}
-              className="composer-action-button" data-action={action.mode}
-              disabled={!connected || loading || Boolean(navigationTarget) || composer.conflict && action.mode !== 'stop'
-                || (action.mode === 'stop' ? stopping : startupBlocked(data.state?.desktopStartup) || speechActive || !action.hasContent)}
-              onClick={() => void (action.mode === 'stop' ? stop() : send())}><ComposerActionIcon stop={action.mode === 'stop'}/></IconButton>
+            <IconButton title={preparingFirstSend ? t('取消首次发送', 'Cancel first send') : action.mode === 'stop' ? stopping ? t('正在停止此轮', 'Stopping response') : t('停止此轮', 'Stop response') : composerBusy ? t('加入队列', 'Queue message') : t('发送', 'Send')}
+              className="composer-action-button" data-action={preparingFirstSend ? 'cancel' : action.mode}
+              disabled={Boolean(navigationTarget) || !preparingFirstSend && (!connected || loading || composer.conflict && action.mode !== 'stop'
+                || (action.mode === 'stop' ? stopping : startupBlocked(data.state?.desktopStartup) || speechActive || !action.hasContent))}
+              onClick={() => pendingFirstSend.current ? cancelFirstSend() : void (action.mode === 'stop' ? stop() : send())}><ComposerActionIcon stop={preparingFirstSend || action.mode === 'stop'}/></IconButton>
           </div>
         </div></ComposerMenu>{!isMini && interfaceSettings.performanceVisible && <PerformanceBar run={runMetrics} stats={data.stats} connected={connected} language={data.preferences.language} now={clock}/>}
         </div>
@@ -2937,7 +3054,8 @@ function App() {
             </li>)}</ul>
           </div>}
       <div key={tab} ref={settingsContent} hidden={searchingSettings} className="settings-content">
-      {tab === 'instructions' ? <GlobalInstructionsSettings editor={globalInstructionsEditor} language={data.preferences.language}/> : tab === 'interface' ? <InterfaceSettings value={interfaceSettings} language={data.preferences.language} onChange={interfaceSettings => setPreference({ interfaceSettings })}/> : tab === 'appearance' ? <>
+      {tab === 'web-search' && bridge ? <WebSearchSettings bridge={bridge} language={data.preferences.language} onAccount={() => selectSettingsTab('account')}/>
+        : tab === 'instructions' ? <GlobalInstructionsSettings editor={globalInstructionsEditor} language={data.preferences.language}/> : tab === 'interface' ? <InterfaceSettings value={interfaceSettings} language={data.preferences.language} onChange={interfaceSettings => setPreference({ interfaceSettings })}/> : tab === 'appearance' ? <>
         <ThemeSettings preferences={data.preferences} systemDark={systemDark} language={data.preferences.language} packs={data.themePacks}
           loadScene={bridge?.themeScene} loadPoster={bridge?.themePoster} onChange={patch => void setPreference(patch)}/>
         {!isMini && bridge && <>

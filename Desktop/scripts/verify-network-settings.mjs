@@ -178,7 +178,8 @@ try {
   const tlsProvider = { ...configured, baseUrl: 'https://desktop-network.invalid/v1' };
   assert.equal((await page.evaluate(({ provider, key }) => window.desktop.discoverProviderModels(provider, key), { provider: tlsProvider, key }))[0].id, 'network-model');
   assert.equal((await page.evaluate(({ provider, key }) => window.desktop.testProvider(provider, 'network-model', key), { provider: tlsProvider, key })).outcome, 'reply');
-  await page.evaluate(provider => window.desktop.saveProvider(provider), tlsProvider);
+  await assert.rejects(page.evaluate(provider => window.desktop.saveProvider(provider), tlsProvider), /API key is required/);
+  await page.evaluate(({ provider, key }) => window.desktop.saveProvider(provider, key), { provider: tlsProvider, key });
   state = await page.evaluate(() => window.desktop.snapshot());
   const beforeTLS = tunnels;
   const beforeBodies = bodies.length;
@@ -216,6 +217,7 @@ try {
   await settings();
   await page.getByRole('button', { name: '供应商', exact: true }).click();
   await page.getByRole('button', { name: '添加供应商', exact: true }).first().click();
+  await page.getByRole('button', { name: '创建自定义供应商', exact: true }).click();
   await page.getByLabel('Base URL', { exact: true }).fill('https://api.openai.com/v1');
   await page.getByRole('button', { name: /API 格式/ }).click();
   await page.getByRole('menuitemradio', { name: 'Responses · /responses', exact: true }).click();

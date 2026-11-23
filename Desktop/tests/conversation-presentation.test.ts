@@ -3,6 +3,14 @@ import assert from 'node:assert/strict';
 import type { Content, Message } from '../src/contracts';
 import { conversationEntries, messageBlocks, messageText, responsePresentation, toolPresentation, toolSubject, subagentTasks } from '../src/conversation-presentation';
 
+test('web search uses the web icon and distinguishes search from page fetch', () => {
+  const running = toolPresentation('search_web', undefined, true, 'zh');
+  assert.equal(running.kind, 'web');
+  assert.equal(running.label, '正在联网搜索');
+  assert.equal(toolPresentation('search_web', { role: 'toolResult', content: '', isError: true }, false, 'en').label,
+    'Web search failed');
+});
+
 test('cross-session tools have task-specific labels without claiming cancelled messages were sent', () => {
   assert.equal(toolPresentation('desktop_sessions', undefined, true, 'zh').label, '正在查看会话');
   assert.equal(toolPresentation('desktop_read_session', undefined, true, 'en').label, 'Reading session');

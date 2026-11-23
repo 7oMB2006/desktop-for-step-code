@@ -111,6 +111,7 @@ try {
   await page.locator('.sidebar-settings').click();
   await page.getByRole('button', { name: '供应商', exact: true }).click();
   await page.getByRole('button', { name: '添加供应商', exact: true }).first().click();
+  await page.getByRole('button', { name: '创建自定义供应商', exact: true }).click();
   await page.getByLabel('名称', { exact: true }).fill('Proxy fixture');
   await page.getByLabel('Base URL', { exact: true }).fill(provider.baseUrl);
   await page.getByLabel('API Key', { exact: true }).fill(key);

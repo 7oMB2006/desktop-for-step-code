@@ -295,17 +295,34 @@ select:disabled { cursor: not-allowed; opacity: .45; }
 }
 .app-error-banner {
   position: relative; z-index: 18; flex-shrink: 0;
-  display: flex; align-items: center; gap: 10px; padding: 9px 16px;
-  background: var(--bg); border-bottom: 1px solid var(--border); color: var(--danger);
-  box-shadow: 0 3px 10px oklch(0 0 0 / .08); font-size: 12px;
+  display: grid; grid-template-columns: 16px minmax(0, 1fr) 28px; align-items: start; gap: 8px;
+  width: min(680px, calc(100% - 2 * var(--conversation-gutter))); align-self: center;
+  margin: 8px auto 4px; padding: 8px 9px 8px 12px;
+  border: 1px solid var(--border); border-radius: 8px; background: var(--bg); color: var(--ink);
+  font-size: 13px; line-height: 1.45;
+  animation: notice-enter .20s cubic-bezier(.215, .61, .355, 1);
 }
-.app-error-banner > span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
-.app-error-banner > button { font-size: 12px; flex-shrink: 0; }
+.app-error-banner > svg { margin-top: 6px; color: var(--danger); }
+.app-error-banner[data-kind="workspace"] > svg { color: oklch(.48 .13 70); }
+:root[data-theme="dark"] .app-error-banner[data-kind="workspace"] > svg { color: oklch(.78 .12 80); }
+.app-error-content { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; min-height: 28px; }
+.app-error-message { flex: 1 1 240px; min-width: 0; display: grid; gap: 2px; overflow-wrap: anywhere; }
+.app-error-message strong { font-weight: 600; }
+.app-error-path {
+  color: color-mix(in oklch, var(--ink) 82%, var(--bg)); font-size: 12px;
+  max-height: 4.35em; overflow: auto; user-select: text;
+}
+.app-error-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; min-width: 0; }
+.app-error-actions button:not(.icon-button) {
+  display: inline-flex; align-items: center; gap: 5px;
+  min-height: 28px; padding: 3px 8px; font-size: 12px;
+}
+.app-error-banner .icon-button { width: 28px; height: 28px; min-height: 28px; color: var(--muted); }
+.app-error-banner .icon-button:hover { color: var(--ink); }
+@media (prefers-reduced-motion: reduce) {
+  .app-error-banner { animation: none; }
+}
 .sidebar-context .project-remove-menu, .project-remove-confirm { color: var(--danger); }
-@media (max-width: 740px) {
-  .app-error-banner { flex-wrap: wrap; }
-  .app-error-banner > span { flex-basis: calc(100% - 28px); }
-}
 .sidebar-context button:hover:not(:disabled), .sidebar-context button:focus-visible { background: var(--surface); }
 .sidebar-context button:disabled { opacity: .45; }
 .image-context { z-index: 95; width: 240px; max-width: calc(100vw - 16px); }
@@ -427,7 +444,7 @@ main { position: relative; }
 .right-panel-header h2 { flex: 1; min-width: 0; margin: 0; font-size: 13px; font-weight: 600; }
 .right-panel-header .icon-button { width: 26px; height: 26px; min-height: 26px; color: var(--muted); }
 .app .right-inspector-surface {
-  position: fixed; top: var(--window-bar-height); right: 44px; bottom: 0; z-index: 12;
+  position: fixed; top: calc(var(--window-bar-height) + var(--conversation-alert-space, 0px)); right: 44px; bottom: 0; z-index: 12;
   width: min(var(--inspector-width, 344px), calc(100vw - 60px)); height: auto;
   transition: width var(--right-panel-duration) var(--right-panel-ease);
 }
@@ -447,11 +464,11 @@ main { position: relative; }
 /* Replacement panels own their width; an outgoing reserve must not displace them. */
 .summary-track.is-replaced { flex-basis: 0; transition: none; }
 .summary-region {
-  position: absolute; top: 0; right: 0; width: 344px;
+  position: absolute; top: var(--conversation-alert-space, 0px); right: 0; width: 344px;
   padding: 20px 12px 20px 12px;
 }
 .summary-board {
-  display: flex; flex-direction: column; max-height: calc(100dvh - var(--window-bar-height) - 40px);
+  display: flex; flex-direction: column; max-height: calc(100dvh - var(--window-bar-height) - var(--conversation-alert-space, 0px) - 40px);
   overflow: hidden; border: 1px solid var(--border); border-radius: 8px;
   background: var(--bg); box-shadow: 0 2px 8px oklch(0 0 0 / .04);
   transform-origin: top right; animation: summary-enter .32s cubic-bezier(.25, .46, .45, .94) both;
@@ -462,7 +479,7 @@ main { position: relative; }
 .summary-content { min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
 .summary-content .panel-empty { margin: 0; padding: 16px 12px 24px; border-top: 1px solid var(--border); }
 .summary-overlay .summary-region {
-  position: fixed; z-index: 12; top: var(--window-bar-height); right: 44px;
+  position: fixed; z-index: 12; top: calc(var(--window-bar-height) + var(--conversation-alert-space, 0px)); right: 44px;
   width: min(344px, calc(100vw - 60px)); pointer-events: none;
 }
 .summary-overlay .summary-board { pointer-events: auto; box-shadow: var(--shadow); }
@@ -802,7 +819,10 @@ details[open] > summary > .disclosure-chevron { transform: rotate(0); }
 .model-effort-heading-name { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .model-effort-heading { font-size: 18px; }
 .model-effort-heading { position:relative; }
-.model-effort-provider-brand { position:absolute; top:12px; left:12px; display:flex; color:var(--ink); opacity:.34; mask-image:linear-gradient(135deg, #000 0%, rgb(0 0 0 / .72) 34%, rgb(0 0 0 / .25) 68%, transparent 100%); pointer-events:none; transition:opacity .2s cubic-bezier(.215,.61,.355,1); }
+.model-provider-mark { display:flex; flex-shrink:0; }
+.model-provider-silhouette { display:block; background-color:currentColor; mask-mode:alpha; mask-size:contain; mask-position:center; mask-repeat:no-repeat; }
+@media (forced-colors: active) { .model-provider-silhouette { forced-color-adjust:none; background-color:ButtonText; } }
+.model-effort-provider-brand { position:absolute; top:12px; left:12px; color:var(--ink); opacity:.34; mask-image:linear-gradient(135deg, #000 0%, rgb(0 0 0 / .72) 34%, rgb(0 0 0 / .25) 68%, transparent 100%); pointer-events:none; transition:opacity .2s cubic-bezier(.215,.61,.355,1); }
 .model-effort-heading:hover .model-effort-provider-brand { opacity:.42; }
 @media (prefers-reduced-motion: reduce) { .model-effort-provider-brand { transition:none; } }
 .model-effort-heading-level { font-size: 16px; font-weight: 700; }

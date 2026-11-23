@@ -22,12 +22,14 @@ const handoffSource = handoff.getText(source);
 function harness() {
   const reads: { resolve(value: { position: ReadingPosition }): void; reject(error: Error): void }[] = [];
   const writes: ReadingPosition[] = [], requests: Promise<unknown>[] = [];
-  const state = { position: { follow: true, top: 6938 } as ReadingPosition };
-  const runtime = declarations.filter(node => ['pendingPresentationRestores', 'saveWindowPresentation'].includes(node.name.getText(source)))
+  const state = { position: { follow: true, top: 6938 } as ReadingPosition, preparingFirstSend: true };
+  const runtime = declarations.filter(node => ['pendingPresentationRestores', 'cancelFirstSend', 'saveWindowPresentation'].includes(node.name.getText(source)))
     .map(node => `const ${node.getText(source)};`).join('\n');
   const program = ts.transpileModule(`
     const useRef = current => ({ current });
     const navigationPending = useRef(undefined), switching = useRef(false), readingRestore = useRef(undefined);
+    const pendingFirstSend = useRef({});
+    const setPreparingFirstSend = value => { state.preparingFirstSend = value; };
     const latestData = useRef({});
     const composerOwner = () => ({ sessionId: 'one' });
     const currentPresentation = () => ({ position: state.position, disclosures: [] });
@@ -63,6 +65,7 @@ function harness() {
 test('a delayed MiniChat handoff cannot be overwritten by old main-window scroll persistence', async () => {
   const h = harness();
   h.restore();
+  assert.equal(h.state.preparingFirstSend, false, 'A transferred view disarms the previous draft send');
   h.save();
   assert.deepEqual(h.writes, [], 'old scroll events cannot overwrite the incoming presentation during IPC');
   const position: ReadingPosition = { follow: false, top: 180, anchor: {

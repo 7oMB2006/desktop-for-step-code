@@ -314,7 +314,7 @@ function rendererHandoffFixture() {
   const switching = { current: false }, preview = { current: { follow: false, top: 180 } as object | undefined };
   const saved = { current: new Map([['session-b', { draft: 'Unsent B', quotes: [], attachments: [] }]]) };
   const state = { snapshot: {} as object, target: { sessionId: 'session-b', failed: true } as object | null,
-    installed: [] as object[], cancelled: [] as number[], aborted: 0, loading: false, remembered: 0, restored: 0 };
+    installed: [] as object[], cancelled: [] as number[], aborted: 0, loading: false, remembered: 0, restored: 0, sendsCancelled: 0 };
   const create = new Function('navigationPending', 'switching', 'previewPosition', 'composerBySession', 'state', javascript(`
     const isMini = false, pendingPresentationRestores = { current: 0 }, viewId = { current: 'runtime-a' };
     const bridge = { snapshot: async () => state.snapshot,
@@ -323,6 +323,7 @@ function rendererHandoffFixture() {
     const setPreparedMarkdown = () => {};
     const setNavigationTarget = value => { state.target = value; };
     const setLoading = value => { state.loading = value; };
+    const cancelFirstSend = () => { state.sendsCancelled++; };
     const finishSettingsClose = () => {}, setRemoteOpen = () => {}, setUsageOpen = () => {}, setScheduledOpen = () => {};
     const setPluginsOpen = () => {}, setFulltextOpen = () => {}, setDetails = () => {}, setExpandedRightPanel = () => {};
     const rememberView = () => { state.remembered++; };
@@ -354,6 +355,7 @@ for (const draft of [false, true]) {
     assert.deepEqual(f.state.cancelled, [7]);
     assert.equal(f.state.aborted, 1);
     assert.deepEqual(f.state.installed, [snapshot]);
+    assert.equal(f.state.sendsCancelled, 1);
     assert.equal(f.state.restored, 1);
     assert.equal(f.state.remembered, 0, 'The B reading viewport must not overwrite the previous A view memory');
     assert.equal(f.saved.current.get('session-b')?.draft, 'Unsent B');

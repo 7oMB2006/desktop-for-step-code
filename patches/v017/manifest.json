@@ -32,9 +32,12 @@
     "step-code-desktop-optional-mcp.patch": "45dd887f5f3ca3a995b1c3e3b5c998fd8aa183f4",
     "step-code-desktop-plugin-mcp-reload.patch": "245626289a63aac6fc2e099aebef6a107a918d3e",
     "step-code-desktop-subagent-role-models.patch": "8fe6348fb86aa91e2a063239676a6a68d4fe1ab3",
-    "step-code-desktop-subagent-session-privacy.patch": "33e895066192de10fd131bbb3b9bfa512ab1e4d6"
+    "step-code-desktop-subagent-session-privacy.patch": "33e895066192de10fd131bbb3b9bfa512ab1e4d6",
+    "step-code-desktop-gemini-api.patch": "a10fcb0e8ea12de1cdc350b0866748de7225f398",
+    "step-code-desktop-web-search.patch": "9e09705c165a6d4132dc4f3d5026eae1cab23328"
   },
   "sources": {
+    "packages/coding-agent/src/step/tool-profile.ts": "22d8f5eca9bea895771dbf3531a45459a43b1cf1",
     "packages/coding-agent/src/step/mcp-environment.ts": "d46ee0c3e07fbcd2432b43bd355080e52e3aca50",
     "packages/coding-agent/src/step/mcp.test.ts": "8c4e61c5c8dcf94b0a75209dd140cf6dcf1342b0",
     "packages/coding-agent/src/step/plugins.ts": "c4f5242cc8ad259d7d3b462eedb94efc2c02159a",
@@ -100,6 +103,7 @@
     "packages/coding-agent/src/step/mcp-startup.test.ts": "fb321ed555f28461c1d551b9321758815e626614"
   },
   "patchedSources": {
+    "packages/coding-agent/src/step/tool-profile.ts": "b7699ee31e88656a826fc65e6f7e0353ab86f403",
     "packages/coding-agent/src/step/mcp-environment.ts": "322aae08a9223421d936ac50e420f8599a3a796c",
     "packages/coding-agent/src/step/mcp.test.ts": "e890742992633b56b258bc2e4cb3f2a4c3078e97",
     "packages/coding-agent/src/step/plugins.ts": "23d2d63ab6a30698371b2b4dd756079a766154b1",
@@ -164,7 +168,7 @@
     "packages/providers/src/types.ts": "33e62b841c6a09949721241da30204af9af248be",
     "packages/providers/src/models.ts": "c4db1a5eb063c4b2e8ce98a5133bb14ed1c0cf24",
     "packages/providers/src/api/simple-options.ts": "8c4528f82bc9919a18588f6447c7b3cd0c132d55",
-    "packages/providers/src/api/openai-completions.ts": "3684608b2ae679d54b0cbc44f1feff3f25a070f7",
+    "packages/providers/src/api/openai-completions.ts": "c724fbc976036a493d03ee6ba5c86f238993362b",
     "packages/providers/src/api/openai-responses.ts": "93ae6abf906bdeac32d334ee4e8e1fe57447b33d",
     "packages/coding-agent/src/core/model-config.ts": "0c26f05362ed47c2cb7f6bbb4fff3303cab99942",
     "packages/coding-agent/src/cli/args.ts": "ff28fcbdd49af670fe1a67f3536ba7eb78cc3d7c",

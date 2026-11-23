@@ -1,9 +1,21 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { registerHooks } from 'node:module';
 import { test } from 'node:test';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { parseHTML } from 'linkedom';
-import { draggedEffortIndex, effortColorForIndex, effortLabel, ModelEffortPlaceholder, wheeledEffortIndex } from '../src/ModelEffortPicker';
+
+const assets = new URL('../src/assets/providers/', import.meta.url).href;
+const { draggedEffortIndex, effortColorForIndex, effortLabel, ModelEffortPlaceholder, wheeledEffortIndex } = await (async () => {
+  const hook = registerHooks({ load(url, context, next) {
+    if (!url.startsWith(assets) || !url.endsWith('.svg')) return next(url, context);
+    const asset = `data:image/svg+xml;base64,${readFileSync(new URL(url)).toString('base64')}`;
+    return { format: 'module', shortCircuit: true, source: `export default ${JSON.stringify(asset)}` };
+  } });
+  try { return await import('../src/ModelEffortPicker'); }
+  finally { hook.deregister(); }
+})();
 
 test('navigation placeholders are disabled, localized and contain no model or effort selection', () => {
   for (const language of ['zh', 'en'] as const) {

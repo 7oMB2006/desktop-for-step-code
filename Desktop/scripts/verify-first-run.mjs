@@ -244,6 +244,7 @@ try {
   await page.locator('.first-run-service').filter({ hasText: '其他供应商' }).click();
   await page.getByRole('heading', { name: '自定义供应商', exact: true }).waitFor();
   await page.getByRole('button', { name: '添加供应商', exact: true }).first().click();
+  await page.getByRole('button', { name: '创建自定义供应商', exact: true }).click();
   await page.getByRole('textbox', { name: '名称', exact: true }).fill('Onboarding loopback');
   await page.getByLabel('Base URL', { exact: true }).fill(address);
   await page.getByLabel('API Key', { exact: true }).fill(secret);

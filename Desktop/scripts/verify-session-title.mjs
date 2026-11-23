@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
-import { mkdir, readFile, realpath, writeFile } from 'node:fs/promises';
+import { mkdir, readdir, readFile, realpath, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { setTimeout as delay } from 'node:timers/promises';
 import { _electron as electron } from 'playwright';
 import { closeDesktopFixtureAndWait } from './close-desktop-fixture.mjs';
 import { installRuntimeFixturePreload } from './runtime-transport-fixture.mjs';
@@ -76,6 +77,7 @@ try {
       fixture.calls.push({ url, usesPlanKey: new Headers(init.headers).get('authorization') === 'Bearer isolated-title-fixture-only',
         usesManualKey: new Headers(init.headers).get('authorization') === 'Bearer isolated-manual-title-key',
         body: JSON.parse(init.body) });
+      if (fixture.fail) return Promise.resolve(new Response('private-fixture-response', { status: 403 }));
       return new Promise(resolveResponse => {
         fixture.finish = () => resolveResponse(Response.json(manual ? { status: 'completed',
           output: [{ type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'Explain automatic titles' }] }],
@@ -127,6 +129,7 @@ try {
   assert.equal(calls[0].usesPlanKey, true);
   assert.equal(calls[0].url, 'https://api.stepfun.ai/step_plan/v1/chat/completions');
   assert.equal(calls[0].body.model, 'step-3.5-flash-2603');
+  assert.equal(calls[0].body.max_tokens, 512);
   assert.deepEqual(calls[0].body.messages[1], { role: 'user', content: message });
   const after = await waitForSessionFixtureSnapshot(page, snapshot => snapshot.state.sessionName === 'Explain automatic titles',
     'the automatic title');
@@ -208,7 +211,34 @@ try {
   await page.locator(`[data-reorder-id="${reduced.state.sessionId}"] .session-title-text`).click();
   await titleBar.getByText('Explain automatic titles', { exact: true }).waitFor();
   assert.equal(await page.evaluate(() => globalThis.titleFades.length), 4, 'Switching to an automatically named session never crossfades');
-  console.log('Automatic session titles: default Step Plan and an explicit provider model leave the chat route unchanged; selection, persistence and scoped motion passed.');
+
+  await app.evaluate(() => { globalThis.titleAcceptance.fail = true; });
+  await page.locator('.new-chat').click();
+  const rejectedDraft = await waitForSessionFixtureSnapshot(page, snapshot => Boolean(snapshot.draftId), 'the diagnostic draft');
+  const rejected = await page.evaluate(id => window.desktop.createDraftSession(id), rejectedDraft.draftId);
+  await waitForSessionFixtureTools(page, rejected.runtimeId);
+  const rejectedMessage = 'private-fixture-first-message';
+  await page.evaluate(({ runtimeId, message }) => window.desktop.command('prompt', { message }, runtimeId),
+    { runtimeId: rejected.runtimeId, message: rejectedMessage });
+  await titleBar.getByText(rejectedMessage, { exact: true }).waitFor();
+  const logs = join(profile, 'logs');
+  let diagnostic;
+  for (let i = 0; i < 100 && !diagnostic; i++) {
+    const files = await readdir(logs).catch(error => { if (error.code === 'ENOENT') return []; throw error; });
+    for (const file of files.filter(name => name.endsWith('.log'))) {
+      const log = await readFile(join(logs, file), 'utf8');
+      if (log.includes('kind: session-title\n')) { diagnostic = log; break; }
+    }
+    if (!diagnostic) await delay(50);
+  }
+  assert.ok(diagnostic, 'Failed Plan title requests leave a local diagnostic');
+  assert.match(diagnostic, /^stage: response$/m);
+  assert.match(diagnostic, /^reason: http-error$/m);
+  assert.match(diagnostic, /^status: 403$/m);
+  assert.match(diagnostic, /^billing: plan$/m);
+  assert.doesNotMatch(diagnostic, /private-fixture-|isolated-title-fixture-only|api\.stepfun/);
+  assert.equal(await app.evaluate(() => globalThis.titleAcceptance.calls.length), 3);
+  console.log('Automatic session titles: Plan and explicit-provider routing, persistence, motion and private failure diagnostics passed.');
 } catch (error) {
   console.error(error);
   throw error;

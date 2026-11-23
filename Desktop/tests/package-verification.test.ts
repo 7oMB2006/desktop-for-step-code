@@ -11,7 +11,8 @@ const copiedHelpers = ['admin.mjs', 'windows-runtime-job.ps1', 'capability-admin
   'marketplace-refresh.mjs', 'capability-settings.mjs', 'plugin-files.mjs', 'plugin-read-scope.mjs', 'plugin-release.mjs',
   'theme-composition.mjs', 'plugin-update.mjs', 'plugin-schema-update.mjs', 'plugin-configuration.mjs',
   'session-import.mjs', 'session-history.mjs', 'session-search.mjs', 'steppage-config.mjs', 'usage-overview.mjs',
-  'desktop-sessions.mjs', 'desktop-remote.mjs', 'runtime-compile-cache.mjs', 'remote-channel.mjs',
+  'desktop-sessions.mjs', 'desktop-remote.mjs', 'desktop-web-search.mjs', 'native-step-search.mjs',
+  'runtime-compile-cache.mjs', 'remote-channel.mjs',
   'remote-channel-core.mjs', 'remote-media-channel.mjs', 'remote-card.mjs', 'remote-form.mjs'];
 const bundledHelpers = ['compaction-configuration.mjs', 'project-instructions.mjs', 'remote-markdown.mjs',
   'session-reading-worker.mjs'];

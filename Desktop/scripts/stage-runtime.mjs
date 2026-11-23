@@ -132,6 +132,8 @@ await cp('electron/steppage-config.mjs', join(runtime, 'steppage-config.mjs'));
 await cp('electron/usage-overview.mjs', join(runtime, 'usage-overview.mjs'));
 await cp('electron/desktop-sessions.mjs', join(runtime, 'desktop-sessions.mjs'));
 await cp('electron/desktop-remote.mjs', join(runtime, 'desktop-remote.mjs'));
+await cp('electron/desktop-web-search.mjs', join(runtime, 'desktop-web-search.mjs'));
+await cp('electron/native-step-search.mjs', join(runtime, 'native-step-search.mjs'));
 await cp('electron/runtime-compile-cache.mjs', join(runtime, 'runtime-compile-cache.mjs'));
 await build({ entryPoints: ['electron/project-instructions-extension.ts'], outfile: join(runtime, 'project-instructions.mjs'),
   bundle: true, platform: 'node', format: 'esm', target: 'node24' });
@@ -158,6 +160,7 @@ for (const name of ['jiti', '@silvia-odwyer/photon-node']) {
   await cp(packageDirectory, join(runtime, 'step/node_modules', name), { recursive: true, dereference: true });
 }
 const patchIds = integrationManifest.patchIds ?? ['windows-build', 'desktop-auth-exports', 'desktop-memory-auth', 'subagent-child-env', 'desktop-summary-rpc', 'desktop-plan-review', 'desktop-clarification-beta', 'desktop-cron-state', 'desktop-cron-management', 'desktop-plugin-management', 'desktop-cron-recovery', 'desktop-cron-management-beta', 'desktop-cron-recovery-guard', 'desktop-session-import', 'desktop-session-cron-scope', 'desktop-auto-resume-origin', 'desktop-background-lifecycle', 'desktop-background-control', 'desktop-btw', 'desktop-template-input', 'desktop-subagent-redaction', 'desktop-background-reply', 'desktop-completion-review', 'desktop-mcp-credential-isolation', 'desktop-plugin-host-launch', 'desktop-ultra-effort', 'desktop-workflow-role', 'desktop-async-startup', 'desktop-plugin-mcp-reload', 'desktop-subagent-role-models', 'desktop-subagent-session-privacy'];
+if (baseline === 'v017') patchIds.push('desktop-gemini-api', 'desktop-web-search');
 await writeFile(join(runtime, 'manifest.json'), JSON.stringify({ commit, upstreamCommits: (integrationManifest.upstream?.commits ?? []).map(entry => entry.sha),
   platform: process.platform, arch: process.arch, node: process.version, nodeSha256, entry: 'step/dist/bundle/step.js',
   patches: [...patchIds, ...(platformManifest?.patchIds ?? [])], patchedSourceHashes }, null, 2));

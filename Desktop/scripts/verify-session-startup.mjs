@@ -1,5 +1,5 @@
 import { _electron as electron } from 'playwright';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, realpath, writeFile } from 'node:fs/promises';
 import { mkdtemp } from './test-profile.mjs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -24,15 +24,16 @@ await writeFile(file, before);
 await writeFile(join(profile, 'preferences.json'), JSON.stringify({
   language: 'zh', theme: 'light', workspaces: [project], workspace: project,
 }));
-const config = (kind = 'slow') => [
+const config = (kind = 'slow', release) => [
   'defaultProvider = "fixture"', 'defaultModel = "fixture"', '[telemetry]', 'enabled = false',
   '[mcp_servers."steppage__steppage"]', 'enabled = false',
-  '[mcp_servers.startup_fixture]', 'enabled = true', `startup_timeout_sec = ${kind === 'never' ? 1 : 180}`,
+  '[mcp_servers.startup_fixture]', `enabled = ${kind !== 'disabled'}`, `startup_timeout_sec = ${kind === 'never' ? 1 : 180}`,
   `command = ${JSON.stringify(kind === 'missing' ? join(profile, 'missing-program.exe')
     : resolve('runtime/node', process.platform === 'win32' ? 'node.exe' : 'node'))}`,
   `args = [${JSON.stringify(resolve('tests/fixtures/startup-mcp.mjs'))}]`,
   '[mcp_servers.startup_fixture.env]', `FIXTURE_MCP_STARTED = ${JSON.stringify(started)}`,
-  `FIXTURE_MCP_DELAY_MS = "${kind === 'slow' ? 70000 : kind === 'cold' ? 5000 : 0}"`, `FIXTURE_MCP_NEVER = "${kind === 'never' ? 1 : 0}"`,
+  `FIXTURE_MCP_DELAY_MS = "${kind === 'slow' ? 70000 : 0}"`, `FIXTURE_MCP_NEVER = "${kind === 'never' ? 1 : 0}"`,
+  ...(release ? [`FIXTURE_MCP_RELEASE = ${JSON.stringify(release)}`] : []),
 ].join('\n') + '\n';
 await writeFile(join(root, 'config.toml'), config());
 const payloads = [];
@@ -208,40 +209,176 @@ try {
   assert.equal(accepted.length, 1);
   assert.match(JSON.stringify(accepted[0].message.content), /Draft retained while tools connect/);
   results.providerRequests = payloads.length;
-  phase = 'cold draft first-send refusal retains both input and one-shot launch choice';
-  await until(() => page.evaluate(async () => !(await window.desktop.snapshot()).state?.isStreaming));
-  await writeFile(join(root, 'config.toml'), config('cold'));
-  await page.evaluate(project => window.desktop.beginSession(project), project);
-  await page.reload();
-  await until(() => page.evaluate(async () => Boolean((await window.desktop.snapshot()).draftId)));
-  await page.evaluate(() => window.desktop.command('set_launch_mode', { mode: 'ultracode', enabled: true }));
-  await input().fill('Cold draft keeps this one-shot mode');
-  await input().press('Enter');
-  await until(() => page.evaluate(async () => {
-    const snapshot = await window.desktop.snapshot();
-    return snapshot.runtimeId && snapshot.state?.desktopStartup?.tools.some(tool => tool.status === 'connecting')
-      && snapshot.launch?.ultracodeArmed
-      && document.querySelector('.composer-input')?.value === 'Cold draft keeps this one-shot mode';
-  }));
-  const cold = await page.evaluate(() => window.desktop.snapshot());
-  assert.equal(payloads.length, 1);
-  assert.match(await page.locator('.app-error-banner').textContent(), /Message not sent\./);
-  assert.doesNotMatch(await page.locator('.app-error-banner').textContent(), /STARTUP_NOT_READY|remote method/);
-  const coldHistory = await readFile(cold.state.sessionFile, 'utf8').catch(error => {
+  const getSnapshot = () => page.evaluate(() => window.desktop.snapshot());
+  const preparing = page.locator('.composer-prepare-status');
+  const cancelFirstSend = page.getByRole('button', { name: /^(取消首次发送|Cancel first send)$/ });
+  const sendButton = page.getByRole('button', { name: /^(发送|Send)$/ });
+  const draftValue = () => input().evaluate(element => element.value);
+  const userMessages = async snapshot => (await readFile(snapshot.state.sessionFile, 'utf8').catch(error => {
     if (error.code === 'ENOENT') return '';
     throw error;
+  })).trim().split('\n').filter(Boolean).map(line => JSON.parse(line))
+    .filter(entry => entry.type === 'message' && entry.message.role === 'user');
+  const newDraft = async (kind, release, message) => {
+    await until(async () => !(await getSnapshot()).state?.isStreaming);
+    await writeFile(join(root, 'config.toml'), config(kind, release));
+    const { workspaces } = (await getSnapshot()).preferences;
+    assert.equal(workspaces.length, 1);
+    assert.equal(await realpath(workspaces[0]), await realpath(project));
+    await page.evaluate(workspace => window.desktop.beginSession(workspace), workspaces[0]);
+    await page.reload();
+    await until(async () => Boolean((await getSnapshot()).draftId));
+    await input().fill(message);
+  };
+  const ready = async () => (await getSnapshot()).state?.desktopStartup?.tools
+    .some(tool => tool.name === 'startup_fixture' && tool.status === 'connected');
+  const pending = async message => {
+    await cancelFirstSend.waitFor();
+    await until(async () => (await getSnapshot()).state?.desktopStartup?.tools.some(tool => tool.status === 'connecting')
+      && await draftValue() === message);
+    const snapshot = await getSnapshot();
+    const label = snapshot.preferences.language === 'zh' ? '正在准备会话' : 'Preparing session';
+    assert.equal(await preparing.textContent(), label);
+    assert.equal(await page.locator('.composer-prepare-announcement').textContent(), label);
+    assert.ok(await input().isEnabled());
+    assert.ok(!await page.locator('.app-error-banner').isVisible());
+    assert.equal((await userMessages(snapshot)).length, 0);
+    return snapshot;
+  };
+  const assertSent = async (message, count) => {
+    await until(async () => payloads.length >= count && !(await getSnapshot()).state?.isStreaming
+      && (await getSnapshot()).messages.some(entry => entry.role === 'assistant'));
+    const snapshot = await getSnapshot();
+    const users = await userMessages(snapshot);
+    assert.equal(users.length, 1);
+    assert.match(JSON.stringify(users[0].message.content), new RegExp(message));
+    assert.equal(payloads.length, count);
+    assert.equal(await draftValue(), '');
+    await preparing.waitFor({ state: 'detached' });
+    assert.ok(!await page.locator('.app-error-banner').isVisible());
+    return snapshot;
+  };
+  phase = 'cold draft sends once after handshake without a retry';
+  const release = join(profile, 'allow-first-send');
+  const coldMessage = '帮我梳理一下这个项目的目录结构';
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+  await page.evaluate(() => window.desktop.preferences({ theme: 'dark', language: 'zh' }));
+  await newDraft('gated', release, coldMessage);
+  await page.evaluate(() => window.desktop.command('set_launch_mode', { mode: 'ultracode', enabled: true }));
+  await page.evaluate(() => {
+    document.addEventListener('transitionrun', event => {
+      if (event.propertyName === 'opacity' && event.target.matches('.composer-prepare-status')) {
+        const phase = event.target.matches('.is-leaving') ? 'left' : 'entered';
+        document.documentElement.dataset.prepareFade = phase;
+      }
+    });
   });
-  assert.ok(!coldHistory.includes('Cold draft keeps this one-shot mode'));
-  await page.screenshot({ path: join(output, 'cold-draft-retained.png') });
-  await until(() => page.evaluate(async () => {
-    const snapshot = await window.desktop.snapshot();
-    return snapshot.state?.desktopStartup?.tools.every(tool => !['pending', 'connecting'].includes(tool.status))
-      && !document.querySelector('.composer-action-button')?.disabled;
-  }));
-  assert.equal(await input().evaluate(element => element.value), 'Cold draft keeps this one-shot mode');
-  assert.equal((await page.evaluate(() => window.desktop.snapshot())).launch?.ultracodeArmed, true);
+  const sendBox = await sendButton.boundingBox();
+  await sendButton.click();
+  const cold = await pending(coldMessage);
+  assert.equal(cold.launch.ultracodeArmed, true);
+  await input().press('Enter');
   assert.equal(payloads.length, 1);
-  results.coldDraftInputAndModeRetained = true;
+  await page.waitForFunction(() => document.documentElement.dataset.prepareFade === 'entered'
+    && getComputedStyle(document.querySelector('.composer-prepare-status')).opacity === '1');
+  assert.ok(await preparing.evaluate(element => {
+    const chip = element.querySelector('.composer-context-chip');
+    const { x, width, bottom } = chip.getBoundingClientRect();
+    const composer = document.querySelector('.composer').getBoundingClientRect();
+    return Math.abs(x + width / 2 - (composer.x + composer.width / 2)) <= 1
+      && bottom <= composer.top && chip.scrollWidth <= chip.clientWidth;
+  }));
+  assert.deepEqual(await cancelFirstSend.boundingBox(), sendBox);
+  await page.screenshot({ path: join(output, 'cold-draft-preparing-zh.png') });
+  await writeFile(release, '');
+  assert.equal((await assertSent(coldMessage, 2)).runtimeId, cold.runtimeId);
+  assert.equal(await page.evaluate(() => document.documentElement.dataset.prepareFade), 'left');
+  results.coldFirstSend = true;
+  results.centeredPreparationFade = true;
+
+  phase = 'cancel first send without consuming the draft or sending after readiness';
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.evaluate(() => window.desktop.preferences({ theme: 'light', language: 'en' }));
+  const releaseCancelled = join(profile, 'allow-cancelled');
+  const cancelledMessage = 'Keep this cancelled draft';
+  await newDraft('gated', releaseCancelled, cancelledMessage);
+  await input().press('Enter');
+  const cancelled = await pending(cancelledMessage);
+  assert.deepEqual(await preparing.evaluate(element => ({
+    transition: getComputedStyle(element).transitionDuration,
+    pulse: getComputedStyle(element.querySelector('.working-dot')).animationName,
+  })), { transition: '0s', pulse: 'none' });
+  await cancelFirstSend.click();
+  assert.equal(await draftValue(), cancelledMessage);
+  await preparing.waitFor({ state: 'detached' });
+  await writeFile(releaseCancelled, '');
+  await until(ready);
+  await until(() => sendButton.isEnabled());
+  assert.equal((await userMessages(cancelled)).length, 0);
+  assert.equal(payloads.length, 2);
+  await sendButton.click();
+  await assertSent(cancelledMessage, 3);
+  results.cancelAndResend = true;
+
+  phase = 'editing the draft disarms the original send';
+  const releaseEdited = join(profile, 'allow-edited');
+  const editedMessage = 'Do not send the old draft';
+  await newDraft('gated', releaseEdited, editedMessage);
+  await input().press('Enter');
+  const edited = await pending(editedMessage);
+  await input().fill('Keep the edited version');
+  await preparing.waitFor({ state: 'detached' });
+  await writeFile(releaseEdited, '');
+  await until(ready);
+  await until(() => sendButton.isEnabled());
+  assert.equal(await draftValue(), 'Keep the edited version');
+  assert.equal((await userMessages(edited)).length, 0);
+  assert.equal(payloads.length, 3);
+  results.editDisarmsFirstSend = true;
+
+  phase = 'navigation disarms the send even if the old runtime becomes ready';
+  const releaseDeparted = join(profile, 'allow-departed');
+  const departedMessage = 'Do not send after leaving';
+  await newDraft('gated', releaseDeparted, departedMessage);
+  await input().press('Enter');
+  const departed = await pending(departedMessage);
+  assert.notEqual(departed.runtimeId, edited.runtimeId, 'A new chat cannot reuse an empty runtime that owns another draft');
+  if (await page.locator('.window-sidebar-toggle').getAttribute('aria-expanded') === 'false')
+    await page.locator('.window-sidebar-toggle').click();
+  await page.locator('[data-reorder-id="reading-large"] > button').first().click();
+  await until(async () => (await getSnapshot()).state?.sessionId === 'reading-large');
+  await writeFile(releaseDeparted, '');
+  await until(() => page.evaluate(async id => (await window.desktop.summary(id)).mcp
+    ?.some(tool => tool.name === 'startup_fixture' && tool.status === 'connected'), departed.runtimeId));
+  await preparing.waitFor({ state: 'detached' });
+  assert.equal((await userMessages(departed)).length, 0);
+  assert.equal(await page.evaluate(id => window.desktop.composerRead({ sessionId: id }).then(value => value.value.text),
+    departed.state.sessionId), departedMessage);
+  assert.equal(await page.evaluate(id => window.desktop.composerRead({ sessionId: id }).then(value => value.value.text),
+    edited.state.sessionId), 'Keep the edited version');
+  assert.equal(payloads.length, 3);
+  results.navigationDisarmsFirstSend = true;
+
+  phase = 'unconfirmed cleanup blocks a cold first send and keeps the draft';
+  const brokenMessage = 'Keep this draft after startup failure';
+  await newDraft('never', undefined, brokenMessage);
+  await input().press('Enter');
+  await until(async () => (await getSnapshot()).state?.desktopStartup?.cleanupConfirmed === false);
+  await until(() => page.locator('.app-error-banner').isVisible());
+  assert.match(await page.locator('.app-error-banner').textContent(), /Message not sent\./);
+  assert.doesNotMatch(await page.locator('.app-error-banner').textContent(), /STARTUP_NOT_READY|remote method/);
+  await preparing.waitFor({ state: 'detached' });
+  assert.equal(await draftValue(), brokenMessage);
+  assert.equal((await userMessages(await getSnapshot())).length, 0);
+  assert.equal(payloads.length, 3);
+  results.failureRetainsDraft = true;
+
+  phase = 'cold first send without an enabled MCP';
+  const noToolsMessage = 'Cold send with no enabled MCP';
+  await newDraft('disabled', undefined, noToolsMessage);
+  await input().press('Enter');
+  await assertSent(noToolsMessage, 4);
+  results.coldFirstSendWithoutMcp = true;
   assert.deepEqual(errors, []);
   results.rendererErrors = errors;
   results.complete = true;

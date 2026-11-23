@@ -73,6 +73,55 @@ immediate 2px system highlight. Search fields use the same softened outline and
 fade on the search shell or input, without changing sidebar search disclosure
 motion. Other form controls and file-drop feedback keep their existing treatment.
 
+## Drag And Drop
+
+Keep the dragged item visually tied to its source and give immediate feedback
+about the destination. Use a dedicated grip when the row already contains
+controls. Starting, dropping or cancelling a drag must not activate the row or
+its controls. Provide a keyboard alternative and keep focus on the same item
+after reordering.
+
+For a flat priority list, reuse the [web search sorting motion](Desktop/src/priority-order-motion.ts).
+The lifted row tracks the pointer without easing; displaced rows slide aside
+using transforms and a 220ms cubic ease-out (`cubic-bezier(.22, 1, .36, 1)`).
+Resolve the destination against the original row positions so moving rows
+cannot shift their own hit targets. On release, settle from the current visual
+positions into the new order. Keyboard moves use the same settling motion.
+Reduced motion keeps direct pointer tracking and moves other rows instantly.
+
+Dragging only previews the order. A valid drop commits it once. Escape, pointer
+cancellation and release outside the list restore the saved order without a
+write. If saving fails, restore the authoritative order and report the failure.
+This pattern does not replace dedicated interactions for grouped sidebar moves,
+file drops, resizing or panning.
+
+## Error Banners
+
+Reuse [`ConversationErrorBanner`](Desktop/src/main.tsx) for failures in the main
+conversation view that need attention or a recovery action. Its layout and
+motion are defined by `.app-error-banner` in [layout.css](Desktop/src/layout.css).
+If another host needs this pattern, extract the existing component rather than
+copying its markup or styles. Keep field errors beside their fields, modal
+errors in their modal, and brief success or informational feedback in
+[`NoticeToast`](Desktop/src/NoticeToast.tsx).
+
+Center the banner below the window bar in the main view, not across the whole
+window. Use a neutral surface, a semantic leading icon and an accessible
+dismiss button with a fixed position. Lead with the failure, put a file or
+directory path on its own selectable line and only show recovery actions that
+apply. At narrow widths, wrap the body and actions without crowding the dismiss
+target or clipping focus indicators. Reserve space above inspector headers
+without moving the right tool rail. Use the shared short cubic entrance, with
+no animation under reduced motion. Error banners do not auto-dismiss.
+
+The caller owns the failure and dismissal state. Scope the banner to the
+operation or conversation that produced it; a refresh or switch to an unrelated
+view must not replay it. For a missing project directory, offer Locate folder
+and Remove project only for remembered projects. A directory that blocks
+startup remains recoverable on the initial main view, but ordinary snapshots
+must not reopen the dismissed banner. An explicit retry can surface a new
+failure.
+
 ## Existing Components
 
 MiniChat is a native view of a normal conversation, not BTW or a second agent.
@@ -165,6 +214,10 @@ and motion uses the shared disclosure animation with reduced-motion support.
 Resolution removes the dot. A settled optional MCP failure is a local degradation,
 not a confirmation gate for sending, queuing or steering. Keep identity, model,
 pending startup and unconfirmed-cleanup guards. Stop remains independent.
+An explicit first send from a new draft keeps the draft visible and shows
+preparation in the centered composer context row, using the live-diff chip
+appearance and fade. Send becomes Cancel until submission. Editing the
+draft or leaving the conversation disarms the send.
 
 Plugin browsing stays available during running tasks. Verified new installations,
 service switches and generic configuration saves do not revoke live host leases.
@@ -529,6 +582,17 @@ Full Access uses the native risk acknowledgment with localized presentation and 
 
 Settings use one centered, fixed-size secondary window: 1060 by 740 pixels, bounded by the application viewport. All categories, including providers and archived sessions, share this shell instead of resizing it. The full application, including its titlebar and window controls, sits behind a softly blurred backdrop with a low-opacity black tint that never becomes a white veil in dark mode. The form surface stays opaque for readability. The titlebar is inert until settings finish closing. Navigation and content scroll independently. Narrow windows retain icon navigation and bounded content. The selected category has a restrained rose tint, content changes fade without moving the frame, and matching entrance/exit effects preserve the blocking layer until dismissal ends. Reduced motion bypasses dismissal animation. Switching categories keeps navigation focus and resets the content scroll position.
 
+Adding a provider opens an in-place picker beside the saved providers. Brand tiles use local marks and collapse to one column as the available content width narrows. A brand with multiple connections stays in place and unfolds full-width connection rows beneath its tile row. Show the credential source and distinguish pay-as-you-go access from subscriptions. Height, opacity and the shared chevron use the same 240ms cubic transition, with an instant reduced-motion fallback. Choosing a preset opens an unsaved draft in the existing provider form, with an empty key and unchanged model selection. Creating a custom provider remains available in the picker. Returning restores the relevant brand or the Add provider button; unsaved edits still require explicit discard.
+
+Web search is a separate Settings category. The configured service rail stays in place while the settings pane switches between priority, the two-column preset picker, and a connection draft. Reuse provider marks, switches, chevrons and cubic transitions. Saving a connection does not enable it unless selected. Step Plan is first by default; an explicit order is retained. The fallback switch discloses that a query can reach the next enabled service. The transcript's existing tool details show the actual attempt path, not the configured order.
+The priority list follows the shared [Drag And Drop](#drag-and-drop) pattern.
+
+Pay-as-you-go and official API subscriptions use separate saved connections and
+credential scopes, even at a shared address. The selected preset, not the
+address or display name, identifies billing on shared routes. Do not infer
+billing for an existing unclassified connection or fall back to a different
+connection. Show billing in saved connections and the model picker.
+
 Settings search fills the header span from the category rail to the close
 button, without resizing the dialog or clipping the shared focus outline.
 It matches built-in category names and indexed option labels and aliases in
@@ -571,6 +635,11 @@ belongs to the internally scrolling model list. Returning restores focus to the
 model heading. No empty favorite
 section is reserved. An independent star button adds or removes a favorite without
 selecting a model or closing the picker; the selected checkmark remains separate.
+Reuse the local marks from provider settings in the model card and list. The
+mark follows the actual connection, never the model name or catalog binding.
+Use monochrome silhouettes in the picker with the existing Step card fade.
+Keep a neutral mark for unrecognized providers. Marks are decorative and do not
+replace provider labels or billing text in the list.
 Favorites retain their saved order and provider/model identities in Desktop
 preferences. Runtime activity never creates or reorders them, and earlier recent
 history is not converted into favorites. Unavailable favorites are hidden but
@@ -754,6 +823,10 @@ Browser and Terminal offer Standard, Wide and Fullscreen widths through native h
 ## File Preview and Opening
 
 Web references open in the built-in browser by default; their hover preview retains an explicit external-browser action. Artifact references and delivery cards share the same opening path. HTML opens as an isolated local browser preview; Markdown opens rendered and can switch to source, while supported text/code files open read-only with syntax highlighting, wrapping, copy and refresh controls.
+
+SVG, PNG, JPEG, WebP and GIF open as passive images on a theme-aware transparency grid. Images fit within the available panel without upscaling; the toolbar can show actual size with scrolling. SVG retains a source mode using the Markdown preview's view switch. SVG is loaded only as an image, not mounted as DOM or opened as a document, so imported resources and scripts are not executed by the image preview. Invalid images show an inline error without leaving the panel. The preview chooser filters for supported in-app formats and never launches a system application.
+
+PDF opens as a read-only, paged canvas with previous/next controls, a page number field and a fit-width/actual-size toggle. Rendering uses bundled assets and does not activate links, scripts, forms or annotations. Encrypted files and files too large to preview remain available through the explicit system opener. CSV and TSV open in a read-only grid with sticky column headings, optional first-row headers, paging and a source toggle. Cell values remain text, including leading zeros and formulas. The grid reports when its bounded preview omits records or columns.
 
 File Preview is an independent right-rail tool with an empty state and a native Windows file chooser. It offers Standard, Wide and Fullscreen through an application-styled anchored menu. The last Standard/Wide preference survives relaunch; fullscreen restores that underlying preference. Narrow overlays retain a bounded width. Its width, fullscreen/restore and enter/exit use the existing cubic right-panel transitions. Opening a file does not attach its contents to the conversation or give the model access to it. Renderer requests carry a workspace-scoped reference or opaque file permission, never unrestricted filesystem reads.
 

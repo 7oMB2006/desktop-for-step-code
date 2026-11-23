@@ -2,6 +2,7 @@ export type SettingsCategory = readonly [id: string, label: string, alternateLab
 
 const entries = [
   ['account', 'usage', '用量统计', 'Usage overview', 'token 用量 消耗'],
+  ['web-search', '', '搜索顺序', 'Search order', '阶跃 Tavily Exa Brave 博查 Bocha SearXNG 降级 优先级 fallback'],
   ['general', 'approvalNotifications', '审批请求通知', 'Approval request notifications', '审批 提醒 banner'],
   ['general', 'completionNotifications', '任务完成通知', 'Task completion notifications', '提醒 banner'],
   ['general', 'completionSound', '完成提示音', 'Completion sound', '声音 音效 铃声 audio'],

@@ -1,4 +1,5 @@
 import { normalizedWorkspaceKey } from '../src/workspace-key';
+import { WorkspaceDirectoryError } from '../src/workspace-directory-error';
 import { statusAccount } from './status-account';
 import { statusBuild } from './session-status';
 import { app, BrowserWindow, dialog, ipcMain, shell, session, net, clipboard, ClipboardItem, nativeImage, nativeTheme, Menu, Notification } from 'electron';
@@ -35,6 +36,8 @@ import { composerKey, type ComposerOwner, type WindowPresentation } from '../src
 import { importedHistoryMessages } from './imported-history';
 import { messagesWithEntryIds } from './session-branching';
 import { SessionCollaboration } from './session-collaboration';
+import { saveWebSearch, webSearchSettings } from './web-search-config';
+import { createWebSearch, nativeStepSearch } from './web-search-service';
 import { BvrBridge } from './bvr-bridge';
 import { BvrSettings } from './bvr-settings';
 import { PluginHostLauncher } from './plugin-host-launcher';
@@ -106,7 +109,7 @@ import { browserPreviewUrl } from './browser-policy';
 import { previewInput } from './playwright-preview';
 import { linkPreview } from './link-preview';
 import { artifactFile } from './artifact-files';
-import { FilePreviews, fileMode, canOpenExternally, readPreview } from './file-previews';
+import { FilePreviews, fileMode, canOpenExternally, inlineFileExtensions, readPreview } from './file-previews';
 import { LocalPagePreview } from './local-page-preview';
 import { associationRequest, fileApplications, macApplicationPath } from './file-applications';
 import { AppUpdates, updatePreferences } from './app-updates';
@@ -224,6 +227,7 @@ function showMainWindow() {
 let startup: Promise<void> = Promise.resolve();
 let externalReady: Promise<void> = Promise.resolve();
 let startupError: string | undefined;
+let startupWorkspaceIssue: string | undefined;
 let sessionDraft: { id: string; workspace?: string; model?: Model; models?: Model[]; thinkingLevel?: string;
   permissionPreset?: PermissionPreset; launch?: LaunchState; modelChanged?: boolean; permissionChanged?: boolean; thinkingChanged?: boolean } | undefined = { id: randomUUID() };
 const draftModelWrites = new WeakMap<NonNullable<typeof sessionDraft>, Promise<DraftModelUpdate>>();
@@ -245,7 +249,7 @@ const selectDraft = (surface: Surface, draft: typeof sessionDraft) => {
   if (draft && sessionDraft?.id === draft.id) sessionDraft = draft;
   if (draft && miniView.draft?.id === draft.id) miniView.draft = draft;
   if (surface === 'mini') { miniView.draft = draft; miniView.runtimeId = undefined; miniView.worker = undefined; }
-  else { sessionDraft = draft; runtimes.activeId = undefined; }
+  else { sessionDraft = draft; runtimes.activeId = undefined; startupWorkspaceIssue = undefined; }
   browser?.sync();
 };
 const selectedRuntime = (surface: Surface) => surface === 'mini' ? miniView.runtimeId : runtimes.activeId;
@@ -271,7 +275,7 @@ const selectRuntime = (surface: Surface, worker: SessionRuntime) => {
     if (worker.state?.sessionId) runtimes.unreadSessionIds.delete(worker.state.sessionId);
     runtimes.publish();
   } else {
-    sessionDraft = undefined; runtimes.activate(worker);
+    sessionDraft = undefined; startupWorkspaceIssue = undefined; runtimes.activate(worker);
     const previous = miniView.worker;
     if (previous && previous !== worker && previous.state?.sessionId === worker.state?.sessionId
       && (!runtimes.workers.has(previous.id) || previous.status === 'disconnected')) replaceMiniRuntime(worker);
@@ -329,20 +333,16 @@ async function samePath(a: string, b: string) {
   try { return pathKey(await realpath(a)) === pathKey(await realpath(b)); }
   catch { return false; }
 }
-let unavailableWorkspace: string | undefined;
 async function workspaceDirectory(path: string, signal?: AbortSignal) {
   try {
     signal?.throwIfAborted();
     const canonical = await realpath(path);
     if (!(await stat(canonical)).isDirectory()) throw new Error('Not a directory');
     signal?.throwIfAborted();
-    if (unavailableWorkspace && pathKey(unavailableWorkspace) === pathKey(path)) unavailableWorkspace = undefined;
     return canonical;
   } catch {
     signal?.throwIfAborted();
-    unavailableWorkspace = path;
-    emit({ type: 'desktop_workspace_unavailable', path });
-    throw new Error(preferences.language === 'zh' ? `项目目录不可用：${path}` : `Project directory unavailable: ${path}`);
+    throw new WorkspaceDirectoryError(path, preferences.language);
   }
 }
 const isIndependentPath = (path: string) => pathKey(path).startsWith(`${pathKey(independentRoot)}/`) || !preferences.workspaces.some(p => pathKey(p) === pathKey(path));
@@ -501,6 +501,13 @@ const authEnvironment = () => ({
   STEPCODE_DESKTOP_AUTH_DATA: JSON.stringify(runtimeAuth(appliedAuthData)),
   ...keylessEnvironment(appliedAuthData, app.isPackaged ? join(process.resourcesPath, 'runtime-adapters/keyless-fetch.cjs') : join(__dirname, 'keyless-fetch.cjs')),
 });
+const searchWeb = createWebSearch(providerFetch, nativeStepSearch(nodePath, join(runtimeRoot, 'native-step-search.mjs'),
+  join(runtimeRoot, 'step/dist/bundle/index.js'), dataRoot, () => ({ ...network.environment(env), DFSC_WEB_SEARCH_ROUTING: undefined })));
+const webSearchRuntimeReady = () => runtimeManifest.patches?.includes('desktop-web-search') === true;
+const webSearchReady = () => {
+  const settings = webSearchSettings(authData);
+  return webSearchRuntimeReady() && settings.enabled && settings.order.length > 0;
+};
 const movedSessionEnvironment = () => ({
   STEP_PERMISSION_PRESET: 'ask',
   DESKTOP_CRON_SCOPE_DIR: join(app.getPath('userData'), 'cron-bindings'),
@@ -557,7 +564,7 @@ const creatingDrafts = new Set<string>();
 const miniMethods = new Set([
   'snapshot', 'windowControl', 'miniChatState', 'miniChatPin', 'miniChatReturn', 'miniChatMainAction',
   'windowPresentation', 'composerRead', 'composerWrite', 'composerTake', 'composerRestore',
-  'beginSession', 'chooseSessionProject', 'createDraftSession', 'navigateSession', 'sessionReading', 'cancelSessionReading', 'renameSession',
+  'beginSession', 'chooseSessionProject', 'createDraftSession', 'sessionStartup', 'navigateSession', 'sessionReading', 'cancelSessionReading', 'renameSession',
   'command', 'projectInstructions', 'branchSession', 'retryMessage', 'preferences',
   'chooseAttachments', 'importFile', 'importClipboardImage', 'imageAction', 'copyText', 'linkPreview',
   'fileOpen', 'fileOpenOptions', 'browserOpenLink', 'artifactFiles', 'artifactAction', 'backgroundAgents',
@@ -595,6 +602,7 @@ const sessionTitles = new SessionTitles({
   live: worker => runtimes.workers.get(worker.id) === worker,
   save: (worker, title) => saveLiveSessionName(worker, title, 'automatic'),
   fetch: providerFetch,
+  diagnostic: details => { void crashLog.record('session-title', new Error('Automatic session title failed'), details); },
 });
 const runtimes: SessionRuntimes = new SessionRuntimes(event => {
   if (event.type === 'desktop_runtimes') browser?.sync();
@@ -692,7 +700,8 @@ const runtimes: SessionRuntimes = new SessionRuntimes(event => {
   pluginsReady: worker => pluginHosts.attach(worker),
   pluginsReset: worker => pluginHosts.invalidate(worker),
   language: () => preferences.language,
-  canReuseEmpty: worker => !outdatedInstructions.has(worker),
+  canReuseEmpty: worker => !outdatedInstructions.has(worker)
+    && (!worker.state?.sessionId || !composers.hasInput({ sessionId: worker.state.sessionId })),
   // Keep at most two extra idle children when Windows has ample free memory.
   // This is a retention budget, never permission to speculatively start agents.
   idleLimit: () => process.platform === 'win32' && freemem() >= 3 * 1024 ** 3 ? 4 : 2,
@@ -707,10 +716,13 @@ const runtimes: SessionRuntimes = new SessionRuntimes(event => {
     usageEstimates.attach(worker);
     const launch = collaboration.attach(worker);
     return { ...launch, env: { ...launch.env,
+      DFSC_WEB_SEARCH_ROUTING: '1',
+      DESKTOP_WEB_SEARCH_READY: webSearchReady() ? '1' : '0',
       ...(runtimeManifest.patches?.includes('desktop-async-startup') ? { DFSC_ASYNC_STARTUP_V1: '1' } : {}),
       ...(runtimeManifest.patches?.includes('desktop-plugin-host-launch') ? { DFSC_RUNTIME_HOST_V1: '1' } : {}) },
       args: [...launch.args, '--extension', join(runtimeRoot, 'project-instructions.mjs'),
-        '--extension', join(runtimeRoot, 'runtime-compile-cache.mjs')] };
+        '--extension', join(runtimeRoot, 'runtime-compile-cache.mjs'),
+        '--extension', join(runtimeRoot, 'desktop-web-search.mjs')] };
   },
   dispose: worker => {
     localPreviewRuns.delete(worker);
@@ -1279,7 +1291,8 @@ const collaboration: SessionCollaboration = new SessionCollaboration(runtimes, j
       return true;
     });
     return { content: [{ type: 'text', text: `Playwright connected to the original preview tab at ${new URL(preview.url).origin}. The Browser panel reveals it once per turn in this conversation. Use snapshot before clicking.` }] };
-  } : undefined);
+  } : undefined,
+  { ready: webSearchReady, search: (query, signal) => searchWeb(webSearchRuntimeReady() ? authData : {}, query, signal) });
 function recycleSessionRuntimes() {
   if (transition && !sessionNavigation.busy) return;
   void runtimes.recycle(worker => sessionNavigation.pending(worker.state?.sessionId))
@@ -1485,8 +1498,8 @@ async function snapshot(worker = runtimes.active, refresh = true, ignoreDraft = 
     firstRun: { required: firstRun.required },
     quitReview: quitReview.state,
     statusAccount: statusAccount(appliedAuthData),
-    workspaceIssue: unavailableWorkspace,
     browserOwner: surface === 'main' ? browserOwner(draft, worker) : undefined,
+    startupWorkspaceIssue: surface === 'main' && !draft && !worker ? startupWorkspaceIssue : undefined,
     preferences: { ...preferences, workspace: draft ? draft.workspace : worker?.cwd ?? preferences.workspace }, themePacks: themePacks.packs,
     customBackground: backgroundState, providerSettingsPending,
     status: draft ? 'ready' : worker?.status ?? status, draftId: draft?.id, runtimeId: worker?.id, runtimeStartupTiming: draft ? undefined : worker?.startupTiming, runtimes: runtimeSummaries, unreadSessionIds: [...runtimes.unreadSessionIds],
@@ -2114,10 +2127,12 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
     case 'fileOpen': {
       const browserContext = browser!.assertContext();
       let target: FileTarget = args[0];
-      if (target === undefined) {
+      const fromPicker = target === undefined;
+      if (fromPicker) {
         const selected = await dialog.showOpenDialog(window, {
           title: preferences.language === 'zh' ? '打开文件' : 'Open file', properties: ['openFile'],
           defaultPath: runtimes.active?.cwd ?? preferences.workspace,
+          filters: [{ name: preferences.language === 'zh' ? '可预览文件' : 'Previewable files', extensions: inlineFileExtensions }],
         });
         if (selected.canceled || !selected.filePaths.length) return null;
         target = { grantId: (await filePreviews.grant(selected.filePaths[0])).id };
@@ -2125,6 +2140,9 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
       const file = await filePreviews.resolve(target);
       const destination = args[1] === undefined ? 'internal' : text(args[1], 4200);
       const mode = fileMode(file.path);
+      if (fromPicker && (destination !== 'internal' || mode === 'external')) {
+        throw new Error(preferences.language === 'zh' ? '此文件格式不支持应用内预览' : 'This file type cannot be previewed in the app');
+      }
       const remember = async () => {
         if (args[1] === undefined || destination === 'preview' || destination === 'other') return;
         preferences.fileOpeningApps = { ...preferences.fileOpeningApps, [extname(file.path).toLowerCase()]: destination };
@@ -2139,11 +2157,12 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
         await remember();
         return result;
       }
-      if ((destination === 'internal' || destination === 'preview') && (mode === 'text' || mode === 'markdown')) {
+      if ((destination === 'internal' || destination === 'preview') && mode !== 'external' && mode !== 'browser') {
         const result = { destination: 'preview', file: { ...await readPreview(file.path), id: file.id } } satisfies FileOpenResult;
         await remember();
         return result;
       }
+      if (destination === 'preview') throw new Error('This file type has no inline preview');
       if (!canOpenExternally(file.path)) throw new Error('This file type cannot be opened in an external application');
       if (destination === 'internal' || destination === 'system') {
         const error = await shell.openPath(file.path);
@@ -2211,6 +2230,16 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
       const existing = (await Promise.all(preferences.workspaces.map(async path => await samePath(path, canonical) ? path : undefined))).find(Boolean);
       if (!existing) { preferences.workspaces = [...preferences.workspaces, canonical]; await savePreferences(); }
       return beginSession(existing ?? canonical, surface);
+    }
+    case 'sessionStartup': {
+      const runtimeId = text(args[0], 80), sessionId = text(args[1], 300);
+      const worker = runtimes.workers.get(runtimeId);
+      const current = () => worker?.status === 'connected' && worker.state?.sessionId === sessionId
+        && runtimes.workers.get(runtimeId) === worker && selectedRuntime(surface) === runtimeId;
+      if (!worker || !current()) throw new Error('STARTUP_NOT_READY: submission context changed');
+      const state = await runtimes.readStartup(worker);
+      if (!current()) throw new Error('STARTUP_NOT_READY: submission context changed');
+      return state;
     }
     case 'createDraftSession': {
       const draftId = text(args[0], 80);
@@ -2475,7 +2504,7 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
     }
     case 'snapshot': {
       await startup;
-      if (!startupError) await maintainUpdateCache();
+      if (!startupError && !startupWorkspaceIssue) await maintainUpdateCache();
       if (startupError) { emit({ type: 'desktop_error', message: startupError }); startupError = undefined; }
       return viewSnapshot();
     }
@@ -2514,7 +2543,7 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
       try {
         preferences = next;
         try { await savePreferences(); } catch (error) { preferences = previous; throw error; }
-        if (unavailableWorkspace && pathKey(unavailableWorkspace) === pathKey(path)) unavailableWorkspace = undefined;
+        if (startupWorkspaceIssue && pathKey(startupWorkspaceIssue) === pathKey(path)) startupWorkspaceIssue = undefined;
         startupError = undefined;
       } finally { transition = false; }
       if (sessionDraft?.workspace && pathKey(sessionDraft.workspace) === pathKey(path)) await beginSession();
@@ -2556,7 +2585,7 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
         for (const worker of peers()) await runtimes.remove(worker);
         if (sessionDraft?.workspace && pathKey(sessionDraft.workspace) === pathKey(path)) sessionDraft.workspace = destination;
         startupError = undefined;
-        if (unavailableWorkspace && pathKey(unavailableWorkspace) === pathKey(path)) unavailableWorkspace = undefined;
+        if (startupWorkspaceIssue && pathKey(startupWorkspaceIssue) === pathKey(path)) startupWorkspaceIssue = undefined;
         if (draftSelected || active || recoverStartup) {
           transition = false;
           if (draftSelected || recoverStartup) {
@@ -3003,6 +3032,11 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
       if (surface === 'mini' && runtimeId !== miniView.runtimeId) throw new Error('MiniChat conversation changed');
       const worker = ['queue_edit', 'queue_remove'].includes(type) ? runtimes.workers.get(runtimeId!) : runtimes.require(runtimeId);
       if (!worker) throw new Error('This session runtime is unavailable');
+      const preparedEpoch = type === 'prompt' && data.preparedStartupEpoch !== undefined
+        ? text(data.preparedStartupEpoch, 80) : undefined;
+      const preparationCurrent = () => preparedEpoch === undefined || (selectedRuntime(surface) === worker.id
+        && runtimes.workers.get(worker.id) === worker && worker.startup?.startupEpoch === preparedEpoch);
+      if (!preparationCurrent()) throw new Error('STARTUP_NOT_READY: submission context changed');
       if (externalTasks.retains(worker) && !externalSessionCommandAllowed(type))
         throw new Error(preferences.language === 'zh'
           ? '此会话正在处理外部委托，请先停止委托再接管。审批仍可在本机完成。'
@@ -3158,6 +3192,7 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
             });
           }
           if (wasStreaming || worker.state?.isCompacting) {
+            if (preparedEpoch !== undefined) throw new Error('STARTUP_NOT_READY: submission context changed');
             await runtimes.assertExecutionReady(worker);
             if (worker.launch?.goalArmed) throw new Error('Finish the current task before starting a new goal');
             if (worker.state?.desktopCompletionReview === 1)
@@ -3191,6 +3226,7 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
             await runtimes.assertExecutionReady(worker);
             restoreLaunch = launchControls.consume(worker);
             await runtimes.preparePrompt(worker, payload.message as string);
+            if (!preparationCurrent()) throw new Error('STARTUP_NOT_READY: submission context changed');
             if (!await launchControls.startGoal(worker, payload, promptLaunch)) throw new Error('Goal state changed before submission');
             response = { goal: true };
           } else {
@@ -3205,7 +3241,7 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
             }
             if (playwrightPreviewEnabled && type === 'prompt' && surface === 'main' && !projectRules
               && !(payload.message as string).trimStart().startsWith('/')) localPreviewRuns.set(worker, { playwrightRevealed: false });
-            const submission = type === 'prompt' ? runtimes.submitPrompt(worker, payload, true)
+            const submission = type === 'prompt' ? runtimes.submitPrompt(worker, payload, true, undefined, preparationCurrent)
               : rpc.request(type, payload, type === 'compact' ? 600000 : 30000);
             response = await submission;
             if (type === 'prompt') { restoreReview = undefined; runtimes.publishLaunch(worker); }
@@ -3299,6 +3335,14 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
       return subagentRoleStore.save(args[0], args[1], current.models.map(model => ({ ...model, thinkingLevels: modelThinkingLevels(model) })));
     }
     case 'saveCompactionSettings': return admin.request('save_compaction_settings', { update: args[0] });
+    case 'webSearchSettings': return webSearchSettings(authData);
+    case 'saveWebSearch': {
+      if (transition || undoBusy || quitting || quitPending || updateInstalling) throw new Error('web-search:busy');
+      const next = saveWebSearch(authData, args[0], args[1]);
+      await vault.save(next);
+      authData = next;
+      return webSearchSettings(authData);
+    }
     case 'speechSettings':
       return speechSettings(authData, appliedAuthData, settingsMutation || providerSettingsPending || providerApplyFailed);
     case 'saveSpeech':
@@ -4082,7 +4126,7 @@ else app.whenReady().then(async () => {
       // CapabilityService selects its trusted scope after freezing the package.
       // Discovery network work and data-only themes must not block Remote I/O.
       const shared = capabilityMutation && !['capabilityMutate', 'pluginUpdateApply', 'pluginRemovalApply'].includes(method)
-        || ['login', 'logout', 'saveMcp', 'saveProvider', 'deleteProvider', 'saveNetwork', 'prepareStepPage', 'finishFirstRun'].includes(method);
+        || ['login', 'logout', 'saveMcp', 'saveProvider', 'deleteProvider', 'saveNetwork', 'saveWebSearch', 'prepareStepPage', 'finishFirstRun'].includes(method);
       if ((shared || method === 'capabilityMutate' || method === 'pluginUpdateApply' || method === 'pluginRemovalApply') && speechSaving) throw new Error('Speech settings operation in progress');
       if ((shared || method === 'capabilityMutate' || method === 'pluginUpdateApply' || method === 'pluginRemovalApply') && capabilityGate.active)
         throw new Error('Shared settings operation in progress');
@@ -4093,9 +4137,9 @@ else app.whenReady().then(async () => {
       if (undoBusy && ['moveSessionToProject', 'prepareStepPage', 'removeWorkspace', 'relocateWorkspace', 'beginSession', 'chooseSessionProject', 'createDraftSession', 'command', 'branchSession', 'cloneSession', 'retryMessage', 'restart', 'workspace', 'chooseWorkspace',
         'switchSession', 'navigateSession', 'newIndependentSession', 'deleteSession', 'deleteArchivedSessions', 'login', 'logout', 'saveMcp', 'saveProvider', 'deleteProvider', 'saveNetwork'].includes(method))
         throw new Error('Undo in progress');
-      if (settingsMutation && ['moveSessionToProject', 'prepareStepPage', 'removeWorkspace', 'relocateWorkspace', 'beginSession', 'chooseSessionProject', 'createDraftSession', 'command', 'branchSession', 'cloneSession', 'retryMessage', 'restart', 'workspace', 'chooseWorkspace', 'switchSession', 'navigateSession', 'newIndependentSession', 'deleteSession', 'deleteArchivedSessions', 'login', 'logout', 'saveMcp', 'saveProvider', 'deleteProvider', 'saveNetwork', 'discoverProviderModels', 'testProvider', 'testNetwork', 'finishFirstRun'].includes(method)) throw new Error('Shared settings operation in progress');
+      if (settingsMutation && ['moveSessionToProject', 'prepareStepPage', 'removeWorkspace', 'relocateWorkspace', 'beginSession', 'chooseSessionProject', 'createDraftSession', 'command', 'branchSession', 'cloneSession', 'retryMessage', 'restart', 'workspace', 'chooseWorkspace', 'switchSession', 'navigateSession', 'newIndependentSession', 'deleteSession', 'deleteArchivedSessions', 'login', 'logout', 'saveMcp', 'saveProvider', 'deleteProvider', 'saveNetwork', 'saveWebSearch', 'discoverProviderModels', 'testProvider', 'testNetwork', 'finishFirstRun'].includes(method)) throw new Error('Shared settings operation in progress');
       const speechOperation = ['speechSettings', 'saveSpeech', 'acknowledgeSpeech', 'beginSpeech', 'transcribeSpeech', 'finishSpeech', 'cancelSpeech'].includes(method);
-      if (!capabilityRead && !speechOperation && !['capabilityMutate', 'pluginUpdateApply', 'pluginRemovalApply'].includes(method) && !updateInstalling && providerSettingsPending && !settingsMutation && canApplyProviders()) {
+      if (!capabilityRead && !speechOperation && !['capabilityMutate', 'pluginUpdateApply', 'pluginRemovalApply', 'webSearchSettings', 'saveWebSearch'].includes(method) && !updateInstalling && providerSettingsPending && !settingsMutation && canApplyProviders()) {
         await applyProviderSettings();
       }
       if (rendererGenerations.get(senderId) !== generation) throw new Error('Window reloaded; retry the current action');
@@ -4130,7 +4174,8 @@ else app.whenReady().then(async () => {
         if (sessionDraft === initialDraft) sessionDraft = undefined;
         status = 'disconnected';
         await runtimes.stopAll();
-        startupError = error instanceof Error ? error.message : 'Could not start an independent session';
+        if (error instanceof WorkspaceDirectoryError) startupWorkspaceIssue = error.path;
+        else startupError = error instanceof Error ? error.message : 'Could not start an independent session';
         await crashLog.record('startup-failure', error, (error as { details?: Record<string, unknown> }).details ?? {});
       }
     })();

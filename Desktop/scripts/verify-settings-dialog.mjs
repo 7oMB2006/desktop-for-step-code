@@ -153,6 +153,7 @@ try {
   }
   await page.getByRole('button', { name: '供应商', exact: true }).click();
   await page.getByRole('button', { name: '添加供应商', exact: true }).first().click();
+  await page.getByRole('button', { name: '创建自定义供应商', exact: true }).click();
   await page.getByLabel('Base URL', { exact: true }).waitFor();
   assert.deepEqual(await dialog.boundingBox(), baseline, 'Provider editor does not resize the shell');
   await capture('settings-fixed-provider-light');

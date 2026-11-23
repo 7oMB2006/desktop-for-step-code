@@ -49,6 +49,11 @@ async function walk(root) {
 }
 await walk('dist');
 await walk('runtime');
+for (const name of ['desktop-web-search.mjs', 'native-step-search.mjs']) {
+  const expected = hash(await readFile(join('electron', name)));
+  assert.equal(hash(await readFile(join('runtime', name))), expected, `Runtime helper differs from source: ${name}`);
+  assert.equal(hash(await readFile(join(resources, 'runtime', name))), expected, `Packaged runtime helper differs from source: ${name}`);
+}
 for (const path of ['terminal-runtime/host.cjs', 'terminal-runtime/node_modules/node-pty/prebuilds/darwin-arm64/pty.node', 'terminal-runtime/node_modules/node-pty/prebuilds/darwin-arm64/spawn-helper']) {
   assert.equal(hash(await readFile(path)), hash(await readFile(join(resources, path))), path);
   checked.push(path);

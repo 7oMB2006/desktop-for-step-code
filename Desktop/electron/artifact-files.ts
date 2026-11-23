@@ -20,7 +20,7 @@ export async function artifactFile(cwd: string, value: unknown): Promise<Artifac
     const info = await stat(canonical);
     if (!info.isFile()) throw new Error('Not a regular file');
     const ext = extname(canonical).toLowerCase();
-    const safe = ['.html', '.htm', '.png', '.jpg', '.jpeg', '.webp', '.gif', '.svg', '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.csv', '.ppt', '.pptx', '.md', '.txt', '.wav', '.mp3', '.ogg', '.flac', '.mp4', '.webm', '.mov'].includes(ext);
+    const safe = ['.html', '.htm', '.png', '.jpg', '.jpeg', '.webp', '.gif', '.svg', '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.csv', '.tsv', '.ppt', '.pptx', '.md', '.txt', '.wav', '.mp3', '.ogg', '.flac', '.mp4', '.webm', '.mov'].includes(ext);
     return { path: canonical, exists: true, size: info.size, canOpen: safe, kind: artifactKind(canonical) };
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { path, exists: false, canOpen: false, kind: artifactKind(path) };

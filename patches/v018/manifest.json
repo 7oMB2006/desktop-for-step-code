@@ -5,7 +5,9 @@
   },
   "patches": {
     "step-code-desktop.patch": "815d252274220fe549064fe25e9618af2f46f746",
-    "step-code-desktop-subagent-session-privacy.patch": "af8845c60d3f04fd5fd194b022d2205e5593d11c"
+    "step-code-desktop-subagent-session-privacy.patch": "af8845c60d3f04fd5fd194b022d2205e5593d11c",
+    "step-code-desktop-gemini-api.patch": "a10fcb0e8ea12de1cdc350b0866748de7225f398",
+    "step-code-desktop-web-search.patch": "1394659364742280c5d55f9458cbab25c7955c2d"
   },
   "patchIds": [
     "windows-build",
@@ -37,6 +39,8 @@
     "desktop-async-startup",
     "desktop-plugin-mcp-reload",
     "desktop-subagent-role-models",
+    "desktop-gemini-api",
+    "desktop-web-search",
     "desktop-cron-session-ownership-v1",
     "desktop-background-command-state",
     "desktop-subagent-session-privacy"
@@ -163,7 +167,7 @@
     "packages/coding-agent/src/step/mcp.ts": "f353bb9d7b0639a0006b5b07ada835e7b951c78d",
     "packages/coding-agent/src/step/plugins.ts": "23d2d63ab6a30698371b2b4dd756079a766154b1",
     "packages/coding-agent/src/step/stepcode-config.ts": "0eb41a6aba45cebaa0294315a3ba75d2ad197cfe",
-    "packages/coding-agent/src/step/tool-profile.ts": "1fa72adb00f93165bcc60fd55dd5ed6f857daa98",
+    "packages/coding-agent/src/step/tool-profile.ts": "ab34399e2c46a97a7cdd10aa8c1eeebc6c8a3f64",
     "packages/coding-agent/src/step/usage/recording.ts": "89a3150013609bc9bac70d87a7f1c682664552bf",
     "packages/coding-agent/src/theme/theme.ts": "264b8ec8a7fc8f007fe1eab6791d8f5f024c52fc",
     "packages/coding-agent/src/utils/process-tree.ts": "6e7ad6019f0aa8431b4d51cd2d82dca151ebcf30",
@@ -195,7 +199,7 @@
     "packages/coding-agent/test/workflow-extension.test.ts": "ef6480be5d00286232a36e2b30a92c92103c3940",
     "packages/coding-agent/test/workflow-runtime.test.ts": "51c647f4ad56d82b61589160bb8e299083572fc1",
     "packages/providers/scripts/models-dev-reasoning-options.ts": "45f15650e41606b453d144aeb558e15a6b1ced28",
-    "packages/providers/src/api/openai-completions.ts": "3684608b2ae679d54b0cbc44f1feff3f25a070f7",
+    "packages/providers/src/api/openai-completions.ts": "c724fbc976036a493d03ee6ba5c86f238993362b",
     "packages/providers/src/api/openai-responses.ts": "93ae6abf906bdeac32d334ee4e8e1fe57447b33d",
     "packages/providers/src/api/simple-options.ts": "8c4528f82bc9919a18588f6447c7b3cd0c132d55",
     "packages/providers/src/models.ts": "c4db1a5eb063c4b2e8ce98a5133bb14ed1c0cf24",

@@ -12,6 +12,7 @@
 .model-picker-row { display: flex; align-items: center; gap: 3px; min-width: 0; min-height: 32px; border-radius: 5px; }
 .model-picker-row.is-selected { background: var(--surface); }
 .model-picker-list .model-picker-select { flex: 1; min-width: 0; min-height: 32px; gap: 6px; padding: 6px 7px; scroll-margin-block: 4px; }
+.model-picker-provider-mark { width: 16px; height: 16px; color: var(--muted); }
 .model-picker-check { display: flex; align-items: center; justify-content: center; width: 14px; height: 14px; flex-shrink: 0; color: var(--primary); }
 .model-picker-list .model-picker-star { flex: 0 0 26px; width: 26px; min-height: 26px; height: 26px; padding: 5px; justify-content: center; color: var(--muted); scroll-margin-block: 4px; transition: color .16s cubic-bezier(.65,0,.35,1), transform .16s cubic-bezier(.65,0,.35,1); }
 .model-picker-list .model-picker-star:hover, .model-picker-list .model-picker-star.is-favorite { color: var(--primary); }

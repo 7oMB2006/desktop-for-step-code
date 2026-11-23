@@ -16,7 +16,8 @@ test('v0.1.7 retains the complete Desktop patch inventory without duplicate upst
     'step-code-desktop-v017.patch', 'step-code-desktop-mcp-credentials.patch', 'step-code-desktop-plugin-host.patch',
     'step-code-desktop-ultra.patch', 'step-code-desktop-workflow-role.patch', 'step-code-desktop-startup.patch',
     'step-code-desktop-optional-mcp.patch', 'step-code-desktop-plugin-mcp-reload.patch',
-    'step-code-desktop-subagent-role-models.patch', 'step-code-desktop-subagent-session-privacy.patch']);
+    'step-code-desktop-subagent-role-models.patch', 'step-code-desktop-subagent-session-privacy.patch',
+    'step-code-desktop-gemini-api.patch', 'step-code-desktop-web-search.patch']);
   assert.deepEqual(Object.keys(manifest.platforms.darwin.patches), Object.keys(previous.platforms.darwin.patches));
   const touched = new Set<string>();
   for (const [name, hash] of Object.entries(manifest.patches)) {

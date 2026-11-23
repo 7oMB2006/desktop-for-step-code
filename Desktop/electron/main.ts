@@ -502,7 +502,7 @@ const authEnvironment = () => ({
   ...keylessEnvironment(appliedAuthData, app.isPackaged ? join(process.resourcesPath, 'runtime-adapters/keyless-fetch.cjs') : join(__dirname, 'keyless-fetch.cjs')),
 });
 const searchAdapter = (file: string) => app.isPackaged
-  ? join(process.resourcesPath, 'runtime-adapters', file) : join(app.getAppPath(), 'electron', file);
+  ? join(process.resourcesPath, 'runtime-adapters', file) : join(__dirname, '..', 'electron', file);
 const searchWeb = createWebSearch(providerFetch, nativeStepSearch(nodePath, searchAdapter('native-step-search.mjs'),
   join(runtimeRoot, 'step/dist/bundle/index.js'), dataRoot, () => ({ ...network.environment(env), DFSC_WEB_SEARCH_ROUTING: undefined })));
 const webSearchRuntimeReady = () => runtimeManifest.patches?.includes('desktop-web-search') === true;

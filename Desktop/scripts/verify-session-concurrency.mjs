@@ -1,5 +1,5 @@
 import { _electron as electron } from 'playwright';
-import { prepareSessionFixture } from './session-fixture.mjs';
+import { prepareSessionFixture, waitForSessionFixtureSnapshot } from './session-fixture.mjs';
 import { createServer } from 'node:http';
 import { mkdir, writeFile, readFile, symlink } from 'node:fs/promises';
 import { mkdtemp } from './test-profile.mjs';
@@ -83,7 +83,6 @@ try {
     };
   });
   const input = page.getByRole('textbox', { name: '消息', exact: true });
-  await input.fill('Empty session draft');
   for (let i = 0; i < 5; i++) {
     const reused = await page.evaluate(id => window.desktop.command('new_session', {}, id), initialEmpty.runtimeId);
     assert.equal(reused.runtimeId, initialEmpty.runtimeId);
@@ -91,7 +90,7 @@ try {
     assert.equal(reused.runtimes.length, initialEmpty.runtimes.length);
     assert.equal(reused.sessions.length, initialEmpty.sessions.length);
   }
-  assert.equal(await input.evaluate(element => element.value), 'Empty session draft');
+  assert.equal(await input.evaluate(element => element.value), '');
   await input.fill('RUN-A');
   await input.press('Enter');
   await page.waitForFunction(() => document.querySelector('.messages')?.textContent.includes('RUN-A output')).catch(async error => {
@@ -322,7 +321,20 @@ try {
     assert.equal(reused.sessions.length, returnedA.sessions.length);
     assert.equal(reused.runtimes.length, returnedA.runtimes.length);
   }
-  console.log('Empty-session reuse passed: repeated creation preserves worker/session identity and draft; separate projects stay independent, including a canonicalized directory alias.');
+  await page.reload();
+  const retainedDraft = 'Keep the original session draft';
+  const readDraft = sessionId => page.evaluate(id =>
+    window.desktop.composerRead({ sessionId: id }).then(record => record.value.text), sessionId);
+  await input.fill(retainedDraft);
+  await waitForSessionFixtureSnapshot(page, async snapshot =>
+    snapshot.runtimeId === emptyA.runtimeId && await readDraft(emptyA.state.sessionId) === retainedDraft,
+  'the original session draft to reach the host');
+  const fresh = await page.evaluate(id => window.desktop.command('new_session', {}, id), emptyA.runtimeId);
+  assert.notEqual(fresh.runtimeId, emptyA.runtimeId);
+  assert.notEqual(fresh.state.sessionId, emptyA.state.sessionId);
+  assert.equal(await readDraft(fresh.state.sessionId), '');
+  assert.equal(await readDraft(emptyA.state.sessionId), retainedDraft);
+  console.log('Empty-session reuse passed: blank sessions retain their identities; sessions with drafts stay separate and preserve input, including across projects with a canonicalized directory alias.');
   assert.deepEqual(errors, []);
   console.log('Concurrent real RPC/SSE passed: background streams, targeted abort, scoped approvals, drafts across recycling, direct shared-directory sends with system collaboration rules, statistics, themes, narrow layout, left status dots and decoded completion audio (playback intercepted).');
 } finally {

@@ -28,7 +28,8 @@ export class SessionCollaboration {
     private remote?: { extensionPath: string; sendImage: (worker: SessionRuntime, path: string, caption?: string, signal?: AbortSignal) => Promise<unknown> },
     private attachments?: SessionAttachmentExports,
     private openPreview?: (worker: SessionRuntime, url: string) => unknown,
-    private playwrightPreview?: (worker: SessionRuntime, request: Record<string, unknown>, signal?: AbortSignal) => unknown) {}
+    private playwrightPreview?: (worker: SessionRuntime, request: Record<string, unknown>, signal?: AbortSignal) => unknown,
+    private webSearch?: { ready: () => boolean; search: (query: unknown, signal: AbortSignal) => Promise<unknown> }) {}
 
   async start() {
     await this.attachments?.clearStale();
@@ -126,6 +127,9 @@ export class SessionCollaboration {
         throw new Error('Expected only a local preview URL');
       return this.openPreview(source, data.url);
     }
+    if (this.webSearch && data.action === 'web-search-status') return { ready: this.webSearch.ready() };
+    if (this.webSearch && data.action === 'web-search')
+      return this.webSearch.search(data.query, signal ?? new AbortController().signal);
     if (data.action === 'remote-image') {
       if (!this.remote || typeof data.path !== 'string' || !data.path || data.path.length > 4096
         || data.caption !== undefined && (typeof data.caption !== 'string' || data.caption.length > 500))

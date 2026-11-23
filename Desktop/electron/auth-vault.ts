@@ -4,6 +4,7 @@ import { readFile, rename, unlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import { PLUGIN_HOST_ACCOUNT_FIELD } from './plugin-host-account';
+import { WEB_SEARCH_FIELD } from './web-search-config';
 
 type AuthData = Record<string, unknown>;
 type SafeStorageLike = Pick<typeof safeStorageType, 'isEncryptionAvailable' | 'encryptString' | 'decryptString'>;
@@ -34,7 +35,7 @@ function isEmptyAuthData(data: AuthData): boolean {
   return Object.values(data).every(isEmptyAuthValue);
 }
 function legacyCredentials(data: AuthData): AuthData {
-  const { [PLUGIN_HOST_ACCOUNT_FIELD]: _, ...credentials } = data;
+  const { [PLUGIN_HOST_ACCOUNT_FIELD]: _, [WEB_SEARCH_FIELD]: _webSearch, ...credentials } = data;
   return credentials;
 }
 

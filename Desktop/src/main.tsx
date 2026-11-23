@@ -99,6 +99,7 @@ import { ReviewPanel } from './ReviewPanel';
 import { SummaryBoard } from './SummaryBoard';
 import { AccountSettings, ProviderIcon, StepPlatformIcon } from './AccountSettings';
 import { ProviderSettings } from './ProviderSettings';
+import { WebSearchSettings } from './WebSearchSettings';
 import { NetworkSettings } from './NetworkSettings';
 import { DisclosureSelect } from './DisclosureSelect';
 import { CapabilitySettings } from './CapabilitySettings';
@@ -1598,6 +1599,7 @@ function App() {
   };
   const settingsCategories = [
     ['account', StepPlatformIcon, '账户', 'Account'], ['providers', ProviderIcon, '供应商', 'Providers'],
+    ['web-search', Globe, '联网搜索', 'Web search'],
     ['plugins', Plug, '插件', 'Plugins'], ['mcp', McpIcon, 'MCP', 'MCP'], ['skills', BookOpen, 'Skills', 'Skills'],
     ['instructions', FileText, '全局指令', 'Global instructions'], ['general', SunMoon, '通用', 'General'],
     ['interface', SlidersHorizontal, '界面复杂度', 'Interface complexity'], ['appearance', Pencil, '外观', 'Appearance'],
@@ -3052,7 +3054,8 @@ function App() {
             </li>)}</ul>
           </div>}
       <div key={tab} ref={settingsContent} hidden={searchingSettings} className="settings-content">
-      {tab === 'instructions' ? <GlobalInstructionsSettings editor={globalInstructionsEditor} language={data.preferences.language}/> : tab === 'interface' ? <InterfaceSettings value={interfaceSettings} language={data.preferences.language} onChange={interfaceSettings => setPreference({ interfaceSettings })}/> : tab === 'appearance' ? <>
+      {tab === 'web-search' && bridge ? <WebSearchSettings bridge={bridge} language={data.preferences.language} onAccount={() => selectSettingsTab('account')}/>
+        : tab === 'instructions' ? <GlobalInstructionsSettings editor={globalInstructionsEditor} language={data.preferences.language}/> : tab === 'interface' ? <InterfaceSettings value={interfaceSettings} language={data.preferences.language} onChange={interfaceSettings => setPreference({ interfaceSettings })}/> : tab === 'appearance' ? <>
         <ThemeSettings preferences={data.preferences} systemDark={systemDark} language={data.preferences.language} packs={data.themePacks}
           loadScene={bridge?.themeScene} loadPoster={bridge?.themePoster} onChange={patch => void setPreference(patch)}/>
         {!isMini && bridge && <>

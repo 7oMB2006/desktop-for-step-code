@@ -1,0 +1,14 @@
+diff --git a/packages/coding-agent/src/step/tool-profile.ts b/packages/coding-agent/src/step/tool-profile.ts
+--- a/packages/coding-agent/src/step/tool-profile.ts
++++ b/packages/coding-agent/src/step/tool-profile.ts
+@@ -1831,7 +1831,9 @@
+ 		listDirectory,
+ 		findFiles,
+ 		searchFiles,
+-		searchWeb,
++		// Desktop owns the search route, including when it is unavailable.
++		// The standalone profile and the isolated native adapter keep the native tool.
++		...(process.env.DFSC_WEB_SEARCH_ROUTING === "1" ? [] : [searchWeb]),
+ 		readFile,
+ 		writeFile,
+ 		editFile,

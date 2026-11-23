@@ -216,6 +216,7 @@ try {
   await settings();
   await page.getByRole('button', { name: '供应商', exact: true }).click();
   await page.getByRole('button', { name: '添加供应商', exact: true }).first().click();
+  await page.getByRole('button', { name: '创建自定义供应商', exact: true }).click();
   await page.getByLabel('Base URL', { exact: true }).fill('https://api.openai.com/v1');
   await page.getByRole('button', { name: /API 格式/ }).click();
   await page.getByRole('menuitemradio', { name: 'Responses · /responses', exact: true }).click();

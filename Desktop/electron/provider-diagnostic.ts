@@ -1,5 +1,6 @@
 import type { CustomProvider, ProviderDiagnostic } from '../src/contracts';
-import { providerList } from './custom-providers';
+import { providerList, validateProviderCredential } from './custom-providers';
+import { providerBrandFor, sameProviderCredentialScope } from '../src/provider-presets';
 
 // Diagnostics are isolated HTTP requests, not agent prompts or saved configuration.
 export async function testProvider(auth: Record<string, unknown>, raw: unknown, modelId: unknown, key: unknown, signal?: AbortSignal,
@@ -29,10 +30,13 @@ export async function testProvider(auth: Record<string, unknown>, raw: unknown, 
     model = modelId.trim();
     if (typeof p.keyless !== 'boolean' || (key !== undefined && (typeof key !== 'string' || key.length > 8192 || /[\r\n\u0000]/.test(key)))) return finish('invalid-config');
     const saved = providerList(auth).find(item => item.id === p.id);
-    credential = p.keyless ? undefined : typeof key === 'string' && key.trim() ? key.trim() : saved ? (auth[saved.id] as { key?: string } | undefined)?.key : undefined;
+    credential = p.keyless ? undefined : typeof key === 'string' && key.trim() ? key.trim()
+      : saved && sameProviderCredentialScope(saved, p) ? (auth[saved.id] as { key?: string } | undefined)?.key : undefined;
     if (!p.keyless && !credential) return finish('invalid-config');
+    validateProviderCredential(p, credential);
+    const brand = providerBrandFor(p);
     const route = api === 'openai-completions' ? 'chat/completions' : api === 'openai-responses' ? 'responses' : 'messages';
-    url.pathname = `${url.pathname.replace(/\/$/, '')}/${route}`;
+    url.pathname = brand === 'anthropic' ? '/v1/messages' : `${url.pathname.replace(/\/$/, '')}/${route}`;
     // Custom path segments may contain secrets; report only the origin and known route.
     endpoint = `${url.origin}/.../${route}`;
     if (credential) endpoint = endpoint.split(credential).join('[redacted]');
@@ -42,9 +46,12 @@ export async function testProvider(auth: Record<string, unknown>, raw: unknown, 
       if (credential) headers['x-api-key'] = credential;
     } else if (credential) headers.Authorization = `Bearer ${credential}`;
     const prompt = 'Reply with OK only.';
+    const useMaxTokens = api === 'anthropic-messages' || brand === 'gemini' ||
+      brand === 'zhipu' || brand === 'bailian' || brand === 'siliconflow' || brand === 'ark' || brand === 'minimax';
     body = api === 'openai-responses'
       ? { model, input: prompt, stream: false, store: false, max_output_tokens: 256 }
-      : { model, messages: [{ role: 'user', content: prompt }], stream: false, ...(api === 'anthropic-messages' ? { max_tokens: 256 } : { max_completion_tokens: 256 }) };
+      : { model, messages: [{ role: 'user', content: prompt }], stream: false,
+        ...(useMaxTokens ? { max_tokens: 256 } : { max_completion_tokens: 256 }) };
   } catch { return finish('invalid-config'); }
   const timeout = AbortSignal.timeout(30000);
   const combined = signal ? AbortSignal.any([signal, timeout]) : timeout;

@@ -36,6 +36,8 @@ import { composerKey, type ComposerOwner, type WindowPresentation } from '../src
 import { importedHistoryMessages } from './imported-history';
 import { messagesWithEntryIds } from './session-branching';
 import { SessionCollaboration } from './session-collaboration';
+import { saveWebSearch, webSearchSettings } from './web-search-config';
+import { createWebSearch, nativeStepSearch } from './web-search-service';
 import { BvrBridge } from './bvr-bridge';
 import { BvrSettings } from './bvr-settings';
 import { PluginHostLauncher } from './plugin-host-launcher';
@@ -499,6 +501,15 @@ const authEnvironment = () => ({
   STEPCODE_DESKTOP_AUTH_DATA: JSON.stringify(runtimeAuth(appliedAuthData)),
   ...keylessEnvironment(appliedAuthData, app.isPackaged ? join(process.resourcesPath, 'runtime-adapters/keyless-fetch.cjs') : join(__dirname, 'keyless-fetch.cjs')),
 });
+const searchAdapter = (file: string) => app.isPackaged
+  ? join(process.resourcesPath, 'runtime-adapters', file) : join(app.getAppPath(), 'electron', file);
+const searchWeb = createWebSearch(providerFetch, nativeStepSearch(nodePath, searchAdapter('native-step-search.mjs'),
+  join(runtimeRoot, 'step/dist/bundle/index.js'), dataRoot, () => ({ ...network.environment(env), DFSC_WEB_SEARCH_ROUTING: undefined })));
+const webSearchRuntimeReady = () => runtimeManifest.patches?.includes('desktop-web-search') === true;
+const webSearchReady = () => {
+  const settings = webSearchSettings(authData);
+  return webSearchRuntimeReady() && settings.enabled && settings.order.length > 0;
+};
 const movedSessionEnvironment = () => ({
   STEP_PERMISSION_PRESET: 'ask',
   DESKTOP_CRON_SCOPE_DIR: join(app.getPath('userData'), 'cron-bindings'),
@@ -707,10 +718,13 @@ const runtimes: SessionRuntimes = new SessionRuntimes(event => {
     usageEstimates.attach(worker);
     const launch = collaboration.attach(worker);
     return { ...launch, env: { ...launch.env,
+      DFSC_WEB_SEARCH_ROUTING: '1',
+      DESKTOP_WEB_SEARCH_READY: webSearchReady() ? '1' : '0',
       ...(runtimeManifest.patches?.includes('desktop-async-startup') ? { DFSC_ASYNC_STARTUP_V1: '1' } : {}),
       ...(runtimeManifest.patches?.includes('desktop-plugin-host-launch') ? { DFSC_RUNTIME_HOST_V1: '1' } : {}) },
       args: [...launch.args, '--extension', join(runtimeRoot, 'project-instructions.mjs'),
-        '--extension', join(runtimeRoot, 'runtime-compile-cache.mjs')] };
+        '--extension', join(runtimeRoot, 'runtime-compile-cache.mjs'),
+        '--extension', searchAdapter('desktop-web-search.mjs')] };
   },
   dispose: worker => {
     localPreviewRuns.delete(worker);
@@ -1279,7 +1293,8 @@ const collaboration: SessionCollaboration = new SessionCollaboration(runtimes, j
       return true;
     });
     return { content: [{ type: 'text', text: `Playwright connected to the original preview tab at ${new URL(preview.url).origin}. The Browser panel reveals it once per turn in this conversation. Use snapshot before clicking.` }] };
-  } : undefined);
+  } : undefined,
+  { ready: webSearchReady, search: (query, signal) => searchWeb(webSearchRuntimeReady() ? authData : {}, query, signal) });
 function recycleSessionRuntimes() {
   if (transition && !sessionNavigation.busy) return;
   void runtimes.recycle(worker => sessionNavigation.pending(worker.state?.sessionId))
@@ -3322,6 +3337,14 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
       return subagentRoleStore.save(args[0], args[1], current.models.map(model => ({ ...model, thinkingLevels: modelThinkingLevels(model) })));
     }
     case 'saveCompactionSettings': return admin.request('save_compaction_settings', { update: args[0] });
+    case 'webSearchSettings': return webSearchSettings(authData);
+    case 'saveWebSearch': {
+      if (transition || undoBusy || quitting || quitPending || updateInstalling) throw new Error('web-search:busy');
+      const next = saveWebSearch(authData, args[0], args[1]);
+      await vault.save(next);
+      authData = next;
+      return webSearchSettings(authData);
+    }
     case 'speechSettings':
       return speechSettings(authData, appliedAuthData, settingsMutation || providerSettingsPending || providerApplyFailed);
     case 'saveSpeech':
@@ -4105,7 +4128,7 @@ else app.whenReady().then(async () => {
       // CapabilityService selects its trusted scope after freezing the package.
       // Discovery network work and data-only themes must not block Remote I/O.
       const shared = capabilityMutation && !['capabilityMutate', 'pluginUpdateApply', 'pluginRemovalApply'].includes(method)
-        || ['login', 'logout', 'saveMcp', 'saveProvider', 'deleteProvider', 'saveNetwork', 'prepareStepPage', 'finishFirstRun'].includes(method);
+        || ['login', 'logout', 'saveMcp', 'saveProvider', 'deleteProvider', 'saveNetwork', 'saveWebSearch', 'prepareStepPage', 'finishFirstRun'].includes(method);
       if ((shared || method === 'capabilityMutate' || method === 'pluginUpdateApply' || method === 'pluginRemovalApply') && speechSaving) throw new Error('Speech settings operation in progress');
       if ((shared || method === 'capabilityMutate' || method === 'pluginUpdateApply' || method === 'pluginRemovalApply') && capabilityGate.active)
         throw new Error('Shared settings operation in progress');
@@ -4116,9 +4139,9 @@ else app.whenReady().then(async () => {
       if (undoBusy && ['moveSessionToProject', 'prepareStepPage', 'removeWorkspace', 'relocateWorkspace', 'beginSession', 'chooseSessionProject', 'createDraftSession', 'command', 'branchSession', 'cloneSession', 'retryMessage', 'restart', 'workspace', 'chooseWorkspace',
         'switchSession', 'navigateSession', 'newIndependentSession', 'deleteSession', 'deleteArchivedSessions', 'login', 'logout', 'saveMcp', 'saveProvider', 'deleteProvider', 'saveNetwork'].includes(method))
         throw new Error('Undo in progress');
-      if (settingsMutation && ['moveSessionToProject', 'prepareStepPage', 'removeWorkspace', 'relocateWorkspace', 'beginSession', 'chooseSessionProject', 'createDraftSession', 'command', 'branchSession', 'cloneSession', 'retryMessage', 'restart', 'workspace', 'chooseWorkspace', 'switchSession', 'navigateSession', 'newIndependentSession', 'deleteSession', 'deleteArchivedSessions', 'login', 'logout', 'saveMcp', 'saveProvider', 'deleteProvider', 'saveNetwork', 'discoverProviderModels', 'testProvider', 'testNetwork', 'finishFirstRun'].includes(method)) throw new Error('Shared settings operation in progress');
+      if (settingsMutation && ['moveSessionToProject', 'prepareStepPage', 'removeWorkspace', 'relocateWorkspace', 'beginSession', 'chooseSessionProject', 'createDraftSession', 'command', 'branchSession', 'cloneSession', 'retryMessage', 'restart', 'workspace', 'chooseWorkspace', 'switchSession', 'navigateSession', 'newIndependentSession', 'deleteSession', 'deleteArchivedSessions', 'login', 'logout', 'saveMcp', 'saveProvider', 'deleteProvider', 'saveNetwork', 'saveWebSearch', 'discoverProviderModels', 'testProvider', 'testNetwork', 'finishFirstRun'].includes(method)) throw new Error('Shared settings operation in progress');
       const speechOperation = ['speechSettings', 'saveSpeech', 'acknowledgeSpeech', 'beginSpeech', 'transcribeSpeech', 'finishSpeech', 'cancelSpeech'].includes(method);
-      if (!capabilityRead && !speechOperation && !['capabilityMutate', 'pluginUpdateApply', 'pluginRemovalApply'].includes(method) && !updateInstalling && providerSettingsPending && !settingsMutation && canApplyProviders()) {
+      if (!capabilityRead && !speechOperation && !['capabilityMutate', 'pluginUpdateApply', 'pluginRemovalApply', 'webSearchSettings', 'saveWebSearch'].includes(method) && !updateInstalling && providerSettingsPending && !settingsMutation && canApplyProviders()) {
         await applyProviderSettings();
       }
       if (rendererGenerations.get(senderId) !== generation) throw new Error('Window reloaded; retry the current action');

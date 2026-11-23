@@ -3,10 +3,12 @@ import { readFile, writeFile, rename, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import { SPEECH_FIELD } from './speech';
 import { PLUGIN_HOST_ACCOUNT_FIELD } from './plugin-host-account';
+import { WEB_SEARCH_FIELD } from './web-search-config';
 import { enrichDiscoveredModel, officialModelCapabilities, officialResponsesRequired } from '../src/official-model-capabilities';
 import type { CustomProvider, ProviderInfo, Model, ProviderApi, DiscoveredProviderModel } from '../src/contracts';
 import { catalogProviders, resolveCatalogProvider } from '../src/provider-catalog';
-import { THINKING_LEVELS, stringSubset, modelListing, parseModelListing, readModelJson } from './provider-discovery';
+import { providerBrandFor, providerCredentialIssue, providerPresetFor, sameProviderCredentialScope } from '../src/provider-presets';
+import { THINKING_LEVELS, stringSubset, modelListing, parseModelListing, readModelJson, isArkChatModel } from './provider-discovery';
 import type { ModelCatalog } from './model-catalog';
 export { THINKING_LEVELS, discoverModelMetadata } from './provider-discovery';
 
@@ -15,6 +17,14 @@ const PREFIX = 'desktop-custom-';
 const APIS: ProviderApi[] = ['openai-completions', 'openai-responses', 'anthropic-messages'];
 type AuthData = Record<string, unknown>;
 const MODALITIES = ['text', 'image', 'audio', 'video', 'file'];
+export function validateProviderCredential(provider: Pick<CustomProvider, 'baseUrl' | 'api' | 'presetId' | 'keyless'>, credential?: string) {
+  const issue = providerCredentialIssue(provider, credential);
+  if (issue === 'preset-mismatch') throw new Error('Provider preset does not match the API endpoint');
+  if (issue === 'official-key') throw new Error('An official API key is required');
+  if (issue === 'plan-key') throw new Error('A subscription API key is required for this preset');
+  if (issue === 'usage-key') throw new Error('Use the subscription preset for this API key');
+}
+
 export async function discoverProviderModels(auth: AuthData, raw: unknown, key?: unknown,
   request: (url: string, init: RequestInit) => Promise<Response> = globalThis.fetch,
   catalog?: Pick<ModelCatalog, 'enrich'>): Promise<DiscoveredProviderModel[]> {
@@ -26,10 +36,13 @@ export async function discoverProviderModels(auth: AuthData, raw: unknown, key?:
   if (p.catalogProvider !== undefined && p.catalogProvider !== 'none' && !catalogProviders.some(item => item.id === p.catalogProvider)) throw new Error('Invalid catalog provider');
   if (key !== undefined && (typeof key !== 'string' || key.length > 8192 || /[\r\n\u0000]/.test(key))) throw new Error('Invalid API key');
   const saved = providerList(auth).find(item => item.id === p.id);
-  const sameEndpoint = saved && new URL(saved.baseUrl).href.replace(/\/+$/, '') === url.href.replace(/\/+$/, '');
-  const credential = p.keyless ? undefined : (typeof key === 'string' && key.trim() ? key.trim() : sameEndpoint ? (auth[saved!.id] as { key?: string } | undefined)?.key : undefined);
+  const credential = p.keyless ? undefined : typeof key === 'string' && key.trim() ? key.trim()
+    : saved && sameProviderCredentialScope(saved, p) ? (auth[saved.id] as { key?: string } | undefined)?.key : undefined;
   if (!p.keyless && !credential) throw new Error('API key is required');
+  validateProviderCredential(p, credential);
+  const brand = providerBrandFor(p);
   const listing = modelListing(url, p.api, credential);
+  if (brand === 'siliconflow') listing.url.searchParams.set('sub_type', 'chat');
   const timeout = AbortSignal.timeout(15000);
   try {
     const response = await request(listing.url.href, { headers: listing.headers, redirect: 'error', signal: timeout, credentials: 'omit', cache: 'no-store' });
@@ -37,7 +50,7 @@ export async function discoverProviderModels(auth: AuthData, raw: unknown, key?:
       await response.body?.cancel();
       throw new Error(`Model discovery HTTP ${response.status}`);
     }
-    const models = parseModelListing(await readModelJson(response, 2 * 1024 * 1024))
+    const models = parseModelListing(await readModelJson(response, 2 * 1024 * 1024), brand === 'ark' ? isArkChatModel : undefined)
       .map(model => enrichDiscoveredModel(p.baseUrl, p.api, model));
     return catalog ? await catalog.enrich(p, models) : models;
   } catch (error) {
@@ -62,6 +75,7 @@ export function validateProvider(raw: unknown): CustomProvider {
   const url = new URL(text(p.baseUrl, 2048, 'Base URL'));
   if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.search || url.hash) throw new Error('Use an HTTP(S) base address without credentials, query or fragment');
   if (!APIS.includes(p.api)) throw new Error('Unsupported API format');
+  if (p.presetId !== undefined && !providerPresetFor(p)) throw new Error('Provider preset does not match the API endpoint');
   if (typeof p.enabled !== 'boolean' || typeof p.keyless !== 'boolean') throw new Error('Invalid provider state');
   if (p.catalogProvider !== undefined && p.catalogProvider !== 'none' && !catalogProviders.some(item => item.id === p.catalogProvider)) throw new Error('Invalid catalog provider');
   if (!Array.isArray(p.models) || !p.models.length || p.models.length > 100) throw new Error('Add between 1 and 100 models');
@@ -126,6 +140,7 @@ export function validateProvider(raw: unknown): CustomProvider {
       ...(thinkingLevels ? { thinkingLevels } : {}), ...(thinkingControl ? { thinkingControl } : {}), ...(declaredThinkingLevels ? { declaredThinkingLevels } : {}), ...(declaredInput ? { declaredInput } : {}), ...(declaredOutput ? { declaredOutput } : {}), ...(m.metadataSource ? { metadataSource: m.metadataSource } : {}) };
   });
   return { id, name: text(p.name, 100, 'provider name'), baseUrl: url.href.replace(/\/$/, ''), api: p.api, enabled: p.enabled, keyless: p.keyless,
+    ...(p.presetId !== undefined ? { presetId: p.presetId } : {}),
     ...(p.catalogProvider !== undefined ? { catalogProvider: p.catalogProvider } : {}), models };
 }
 export function providerList(auth: AuthData): CustomProvider[] {
@@ -140,15 +155,18 @@ export function saveProviderAuth(auth: AuthData, raw: unknown, key?: unknown): A
   const provider = validateProvider(raw);
   if (provider.models.some(model => officialResponsesRequired(provider.baseUrl, provider.api, model.id))) throw new Error('This model requires Responses API for tools');
   const providers = providerList(auth);
-  if (!providers.some(p => p.id === provider.id) && providers.length >= 50) throw new Error('Maximum 50 providers');
+  const previous = providers.find(p => p.id === provider.id);
+  if (!previous && providers.length >= 50) throw new Error('Maximum 50 providers');
   const next = { ...auth };
+  if (previous && !sameProviderCredentialScope(previous, provider)) delete next[provider.id];
   if (key !== undefined) {
     if (typeof key !== 'string' || key.length > 8192 || /[\r\n\u0000]/.test(key)) throw new Error('Invalid API key');
     if (key.trim()) next[provider.id] = { type: 'api_key', key: key.trim() };
     else delete next[provider.id];
   }
   if (!provider.keyless && !(next[provider.id] as { key?: string } | undefined)?.key) throw new Error('API key is required');
-  next[FIELD] = providers.some(p => p.id === provider.id)
+  validateProviderCredential(provider, (next[provider.id] as { key?: string } | undefined)?.key);
+  next[FIELD] = previous
     ? providers.map(p => p.id === provider.id ? provider : p) : [...providers, provider];
   return next;
 }
@@ -175,6 +193,7 @@ export function runtimeAuth(auth: AuthData): AuthData {
   const next = { ...auth };
   delete next[FIELD];
   delete next[SPEECH_FIELD];
+  delete next[WEB_SEARCH_FIELD];
   delete next[PLUGIN_HOST_ACCOUNT_FIELD];
   for (const p of providerList(auth)) {
     if (!p.enabled) delete next[p.id];
@@ -193,8 +212,10 @@ export function runtimeAuth(auth: AuthData): AuthData {
 export function mergeRuntimeAuth(auth: AuthData, credentials: AuthData): AuthData {
   const next = { ...credentials };
   delete next[SPEECH_FIELD];
+  delete next[WEB_SEARCH_FIELD];
   delete next[PLUGIN_HOST_ACCOUNT_FIELD];
   if (auth[SPEECH_FIELD] !== undefined) next[SPEECH_FIELD] = auth[SPEECH_FIELD];
+  if (auth[WEB_SEARCH_FIELD] !== undefined) next[WEB_SEARCH_FIELD] = auth[WEB_SEARCH_FIELD];
   if (auth[FIELD] !== undefined) next[FIELD] = auth[FIELD];
   for (const p of providerList(auth)) {
     if (auth[p.id] !== undefined) next[p.id] = auth[p.id];
@@ -203,14 +224,16 @@ export function mergeRuntimeAuth(auth: AuthData, credentials: AuthData): AuthDat
   return next;
 }
 export function providerModelNames(models: Model[], auth: AuthData): Model[] {
-  const providers = new Map(providerList(auth).map(p => [p.id, p]));
+  const providers = new Map(providerList(auth).map(p => [p.id, { provider: p, brand: providerBrandFor(p), billing: providerPresetFor(p)?.billing }]));
   return models.map(m => {
-    const p = providers.get(m.provider);
-    const configured = p?.models.find(v => v.id === m.id);
-    const controlled = configured?.thinkingLevels?.length && (p?.api !== 'anthropic-messages' || configured.thinkingControl?.adaptive === true);
-    return p ? { ...m, providerName: p.name, ...(configured ? { thinkingServiceDefault: !controlled, thinkingLevels: controlled ? configured.thinkingLevels : [], input: configured.vision ? ['text', 'image'] : ['text'], contextWindow: configured.contextWindow, maxTokens: configured.maxTokens,
+    const connection = providers.get(m.provider);
+    if (!connection) return m;
+    const { provider, brand, billing } = connection;
+    const configured = provider.models.find(v => v.id === m.id);
+    const controlled = configured?.thinkingLevels?.length && (provider.api !== 'anthropic-messages' || configured.thinkingControl?.adaptive === true);
+    return { ...m, providerName: provider.name, providerBilling: billing, providerBrand: brand, ...(configured ? { thinkingServiceDefault: !controlled, thinkingLevels: controlled ? configured.thinkingLevels : [], input: configured.vision ? ['text', 'image'] : ['text'], contextWindow: configured.contextWindow, maxTokens: configured.maxTokens,
       declaredInput: configured.declaredInput, declaredOutput: configured.declaredOutput, capabilitySources: configured.capabilitySources,
-      officialDocumentation: configured.officialDocumentation, metadataSource: configured.metadataSource ?? 'manual' } : {}) } : m;
+      officialDocumentation: configured.officialDocumentation, metadataSource: configured.metadataSource ?? 'manual' } : {}) };
   });
 }
 export async function projectProviders(root: string, auth: AuthData) {
@@ -224,13 +247,19 @@ export async function projectProviders(root: string, auth: AuthData) {
   const managed = Object.keys(config.providers ?? {}).some(id => id.startsWith(PREFIX));
   if (!providers.length && !managed) return;
   const entries = Object.fromEntries(Object.entries(config.providers ?? {}).filter(([id]) => !id.startsWith(PREFIX)));
-  for (const p of providers.filter(p => p.enabled)) entries[p.id] = {
-    baseUrl: p.baseUrl, api: p.api,
-    models: p.models.map(m => ({ id: m.id, name: m.name, reasoning: Boolean(m.thinkingLevels?.length && (p.api !== 'anthropic-messages' || m.thinkingControl?.adaptive === true)), input: m.vision ? ['text', 'image'] : ['text'],
-      thinkingLevelMap: Object.fromEntries(THINKING_LEVELS.map(level => [level, m.thinkingLevels?.includes(level) ? m.thinkingControl?.mapping?.[level] ?? level : null])),
-      ...(p.api === 'anthropic-messages' && m.thinkingControl?.adaptive === true ? { compat: { forceAdaptiveThinking: true } } : {}),
-      contextWindow: m.contextWindow, maxTokens: m.maxTokens, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } })),
-  };
+  for (const p of providers.filter(p => p.enabled)) {
+    const brand = providerBrandFor(p);
+    const chatCompat = p.api === 'openai-completions' && (brand === 'bailian' || brand === 'minimax')
+      ? { maxTokensField: 'max_tokens', supportsStore: false, supportsDeveloperRole: false, supportsStrictMode: false }
+      : undefined;
+    entries[p.id] = {
+      baseUrl: p.baseUrl, api: p.api,
+      models: p.models.map(m => ({ id: m.id, name: m.name, reasoning: Boolean(m.thinkingLevels?.length && (p.api !== 'anthropic-messages' || m.thinkingControl?.adaptive === true)), input: m.vision ? ['text', 'image'] : ['text'],
+        thinkingLevelMap: Object.fromEntries(THINKING_LEVELS.map(level => [level, m.thinkingLevels?.includes(level) ? m.thinkingControl?.mapping?.[level] ?? level : null])),
+        ...(chatCompat ? { compat: chatCompat } : p.api === 'anthropic-messages' && m.thinkingControl?.adaptive === true ? { compat: { forceAdaptiveThinking: true } } : {}),
+        contextWindow: m.contextWindow, maxTokens: m.maxTokens, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } })),
+    };
+  }
   const temp = `${path}.${randomUUID()}.tmp`;
   try {
     await writeFile(temp, JSON.stringify({ ...config, providers: entries }, null, 2), { flag: 'wx' });

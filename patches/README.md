@@ -30,6 +30,18 @@ UltraCode collaboration mode. Compatible effort-based endpoints receive the
 configured value unchanged; budget-based providers retain their existing
 high-budget fallback. No built-in catalog model is opted in by this patch.
 
+`step-code-desktop-gemini-api.patch` is applied on v017 and v018. It preserves
+tool-call thought signatures only for Google's official OpenAI-compatible Gemini
+endpoint, using Step Code's existing message history. It does not add a relay
+or account authentication. After building the pinned source, run
+`node Desktop/scripts/verify-official-provider-runtime.mjs Step-Code` from the
+repository root to exercise the three official API transports with local fixtures.
+
+The v017 and v018 Web Search patch keeps the standalone search tool intact, but
+omits it from Desktop-owned sessions and their native child processes. This
+lets Desktop register the routed tool without the SDK tool taking precedence
+or bypassing the configured order. Restage the runtime after applying this patch.
+
 ## Historical v0.1.6 Baseline
 
 The v016 set also includes `step-code-desktop-btw.patch`: a model-only,

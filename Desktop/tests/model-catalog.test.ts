@@ -12,7 +12,7 @@ import { join } from 'node:path';
 
 const provider = (patch: Partial<CustomProvider> = {}): CustomProvider => ({
   id: '', name: 'Fixture', api: 'openai-responses', baseUrl: 'https://api.openai.com/v1',
-  enabled: true, keyless: true, models: [], ...patch,
+  enabled: true, keyless: false, models: [], ...patch,
 });
 const listing = [{ id: 'fixture-model', name: 'Fixture' }];
 const catalog = {
@@ -116,7 +116,7 @@ test('catalog booleans, budgets and unfamiliar enums do not invent reasoning con
   assert.equal((await conflict.enrich(provider(), listing))[0].thinkingLevels, undefined);
 });
 test('saved credentials stay bound to their endpoint and discovery never falls back to catalog-only models', async () => {
-  const p = provider({ keyless: false, models: [importProviderModel(listing[0])] });
+  const p = provider({ models: [importProviderModel(listing[0])] });
   const auth = saveProviderAuth({}, p, 'synthetic-secret');
   const saved = providerList(auth)[0];
   let calls = 0;
@@ -126,8 +126,8 @@ test('saved credentials stay bound to their endpoint and discovery never falls b
   await discoverProviderModels(auth, { ...saved, baseUrl: 'https://other.test/v1' }, 'new-synthetic', request);
   assert.equal(calls, 1);
   const directory = new ModelCatalog(async () => Response.json(catalog));
-  assert.deepEqual(await discoverProviderModels({}, provider(), undefined, async () => Response.json({ data: [] }), directory), []);
-  await assert.rejects(discoverProviderModels({}, provider(), undefined, async () => new Response('', { status: 401 }), directory));
+  assert.deepEqual(await discoverProviderModels({}, provider(), 'fixture-key', async () => Response.json({ data: [] }), directory), []);
+  await assert.rejects(discoverProviderModels({}, provider(), 'fixture-key', async () => new Response('', { status: 401 }), directory), /Model discovery HTTP 401/);
 });
 test('catalog controls survive import/save/runtime projection and manual refresh remains authoritative', async () => {
   const directory = new ModelCatalog(async () => Response.json(catalog));
@@ -137,7 +137,7 @@ test('catalog controls survive import/save/runtime projection and manual refresh
   assert.equal(saved.models[0].thinkingControl?.source, 'catalog');
   const root = await mkdtemp(join(tmpdir(), 'desktop-catalog-unit-'));
   try {
-    await projectProviders(root, saveProviderAuth({}, saved));
+    await projectProviders(root, saveProviderAuth({}, saved, 'fixture-key'));
     const config = JSON.parse(await readFile(join(root, 'models.json'), 'utf8'));
     const projected = Object.values(config.providers)[0] as any;
     assert.equal(projected.models[0].thinkingLevelMap.off, 'none');

@@ -47,7 +47,15 @@ export function modelListing(baseUrl: URL, api: ProviderApi, credential?: string
   return { url, headers };
 }
 
-export function parseModelListing(body: unknown): DiscoveredProviderModel[] {
+export function isArkChatModel(entry: Record<string, unknown>): boolean {
+  const output = object(entry.modalities)?.output_modalities;
+  return (entry.domain === 'LLM' || entry.domain === 'VLM')
+    && (entry.status === undefined || entry.status === 'Published' || entry.status === 'Retiring')
+    && Array.isArray(entry.task_type) && entry.task_type.includes('TextGeneration')
+    && (output === undefined || (Array.isArray(output) && output.includes('text')));
+}
+
+export function parseModelListing(body: unknown, include?: (entry: Record<string, unknown>) => boolean): DiscoveredProviderModel[] {
   const payload = object(body);
   const rows: { key?: string; value: unknown }[] = Array.isArray(body) ? body.map(value => ({ value }))
     : Array.isArray(payload?.data) ? payload.data.map((value: unknown) => ({ value }))
@@ -58,6 +66,7 @@ export function parseModelListing(body: unknown): DiscoveredProviderModel[] {
     const entry = object(row.value);
     if (row.key !== undefined && !entry) continue;
     if (!entry && typeof row.value !== 'string') continue;
+    if (include && (!entry || !include(entry))) continue;
     const rawId = row.key || entry?.id || row.value;
     if (typeof rawId !== 'string' || !rawId.trim() || rawId.length > 300 || /[\u0000-\u001f]/.test(rawId)) continue;
     const id = rawId.trim();

@@ -125,7 +125,149 @@ try {
   const errors = [];
   page.on('pageerror', e => errors.push(e.message));
   await settings();
+  const presets = page.locator('.provider-preset-picker');
+  const openPresets = () => page.locator('.provider-heading').getByRole('button', { name: '添加供应商', exact: true }).click();
+  const format = page.locator('#provider-api-value');
+  const input = label => page.getByLabel(label, { exact: true });
+  const evidence = resolve('test-results/provider-presets');
+  const shell = await page.locator('.settings-dialog').boundingBox();
+  await mkdir(evidence, { recursive: true });
+  await openPresets();
+  const kimi = presets.locator('[data-preset-brand="kimi"]');
+  const variants = presets.locator('.provider-preset-variants[aria-labelledby$="-kimi-name"]');
+  const platformChoice = variants.getByRole('button', { name: /Kimi 开放平台 国内.*按量/ });
+  const subscriptionChoice = variants.getByRole('button', { name: /Kimi Code 国内.*套餐/ });
+  assert.deepEqual(await page.locator('.settings-dialog').boundingBox(), shell, 'picker uses the same settings shell');
+  assert.deepEqual(await presets.locator('[data-preset-brand]').evaluateAll(tiles => tiles.map(tile => tile.dataset.presetBrand)),
+    ['deepseek', 'kimi', 'zhipu', 'bailian', 'minimax', 'openai', 'anthropic', 'gemini', 'siliconflow', 'ark']);
+  await page.waitForFunction(() => [...document.querySelectorAll('.provider-preset-tile img')].every(img => img.naturalWidth > 0));
+  assert.equal(await variants.evaluate(el => el.inert), true);
+  assert.equal(await variants.evaluate(el => getComputedStyle(el).transitionDuration), '0.24s, 0.24s');
+  await assertFocusVisible(page, kimi, 'Kimi tile');
+  await page.keyboard.press('Enter');
+  assert.equal(await kimi.getAttribute('aria-expanded'), 'true');
+  await assertFocusVisible(page, platformChoice, 'Kimi Open Platform variant');
+  await assertFocusVisible(page, subscriptionChoice, 'Kimi Code variant');
+  const gridBounds = await presets.locator('.provider-preset-grid').boundingBox();
+  const variantsBounds = await variants.boundingBox();
+  assert.equal(variantsBounds.x, gridBounds.x, 'Kimi choices start at the first tile column');
+  assert.equal(variantsBounds.width, gridBounds.width, 'Kimi choices span both tile columns');
+  await page.screenshot({ path: join(evidence, 'picker-dark.png') });
+  await page.keyboard.press('Escape');
+  assert.equal(await kimi.getAttribute('aria-expanded'), 'false');
+  assert.equal(await kimi.evaluate(el => document.activeElement === el), true);
+  assert.equal(await variants.evaluate(el => el.inert), true);
+  for (const [brand, name, baseUrl, api, recommendation] of [
+    ['zhipu', '智谱 GLM', 'https://open.bigmodel.cn/api/paas/v4', /^Chat Completions/, 'glm-5.3'],
+    ['bailian', '阿里云百炼', 'https://dashscope.aliyuncs.com/compatible-mode/v1', /^Chat Completions/, 'qwen-plus'],
+    ['minimax', 'MiniMax', 'https://api.minimax.cn/v1', /^Chat Completions/],
+    ['openai', 'OpenAI', 'https://api.openai.com/v1', /^Responses/],
+    ['anthropic', 'Anthropic', 'https://api.anthropic.com', /^Anthropic Messages.*\/v1\/messages$/],
+    ['gemini', 'Gemini', 'https://generativelanguage.googleapis.com/v1beta/openai', /^Chat Completions/],
+    ['siliconflow', '硅基流动', 'https://api.siliconflow.cn/v1', /^Chat Completions/],
+    ['ark', '火山方舟', 'https://ark.cn-beijing.volces.com/api/v3', /^Chat Completions/],
+  ]) {
+    const tile = presets.locator(`[data-preset-brand="${brand}"]`);
+    await assertFocusVisible(page, tile, `${name} tile`);
+    await page.keyboard.press('Enter');
+    if (brand === 'bailian' || brand === 'minimax') {
+      assert.equal(await tile.getAttribute('aria-expanded'), 'true');
+      const choices = presets.locator('.provider-preset-variants[aria-hidden="false"]');
+      await choices.getByRole('button', { name: /按量$/ }).click();
+    }
+    assert.equal(await input('名称').inputValue(), name);
+    assert.equal(await input('Base URL').inputValue(), baseUrl);
+    assert.match(await format.textContent(), api);
+    assert.equal(await input('API Key').inputValue(), '');
+    assert.equal(await page.getByRole('checkbox', { name: '无需密钥（本地服务）' }).count(), 0);
+    assert.equal(await input('模型 ID 1').count(), 0);
+    const discover = page.getByRole('button', { name: '从上游获取', exact: true });
+    if (recommendation) {
+      assert.equal(await discover.count(), 0);
+      const suggested = page.getByRole('button', { name: '推荐模型', exact: true });
+      await suggested.click();
+      await page.getByRole('menuitemradio', { name: recommendation, exact: true }).waitFor();
+      await page.keyboard.press('Escape');
+    } else {
+      assert.equal(await discover.isDisabled(), true);
+    }
+    if (brand === 'ark') {
+      await page.getByRole('button', { name: '添加模型', exact: true }).click();
+      assert.match(await input('模型 ID 1').getAttribute('placeholder'), /ep-/);
+      await input('模型 ID 1').fill('ep-fixture');
+      await page.getByRole('button', { name: '返回供应商预设' }).press('Enter');
+      await page.getByRole('button', { name: '放弃', exact: true }).press('Enter');
+    } else {
+      await page.getByRole('button', { name: '返回供应商预设' }).press('Enter');
+    }
+    await assertFocusVisible(page, tile, `return to ${name} tile`, { focus: false });
+  }
+  for (const [brand, name, baseUrl] of [
+    ['bailian', '百炼 Token Plan', 'https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1'],
+    ['minimax', 'MiniMax M Plan', 'https://api.minimax.cn/v1'],
+  ]) {
+    const tile = presets.locator(`[data-preset-brand="${brand}"]`);
+    if (await tile.getAttribute('aria-expanded') !== 'true') await tile.click();
+    const choice = presets.locator('.provider-preset-variants[aria-hidden="false"]').getByRole('button', { name: new RegExp(`^${name}.*套餐$`) });
+    await assertFocusVisible(page, choice, `${name} variant`);
+    await page.keyboard.press('Enter');
+    assert.equal(await input('名称').inputValue(), name);
+    assert.equal(await input('Base URL').inputValue(), baseUrl);
+    assert.equal(await input('Base URL').evaluate(el => el.readOnly), true);
+    assert.equal(await input('套餐 API Key').inputValue(), '');
+    await input('套餐 API Key').fill('wrong-fixture-key');
+    await page.getByText('请输入该套餐的专属 API Key。', { exact: true }).waitFor();
+    assert.equal(await page.getByRole('button', { name: '测试连接', exact: true }).isDisabled(), true);
+    await page.getByRole('button', { name: '返回供应商预设' }).press('Enter');
+    await page.getByRole('button', { name: '放弃', exact: true }).press('Enter');
+    assert.equal(await tile.getAttribute('aria-expanded'), 'true');
+    await assertFocusVisible(page, tile, `return to ${name} tile`, { focus: false });
+  }
+  await presets.locator('[data-preset-brand="deepseek"]').click();
+  assert.equal(await input('名称').inputValue(), 'DeepSeek');
+  assert.equal(await input('Base URL').inputValue(), 'https://api.deepseek.com');
+  assert.match(await format.textContent(), /^Chat Completions/);
+  assert.equal(await input('API Key').inputValue(), '');
+  await page.getByRole('button', { name: '返回供应商预设' }).click();
+  await kimi.click();
+  await platformChoice.click();
+  assert.equal(await input('Base URL').inputValue(), 'https://api.moonshot.cn/v1');
+  await page.getByRole('button', { name: '返回供应商预设' }).click();
+  assert.equal(await kimi.getAttribute('aria-expanded'), 'true');
+  await subscriptionChoice.click();
+  assert.equal(await input('Base URL').inputValue(), 'https://api.kimi.com/coding/v1');
+  assert.match(await format.textContent(), /^Responses/);
+  assert.equal(await page.getByRole('button', { name: '从上游获取', exact: true }).count(), 0);
+  await page.getByRole('button', { name: '推荐模型', exact: true }).click();
+  await page.getByRole('menuitemradio', { name: 'kimi-for-coding', exact: true }).click();
+  await page.locator('.app-menu').filter({ has: page.getByText('k3.1-pro', { exact: true }) }).waitFor({ state: 'hidden' });
+  assert.equal(await input('模型 ID 1').inputValue(), 'kimi-for-coding');
+  assert.equal(await page.getByRole('button', { name: '测试连接', exact: true }).isDisabled(), true);
+  await page.screenshot({ path: join(evidence, 'subscription-form.png') });
+  await page.getByRole('button', { name: '返回供应商预设' }).click();
+  await page.getByRole('button', { name: '放弃', exact: true }).click();
+  assert.equal(await kimi.getAttribute('aria-expanded'), 'true');
+  assert.equal((await page.evaluate(() => window.desktop.settings())).providers.length, 0, 'preset selection never saves a provider');
+  assert.equal(requests.length, 0);
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(640, 760));
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.evaluate(() => window.desktop.preferences({ theme: 'light' }));
+  await page.waitForFunction(() => document.documentElement.dataset.theme === 'light' && innerWidth < 700);
+  await assertFocusVisible(page, kimi, 'Kimi tile in narrow light settings');
+  assert.equal(await variants.evaluate(el => getComputedStyle(el).transitionDuration), '0s');
+  await assertFocusVisible(page, platformChoice, 'Kimi Open Platform variant in narrow light settings');
+  await assertFocusVisible(page, subscriptionChoice, 'Kimi Code variant in narrow light settings');
+  assert.equal(await presets.evaluate(el => el.scrollWidth > el.clientWidth), false);
+  assert.equal(await presets.locator('.provider-preset-grid').evaluate(el => getComputedStyle(el).gridTemplateColumns.split(' ').length), 1);
+  await page.screenshot({ path: join(evidence, 'picker-narrow-light.png') });
+  await assertFocusVisible(page, presets.locator('[data-preset-brand="ark"]'), 'Volcengine Ark tile in narrow light settings');
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+  await page.evaluate(() => window.desktop.preferences({ theme: 'dark' }));
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1360, 900));
+  await presets.getByRole('button', { name: '返回', exact: true }).click();
+  assert.equal(await page.locator('.provider-heading button').evaluate(el => document.activeElement === el), true);
   await page.getByRole('button', { name: '添加供应商', exact: true }).first().click();
+  await page.getByRole('button', { name: '创建自定义供应商', exact: true }).click();
   await page.getByLabel('名称', { exact: true }).fill('我的测试供应商');
   await page.getByLabel('Base URL', { exact: true }).fill(address);
   await page.getByLabel('API Key', { exact: true }).fill('isolated-provider-fixture');

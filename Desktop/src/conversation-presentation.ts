@@ -299,7 +299,7 @@ const toolKinds: Record<string, ToolKind> = {
   edit: 'edit', edit_file: 'edit', apply_patch: 'edit',
   grep: 'search', search: 'search', search_files: 'search',
   ls: 'folder', list_directory: 'folder', find: 'folder',
-  fetch: 'web', fetch_url: 'web', web_fetch: 'web',
+  fetch: 'web', fetch_url: 'web', web_fetch: 'web', search_web: 'web',
   desktop_sessions: 'sessions', desktop_read_session: 'session-read', desktop_send_message: 'session-send',
 };
 const toolLabels: Record<ToolKind, [string, string, string, string, string, string]> = {
@@ -340,7 +340,9 @@ export function toolPresentation(name: string, result: Message | undefined, acti
   const state: ToolState = result && !result.desktopToolPending ? (result.isError || checkFailed ? 'failed' : 'done') : active ? 'running' : 'missing';
   const kind = Object.hasOwn(toolKinds, name) ? toolKinds[name] : 'other';
   const zh = language === 'zh';
-  const labels = toolLabels[kind];
+  const labels = name === 'search_web'
+    ? ['联网搜索', '已联网搜索', '联网搜索失败', 'Searching the web', 'Searched the web', 'Web search failed']
+    : toolLabels[kind];
   if (result && !result.desktopToolPending && !result.desktopImported) {
     if (kind === 'command') {
       const execution = readCommandOutcome(result.details?.execution);

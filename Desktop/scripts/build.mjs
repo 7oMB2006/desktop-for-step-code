@@ -11,6 +11,7 @@ await build({ entryPoints: ['electron/main.ts', 'electron/preload.ts', 'electron
 await rm('dist/playwright-preview-helper.cjs', { force: true });
 await viteBuild({ base: './', define, build: { outDir: 'dist/renderer', emptyOutDir: true, rolldownOptions: { input: ['index.html', 'tray-menu.html', ...(usagePreview ? ['tests/fixtures/usage-overview.html'] : [])] } } });
 await mkdir('dist/licenses', { recursive: true });
+await cp('src/assets/providers/NOTICE.txt', 'dist/licenses/provider-marks.txt');
 await mkdir('dist/file-opening', { recursive: true });
 await cp('dist/macos-update-helper.cjs', 'dist/file-opening/macos-update-helper.cjs');
 if (process.platform === 'darwin') execFileSync('/usr/bin/xcrun', ['swiftc', '-target', 'arm64-apple-macosx13.5', '-O', 'electron/file-applications-macos.swift', '-o', 'dist/file-opening/file-applications-macos']);

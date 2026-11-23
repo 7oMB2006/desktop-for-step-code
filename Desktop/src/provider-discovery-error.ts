@@ -13,6 +13,7 @@ export function providerDiscoveryError(error: unknown, language: string): string
           : t('上游拒绝了模型列表请求，请稍后重试。', 'The provider rejected the model list request; try again later.');
     return `HTTP ${status} · ${detail}`;
   }
+  if (message.includes('An official API key is required')) return t('请填写官方 API Key，不能使用账号登录凭证。', 'Enter an official API key, not an account login credential.');
   if (message.includes('Model discovery timed out')) return t('获取模型超时（15 秒），请检查网络和系统代理。', 'Model discovery timed out (15 seconds); check the network and system proxy.');
   return t('无法获取模型，请检查地址、密钥、网络和系统代理；也可手动添加模型。', 'Could not retrieve models; check the address, key, network and system proxy, or add models manually.');
 }

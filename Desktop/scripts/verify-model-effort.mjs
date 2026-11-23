@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import assert from 'node:assert/strict';
 
-const outputs = await build({ entryPoints: ['tests/fixtures/model-effort-harness.tsx'], bundle: true, write: false, outdir: 'test-results', platform: 'browser', format: 'iife', jsx: 'automatic' });
+const outputs = await build({ entryPoints: ['tests/fixtures/model-effort-harness.tsx'], bundle: true, write: false, outdir: 'test-results', platform: 'browser', format: 'iife', jsx: 'automatic', loader: { '.svg': 'dataurl' } });
 const js = outputs.outputFiles.find(file => file.path.endsWith('.js'))?.text;
 const css = outputs.outputFiles.find(file => file.path.endsWith('.css'))?.text;
 assert.ok(js && css);
@@ -35,6 +35,7 @@ try {
   await page.getByRole('button', { name: '模型与思考强度' }).click();
   const dialog = page.getByRole('dialog', { name: '模型与思考强度' });
   const slider = dialog.getByRole('slider', { name: '思考强度' });
+  const cardMark = dialog.locator('.model-effort-provider-brand');
   const recordFaderMotion = async (interact, label) => {
     await page.evaluate(() => {
       const frames = [];
@@ -132,13 +133,15 @@ try {
   await page.screenshot({ path: 'test-results/model-effort-fader.png' });
   assert.equal(await dialog.locator('.model-effort-heading-level-current').textContent(), '轻度');
   assert.equal(await dialog.locator('.model-effort-heading > svg').count(), 0, 'Model area should not have a disclosure arrow');
-  assert.equal(await dialog.locator('[data-provider-brand="step"] svg rect').count(), 5);
-  assert.match(await dialog.locator('[data-provider-brand="step"]').evaluate(e => getComputedStyle(e).maskImage), /linear-gradient/);
+  assert.equal(await cardMark.getAttribute('data-provider-brand'), 'step');
+  assert.equal(await cardMark.locator('svg rect').count(), 5);
+  assert.match(await cardMark.evaluate(e => getComputedStyle(e).maskImage), /linear-gradient/);
   await dialog.screenshot({ path: 'test-results/model-provider-step-dark.png' });
   await dialog.getByRole('button', { name: '选择模型' }).click();
   await dialog.locator('.model-picker-select').filter({ hasText: 'Custom Model' }).click();
   await page.waitForTimeout(350);
-  assert.equal(await dialog.locator('[data-provider-brand="custom"] svg').count(), 1);
+  assert.equal(await cardMark.getAttribute('data-provider-brand'), 'custom');
+  assert.equal(await cardMark.locator('svg').count(), 1);
   await dialog.screenshot({ path: 'test-results/model-provider-custom-dark.png' });
   await page.evaluate(() => { document.documentElement.dataset.theme = 'light'; });
   await dialog.screenshot({ path: 'test-results/model-provider-custom-light.png' });
@@ -556,6 +559,23 @@ try {
   await page.waitForTimeout(420);
   assert.equal(await slider.getAttribute('aria-valuemax'), '6', 'Ordinary models retain seven stops');
   assert.equal(await page.locator('.model-effort-ultra-text').count(), 0);
+  await page.evaluate(() => window.modelPickerFixture.configure({ models: [
+    { id: 'shared', name: 'DeepSeek V4', provider: 'direct', providerName: 'DeepSeek', providerBrand: 'deepseek' },
+    { id: 'shared', name: 'DeepSeek V4', provider: 'relay', providerName: 'SiliconFlow', providerBrand: 'siliconflow' },
+    { id: 'shared', name: 'DeepSeek V4', provider: 'unrecognized', providerName: 'Gateway' },
+  ] }));
+  for (const [provider, brand] of [['DeepSeek', 'deepseek'], ['SiliconFlow', 'siliconflow'], ['Gateway', 'custom']]) {
+    await dialog.getByRole('button', { name: '选择模型', exact: true }).click();
+    const row = dialog.locator('.model-picker-select').filter({ has: page.getByText(provider, { exact: true }) });
+    assert.equal(await row.locator('.model-picker-provider-mark').getAttribute('data-provider-brand'), brand);
+    await row.click();
+    await settleLayout(dialog);
+    assert.equal(await cardMark.getAttribute('data-provider-brand'), brand);
+    if (brand !== 'custom') {
+      assert.match(await cardMark.locator('.model-provider-silhouette').evaluate(mark => getComputedStyle(mark).maskImage), /^url\(/);
+      assert.match(await cardMark.evaluate(mark => getComputedStyle(mark).maskImage), /linear-gradient/);
+    }
+  }
   console.log('Ultra passed: independent identity, purple endpoint, italic flow, contrast, themes, narrow layout, shared fader motion and accessibility fallbacks.');
   console.log('Fader acceptance passed: no click jump, resisted drag, release commit, wheel and keyboard.');
   console.log('Model picker passed: explicit favorites, no automatic collection or model selection, search, failed save and retry, provider identity, availability, keyboard focus, IME guards, focus bounds, narrow themes and English.');

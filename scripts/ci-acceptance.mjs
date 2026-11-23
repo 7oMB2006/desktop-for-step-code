@@ -131,6 +131,8 @@ export const acceptanceGroups = {
     'verify-background-history-liveness.mjs',
     'verify-btw-electron.mjs',
     'verify-custom-providers.mjs',
+    'verify-official-provider-runtime.mjs',
+    'verify-web-search.mjs',
     'verify-model-catalog.mjs',
     'verify-network-settings.mjs',
     'verify-provider-proxy.mjs',

@@ -23,6 +23,7 @@ import type { MarkdownBlock } from './markdown-blocks';
 import { ThinkingDisclosure } from './ThinkingDisclosure';
 import { ProcessRowLabel } from './ProcessRowLabel';
 import { DisclosureChevron } from './DisclosureChevron';
+import { isWebSearchProvider, webSearchOutcomes, webSearchProviders, type WebSearchOutcome } from './web-search';
 import { SubagentStatusIcon } from './SubagentStatusIcon';
 import { AgentRoleIcon } from './AgentRole';
 import { WorkflowBlock } from './WorkflowView';
@@ -301,6 +302,22 @@ function Timestamp({ value, language }: { value?: number; language: 'zh' | 'en' 
     {formatter.format(date)}
   </time>;
 }
+
+function WebSearchAttempts({ value, zh }: { value: unknown; zh: boolean }) {
+  const attempts = (value as { attempts?: unknown } | undefined)?.attempts;
+  if (!Array.isArray(attempts)) return null;
+  const index = zh ? 0 : 1;
+  const labels = attempts.slice(0, 6).flatMap(attempt => {
+    const provider: unknown = attempt?.provider;
+    if (!isWebSearchProvider(provider) || typeof attempt?.outcome !== 'string'
+      || !Object.hasOwn(webSearchOutcomes, attempt.outcome)) return [];
+    return [`${webSearchProviders[provider].name[index]} · ${webSearchOutcomes[attempt.outcome as WebSearchOutcome][index]}`];
+  });
+  return labels.length ? <div className="web-search-attempts">
+    <strong>{zh ? '搜索路径' : 'Search route'}</strong>
+    <span>{labels.join(' → ')}</span>
+  </div> : null;
+}
 export function Tool({ item, active, onExpandedChange, ...props }: {
   item: Extract<ResponseItem, { type: 'tool' }>; active: boolean;
   onExpandedChange?: (expanded: boolean) => void;
@@ -343,6 +360,7 @@ export function Tool({ item, active, onExpandedChange, ...props }: {
       {item.call && <ToolDetails className="tool-input" stateKey={stateKey && `${stateKey}:input`} label={zh ? '输入' : 'Input'}>
         <ToolText text={JSON.stringify(item.call.arguments ?? {}, null, 2)} {...props}/></ToolDetails>}
       {item.result ? <ToolDetails className="tool-output" stateKey={stateKey && `${stateKey}:output`} label={zh ? '结果' : 'Result'} defaultExpanded>
+        {name === 'search_web' && <WebSearchAttempts value={item.result.details?.desktopWebSearch} zh={zh}/>}
         {messageText(item.result) ? <ToolText text={messageText(item.result)} {...props}/>
           : !messageBlocks(item.result).some(block => block.type === 'image') && <p className="process-pending">{zh ? '无输出' : 'No output'}</p>}
         {messageBlocks(item.result).filter(block => block.type === 'image').map((block, index) => <Image key={index} block={block} {...props}/>)}

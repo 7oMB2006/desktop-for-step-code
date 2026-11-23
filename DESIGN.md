@@ -73,6 +73,28 @@ immediate 2px system highlight. Search fields use the same softened outline and
 fade on the search shell or input, without changing sidebar search disclosure
 motion. Other form controls and file-drop feedback keep their existing treatment.
 
+## Drag And Drop
+
+Keep the dragged item visually tied to its source and give immediate feedback
+about the destination. Use a dedicated grip when the row already contains
+controls. Starting, dropping or cancelling a drag must not activate the row or
+its controls. Provide a keyboard alternative and keep focus on the same item
+after reordering.
+
+For a flat priority list, reuse the [web search sorting motion](Desktop/src/priority-order-motion.ts).
+The lifted row tracks the pointer without easing; displaced rows slide aside
+using transforms and a 220ms cubic ease-out (`cubic-bezier(.22, 1, .36, 1)`).
+Resolve the destination against the original row positions so moving rows
+cannot shift their own hit targets. On release, settle from the current visual
+positions into the new order. Keyboard moves use the same settling motion.
+Reduced motion keeps direct pointer tracking and moves other rows instantly.
+
+Dragging only previews the order. A valid drop commits it once. Escape, pointer
+cancellation and release outside the list restore the saved order without a
+write. If saving fails, restore the authoritative order and report the failure.
+This pattern does not replace dedicated interactions for grouped sidebar moves,
+file drops, resizing or panning.
+
 ## Error Banners
 
 Reuse [`ConversationErrorBanner`](Desktop/src/main.tsx) for failures in the main
@@ -560,6 +582,17 @@ Full Access uses the native risk acknowledgment with localized presentation and 
 
 Settings use one centered, fixed-size secondary window: 1060 by 740 pixels, bounded by the application viewport. All categories, including providers and archived sessions, share this shell instead of resizing it. The full application, including its titlebar and window controls, sits behind a softly blurred backdrop with a low-opacity black tint that never becomes a white veil in dark mode. The form surface stays opaque for readability. The titlebar is inert until settings finish closing. Navigation and content scroll independently. Narrow windows retain icon navigation and bounded content. The selected category has a restrained rose tint, content changes fade without moving the frame, and matching entrance/exit effects preserve the blocking layer until dismissal ends. Reduced motion bypasses dismissal animation. Switching categories keeps navigation focus and resets the content scroll position.
 
+Adding a provider opens an in-place picker beside the saved providers. Brand tiles use local marks and collapse to one column as the available content width narrows. A brand with multiple connections stays in place and unfolds full-width connection rows beneath its tile row. Show the credential source and distinguish pay-as-you-go access from subscriptions. Height, opacity and the shared chevron use the same 240ms cubic transition, with an instant reduced-motion fallback. Choosing a preset opens an unsaved draft in the existing provider form, with an empty key and unchanged model selection. Creating a custom provider remains available in the picker. Returning restores the relevant brand or the Add provider button; unsaved edits still require explicit discard.
+
+Web search is a separate Settings category. The configured service rail stays in place while the settings pane switches between priority, the two-column preset picker, and a connection draft. Reuse provider marks, switches, chevrons and cubic transitions. Saving a connection does not enable it unless selected. Step Plan is first by default; an explicit order is retained. The fallback switch discloses that a query can reach the next enabled service. The transcript's existing tool details show the actual attempt path, not the configured order.
+The priority list follows the shared [Drag And Drop](#drag-and-drop) pattern.
+
+Pay-as-you-go and official API subscriptions use separate saved connections and
+credential scopes, even at a shared address. The selected preset, not the
+address or display name, identifies billing on shared routes. Do not infer
+billing for an existing unclassified connection or fall back to a different
+connection. Show billing in saved connections and the model picker.
+
 Settings search fills the header span from the category rail to the close
 button, without resizing the dialog or clipping the shared focus outline.
 It matches built-in category names and indexed option labels and aliases in
@@ -602,6 +635,11 @@ belongs to the internally scrolling model list. Returning restores focus to the
 model heading. No empty favorite
 section is reserved. An independent star button adds or removes a favorite without
 selecting a model or closing the picker; the selected checkmark remains separate.
+Reuse the local marks from provider settings in the model card and list. The
+mark follows the actual connection, never the model name or catalog binding.
+Use monochrome silhouettes in the picker with the existing Step card fade.
+Keep a neutral mark for unrecognized providers. Marks are decorative and do not
+replace provider labels or billing text in the list.
 Favorites retain their saved order and provider/model identities in Desktop
 preferences. Runtime activity never creates or reorders them, and earlier recent
 history is not converted into favorites. Unavailable favorites are hidden but

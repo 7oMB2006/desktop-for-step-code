@@ -217,7 +217,7 @@ export function ModelEffortPicker({ model, models, favoriteModels, onFavorite, l
       <div className="model-effort-panel model-effort-effort-panel" inert={view !== 'effort'} aria-hidden={view !== 'effort'}>
         <div className="model-effort-info">
           <button type="button" className="model-effort-heading" onClick={() => setView('models')} aria-label={zh ? '选择模型' : 'Select model'}>
-            <ProviderBrand provider={model?.provider}/>
+            <ProviderBrand model={parameters} variant="card"/>
             {pending && <span className="model-effort-pending" role="status">{zh ? '下一轮生效' : 'Applies next turn'}</span>}
             <span className="model-effort-heading-copy"><span className="model-effort-heading-name">{modelName}</span><AnimatedEffortLevel level={previewLevel ?? ''} index={previewIndex} color={effortColor} language={language}/></span>
           </button>

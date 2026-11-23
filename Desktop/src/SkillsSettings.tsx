@@ -57,7 +57,16 @@ function SkillDialog({ title, children, onCancel }: { title: string; children: R
     return () => dialog.close();
   }, []);
   return <dialog ref={ref} className="skills-preview-dialog" aria-labelledby={titleId}
-    onCancel={event => { event.preventDefault(); event.stopPropagation(); onCancel(); }}>
+    onCancel={event => { event.preventDefault(); event.stopPropagation(); onCancel(); }}
+    onKeyDown={event => {
+      event.stopPropagation();
+      if (event.key !== 'Tab') return;
+      const controls = [...event.currentTarget.querySelectorAll<HTMLElement>('button:enabled, input:enabled, textarea:enabled')];
+      const first = controls[0], last = controls.at(-1);
+      if (!first || !last) return;
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+    }}>
     <header><h3 id={titleId}>{title}</h3></header>
     {children}
   </dialog>;

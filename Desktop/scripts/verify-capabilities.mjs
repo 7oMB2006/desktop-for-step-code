@@ -367,7 +367,35 @@ try {
   await sessionCommands.locator('summary').press('Space');
   await page.waitForFunction(() => !document.querySelector('.cap-preparation')?.open);
   assert.equal(await activeSkill().getByRole('button', { name: '删除 Skill', exact: true }).count(), 0);
-  await page.getByRole('button', { name: '新建', exact: true }).click();
+  const createSkill = page.getByRole('button', { name: '新建', exact: true });
+  await createSkill.click();
+  const creation = page.getByRole('dialog', { name: '新建 Skill', exact: true });
+  async function verifySkillDialogKeyboard(dialog, first, last) {
+    await dialog.waitFor();
+    assert.equal(await dialog.evaluate(element => element.matches(':modal')), true);
+    await last.focus();
+    await page.keyboard.press('Tab');
+    assert.equal(await first.evaluate(element => document.activeElement === element), true,
+      'Tab wraps from the last control inside the Skills modal, not to settings');
+    await page.keyboard.press('Shift+Tab');
+    assert.equal(await last.evaluate(element => document.activeElement === element), true,
+      'Shift+Tab wraps from the first control inside the Skills modal');
+    assert.equal(await last.evaluate(element => {
+      let bubbled = false;
+      const mark = () => { bubbled = true; };
+      document.addEventListener('keydown', mark);
+      try { element.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true })); }
+      finally { document.removeEventListener('keydown', mark); }
+      return bubbled;
+    }), false, 'Modal keystrokes never reach the outer settings focus trap');
+  }
+  await verifySkillDialogKeyboard(creation, creation.getByRole('textbox', { name: '名称', exact: true }),
+    creation.getByRole('button', { name: '保存', exact: true }));
+  await page.keyboard.press('Escape');
+  await creation.waitFor({ state: 'hidden' });
+  assert.equal(await createSkill.evaluate(element => document.activeElement === element), true,
+    'Escape closes only the Skills modal and restores the settings trigger');
+  await createSkill.click();
   const originalViewport = page.viewportSize() ?? await page.evaluate(() => ({ width: innerWidth, height: innerHeight }));
   const originalTheme = await page.evaluate(() => document.documentElement.dataset.theme);
   for (const theme of ['light', 'dark']) {
@@ -457,6 +485,8 @@ try {
   await activeSkill().getByRole('button', { name: 'references/checklist.md', exact: true }).waitFor({ state: 'detached' });
   await activeSkill().getByRole('button', { name: '删除文件', exact: true }).click();
   const deleteFile = page.getByRole('dialog', { name: '删除文件？', exact: true });
+  await verifySkillDialogKeyboard(deleteFile, deleteFile.getByRole('button', { name: '取消', exact: true }),
+    deleteFile.getByRole('button', { name: '删除', exact: true }));
   await deleteFile.getByRole('button', { name: '删除', exact: true }).click();
   await activeSkill().getByText('没有配套文件', { exact: true }).waitFor();
   const importedSkill = join(profile, 'fixture-skill-import');

@@ -4,6 +4,7 @@ import type { Message } from './contracts';
 import { createTurnChangesReader } from './turn-changes';
 import { isUserMessage } from './user-message';
 import { DiffCount } from './DiffCount';
+import { useComposerChipPresence } from './ComposerContextBar';
 import './live-turn-changes.css';
 
 export function LiveTurnChanges({ messages, busy, language, docked = false, onOpenChange }: {
@@ -22,19 +23,11 @@ export function LiveTurnChanges({ messages, busy, language, docked = false, onOp
   const [position, setPosition] = useState<{ left: number; top: number } | null>(null);
   const visible = busy && changes.files.length > 0;
   const [lastChanges, setLastChanges] = useState(changes);
-  const [present, setPresent] = useState(visible);
-  if (visible && (changes !== lastChanges || !present)) {
-    setLastChanges(changes); setPresent(true);
-  }
+  const present = useComposerChipPresence(visible);
+  if (visible && changes !== lastChanges) setLastChanges(changes);
   useLayoutEffect(() => {
     if (!visible && panel.current?.matches(':popover-open')) panel.current.hidePopover();
-    if (!visible && matchMedia('(prefers-reduced-motion: reduce)').matches) setPresent(false);
   }, [visible]);
-  useEffect(() => {
-    if (visible || !present) return;
-    const timer = setTimeout(() => setPresent(false), 200);
-    return () => clearTimeout(timer);
-  }, [visible, present]);
   useLayoutEffect(() => {
     // Preserve the anchor coordinates while the native top-layer exit runs.
     if (!open || !visible) return;
@@ -64,7 +57,7 @@ export function LiveTurnChanges({ messages, busy, language, docked = false, onOp
   const displayed = visible ? changes : lastChanges;
   const zh = language === 'zh';
   return <div className={`live-turn-context${visible ? '' : ' is-leaving'}`} aria-hidden={!visible}>
-    <button ref={anchor} type="button" className="live-turn-chip" popoverTarget={id} aria-expanded={open} aria-controls={id}
+    <button ref={anchor} type="button" className="composer-context-chip live-turn-chip" popoverTarget={id} aria-expanded={open} aria-controls={id}
       disabled={!visible} aria-label={zh ? '查看运行中的变更' : 'View running changes'}>
       <span>{displayed.files.length} {zh ? '个文件' : 'files'}</span>
       <DiffCount value={displayed.added} kind="added"/><DiffCount value={displayed.removed} kind="removed"/>

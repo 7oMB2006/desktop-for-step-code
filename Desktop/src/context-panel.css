@@ -15,7 +15,7 @@
   pointer-events: auto; animation: right-panel-enter var(--right-panel-duration) var(--right-panel-ease) both;
 }
 :root[data-theme=dark] .context-panel { --context-input: oklch(.76 .09 190); --context-cache: oklch(.74 .12 155); }
-.summary-overlay .context-region { height: calc(100dvh - var(--window-bar-height)); }
+.summary-overlay .context-region { height: calc(100dvh - var(--window-bar-height) - var(--conversation-alert-space, 0px)); }
 .summary-overlay .context-panel { box-shadow: -8px 0 24px oklch(0 0 0 / .08); }
 .context-status { font-size: 10px; color: var(--muted); margin-right: 7px; white-space: nowrap; }
 .context-status::before { content: ''; display: inline-block; width: 4px; height: 4px; margin: 0 5px 2px 0; background: var(--muted); }

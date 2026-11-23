@@ -73,6 +73,33 @@ immediate 2px system highlight. Search fields use the same softened outline and
 fade on the search shell or input, without changing sidebar search disclosure
 motion. Other form controls and file-drop feedback keep their existing treatment.
 
+## Error Banners
+
+Reuse [`ConversationErrorBanner`](Desktop/src/main.tsx) for failures in the main
+conversation view that need attention or a recovery action. Its layout and
+motion are defined by `.app-error-banner` in [layout.css](Desktop/src/layout.css).
+If another host needs this pattern, extract the existing component rather than
+copying its markup or styles. Keep field errors beside their fields, modal
+errors in their modal, and brief success or informational feedback in
+[`NoticeToast`](Desktop/src/NoticeToast.tsx).
+
+Center the banner below the window bar in the main view, not across the whole
+window. Use a neutral surface, a semantic leading icon and an accessible
+dismiss button with a fixed position. Lead with the failure, put a file or
+directory path on its own selectable line and only show recovery actions that
+apply. At narrow widths, wrap the body and actions without crowding the dismiss
+target or clipping focus indicators. Reserve space above inspector headers
+without moving the right tool rail. Use the shared short cubic entrance, with
+no animation under reduced motion. Error banners do not auto-dismiss.
+
+The caller owns the failure and dismissal state. Scope the banner to the
+operation or conversation that produced it; a refresh or switch to an unrelated
+view must not replay it. For a missing project directory, offer Locate folder
+and Remove project only for remembered projects. A directory that blocks
+startup remains recoverable on the initial main view, but ordinary snapshots
+must not reopen the dismissed banner. An explicit retry can surface a new
+failure.
+
 ## Existing Components
 
 MiniChat is a native view of a normal conversation, not BTW or a second agent.
@@ -165,6 +192,10 @@ and motion uses the shared disclosure animation with reduced-motion support.
 Resolution removes the dot. A settled optional MCP failure is a local degradation,
 not a confirmation gate for sending, queuing or steering. Keep identity, model,
 pending startup and unconfirmed-cleanup guards. Stop remains independent.
+An explicit first send from a new draft keeps the draft visible and shows
+preparation in the centered composer context row, using the live-diff chip
+appearance and fade. Send becomes Cancel until submission. Editing the
+draft or leaving the conversation disarms the send.
 
 Plugin browsing stays available during running tasks. Verified new installations,
 service switches and generic configuration saves do not revoke live host leases.

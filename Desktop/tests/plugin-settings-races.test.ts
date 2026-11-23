@@ -3,6 +3,8 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import ts from 'typescript';
 import type { McpServer } from '../src/contracts';
+import { composerKey, composerOwner } from '../src/window-conversation';
+import { unavailableDirectory } from '../src/workspace-directory-error';
 
 const source = ts.createSourceFile('main.tsx', readFileSync(new URL('../src/main.tsx', import.meta.url), 'utf8'),
   ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
@@ -45,7 +47,7 @@ function harness(reducedMotion = false) {
   const state = { edit: null as Edit | null, error: '', open: false, closing: false, tab: '' };
   // Execute the production closures and JSX callbacks, not copies of the request guards.
   const runtime = declarations.filter(node => ts.isIdentifier(node.name) && (
-    ['run', 'closeMcpEdit', 'finishSettingsClose', 'closeSettings', 'openSettings', 'selectSettingsTab'].includes(node.name.text)
+    ['run', 'showOperationError', 'presentationRevision', 'closeMcpEdit', 'finishSettingsClose', 'closeSettings', 'openSettings', 'selectSettingsTab'].includes(node.name.text)
     || ts.isCallExpression(node.initializer!) && node.initializer.expression.getText(source) === 'useRef'
       && node.initializer.arguments[0]?.getText(source) === '0'
   )).map(node => `const ${node.getText(source)};`).join('\n');
@@ -57,6 +59,7 @@ function harness(reducedMotion = false) {
     let mcpEdit = null;
     const setMcpEdit = value => { mcpEdit = value; state.edit = value; };
     const setError = value => { state.error = value; };
+    const setWorkspaceAttemptIssue = () => {};
     const setSettingsOpen = value => { state.open = value; };
     const setSettingsClosing = value => { state.closing = value; };
     const setSettingsQuery = () => {};
@@ -69,7 +72,8 @@ function harness(reducedMotion = false) {
     const setCapabilityTarget = () => {};
     const openPlugins = () => finishSettingsClose();
     const t = (_zh, en) => en;
-    const latestData = { current: { preferences: { language: 'en' } } };
+    const data = { preferences: { language: 'en' } };
+    const latestData = { current: data };
     const composerErrorText = error => String(error);
     ${runtime}
     return {
@@ -90,9 +94,9 @@ function harness(reducedMotion = false) {
       openSettings, closeSettings, finishSettingsClose,
     };
   `, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
-  const handlers = new Function('bridge', 'state', 'settings', 'reducedMotion', program)(
+  const handlers = new Function('bridge', 'state', 'settings', 'reducedMotion', 'composerKey', 'composerOwner', 'unavailableDirectory', program)(
     { settings: () => { const response = deferred(); reads.push(response); return response.promise; } },
-    state, settings(), reducedMotion,
+    state, settings(), reducedMotion, composerKey, composerOwner, unavailableDirectory,
   ) as {
     manage(name?: string): void; edit(name?: string): void; typeArgs(event: { target: { value: string } }): void;
     closeEditor(): void; category(id: string): void; searchResult(category: string, anchor: string): void;

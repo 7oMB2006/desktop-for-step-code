@@ -1,5 +1,26 @@
-import { Component, createRef } from 'react';
+import { Component, createRef, useEffect, useLayoutEffect, useState } from 'react';
 import type { ReactNode } from 'react';
+
+export function useComposerChipPresence(visible: boolean) {
+  const [present, setPresent] = useState(visible);
+  if (visible && !present) setPresent(true);
+  useLayoutEffect(() => {
+    if (!visible && matchMedia('(prefers-reduced-motion: reduce)').matches) setPresent(false);
+  }, [visible]);
+  useEffect(() => {
+    if (visible || !present) return;
+    const timer = setTimeout(() => setPresent(false), 200);
+    return () => clearTimeout(timer);
+  }, [visible, present]);
+  return visible || present;
+}
+
+export function ComposerPreparationStatus({ active, label }: { active: boolean; label: string }) {
+  if (!useComposerChipPresence(active)) return null;
+  return <div className={`composer-prepare-status${active ? '' : ' is-leaving'}`} aria-hidden="true">
+    <span className="composer-context-chip"><span className="working-dot"/>{label}</span>
+  </div>;
+}
 
 // Capture the live visual position before React changes the row's layout.
 export class ComposerContextBar extends Component<{ queued: boolean; children: ReactNode }> {

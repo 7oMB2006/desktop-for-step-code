@@ -129,6 +129,10 @@ export class WindowComposerClient {
   async flush() {
     if (this.active) await this.flushRecord(this.active);
   }
+  matches(expected: ComposerValue, version: number) {
+    const record = this.active;
+    return Boolean(record && !record.conflict && record.version === version && same(record.value, expected));
+  }
   async take(expected: ComposerValue): Promise<ComposerReceipt | undefined> {
     const record = this.active;
     if (!record || record.taking) throw new Error('Composer submission in progress');

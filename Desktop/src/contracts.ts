@@ -14,8 +14,8 @@ export interface Message { desktopWorkflow?: WorkflowState; desktopToolPending?:
 export interface Message { desktopImported?: boolean }
 export interface Message { desktopInput?: { version: 1; text: string } }
 export interface Content { historical?: boolean }
-export interface Snapshot { workspaceIssue?: string }
 export interface Snapshot { browserOwner?: string }
+export interface Snapshot { startupWorkspaceIssue?: string }
 export interface Snapshot { firstRun?: { required: boolean } }
 export interface RuntimeStartupTiming {
   processReadyMs: number;
@@ -239,6 +239,7 @@ export interface DesktopBridge extends SessionImportBridge, BtwBridge, Backgroun
   beginSession(workspace?: string, resume?: boolean): Promise<Snapshot>;
   chooseSessionProject(): Promise<Snapshot | null>;
   createDraftSession(draftId: string): Promise<Snapshot>;
+  sessionStartup(runtimeId: string, sessionId: string): Promise<RuntimeState['desktopStartup']>;
   newIndependentSession(): Promise<Snapshot>;
   openSessionFolder(): Promise<void>;
   openWorkspaceFolder(path: string): Promise<void>;

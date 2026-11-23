@@ -1,4 +1,5 @@
 import { normalizedWorkspaceKey } from '../src/workspace-key';
+import { WorkspaceDirectoryError } from '../src/workspace-directory-error';
 import { statusAccount } from './status-account';
 import { statusBuild } from './session-status';
 import { app, BrowserWindow, dialog, ipcMain, shell, session, net, clipboard, ClipboardItem, nativeImage, nativeTheme, Menu, Notification } from 'electron';
@@ -224,6 +225,7 @@ function showMainWindow() {
 let startup: Promise<void> = Promise.resolve();
 let externalReady: Promise<void> = Promise.resolve();
 let startupError: string | undefined;
+let startupWorkspaceIssue: string | undefined;
 let sessionDraft: { id: string; workspace?: string; model?: Model; models?: Model[]; thinkingLevel?: string;
   permissionPreset?: PermissionPreset; launch?: LaunchState; modelChanged?: boolean; permissionChanged?: boolean; thinkingChanged?: boolean } | undefined = { id: randomUUID() };
 const draftModelWrites = new WeakMap<NonNullable<typeof sessionDraft>, Promise<DraftModelUpdate>>();
@@ -245,7 +247,7 @@ const selectDraft = (surface: Surface, draft: typeof sessionDraft) => {
   if (draft && sessionDraft?.id === draft.id) sessionDraft = draft;
   if (draft && miniView.draft?.id === draft.id) miniView.draft = draft;
   if (surface === 'mini') { miniView.draft = draft; miniView.runtimeId = undefined; miniView.worker = undefined; }
-  else { sessionDraft = draft; runtimes.activeId = undefined; }
+  else { sessionDraft = draft; runtimes.activeId = undefined; startupWorkspaceIssue = undefined; }
   browser?.sync();
 };
 const selectedRuntime = (surface: Surface) => surface === 'mini' ? miniView.runtimeId : runtimes.activeId;
@@ -271,7 +273,7 @@ const selectRuntime = (surface: Surface, worker: SessionRuntime) => {
     if (worker.state?.sessionId) runtimes.unreadSessionIds.delete(worker.state.sessionId);
     runtimes.publish();
   } else {
-    sessionDraft = undefined; runtimes.activate(worker);
+    sessionDraft = undefined; startupWorkspaceIssue = undefined; runtimes.activate(worker);
     const previous = miniView.worker;
     if (previous && previous !== worker && previous.state?.sessionId === worker.state?.sessionId
       && (!runtimes.workers.has(previous.id) || previous.status === 'disconnected')) replaceMiniRuntime(worker);
@@ -329,20 +331,16 @@ async function samePath(a: string, b: string) {
   try { return pathKey(await realpath(a)) === pathKey(await realpath(b)); }
   catch { return false; }
 }
-let unavailableWorkspace: string | undefined;
 async function workspaceDirectory(path: string, signal?: AbortSignal) {
   try {
     signal?.throwIfAborted();
     const canonical = await realpath(path);
     if (!(await stat(canonical)).isDirectory()) throw new Error('Not a directory');
     signal?.throwIfAborted();
-    if (unavailableWorkspace && pathKey(unavailableWorkspace) === pathKey(path)) unavailableWorkspace = undefined;
     return canonical;
   } catch {
     signal?.throwIfAborted();
-    unavailableWorkspace = path;
-    emit({ type: 'desktop_workspace_unavailable', path });
-    throw new Error(preferences.language === 'zh' ? `项目目录不可用：${path}` : `Project directory unavailable: ${path}`);
+    throw new WorkspaceDirectoryError(path, preferences.language);
   }
 }
 const isIndependentPath = (path: string) => pathKey(path).startsWith(`${pathKey(independentRoot)}/`) || !preferences.workspaces.some(p => pathKey(p) === pathKey(path));
@@ -557,7 +555,7 @@ const creatingDrafts = new Set<string>();
 const miniMethods = new Set([
   'snapshot', 'windowControl', 'miniChatState', 'miniChatPin', 'miniChatReturn', 'miniChatMainAction',
   'windowPresentation', 'composerRead', 'composerWrite', 'composerTake', 'composerRestore',
-  'beginSession', 'chooseSessionProject', 'createDraftSession', 'navigateSession', 'sessionReading', 'cancelSessionReading', 'renameSession',
+  'beginSession', 'chooseSessionProject', 'createDraftSession', 'sessionStartup', 'navigateSession', 'sessionReading', 'cancelSessionReading', 'renameSession',
   'command', 'projectInstructions', 'branchSession', 'retryMessage', 'preferences',
   'chooseAttachments', 'importFile', 'importClipboardImage', 'imageAction', 'copyText', 'linkPreview',
   'fileOpen', 'fileOpenOptions', 'browserOpenLink', 'artifactFiles', 'artifactAction', 'backgroundAgents',
@@ -693,7 +691,8 @@ const runtimes: SessionRuntimes = new SessionRuntimes(event => {
   pluginsReady: worker => pluginHosts.attach(worker),
   pluginsReset: worker => pluginHosts.invalidate(worker),
   language: () => preferences.language,
-  canReuseEmpty: worker => !outdatedInstructions.has(worker),
+  canReuseEmpty: worker => !outdatedInstructions.has(worker)
+    && (!worker.state?.sessionId || !composers.hasInput({ sessionId: worker.state.sessionId })),
   // Keep at most two extra idle children when Windows has ample free memory.
   // This is a retention budget, never permission to speculatively start agents.
   idleLimit: () => process.platform === 'win32' && freemem() >= 3 * 1024 ** 3 ? 4 : 2,
@@ -1486,8 +1485,8 @@ async function snapshot(worker = runtimes.active, refresh = true, ignoreDraft = 
     firstRun: { required: firstRun.required },
     quitReview: quitReview.state,
     statusAccount: statusAccount(appliedAuthData),
-    workspaceIssue: unavailableWorkspace,
     browserOwner: surface === 'main' ? browserOwner(draft, worker) : undefined,
+    startupWorkspaceIssue: surface === 'main' && !draft && !worker ? startupWorkspaceIssue : undefined,
     preferences: { ...preferences, workspace: draft ? draft.workspace : worker?.cwd ?? preferences.workspace }, themePacks: themePacks.packs,
     customBackground: backgroundState, providerSettingsPending,
     status: draft ? 'ready' : worker?.status ?? status, draftId: draft?.id, runtimeId: worker?.id, runtimeStartupTiming: draft ? undefined : worker?.startupTiming, runtimes: runtimeSummaries, unreadSessionIds: [...runtimes.unreadSessionIds],
@@ -2219,6 +2218,16 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
       if (!existing) { preferences.workspaces = [...preferences.workspaces, canonical]; await savePreferences(); }
       return beginSession(existing ?? canonical, surface);
     }
+    case 'sessionStartup': {
+      const runtimeId = text(args[0], 80), sessionId = text(args[1], 300);
+      const worker = runtimes.workers.get(runtimeId);
+      const current = () => worker?.status === 'connected' && worker.state?.sessionId === sessionId
+        && runtimes.workers.get(runtimeId) === worker && selectedRuntime(surface) === runtimeId;
+      if (!worker || !current()) throw new Error('STARTUP_NOT_READY: submission context changed');
+      const state = await runtimes.readStartup(worker);
+      if (!current()) throw new Error('STARTUP_NOT_READY: submission context changed');
+      return state;
+    }
     case 'createDraftSession': {
       const draftId = text(args[0], 80);
       const existing = createdDrafts.get(draftId);
@@ -2482,7 +2491,7 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
     }
     case 'snapshot': {
       await startup;
-      if (!startupError) await maintainUpdateCache();
+      if (!startupError && !startupWorkspaceIssue) await maintainUpdateCache();
       if (startupError) { emit({ type: 'desktop_error', message: startupError }); startupError = undefined; }
       return viewSnapshot();
     }
@@ -2521,7 +2530,7 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
       try {
         preferences = next;
         try { await savePreferences(); } catch (error) { preferences = previous; throw error; }
-        if (unavailableWorkspace && pathKey(unavailableWorkspace) === pathKey(path)) unavailableWorkspace = undefined;
+        if (startupWorkspaceIssue && pathKey(startupWorkspaceIssue) === pathKey(path)) startupWorkspaceIssue = undefined;
         startupError = undefined;
       } finally { transition = false; }
       if (sessionDraft?.workspace && pathKey(sessionDraft.workspace) === pathKey(path)) await beginSession();
@@ -2563,7 +2572,7 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
         for (const worker of peers()) await runtimes.remove(worker);
         if (sessionDraft?.workspace && pathKey(sessionDraft.workspace) === pathKey(path)) sessionDraft.workspace = destination;
         startupError = undefined;
-        if (unavailableWorkspace && pathKey(unavailableWorkspace) === pathKey(path)) unavailableWorkspace = undefined;
+        if (startupWorkspaceIssue && pathKey(startupWorkspaceIssue) === pathKey(path)) startupWorkspaceIssue = undefined;
         if (draftSelected || active || recoverStartup) {
           transition = false;
           if (draftSelected || recoverStartup) {
@@ -3010,6 +3019,11 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
       if (surface === 'mini' && runtimeId !== miniView.runtimeId) throw new Error('MiniChat conversation changed');
       const worker = ['queue_edit', 'queue_remove'].includes(type) ? runtimes.workers.get(runtimeId!) : runtimes.require(runtimeId);
       if (!worker) throw new Error('This session runtime is unavailable');
+      const preparedEpoch = type === 'prompt' && data.preparedStartupEpoch !== undefined
+        ? text(data.preparedStartupEpoch, 80) : undefined;
+      const preparationCurrent = () => preparedEpoch === undefined || (selectedRuntime(surface) === worker.id
+        && runtimes.workers.get(worker.id) === worker && worker.startup?.startupEpoch === preparedEpoch);
+      if (!preparationCurrent()) throw new Error('STARTUP_NOT_READY: submission context changed');
       if (externalTasks.retains(worker) && !externalSessionCommandAllowed(type))
         throw new Error(preferences.language === 'zh'
           ? '此会话正在处理外部委托，请先停止委托再接管。审批仍可在本机完成。'
@@ -3165,6 +3179,7 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
             });
           }
           if (wasStreaming || worker.state?.isCompacting) {
+            if (preparedEpoch !== undefined) throw new Error('STARTUP_NOT_READY: submission context changed');
             await runtimes.assertExecutionReady(worker);
             if (worker.launch?.goalArmed) throw new Error('Finish the current task before starting a new goal');
             if (worker.state?.desktopCompletionReview === 1)
@@ -3198,6 +3213,7 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
             await runtimes.assertExecutionReady(worker);
             restoreLaunch = launchControls.consume(worker);
             await runtimes.preparePrompt(worker, payload.message as string);
+            if (!preparationCurrent()) throw new Error('STARTUP_NOT_READY: submission context changed');
             if (!await launchControls.startGoal(worker, payload, promptLaunch)) throw new Error('Goal state changed before submission');
             response = { goal: true };
           } else {
@@ -3212,7 +3228,7 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
             }
             if (playwrightPreviewEnabled && type === 'prompt' && surface === 'main' && !projectRules
               && !(payload.message as string).trimStart().startsWith('/')) localPreviewRuns.set(worker, { playwrightRevealed: false });
-            const submission = type === 'prompt' ? runtimes.submitPrompt(worker, payload, true)
+            const submission = type === 'prompt' ? runtimes.submitPrompt(worker, payload, true, undefined, preparationCurrent)
               : rpc.request(type, payload, type === 'compact' ? 600000 : 30000);
             response = await submission;
             if (type === 'prompt') { restoreReview = undefined; runtimes.publishLaunch(worker); }
@@ -4137,7 +4153,8 @@ else app.whenReady().then(async () => {
         if (sessionDraft === initialDraft) sessionDraft = undefined;
         status = 'disconnected';
         await runtimes.stopAll();
-        startupError = error instanceof Error ? error.message : 'Could not start an independent session';
+        if (error instanceof WorkspaceDirectoryError) startupWorkspaceIssue = error.path;
+        else startupError = error instanceof Error ? error.message : 'Could not start an independent session';
         await crashLog.record('startup-failure', error, (error as { details?: Record<string, unknown> }).details ?? {});
       }
     })();

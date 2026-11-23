@@ -16,7 +16,8 @@
   column-gap: 0; transition: column-gap var(--speech-motion);
 }
 .composer-context-center > .live-turn-context { grid-column: auto; grid-row: auto; justify-self: stretch; }
-.composer-context-center:not(:has(.live-turn-context, .speech-progress)) { display: none; }
+.composer-context-center:not(:has(.live-turn-context, .speech-progress, .composer-prepare-status)) { display: none; }
+.composer-context-center:has(.composer-prepare-status) { gap: 4px; }
 .composer-context-center:has(.speech-progress) { max-width: min(440px, 60cqw); }
 .composer-context-center:has(.speech-progress[data-open=false]) { --speech-motion: 240ms cubic-bezier(.4,0,.6,1); }
 .composer-context-center:has(.live-turn-context):has(.speech-progress[data-open=true]) { column-gap: 4px; }

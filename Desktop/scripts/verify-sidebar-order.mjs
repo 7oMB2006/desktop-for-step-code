@@ -304,22 +304,22 @@ try {
   await page.locator('.right-tool-rail').getByRole('button', { name: '摘要', exact: true }).click();
   await page.locator('.summary-board').waitFor({ state: 'visible' });
   await settle(page.locator('.summary-board'));
-  assert.equal(await banner.evaluate(element => {
-    const rect = element.getBoundingClientRect();
-    return document.elementFromPoint(rect.right - 20, rect.top + rect.height / 2)?.closest('.app-error-banner') === element;
-  }), true, 'the warning is above the summary');
+  assert.ok((await page.locator('.summary-board').boundingBox()).y >= await banner.evaluate(element => element.getBoundingClientRect().bottom),
+    'the warning must not cover the Summary header');
   await page.mouse.move(400, 400);
   await page.locator('[role="tooltip"]').waitFor({ state: 'hidden' });
   await page.screenshot({ path: 'test-results/sidebar-project-warning-dark.png' });
   await page.reload();
+  await page.waitForFunction(() => !document.querySelector('.new-chat')?.disabled);
+  assert.equal(await banner.count(), 0, 'a renderer reload must not restore a failed project action');
+  await project(page, 2).locator('.workspace-heading').hover();
+  await project(page, 2).getByRole('button', { name: '在 Research 新建会话', exact: true }).click();
   await banner.waitFor();
   assert.match(await banner.innerText(), /Research/);
   mark('warning controls above an expanded inspector');
   await page.locator('.right-tool-rail').getByRole('button', { name: '上下文', exact: true }).click();
   const contextPanel = page.locator('#context-panel');
-  // The high-priority warning can cover the inspector header; use its keyboard control.
-  await contextPanel.getByRole('button', { name: '全屏查看', exact: true }).focus();
-  await page.keyboard.press('Enter');
+  await contextPanel.getByRole('button', { name: '全屏查看', exact: true }).click();
   await page.waitForFunction(() => document.querySelector('.main-content').inert);
   assert.equal(await banner.evaluate(element => !!element.closest('[inert]')), false);
   await banner.getByRole('button', { name: '关闭', exact: true }).focus();
@@ -431,13 +431,34 @@ try {
   const stored = JSON.parse(await readFile(preferencesPath, 'utf8'));
   await writeFile(preferencesPath, JSON.stringify({ ...stored, workspaces: [...stored.workspaces, missing], workspace: missing }));
   page = await launch(true);
+  mark('startup warning, narrow layout and repair');
   const startupSnapshot = await page.evaluate(() => window.desktop.snapshot());
-  assert.equal(startupSnapshot.workspaceIssue, missing);
+  assert.equal(startupSnapshot.startupWorkspaceIssue, missing);
   assert.equal(startupSnapshot.preferences.workspace, missing);
   assert.equal(startupSnapshot.draftId, undefined, 'failed startup must not retain the empty bootstrap draft');
+  const startupBanner = page.locator('.app-error-banner');
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(660, 650));
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.waitForFunction(() => innerWidth <= 660);
+  assert.equal(await startupBanner.evaluate(element => {
+    const bounds = element.getBoundingClientRect();
+    return getComputedStyle(element).animationName === 'none'
+      && [...element.querySelectorAll('button, .app-error-path')].every(child => {
+        const rect = child.getBoundingClientRect();
+        return rect.left >= bounds.left + 4 && rect.right <= bounds.right - 4
+          && rect.top >= bounds.top + 4 && rect.bottom <= bounds.bottom - 4;
+      });
+  }), true, 'path and recovery controls fit a narrow banner with room for focus');
+  await page.screenshot({ path: 'test-results/sidebar-project-warning-narrow.png' });
+  await startupBanner.getByRole('button', { name: '关闭', exact: true }).click();
+  await page.evaluate(() => window.desktop.snapshot());
+  assert.equal(await startupBanner.count(), 0, 'ordinary snapshots must not reopen a dismissed startup warning');
+  await page.reload();
+  await startupBanner.waitFor();
   await app.evaluate(({ dialog }, path) => { dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [path] }); }, recovery);
   await page.locator('.app-error-banner').getByRole('button', { name: '重新定位', exact: true }).click();
   await page.locator('.app-error-banner').waitFor({ state: 'detached' });
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1100, 820));
   await page.getByText('Step Code 已连接', { exact: true }).waitFor();
   await page.waitForFunction(() => !document.querySelector('.new-chat')?.disabled);
   assert.equal((await page.evaluate(() => window.desktop.snapshot())).preferences.workspace, recovery);

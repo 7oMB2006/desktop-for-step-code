@@ -184,6 +184,7 @@ const bridge: DesktopBridge = {
   beginSession: (workspace, resume) => invoke('beginSession', workspace, resume),
   chooseSessionProject: () => invoke('chooseSessionProject'),
   createDraftSession: draftId => invoke('createDraftSession', draftId),
+  sessionStartup: (runtimeId, sessionId) => invoke('sessionStartup', runtimeId, sessionId),
   command: (type, args, runtimeId) => invoke('command', type, args, runtimeId), sessions: () => invoke('sessions'), switchSession: id => invoke('switchSession', id),
   renameSession: (id, name) => invoke('renameSession', id, name),
   navigateSession: (id, revision) => invoke('navigateSession', id, revision),

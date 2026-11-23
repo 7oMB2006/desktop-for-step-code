@@ -560,25 +560,39 @@ try {
   await opened(0);
   assert.equal(await page.getByRole('textbox', { name: '消息', exact: true }).evaluate(element => element.value),
     'Retained draft zero', 'Failed target preview must not overwrite the source draft or its later cache');
-  phase = 'cold failure retains authoritative identity';
+  phase = 'cold directory failure stays with the attempted navigation';
+  const directoryWarning = page.locator('.app-error-banner[data-kind="workspace"]');
   await rename(failureProject, `${failureProject}-unavailable`);
   try {
     await row(5).click();
-    await page.getByRole('alert').filter({ hasText: /项目目录不可用|directory|unavailable/i }).waitFor({ timeout: 60000 });
-    assert.equal((await page.evaluate(() => window.desktop.snapshot())).state.sessionId, 'navigation-0');
+    await directoryWarning.waitFor({ timeout: 60000 });
+    assert.equal(await directoryWarning.locator('.app-error-path').textContent(), failureProject);
+    const failedSnapshot = await page.evaluate(() => window.desktop.snapshot());
+    assert.equal(failedSnapshot.state.sessionId, 'navigation-0');
+    assert.equal(failedSnapshot.startupWorkspaceIssue, undefined, 'a failed target is not part of the active snapshot');
     assert.equal(await page.locator('.window-session-title').textContent(), 'Navigation 5');
     assert.ok(await page.locator('.composer-action-button').isDisabled());
     await modelPlaceholder(true);
+    await directoryWarning.getByRole('button', { name: '关闭', exact: true }).click();
+    await directoryWarning.waitFor({ state: 'detached' });
     await row(0).click();
     await opened(0);
+    assert.equal(await directoryWarning.count(), 0, 'dismissed warning does not return on the next snapshot');
+    await row(5).click();
+    await directoryWarning.waitFor({ timeout: 60000 });
+    // Leaving without dismissing also clears the failure without repairing the old path.
+    await row(0).click();
+    await opened(0);
+    assert.equal(await directoryWarning.count(), 0, 'an undismissed target warning cannot follow navigation');
+    await page.reload();
+    await opened(0);
+    assert.equal(await directoryWarning.count(), 0, 'reload does not restore an old navigation failure');
   } finally { await rename(`${failureProject}-unavailable`, failureProject); }
   await row(5).click();
   await opened(5);
-  assert.equal((await page.evaluate(() => window.desktop.snapshot())).workspaceIssue, undefined,
-    'restoring the original directory clears its stored warning');
   await page.reload();
   await opened(5);
-  await page.getByRole('alert').filter({ hasText: /项目目录不可用|directory|unavailable/i }).waitFor({ state: 'hidden' });
+  assert.equal(await directoryWarning.count(), 0);
   phase = 'disconnected resident history recovery';
   const crashed = await page.evaluate(() => window.desktop.snapshot());
   await page.evaluate(() => {

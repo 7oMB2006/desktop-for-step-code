@@ -84,6 +84,7 @@ try {
     const window = BrowserWindow.getAllWindows()[0]; window.setOpacity(0); window.setIgnoreMouseEvents(true); window.showInactive();
   });
   phase = 'restore fixture session';
+  await page.waitForURL('**/renderer/index.html', { timeout: 60000 });
   await waitForSessionFixtureSnapshot(page, snapshot => snapshot.sessions.some(s => s.id === sessionId),
     'saved CLM fixture session', 60000);
   await page.evaluate(id => window.desktop.switchSession(id), sessionId);

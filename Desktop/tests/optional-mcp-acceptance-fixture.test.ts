@@ -62,8 +62,8 @@ function assertionBlock(startText: string, endText: string, ...parameters: strin
     ${body!.slice(start, end).map(node => node.getText(capabilities)).join('\n')}
   })();`);
 }
-const verifyBlocked = assertionBlock('const blockedRemoval =', 'assert.ok((await page.evaluate',
-  'page', 'assert', 'openExampleRemoval', 'beforeBlockedRemoval', 'window');
+const verifyBlocked = assertionBlock('const unavailableHistory =', 'assert.ok((await page.evaluate',
+  'page', 'assert', 'openExampleRemoval', 'beforeBlockedRemoval', 'window', 'sessionFile', 'rename');
 function blockedFixture(overrides: { owners?: number; buttons?: number; runtimeId?: string; sessionId?: string; messages?: readonly unknown[] } = {}) {
   const events: string[] = [];
   const before = { runtimeId: 'resident', state: { sessionId: 'empty' }, messages: [] };
@@ -89,12 +89,20 @@ function blockedFixture(overrides: { owners?: number; buttons?: number; runtimeI
   };
   const window = { desktop: { async snapshot() { events.push('snapshot'); return after; } } };
   const page = { async evaluate(callback: () => unknown) { return callback(); } };
-  return { events, run: () => verifyBlocked(page, assert, async () => dialog, before, window) };
+  const sessionFile = 'fixture.jsonl';
+  let available = true;
+  const rename = async (source: string, destination: string) => {
+    const hidden = `${sessionFile}.unavailable`;
+    assert.deepEqual([source, destination], available ? [sessionFile, hidden] : [hidden, sessionFile]);
+    events.push(available ? 'hide-history' : 'restore-history');
+    available = !available;
+  };
+  return { events, run: () => verifyBlocked(page, assert, async () => dialog, before, window, sessionFile, rename) };
 }
 test('Occupied removal acceptance cancels read-only preflight and verifies unchanged session identity and history', async () => {
   const value = blockedFixture();
   await value.run();
-  assert.deepEqual(value.events, ['blocked-reason', 'blocked-reason', 'cancel', 'hidden', 'snapshot']);
+  assert.deepEqual(value.events, ['hide-history', 'blocked-reason', 'blocked-reason', 'cancel', 'hidden', 'restore-history', 'snapshot']);
 });
 for (const [name, overrides] of [
   ['missing owner', { owners: 0 }], ['unsafe apply action', { buttons: 1 }],
@@ -102,7 +110,9 @@ for (const [name, overrides] of [
   ['modified history', { messages: [{ role: 'user', content: 'unexpected' }] }],
 ] as const) {
   test(`Occupied removal acceptance rejects ${name}`, async () => {
-    await assert.rejects(blockedFixture(overrides).run(), assert.AssertionError);
+    const value = blockedFixture(overrides);
+    await assert.rejects(value.run(), assert.AssertionError);
+    assert.ok(value.events.includes('restore-history'));
   });
 }
 

@@ -253,6 +253,12 @@ export const localOnly = [
   'verify-chat-quotes.mjs',
   // Requires the manually started quote-annotations Vite preview on port 5195.
   'verify-quote-annotations-fixture.mjs',
+  // Supplemental browser fixtures require separate local Vite and Chrome instances.
+  'verify-form-focus.mjs',
+  'verify-session-reference-caret.mjs',
+  'verify-skills-detail-preview.mjs',
+  // The local theme matrix supplements verify-settings-dialog and verify-capabilities in CI.
+  'verify-settings-field-focus.mjs',
   'verify-composer-action.mjs',
   'verify-context-panel.mjs',
   'verify-inspector-expansion.mjs',

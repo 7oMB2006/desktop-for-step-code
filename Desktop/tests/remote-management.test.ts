@@ -170,6 +170,10 @@ const actions: CapabilityMutation[] = [
   { action: 'mcp-toggle', name: 'example__tools', enabled: false },
   { action: 'skill-create', name: 'example', description: 'Fixture', instructions: 'Never execute.' },
   { action: 'skill-toggle', id: 'example', enabled: false },
+  { action: 'skill-save', id: 'example', revision: 'revision', description: 'Fixture', instructions: 'Never execute.' },
+  { action: 'skill-mode', id: 'example', mode: 'manual', revision: 'revision' },
+  { action: 'skill-file-save', id: 'example', path: 'reference.md', text: 'Fixture' },
+  { action: 'skill-file-remove', id: 'example', fileId: 'file', revision: 'revision' },
   { action: 'skill-remove', id: 'example' },
 ];
 const operations: [string, ...unknown[]][] = [...nextStartSaves, ...saves, ...actions.map(action =>

@@ -1,6 +1,8 @@
 import { _electron as electron } from 'playwright';
 import assert from 'node:assert/strict';
 import { mkdir, writeFile } from 'node:fs/promises';
+import { closeDesktopFixtureAndWait } from './close-desktop-fixture.mjs';
+import { waitForSessionFixtureSnapshot } from './session-fixture.mjs';
 import { mkdtemp } from './test-profile.mjs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -11,6 +13,11 @@ await mkdir(workspace);
 await writeFile(join(profile, 'preferences.json'), JSON.stringify({ language: 'zh', theme: 'light', workspace, workspaces: [workspace] }));
 const history = join(profile, 'step-runtime', 'sessions');
 await mkdir(history, { recursive: true });
+await writeFile(join(profile, 'step-runtime', 'config.toml'), 'defaultProvider = "fixture"\ndefaultModel = "fixture"\n[telemetry]\nenabled = false\n');
+await writeFile(join(profile, 'step-runtime', 'models.json'), JSON.stringify({ providers: { fixture: {
+  api: 'openai-completions', baseUrl: 'http://127.0.0.1:1/v1', apiKey: 'fixture-only',
+  models: [{ id: 'fixture', name: 'Offline summary verification', contextWindow: 32768, maxTokens: 1024 }],
+} } }));
 const timestamp = new Date().toISOString();
 await writeFile(join(history, 'summary-fixture.jsonl'), [
   { type: 'session', version: 3, id: 'summary-fixture', cwd: workspace, timestamp },
@@ -21,6 +28,7 @@ await writeFile(join(history, 'summary-fixture.jsonl'), [
 await mkdir('test-results', { recursive: true });
 const env = { ...process.env, DESKTOP_TEST_USER_DATA: profile, DESKTOP_TEST_NO_FOCUS: '1' };
 delete env.ELECTRON_RUN_AS_NODE;
+delete env.STEP_API_KEY;
 const executablePath = process.env.DESKTOP_VERIFY_EXE;
 const args = [
   ...(executablePath ? [] : [resolve('.')]),
@@ -118,10 +126,23 @@ try {
   };
   await board.waitFor();
   assert.equal(await board.evaluate(element => getComputedStyle(element).animationTimingFunction), 'cubic-bezier(0.25, 0.46, 0.45, 0.94)');
+  const skillsSettings = board.getByRole('button', { name: 'Skills 设置', exact: true });
+  const mcpSettings = board.getByRole('button', { name: 'MCP 设置', exact: true });
+  const [skillsButton, mcpButton] = await Promise.all([skillsSettings.boundingBox(), mcpSettings.boundingBox()]);
+  assert.ok(skillsButton && mcpButton && skillsButton.x === mcpButton.x && skillsButton.width === mcpButton.width && skillsButton.height === mcpButton.height,
+    'Summary settings shortcuts share the same footprint and right alignment');
+  await skillsSettings.click();
+  const settings = page.getByRole('dialog', { name: '设置', exact: true });
+  await settings.getByRole('heading', { name: 'Skills', exact: true }).waitFor();
+  assert.equal(await settings.getByRole('button', { name: 'Skills', exact: true }).getAttribute('aria-current'), 'page');
+  await settings.locator('header').getByRole('button', { name: '关闭', exact: true }).click();
+  await settings.waitFor({ state: 'detached' });
   await page.getByRole('button', { name: '看板布局验收', exact: true }).click();
   await page.locator('.response-text').waitFor();
-  await board.waitFor({ state: 'hidden' });
-  await toggle.click();
+  await waitForSessionFixtureSnapshot(page, snapshot => snapshot.runtimeId && snapshot.state?.sessionId === 'summary-fixture'
+    && snapshot.status === 'connected', 'the saved Summary fixture to connect');
+  await page.getByRole('textbox', { name: '消息', exact: true }).and(page.locator('.composer-input[aria-disabled="false"]')).waitFor();
+  if (await toggle.getAttribute('aria-pressed') !== 'true') await toggle.click();
   await board.waitFor();
   await settleLayout();
   const layout = () => page.evaluate(() => {
@@ -294,5 +315,5 @@ try {
   assert.deepEqual(errors, []);
   console.log('Summary board acceptance passed: automatic sizing, manual override, layout, focus, nonmodal overlay wheel/click/input, navigation dismissal, themes and reduced motion.');
 } finally {
-  await app.close();
+  await closeDesktopFixtureAndWait(app);
 }

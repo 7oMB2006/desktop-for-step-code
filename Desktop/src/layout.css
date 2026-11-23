@@ -47,7 +47,7 @@
 .selection-annotation { display: flex; align-items: flex-end; width: min(320px, calc(100vw - 48px)); gap: 6px; padding: 4px; }
 .selection-annotation textarea { flex: 1; min-width: 0; resize: none; max-height: 140px; border: 0; background: transparent; color: var(--ink); font: inherit; font-size: 13px; line-height: 1.6; padding: 4px; user-select: text; }
 .selection-annotation-actions { display: flex; flex-direction: column; gap: 2px; }
-.selection-annotation textarea:focus-visible { outline: 1px solid var(--border); outline-offset: 2px; border-radius: 4px; }
+.selection-annotation textarea { border-radius: 4px; }
 .quote-annotation-editor { grid-column: 2 / -1; display: flex; flex-direction: column; gap: 6px; min-width: 0; margin-bottom: 0; }
 .quote-annotation-editor > span { display: flex; align-items: center; gap: 5px; font-size: 11px; color: var(--muted); }
 .quote-annotation-editor textarea { width: 100%; min-width: 0; resize: vertical; min-height: 54px; max-height: 140px; padding: 7px 9px; border: 1px solid var(--border); border-radius: 5px; background: var(--surface); color: var(--ink); font: inherit; font-size: 12px; line-height: 1.6; }

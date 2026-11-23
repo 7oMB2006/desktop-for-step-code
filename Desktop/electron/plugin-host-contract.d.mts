@@ -5,7 +5,7 @@ import type { PluginHostModels, PluginHostSource } from '../src/capabilities';
 export { parseHostDeclaration } from '../../examples/plugins/host-client/protocol.mjs';
 export type PluginHostAccountBinding = PluginHostSource & { id: string };
 export function parseHostModels(value: unknown, declared: readonly Capability[]): PluginHostModels;
-export function parseHostIndependent(value: unknown, declared: readonly Capability[], models: PluginHostModels): Capability[];
+export function parseHostIndependent(value: unknown, declared: readonly Capability[], models: PluginHostModels, allowEmpty?: boolean): Capability[];
 export function usesHostBroker(binding: HostBinding): boolean;
 export interface HostBinding {
   revision: string; instance: string; pluginId: string; fingerprint: string; declarationHash: string;

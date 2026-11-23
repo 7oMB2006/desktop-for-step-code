@@ -25,6 +25,8 @@ export async function assertFocusVisible(page, field, label, { focus = true } = 
         || y && (ring.top < top - .5 || ring.bottom > bottom + .5)) {
         clipped.push({ ancestor: parent.className || parent.tagName, bounds: { left, top, right, bottom }, x, y });
       }
+      // A native modal is on the top layer, outside its DOM ancestors' overflow.
+      if (parent.matches(':modal')) break;
     }
     return { focused: document.activeElement === element, visible: element.matches(':focus-visible'),
       outline: style.outlineStyle, width, ring, clipped,

@@ -1,9 +1,8 @@
 import { useEffect, useId, useRef, useState, type ButtonHTMLAttributes, type ReactNode } from 'react';
-import { AlertCircle, BookOpen, Check, Download, FolderInput, Globe, LoaderCircle, Package, Pencil, Plus, RefreshCw, RotateCcw, Search, Server, Trash2, X } from 'lucide-react';
+import { AlertCircle, Check, Download, Globe, LoaderCircle, Package, Pencil, Plus, RefreshCw, RotateCcw, Search, Server, Trash2, X } from 'lucide-react';
 import type { DesktopBridge, McpServer, SessionSummary } from './contracts';
 import type { CapabilityCatalog, CapabilityMutation, CapabilityResult, CapabilityPluginIcon } from './capabilities';
 import type { CapabilityPage, CapabilityTarget, PluginTab } from './capability-command';
-import type { ComposerCommand } from './composer-commands';
 import { McpIcon } from './McpIcon';
 import { StepPageSettings } from './StepPageSettings';
 import { DisclosureChevron } from './DisclosureChevron';
@@ -16,7 +15,7 @@ import { capabilityNeedsIdle } from './capability-locks';
 
 export type { CapabilityPage, CapabilityTarget } from './capability-command';
 export type CapabilityBridge = Pick<DesktopBridge, 'platform' | 'capabilityCatalog' | 'capabilityMutate'
-  | 'capabilityImportSkill' | 'summary' | 'saveMcp' | 'stepPageState' | 'prepareStepPage'>;
+  | 'summary' | 'saveMcp' | 'stepPageState' | 'prepareStepPage'>;
 
 function IconButton({ title, ...props }: ButtonHTMLAttributes<HTMLButtonElement> & { title: string }) {
   return <button type="button" className="icon-button" aria-label={title} data-tooltip={title} {...props}/>;
@@ -57,10 +56,9 @@ export function CapabilityDisclosure({ className, label, children }: {
   </details>;
 }
 
-export function CapabilitySettings({ page, bridge, language, busy, runtimeId, settings, target, commands = [], onEditMcp, onRestart, onChanged }: {
-  page: CapabilityPage; bridge: CapabilityBridge; language: string; busy: boolean; runtimeId?: string;
+export function CapabilitySettings({ page, bridge, language, busy, runtimeId, settings, target, onEditMcp, onRestart, onChanged }: {
+  page: Exclude<CapabilityPage, 'skills'>; bridge: CapabilityBridge; language: string; busy: boolean; runtimeId?: string;
   settings: { mcp: Record<string, McpServer> }; target?: CapabilityTarget;
-  commands?: ComposerCommand[];
   onEditMcp(name?: string): void; onRestart(): Promise<void>; onChanged(): Promise<void>;
 }) {
   const zh = language === 'zh';
@@ -73,9 +71,8 @@ export function CapabilitySettings({ page, bridge, language, busy, runtimeId, se
   const [resultWarnings, setResultWarnings] = useState<string[]>([]);
   const [tab, setTab] = useState<PluginTab>(target?.tab ?? 'installed');
   const [query, setQuery] = useState(target?.query ?? '');
-  const [form, setForm] = useState<'market' | 'skill' | null>(target?.source ? 'market' : null);
+  const [form, setForm] = useState<'market' | null>(target?.source ? 'market' : null);
   const [source, setSource] = useState(target?.source ?? '');
-  const [skill, setSkill] = useState({ name: '', description: '', instructions: '' });
   const [confirmation, setConfirmation] = useState<{ key: string; label: string; input: CapabilityMutation }>();
   const [live, setLive] = useState<{ runtimeId: string; servers: SessionSummary['mcp'] }>();
   const alive = useRef(true);
@@ -119,7 +116,7 @@ export function CapabilitySettings({ page, bridge, language, busy, runtimeId, se
     try {
       const result = await work();
       if (!result || !alive.current) return;
-      setConfirmation(undefined); setForm(null); setSource(''); setSkill({ name: '', description: '', instructions: '' });
+      setConfirmation(undefined); setForm(null); setSource('');
       setResultWarnings(result.warnings); if (applies) setChanged(true);
       await onChanged();
       if (alive.current) setCatalog(await bridge.capabilityCatalog());
@@ -139,7 +136,7 @@ export function CapabilitySettings({ page, bridge, language, busy, runtimeId, se
     <span>{confirmation.label}</span><button type="button" disabled={operationLocked} onClick={() => setConfirmation(undefined)}>{t('取消', 'Cancel')}</button>
     <button type="button" className="cap-danger" disabled={mutationLocked(confirmation.input)} onClick={() => void mutate(confirmation.input)}><Trash2 size={13}/>{t('确认移除', 'Remove')}</button>
   </div>;
-  const heading = page === 'plugins' ? t('插件', 'Plugins') : page === 'mcp' ? 'MCP' : 'Skills';
+  const heading = page === 'plugins' ? t('插件', 'Plugins') : 'MCP';
   const tabs: [PluginTab, string][] = [['installed', t('已安装', 'Installed')], ['discover', t('发现', 'Discover')], ['sources', t('市场来源', 'Marketplaces')]];
   const mcpStatus = (name: string) => {
     if (!runtimeId) return t('未选择运行会话', 'No runtime selected');
@@ -156,10 +153,6 @@ export function CapabilitySettings({ page, bridge, language, busy, runtimeId, se
     <header className="cap-heading"><h3>{heading}</h3><div>
       <IconButton title={t('刷新', 'Refresh')} disabled={loading || pending} onClick={() => void refresh()}><RefreshCw size={16} className={loading ? 'cap-spin' : undefined}/></IconButton>
       {page === 'mcp' && <IconButton title={t('添加 MCP', 'Add MCP')} disabled={locked} onClick={() => onEditMcp()}><Plus size={17}/></IconButton>}
-      {page === 'skills' && <>
-        <IconButton title={t('导入 Skill', 'Import Skill')} disabled={locked} onClick={() => void perform(() => bridge.capabilityImportSkill())}><FolderInput size={16}/></IconButton>
-        <IconButton title={t('新建 Skill', 'Create Skill')} disabled={locked} onClick={() => setForm(form === 'skill' ? null : 'skill')}><Plus size={17}/></IconButton>
-      </>}
       {page === 'plugins' && tab === 'sources' && <IconButton title={t('添加市场', 'Add marketplace')} disabled={operationLocked} onClick={() => setForm(form === 'market' ? null : 'market')}><Plus size={17}/></IconButton>}
     </div></header>
     {page === 'plugins' && <div className="cap-tabs text-tabs" role="tablist" aria-label={t('插件分类', 'Plugin categories')}
@@ -189,14 +182,6 @@ export function CapabilitySettings({ page, bridge, language, busy, runtimeId, se
           placeholder="owner/repo" onChange={event => setSource(event.target.value)}/></label>
         <div><button type="button" disabled={pending} onClick={() => setForm(null)}>{t('取消', 'Cancel')}</button>
           <button className="primary" disabled={operationLocked || !source.trim()}><Plus size={14}/>{t('添加市场', 'Add marketplace')}</button></div>
-      </form>}
-      {form === 'skill' && <form className="cap-form" onSubmit={event => { event.preventDefault(); void mutate({ action: 'skill-create', ...skill }); }}>
-        <label>{t('名称', 'Name')}<input autoFocus required maxLength={64} pattern="[a-z0-9]+(-[a-z0-9]+)*" value={skill.name} disabled={locked}
-          onChange={event => setSkill({ ...skill, name: event.target.value })}/></label>
-        <label>{t('描述', 'Description')}<textarea required maxLength={1024} value={skill.description} disabled={locked} onChange={event => setSkill({ ...skill, description: event.target.value })}/></label>
-        <label>{t('指令内容', 'Instructions')}<textarea className="cap-instructions" maxLength={128 * 1024} value={skill.instructions} disabled={locked} onChange={event => setSkill({ ...skill, instructions: event.target.value })}/></label>
-        <div><button type="button" disabled={pending} onClick={() => setForm(null)}>{t('取消', 'Cancel')}</button>
-          <button className="primary" disabled={locked || !skill.name.trim() || !skill.description.trim()}><Plus size={14}/>{t('创建 Skill', 'Create Skill')}</button></div>
       </form>}
       {resultWarnings.length > 0 && <Notes values={resultWarnings.map(value => capabilityWarningText(value, language === 'zh'))}/>}
       {loading && !catalog ? <div className="cap-empty" role="status">{t('加载中', 'Loading')}</div> : !catalog ? <button type="button" onClick={() => void refresh()}>{t('重试', 'Retry')}</button> : <>
@@ -255,24 +240,6 @@ export function CapabilitySettings({ page, bridge, language, busy, runtimeId, se
           </div>)}
           {!catalog.mcp.length && <div className="cap-empty"><Server size={20}/>{t('没有已配置的 MCP', 'No configured MCP servers')}</div>}
           {catalog.mcp.length > 0 && !catalog.mcp.some(server => search(`${server.name} ${server.pluginName ?? ''}`)) && <div className="cap-empty">{t('没有匹配的 MCP', 'No matching MCP servers')}</div>}
-        </>}
-        {page === 'skills' && <>
-          {catalog.skills.filter(skill => search(`${skill.name} ${skill.description} ${skill.pluginName ?? ''}`)).map(skill => <div className="cap-row-wrap" key={skill.id}>
-            <div className="cap-row"><BookOpen size={18}/><div><strong>{skill.name}</strong><small>{skill.description}</small>
-              <small>{skill.pluginName ?? t('Desktop 本地', 'Desktop local')} · {skill.location}</small></div>
-              {skill.deletable && <IconButton title={t(`删除 ${skill.name}`, `Delete ${skill.name}`)} disabled={locked} onClick={() => setConfirmation({ key: skill.id,
-                label: t(`删除 Skill ${skill.name}？`, `Delete Skill ${skill.name}?`), input: { action: 'skill-remove', id: skill.id } })}><Trash2 size={14}/></IconButton>}
-              {skill.toggleable ? <Switch checked={skill.enabled} label={t(`启用 ${skill.name}`, `Enable ${skill.name}`)} disabled={locked} onChange={() => void mutate({ action: 'skill-toggle', id: skill.id, enabled: !skill.enabled })}/>
-                : <span className="cap-meta">{t('插件管理', 'Plugin-managed')}</span>}
-            </div>{confirm(skill.id)}
-          </div>)}
-          {!catalog.skills.length && <div className="cap-empty"><BookOpen size={20}/>{t('没有已发现的 Skills', 'No discovered Skills')}</div>}
-          {catalog.skills.length > 0 && !catalog.skills.some(skill => search(`${skill.name} ${skill.description} ${skill.pluginName ?? ''}`)) && <div className="cap-empty">{t('没有匹配的 Skills', 'No matching Skills')}</div>}
-          {commands.length > 0 && <CapabilityDisclosure className="cap-preparation" label={<>{t('会话命令', 'Session commands')} · {commands.length}</>}>
-            {commands.filter(command => search(`${command.name} ${command.description ?? ''}`)).map(command => <div className="cap-row" key={command.name}>
-              <BookOpen size={16}/><div><strong>/{command.name}</strong><small>{command.description}</small><small>{command.source}</small></div>
-            </div>)}
-          </CapabilityDisclosure>}
         </>}
         <Notes values={catalog.warnings}/>
       </>}

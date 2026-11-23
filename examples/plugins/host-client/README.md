@@ -46,6 +46,11 @@ host.close();
 `host.independentCapabilities` 缺失时，沿用旧版的整套模式。插件能读取的仍仅是为它保存的
 独立配置；官方账户的 Key 不进入插件。保存来源不是扣费授权。
 
+插件自己的工具需要独立配置，但不需要占用模型行时，可声明 `independentTools: true`，
+并提供同一消费者的 `dfsc.settings.json`。这不增加可直连的模型行，也不自动授权。
+使用支持空路由的新客户端：`host.independentCapabilities` 为 `[]` 时，表示独立配置已启用、
+没有模型行分配给直连。使用配置前同样核对 `host.configurationRevision`。
+
 client 启动时消耗并删除载荷，普通后代不会意外继承它；
 多进程插件由登记的 MCP 进程保留 client，以自身业务 IPC 传回结果。
 这不阻止作者主动转交 bearer 或同系统用户的恶意读取。

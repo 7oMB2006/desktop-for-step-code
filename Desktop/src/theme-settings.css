@@ -61,7 +61,7 @@
 .accent-hex-field { display: flex; align-items: center; gap: 8px; }
 .accent-hex-field > span { width: 22px; height: 22px; border: 1px solid var(--border); border-radius: 4px; flex-shrink: 0; }
 .accent-hex-field input { flex: 1; min-width: 0; width: 0; font-family: var(--code-font); padding: 7px; }
-.accent-hex-field input:focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; }
+.accent-hex-field input { --form-focus-offset: -2px; }
 .accent-hex-field input[aria-invalid=true] { border-color: var(--danger); }
 .accent-editor-actions { margin-top: auto; display: flex; justify-content: flex-end; gap: 6px; padding-top: 18px; flex-wrap: wrap; }
 @media(max-width:740px) {

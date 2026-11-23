@@ -164,7 +164,9 @@ export class PluginHostLauncher {
       return { status: previousIndependent ? 'restart-required' : 'source-paused' };
     }
     if (binding.mode === 'follow' && !binding.account) return { status: 'choose-account' };
-    const account = usesHostBroker(binding) ? binding.account : undefined;
+    const broker = usesHostBroker(binding);
+    if (binding.mode === 'follow' && !broker) return { status: 'source-paused' };
+    const account = broker ? binding.account : undefined;
     const source = account && { channel: account.channel, region: account.region };
     const accountStatus = account && this.options.provider.accountStatus?.(account);
     if (accountStatus) return { status: accountStatus, source };

@@ -27,7 +27,7 @@
 .usage-range-panel .range-icon { display: inline-grid; place-items: center; width: 28px; height: 28px; padding: 0; border: 0; background: transparent; border-radius: 4px; }
 .usage-range-panel button:hover:not(:disabled) { background: var(--side); }
 .usage-range-panel button:disabled { opacity: .35; cursor: not-allowed; }
-.usage-range-panel button:focus-visible, .usage-range-panel input:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+.usage-range-panel button:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
 .usage-range-inputs { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 12px; }
 .usage-range-inputs label { display: grid; gap: 5px; margin: 0; font-size: 11px; color: var(--muted); min-width: 0; }
 .usage-range-inputs input { width: 100%; min-width: 0; height: 32px; padding: 5px 9px; border: 1px solid var(--border); border-radius: 4px; background: var(--bg); color: var(--ink); font: inherit; font-variant-numeric: tabular-nums; }

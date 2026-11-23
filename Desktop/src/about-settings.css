@@ -1,0 +1,113 @@
+.about-settings { max-width: 552px; margin-inline: auto; container: about / inline-size; }
+.about-identity { margin: 13px 0 34px; text-align: center; }
+.about-identity .about-lockup { display: flex; justify-content: center; margin: 0; }
+.about-site {
+  display: inline-flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+  margin: -8px -10px;
+  padding: 8px 10px;
+  border-radius: 6px;
+}
+.about-site:is(:hover, :focus-visible) {
+  background: color-mix(in srgb, var(--surface) 72%, var(--bg));
+  box-shadow: 0 3px 8px oklch(0 0 0 / .24), 0 0 0 1px color-mix(in srgb, var(--ink) 10%, transparent);
+}
+.about-site:active { background: var(--surface); }
+.about-settings a:focus-visible { outline: 2px solid var(--primary); outline-offset: 3px; }
+.about-mark { flex-shrink: 0; }
+.about-wordmark { display: block; width: 200px; min-width: 0; height: auto; object-fit: contain; }
+.about-settings .wordmark-dark, [data-theme=dark] .about-settings .wordmark-light { display: none; }
+[data-theme=dark] .about-settings .wordmark-dark { display: block; }
+.about-identity p { margin: 14px 0 0; color: var(--muted); font-size: 13px; line-height: 1.6; text-wrap: balance; }
+.about-links { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 2px 20px; margin-top: 10px; }
+.about-links a {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 24px;
+  border-radius: 3px;
+  color: var(--muted);
+  font-size: 12px;
+  text-decoration: none;
+}
+.about-links a:hover { color: var(--ink); text-decoration: underline; }
+.about-github-mark {
+  flex: 0 0 14px;
+  height: 14px;
+  background: currentColor;
+  mask: url('./github-mark.svg') center / contain no-repeat;
+}
+.about-versions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin: 0;
+  padding-block: 17px;
+  border-block: 1px solid var(--border);
+  text-align: center;
+}
+.about-versions > div { min-width: 0; padding-inline: 5px; }
+.about-versions > div + div { border-inline-start: 1px solid var(--border); }
+.about-versions dt { color: var(--muted); font-size: 12px; line-height: 17px; }
+.about-versions dd {
+  position: relative;
+  display: grid;
+  justify-items: center;
+  align-items: center;
+  gap: 3px;
+  grid-template-rows: minmax(26px, auto) minmax(24px, auto);
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 11px;
+}
+.about-version { color: var(--ink); font-size: 19px; font-weight: 600; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.about-commit { min-height: 24px; padding: 2px 5px; gap: 5px; border-color: transparent; color: var(--muted); }
+.about-commit code { font-size: 11px; }
+.about-commit:hover { color: var(--ink); }
+.about-baseline { display: inline-flex; flex-wrap: wrap; justify-content: center; align-items: baseline; gap: 0 5px; }
+.about-sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+.about-updates { margin-top: 34px; }
+.about-updates > h3 { margin: 0; font-size: 16px; }
+.about-updates .app-updates { margin-bottom: 0; }
+.about-updates .update-status { align-items: flex-start; padding: 12px 0 0; border: 0; }
+.about-updates .update-status > svg { margin-top: 1px; }
+.about-updates .update-status > .lucide-check { color: var(--green); }
+.about-updates .update-status > div { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; }
+.about-updates .update-status small { margin: 0; }
+.about-updates .update-progress { margin-top: 14px; padding-bottom: 0; }
+.about-updates .update-release { border-top: 0; padding: 20px 0 0; }
+.about-updates .update-release-heading { justify-content: flex-start; flex-wrap: wrap; gap: 4px 8px; }
+.about-updates .update-release-heading strong { font-size: 13px; }
+.about-updates .update-notes { margin-top: 8px; }
+.about-updates .update-actions { padding-top: 11px; }
+.about-updates .update-preferences { margin-top: 21px; padding-top: 15px; }
+.about-updates .update-channel-field { margin-bottom: 0; }
+@container about (min-width: 475px) {
+  .about-updates .app-updates:has(> .update-release):not(:has(> .update-progress, .update-actions > .primary)) {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    column-gap: 14px;
+  }
+  .about-updates .app-updates > * { grid-column: 1 / -1; }
+  .about-updates .app-updates:has(> .update-release):not(:has(> .update-progress, .update-actions > .primary)) > .update-release { grid-column: 1; }
+  .about-updates .app-updates:has(> .update-release):not(:has(> .update-progress, .update-actions > .primary)) > .update-actions {
+    grid-column: 2;
+    align-self: start;
+    justify-content: flex-end;
+    padding-top: 18px;
+  }
+  .about-updates .update-preferences { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  .about-updates .update-preferences .checkbox { margin-bottom: 0; }
+  .about-updates .update-channel-field { flex-direction: row; align-items: center; gap: 9px; }
+  .about-updates .update-channel-field > .disclosure-select { width: auto; }
+}
+@container about (max-width: 474px) {
+  .about-identity { margin: 5px 0 24px; }
+  .about-site { gap: 10px; }
+  .about-mark { width: 28px; height: 28px; }
+  .about-wordmark { width: 174px; }
+  .about-versions { padding-block: 13px; }
+  .about-version { font-size: 16px; }
+  .about-updates { margin-top: 24px; }
+}

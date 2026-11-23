@@ -59,12 +59,12 @@ try {
   const archivedTab = navigation.getByRole('button', { name: '已归档', exact: true });
   const migrationTab = navigation.getByRole('button', { name: '会话迁移', exact: true });
   {
-    assert.deepEqual((await navigation.getByRole('button').allTextContents()).slice(-3), ['版本更新', '会话迁移', '已归档']);
+    assert.deepEqual((await navigation.getByRole('button').allTextContents()).slice(-3), ['会话迁移', '已归档', '关于']);
     assert.equal(await migrationTab.locator('svg.lucide-arrow-right-left').count(), 1);
     assert.equal(await migrationTab.evaluate(element => getComputedStyle(element).marginTop), '22px');
     assert.equal(await archivedTab.evaluate(element => getComputedStyle(element).marginTop), '0px');
   }
-  assert.equal(await navigation.getByRole('button', { name: '版本更新', exact: true }).locator('svg.lucide-download').count(), 1);
+  assert.equal(await navigation.getByRole('button', { name: '关于', exact: true }).locator('svg.lucide-info').count(), 1);
   await settleLayout(page.locator('.settings-backdrop'));
   const baseline = await dialog.boundingBox();
   const lightTint = await page.locator('.settings-backdrop').evaluate(element => getComputedStyle(element).backgroundColor);
@@ -74,7 +74,7 @@ try {
     const bounds = element.getBoundingClientRect();
     return document.elementFromPoint(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2)?.classList.contains('settings-backdrop');
   }), true, 'The entire titlebar is behind the settings backdrop');
-  for (const title of ['账户', '供应商', 'MCP', 'Skills', '全局指令', '通用', '外观', '版本更新', '已归档']) {
+  for (const title of ['账户', '供应商', 'MCP', 'Skills', '全局指令', '通用', '外观', '关于', '已归档']) {
     await page.getByRole('navigation', { name: '设置分类' }).getByRole('button', { name: title, exact: true }).click();
     const bounds = await dialog.boundingBox();
     assert.deepEqual(bounds, baseline, `${title}: same outer bounds across all categories`);

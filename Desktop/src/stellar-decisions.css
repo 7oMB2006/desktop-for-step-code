@@ -181,9 +181,6 @@
 :root[data-theme-material=stellar] .annotation-source-excerpt {
   border-left: 1px solid var(--stellar-metal); padding-left: 8px;
 }
-:root[data-theme-material=stellar] :is(.selection-annotation, .annotation-footnote-panel) textarea:focus {
-  outline: 2px solid var(--primary); outline-offset: -2px; border-radius: 2px; box-shadow: none;
-}
 :root[data-theme-material=stellar] .queue-heading { color: var(--stellar-metal); border-bottom-color: var(--stellar-rule); }
 :root[data-theme-material=stellar] .queue-heading small { color: var(--stellar-record-muted); }
 :root[data-theme-material=stellar] .queue-row + .queue-row { border-top-color: var(--stellar-rule); }
@@ -196,12 +193,8 @@
 :root[data-theme-material=stellar] .queue-full textarea {
   border-radius: 2px; background: var(--stellar-record-paper);
 }
-:root[data-theme-material=stellar] :is(.quote-popover, .queue-popover) :is(button, textarea, [tabindex="0"]):focus-visible {
+:root[data-theme-material=stellar] :is(.quote-popover, .queue-popover) :is(button, [tabindex="0"]):not(textarea):focus-visible {
   outline: 2px solid var(--primary); outline-offset: -2px;
-}
-:root[data-theme-material=stellar] .queue-full textarea:focus,
-:root[data-theme-material=stellar] .quote-annotation-editor textarea:focus {
-  outline: 2px solid var(--primary); outline-offset: -2px; box-shadow: none;
 }
 :root[data-theme-material=stellar] .attachment-card {
   border-radius: 2px 7px 2px 7px; border-color: var(--stellar-frame); background: var(--stellar-record-paper);

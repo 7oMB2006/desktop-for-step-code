@@ -330,6 +330,44 @@ try {
   await save.click();
   await page.waitForFunction(() => !window.pluginHostTest.snapshot().value.source);
 
+  await page.setViewportSize({ width: 1360, height: 900 });
+  await page.goto(`${base}/tests/fixtures/plugin-center-live.html?host=1&routed=1&independent-tools=1`);
+  await page.getByRole('button', { name: '配置 宿主模型示例', exact: true }).click();
+  await independent.click();
+  await pick(source('语音识别'), '独立配置');
+  await plan.click();
+  assert.match(await source('语音识别').innerText(), /独立配置/, 'Enabling the account does not reassign a direct row');
+  await bind('语音识别', 'Step Plan', 'stepaudio-2.5-asr');
+  await pick(source('语音识别'), '独立配置');
+  await pick(source('语音识别'), '不使用');
+  await form.getByLabel('API Key', { exact: true }).fill('fixture-tools-key');
+  await save.click();
+  await page.waitForFunction(() => window.pluginHostTest.snapshot().value.independentCapabilities?.length === 0);
+  const tools = (await page.evaluate(() => window.pluginHostTest.snapshot())).value;
+  assert.equal(tools.source.channel, 'plan');
+  assert.deepEqual(tools.models, {});
+  assert.equal(tools.independent.hasSecret.key, true);
+  await page.getByRole('button', { name: '重启当前会话', exact: true }).click();
+  await form.getByRole('status').filter({ hasText: '当前会话已连接' }).waitFor();
+  assert.equal(await form.getByText('首次调用需确认', { exact: true }).count(), 0);
+  assert.equal(await form.locator('.pc-host-route-state').getByText('未启用', { exact: true }).count(), 5);
+  await bind('文本', 'Step Plan', 'step-5-preview');
+  await pick(source('语音识别'), '独立配置');
+  await page.evaluate(() => window.pluginHostTest.channel('api'));
+  await form.getByRole('button', { name: '刷新宿主状态', exact: true }).click();
+  await form.getByRole('status').filter({ hasText: '额度账户已变化' }).waitFor();
+  await api.click();
+  assert.equal(await plan.getAttribute('aria-checked'), 'false');
+  assert.equal(await api.getAttribute('aria-checked'), 'true');
+  assert.match(await source('文本').innerText(), /不使用/, 'A billing channel change clears only the old official rows');
+  assert.match(await source('语音识别').innerText(), /独立配置/);
+  await save.click();
+  await page.waitForFunction(() => window.pluginHostTest.snapshot().value.source?.channel === 'api');
+  await api.click();
+  await save.click();
+  await page.waitForFunction(() => !window.pluginHostTest.snapshot().value.source);
+  assert.equal((await page.evaluate(() => window.pluginHostTest.snapshot())).value.independent.hasSecret.key, true);
+
   for (const independentModel of [false, true]) {
     await page.goto(`${base}/tests/fixtures/plugin-center-live.html${independentModel ? '?independent-model=1' : ''}`);
     await page.getByRole('button', { name: `配置 ${independentModel ? '漫画绘制示例' : 'DFSC Configuration Example'}`, exact: true }).click();

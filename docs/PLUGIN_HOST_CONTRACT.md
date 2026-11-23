@@ -58,7 +58,10 @@ Schema 只做结构检查，运行时还要核对实际原生服务、安装来�
 可选字段 `independentCapabilities` 声明哪些能力可以按行分配给插件独立配置。
 它必须是 `capabilities` 的非空子集，不得重复，并与同一消费者的有效
 `dfsc.settings.json` 一起使用。只有实现了逐项派发的插件才应声明；旧宿主不识别此字段。
-未声明的插件保持整套走 Broker 或独立直连，不会收到新的逐项启动字段。
+可选字段 `independentTools: true` 表示独立配置还能供插件自己的工具使用，
+不必占用任何模型行。它也要求同一消费者的有效 `dfsc.settings.json`，但不会为任何行新增
+独立来源选项：该选项仍由 `independentCapabilities` 声明。旧宿主不识别新字段；
+插件作者应使用能解析空路由集合的客户端并声明兼容宿主。不声明这两个字段的插件保持原有模式。
 
 ### 原生启动字段
 
@@ -120,6 +123,8 @@ step-runtime/desktop-plugins/
   生成新 revision。旧 v1 `follow` 快照不能签发新租约，需重新选择。
 - v4 `routed` 快照保存独立能力集合、独立配置修订，以及可选的一套官方账户和模型。
   两组能力不得重叠，没有分配的能力不可用，不会自动回退到任何来源。
+  声明 `independentTools` 的消费者可保存空的独立能力集合；官方账户可已选定但没有模型，
+  不签发租约。两边都没有模型时，仅在有效独立配置已启用的情况下启动插件工具。
   当前仍只有一个官方账户槽位，不能同时借用 Step Plan 和开放平台 API。
   旧宿主不接受 v4 指针；不自动迁移旧选择或复用授权。
 - 启动对象的 v1 `models` 仍只投影 ASR/TTS，所有能力的实际可用模型读取
@@ -152,7 +157,7 @@ JSON 最大 16 KiB。不是包内配置、全局 `host.json` 或插件自报请�
 | `accountRevision`、`capabilities`、`models` | 账户选择修订、申请集合与专用模型选择 |
 | `dataDirectory` | 宿主分配的实例包外目录，不是任意文件授权 |
 | `broker` | 仅跟随模式包含 `origin`、`token`、`expiresAt` |
-| `independentCapabilities` | 仅逐项路由启动存在，列出明确分配给插件直连的能力 |
+| `independentCapabilities` | 仅逐项路由启动存在，列出明确分配给插件直连的能力；空数组表示有独立配置但没有直连模型 |
 
 broker origin 必须是精确的 `http://127.0.0.1:<port>`，
 不含 userinfo、路径、查询或片段。调用 token 为 32 字节随机值的 base64url，
@@ -169,7 +174,9 @@ token 是 bearer，持有被复制的有效 A token 者仍可能冒用 A。
 每次直连前读已提交的配置并核对 `configurationRevision`，读不到或修订不匹配则拒绝。
 有 Broker 时，`capabilities` 和 `/v1/context` 只包含分配给 Broker 的能力，直连行不出现在租约里；
 没有 Broker 时，`capabilities` 就是独立直连集合。其他能力不调用任何来源。
-没有该字段则维持旧的整套模式。Broker 调用失败不改走独立配置，反之亦然。
+没有该字段则不启动逐项独立派发。声明 `independentTools` 的插件自行定义其业务工具；
+收到空数组时仍需核对配置修订，但任何未分配的模型行都不能借此直连。
+Broker 调用失败不改走独立配置，反之亦然。
 保存后须重启会话应用；Broker 可撤销租约，但不承诺在进程重启前拦截插件自身的直连行为。
 
 ## 窄请求协议

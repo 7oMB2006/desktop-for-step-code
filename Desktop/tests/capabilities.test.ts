@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, readFile, realpath, rm, writeFile, symlink } from 'node:fs/promises';
+import { link, mkdtemp, mkdir, readFile, realpath, rm, writeFile, symlink } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { execFileSync, spawn } from 'node:child_process';
@@ -41,6 +41,7 @@ async function marketplace(folder: string, options: { id?: string; link?: boolea
   }));
   await writeFile(join(source, 'example', 'skills', 'review', 'SKILL.md'),
     '---\nname: review\ndescription: Fixture review\n---\n\nNever execute this fixture.\n');
+  await writeFile(join(source, 'example', 'skills', 'review', 'notes.md'), 'Plugin supporting note.');
   return source;
 }
 
@@ -76,6 +77,15 @@ test('marketplace install, plugin resources, and uninstall follow upstream folde
   assert.ok(catalog.mcp.some(server => server.name === 'manifest-id__tools' && server.source === 'plugin'));
   assert.ok(catalog.skills.some(skill => skill.name === 'review' && skill.source === 'plugin'
     && skill.pluginName === 'Example plugin' && !skill.toggleable && !skill.deletable));
+  const pluginSkill = catalog.skills.find(skill => skill.name === 'review')!;
+  const detail = await service.skillDetail(pluginSkill.id);
+  assert.equal(detail.editable, false);
+  assert.equal(detail.manageFiles, false);
+  assert.match(detail.document?.text ?? '', /Never execute this fixture/);
+  assert.deepEqual(detail.files.map(file => file.path), ['notes.md']);
+  assert.equal((await service.skillFile(pluginSkill.id, detail.files[0].id)).text, 'Plugin supporting note.');
+  await assert.rejects(service.mutate({ action: 'skill-mode', id: pluginSkill.id, mode: 'off' }), /read-only/);
+  await assert.rejects(service.mutate({ action: 'skill-file-save', id: pluginSkill.id, path: 'notes.md', text: 'never' }), /read-only/);
   assert.doesNotMatch(JSON.stringify(catalog), /fixture-private-value/);
   await assert.rejects(service.mutate({ action: 'plugin-install', name: entry.name, marketplace: entry.marketplace }));
   await service.mutate({ action: 'plugin-remove', id: 'manifest-id' });
@@ -306,11 +316,97 @@ test('skill import copies its resources without touching its source and rejects 
   await mkdir(join(source, 'references'), { recursive: true });
   await writeFile(join(source, 'SKILL.md'), '---\nname: imported\ndescription: Import fixture\n---\nUse references.');
   await writeFile(join(source, 'references', 'note.md'), 'Fixture reference.');
-  await service.importSkill(source);
+  const imported = await service.importSkill(source);
   assert.equal((await service.catalog()).skills.find(skill => skill.name === 'imported')?.deletable, true);
+  assert.equal((await service.catalog()).skills.find(skill => skill.name === 'imported')?.id, imported.skillId);
   assert.equal(await readFile(join(root, 'agent/skills/imported/references/note.md'), 'utf8'), 'Fixture reference.');
   await assert.rejects(service.importSkill(source), /already-exists/);
   assert.match(await readFile(join(source, 'SKILL.md'), 'utf8'), /Import fixture/);
+});
+
+test('skill detail edits description and instructions without replacing unrelated YAML', async t => {
+  const { root, service } = await fixture(t);
+  const created = await service.mutate({ action: 'skill-create', name: 'editable', description: 'Original description',
+    instructions: 'Original body.' });
+  const id = created.skillId!;
+  const file = join(root, 'agent', 'skills', 'editable', 'SKILL.md');
+  await writeFile(file, '\uFEFF---\r\nname: editable\r\n# External metadata\r\nmeta:\r\n  description: keep me\r\n'
+    + 'description: >-\r\n  Long initial description\r\n  with another line\r\n---\r\n\r\nOriginal body.\r\n', 'utf8');
+  const first = await service.skillDetail(id);
+  assert.equal(first.editable, true);
+  assert.equal(first.manageFiles, true);
+  assert.equal(first.document?.body, 'Original body.');
+  assert.equal(first.document?.description, 'Long initial description with another line');
+  await service.mutate({ action: 'skill-save', id, revision: first.document!.revision,
+    description: 'Edited: "description"', instructions: 'New body.\n\n- Bullet' });
+  const saved = await service.skillDetail(id);
+  assert.equal(saved.document?.description, 'Edited: "description"');
+  assert.equal(saved.document?.body, 'New body.\n\n- Bullet');
+  assert.match(saved.document?.text ?? '', /^\uFEFF---\r\nname: editable\r\n# External metadata\r\nmeta:\r\n  description: keep me\r\n/);
+  await assert.rejects(service.mutate({ action: 'skill-save', id, revision: first.document!.revision,
+    description: 'Stale', instructions: 'Do not write this.' }), /stale/);
+  await service.mutate({ action: 'skill-mode', id, mode: 'manual', revision: saved.document!.revision });
+  const config = () => service.catalog().then(data => data.skills.find(skill => skill.id === id)!);
+  assert.equal((await config()).manualOnly, true);
+  assert.equal((await config()).enabled, true);
+  const manual = await service.skillDetail(id);
+  assert.match(manual.document?.text ?? '', /disable-model-invocation: true/);
+  await service.mutate({ action: 'skill-mode', id, mode: 'off', revision: manual.document!.revision });
+  assert.equal((await config()).enabled, false);
+  assert.equal((await config()).manualOnly, true);
+  await service.mutate({ action: 'skill-mode', id, mode: 'auto', revision: manual.document!.revision });
+  assert.equal((await config()).enabled, true);
+  assert.equal((await config()).manualOnly, false);
+  assert.doesNotMatch(await readFile(file, 'utf8'), /Do not write this/);
+});
+
+test('skill supporting files are anchored to one package and changed using their revisions', async t => {
+  const { root, service } = await fixture(t);
+  const create = (name: string) => service.mutate({ action: 'skill-create', name, description: 'Fixture',
+    instructions: 'Fixture body.' });
+  const id = (await create('one')).skillId!;
+  const second = (await create('two')).skillId!;
+  const base = join(root, 'agent', 'skills', 'one');
+  const outside = join(root, 'agent', 'skills', 'two', 'SKILL.md');
+  await writeFile(join(base, '.env'), 'fixture-hidden');
+  const oversized = join(base, 'large.bin');
+  await writeFile(oversized, Buffer.alloc(128 * 1024 + 1));
+  await link(outside, join(base, 'linked.md'));
+  const linkedDirectory = join(base, 'linked-directory');
+  await symlink(join(root, 'agent', 'skills', 'two'), linkedDirectory, process.platform === 'win32' ? 'junction' : 'dir');
+  try {
+    await assert.rejects(service.mutate({ action: 'skill-file-save', id, path: 'linked-directory/note.md', text: 'not allowed' }),
+      /already-exists|invalid-path/);
+    await assert.rejects(service.mutate({ action: 'skill-remove', id }), /invalid-path/);
+  } finally { await removeLinkEntry(linkedDirectory); }
+  for (const path of ['../escape.md', 'c:/file', 'references/COM1.txt', 'references/SKiLL.md', '.env', 'file.'])
+    await assert.rejects(service.mutate({ action: 'skill-file-save', id, path, text: 'not allowed' }), /invalid-path/);
+  const path = 'references/check.md';
+  await service.mutate({ action: 'skill-file-save', id, path, text: 'line one\nline two\n' });
+  await assert.rejects(service.mutate({ action: 'skill-file-save', id, path: 'references/CHECK.md', text: 'collision' }), /already-exists/);
+  const first = await service.skillDetail(id);
+  assert.deepEqual(first.files.map(item => item.path), ['large.bin', path]);
+  const fileId = first.files.find(item => item.path === path)!.id;
+  assert.match(fileId, /^[a-f0-9]{64}$/u);
+  await assert.rejects(service.skillFile(second, fileId), /not-found/);
+  const file = await service.skillFile(id, fileId);
+  assert.equal(file.text, 'line one\nline two\n');
+  await writeFile(join(base, path), 'External edit', 'utf8');
+  await assert.rejects(service.mutate({ action: 'skill-file-remove', id, fileId, revision: file.revision }), /stale/);
+  const current = await service.skillFile(id, fileId);
+  await service.mutate({ action: 'skill-file-save', id, fileId, revision: current.revision, path: 'moved/check.md', text: '' });
+  const next = await service.skillDetail(id);
+  const movedId = next.files.find(item => item.path === 'moved/check.md')!.id;
+  assert.notEqual(movedId, fileId);
+  await assert.rejects(readFile(join(base, path)), { code: 'ENOENT' });
+  assert.equal((await service.skillFile(id, movedId)).text, '');
+  for (const item of next.files) {
+    const { revision, text } = await service.skillFile(id, item.id);
+    if (item.path === 'large.bin') assert.equal(text, undefined);
+    await service.mutate({ action: 'skill-file-remove', id, fileId: item.id, revision });
+  }
+  assert.deepEqual((await service.skillDetail(id)).files, []);
+  assert.match(await readFile(outside, 'utf8'), /name: two/);
 });
 
 test('remove marketplace leaves installed plugins intact and builtin sources are read-only', async t => {

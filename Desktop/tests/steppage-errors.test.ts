@@ -32,7 +32,8 @@ test('preparation and capability edits retain idle checks without stopping Cron 
   const app = await readFile(new URL('../src/main.tsx', import.meta.url), 'utf8');
   const entry = app.slice(app.indexOf('<CapabilitySettings'), app.indexOf('/> : null}', app.indexOf('<CapabilitySettings')));
   assert.doesNotMatch(entry, /applySnapshot/);
-  assert.match(entry, /const next = await bridge!\.restart\(\)/);
+  assert.match(entry, /onRestart=\{restartCapabilitySession\}/);
+  assert.match(app, /const restartCapabilitySession = async \(\) => \{\s*const next = await bridge!\.restart\(\)/);
   const view = await readFile(new URL('../src/StepPageSettings.tsx', import.meta.url), 'utf8');
   assert.match(view, /setState\(value\); setReadError\(''\)/);
   assert.doesNotMatch(view, /setState\(value\); setError\(''\)/);

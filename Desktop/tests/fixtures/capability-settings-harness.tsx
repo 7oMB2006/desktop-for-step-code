@@ -4,6 +4,7 @@ import { Plug, BookOpen, MessageSquare, X } from 'lucide-react';
 import { CapabilitySettings, type CapabilityPage, type CapabilityBridge, type CapabilityTarget } from '../../src/CapabilitySettings';
 import { SidebarTaskActions } from '../../src/ScheduledTasks';
 import { McpIcon } from '../../src/McpIcon';
+import { SkillsDetailPreview } from './skills-detail-preview';
 import type { CapabilityCatalog } from '../../src/capabilities';
 import '../../src/style.css';
 import '../../src/layout.css';
@@ -13,6 +14,7 @@ import '../../src/settings-dialog.css';
 const params = new URLSearchParams(location.search);
 const language = params.get('lang') === 'en' ? 'en' : 'zh';
 const fadePreview = params.has('fade');
+const skillsPreview = params.get('preview') === 'skill-detail';
 const sessionTitles = language === 'zh'
   ? ['前端设计', '插件开发', '检查账户设置与额度展示', '整理本周的更新记录', '修复侧栏交互与焦点状态', '核对任务清单和完成提示', '为新插件添加图标', '排查运行时连接问题']
   : ['Frontend design', 'Plugin development', 'Review account settings', 'Weekly release notes', 'Sidebar interaction fixes', 'Task completion review', 'Plugin icon support', 'Runtime connection checks'];
@@ -62,17 +64,16 @@ const bridge: CapabilityBridge = {
     if (input.action === 'marketplace-remove') catalog.marketplaces = catalog.marketplaces.filter(item => item.name !== input.name);
     return { warnings: [] };
   },
-  capabilityImportSkill: async () => null,
   stepPageState: async () => ({ status: 'missing', installed: false }),
   prepareStepPage: async () => ({ status: 'missing', installed: false }),
   saveMcp: async () => {},
   summary: async () => ({ sessionId: 'preview', tasks: [], skillCount: 2, mcp: [{ name: 'playwright__playwright', status: 'connected', toolCount: 22 }] }),
 };
 function Preview() {
-  const [page, setPage] = useState<CapabilityPage>((params.get('page') as CapabilityPage) || 'plugins');
+  const [page, setPage] = useState<CapabilityPage>((params.get('page') as CapabilityPage) || (skillsPreview ? 'skills' : 'plugins'));
   const [edit, setEdit] = useState<string>();
-  const sidebarPreview = params.has('sidebar') || fadePreview;
-  const [settingsOpen, setSettingsOpen] = useState(!sidebarPreview);
+  const sidebarPreview = params.has('sidebar') || fadePreview || skillsPreview;
+  const [settingsOpen, setSettingsOpen] = useState(!sidebarPreview || skillsPreview);
   const [target, setTarget] = useState<CapabilityTarget>();
   const [selectedSession, setSelectedSession] = useState(0);
   const tree = useRef<HTMLElement>(null);
@@ -93,15 +94,18 @@ function Preview() {
         <button aria-current={selectedSession === session.id ? 'page' : undefined} onClick={() => setSelectedSession(session.id)}>{session.title}</button>
       </div>)}
     </nav>
-  </aside><main/></>}{settingsOpen && <div className="modal-backdrop settings-backdrop"><section className="settings-dialog" role="dialog" aria-label={language === 'zh' ? '设置' : 'Settings'}>
+  </aside><main inert={settingsOpen}>{skillsPreview && !settingsOpen && <div className="empty-state">
+    <button onClick={() => { setPage('skills'); setSettingsOpen(true); }}><BookOpen size={16}/>{language === 'zh' ? '打开 Skills 设置' : 'Open Skills settings'}</button>
+  </div>}</main></>}{settingsOpen && <div className="modal-backdrop settings-backdrop"><section className="settings-dialog" role="dialog" aria-modal="true" aria-label={language === 'zh' ? '设置' : 'Settings'}>
     <header><h2>{language === 'zh' ? '设置' : 'Settings'}</h2><button className="icon-button" aria-label="Close" onClick={() => { setEdit(undefined); if (sidebarPreview) setSettingsOpen(false); }}><X size={18}/></button></header>
     <div className="settings-layout"><nav aria-label="Settings categories">{[
       ['plugins', Plug, language === 'zh' ? '插件' : 'Plugins'], ['mcp', McpIcon, 'MCP'], ['skills', BookOpen, 'Skills'],
-    ].map(([id, Icon, title]: any) => <button key={id} className={page === id ? 'selected' : ''} onClick={() => setPage(id)}><Icon size={17}/>{title}</button>)}</nav>
-      <div key={page} className="settings-content"><CapabilitySettings page={page} bridge={bridge} language={language} busy={false} runtimeId="preview" target={target}
-        settings={{ mcp: {} }} onEditMcp={name => setEdit(name || 'MCP')} onChanged={async () => {}} onRestart={async () => {}}/></div>
+    ].map(([id, Icon, title]: any) => <button key={id} aria-label={title} aria-current={page === id ? 'page' : undefined} className={page === id ? 'selected' : ''} onClick={() => setPage(id)}><Icon size={17}/>{title}</button>)}</nav>
+      {page === 'skills' ? <SkillsDetailPreview language={language}/> :
+        <div key={page} className="settings-content"><CapabilitySettings page={page} bridge={bridge} language={language} busy={false} runtimeId="preview" target={target}
+          settings={{ mcp: {} }} onEditMcp={name => setEdit(name || 'MCP')} onChanged={async () => {}} onRestart={async () => {}}/></div>}
     </div></section></div>}
-    {edit && <div className="modal-backdrop higher"><section className="small-dialog"><header><h2>{edit}</h2><button className="icon-button" aria-label="Close editor" onClick={() => setEdit(undefined)}><X size={18}/></button></header><label>URL<input defaultValue="https://example.com/mcp"/></label><button onClick={() => setEdit(undefined)}>{language === 'zh' ? '取消' : 'Cancel'}</button></section></div>}
+    {edit && <div className="modal-backdrop higher"><section className="small-dialog form-text-focus"><header><h2>{edit}</h2><button className="icon-button" aria-label="Close editor" onClick={() => setEdit(undefined)}><X size={18}/></button></header><label>URL<input defaultValue="https://example.com/mcp"/></label><button onClick={() => setEdit(undefined)}>{language === 'zh' ? '取消' : 'Cancel'}</button></section></div>}
   </div>;
 }
 createRoot(document.getElementById('root')!).render(<Preview/>);

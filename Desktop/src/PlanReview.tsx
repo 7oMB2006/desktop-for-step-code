@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import Markdown from 'react-markdown';
 import { ArrowLeft, Check, ClipboardCheck, MessageSquare, X } from 'lucide-react';
 import { messageRemarkPlugins, messageRehypePlugins } from './markdown-math';
+import { revealFocusedTextField } from './form-focus';
 import './permission-approval.css';
 import './plan-review.css';
 
@@ -85,7 +86,7 @@ export function PlanReview({ plan, feedback, open, requestId, zh, onLater, onRes
       onLostPointerCapture={() => { drag.current = undefined; setDragging(false); }}
       onKeyDown={event => { if (['ArrowUp', 'ArrowDown', 'Home', 'End'].includes(event.key)) { event.preventDefault(); setExpanded(event.key === 'ArrowUp' || event.key === 'End'); } }}><span/></button>
     <header className="approval-drawer-heading"><ClipboardCheck size={18}/><h2>{content.feedback ? t('修改计划', 'Refine plan') : t('批阅计划', 'Review plan')}</h2></header>
-    <div className="permission-approval-content plan-review-content">
+    <div className="permission-approval-content plan-review-content form-text-focus" onFocusCapture={revealFocusedTextField}>
       {content.feedback ? <textarea aria-label={t('修改意见', 'Requested changes')} value={value} onChange={event => setValue(event.target.value)}/>
         : <><code className="plan-review-path">{content.plan?.path}</code><div className="markdown"><Markdown skipHtml remarkPlugins={messageRemarkPlugins} rehypePlugins={messageRehypePlugins}
           components={{ a: ({ children }) => <span>{children}</span>, img: () => null }}>{content.plan?.content ?? ''}</Markdown></div></>}

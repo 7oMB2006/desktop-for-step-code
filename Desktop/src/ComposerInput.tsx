@@ -134,8 +134,10 @@ export function ComposerInput(props: Props) {
     const document = editor.state.doc;
     // ProseMirror consumes this array; loading-only renders reuse the memoized items.
     const set = DecorationSet.create(document, [...decorations.items, ...referenceDecorations.flatMap(({ element, link }) => [
-      Decoration.widget(link.from + 1, element, { side: -1, ignoreSelection: true, stopEvent: () => true }),
       Decoration.inline(link.from + 1, link.to + 1, { class: 'composer-session-reference-source', 'aria-hidden': 'true' }),
+      // End the reference with its widget so the caret lands after the label,
+      // not inside the clipped source text.
+      Decoration.widget(link.to + 1, element, { side: -1, ignoreSelection: true, stopEvent: () => true }),
     ])]);
     editor.setProps({ editable: () => !latest.current.disabled,
       decorations: state => state.doc === document ? set : DecorationSet.empty });

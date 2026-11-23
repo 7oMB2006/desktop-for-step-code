@@ -16,6 +16,9 @@
 .import-sources-details { display: grid; grid-template-rows: 0fr; opacity: 0; transition: grid-template-rows 280ms cubic-bezier(.215,.61,.355,1), opacity 280ms cubic-bezier(.215,.61,.355,1); }
 .import-sources-details.is-expanded { grid-template-rows: 1fr; opacity: 1; }
 .import-sources-details > div { min-height: 0; overflow: hidden; }
+.import-sources > .import-sources-details:has(input:focus) { transition: none; }
+.import-sources > .import-sources-details > div { padding-inline: 4px; }
+.import-sources-details input:not([type=checkbox]) { scroll-margin: 4px; }
 .import-sources label { margin-top: 12px; }
 .import-toolbar, .import-submit { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 16px 0; font-size: 12px; }
 .import-submit { justify-content: flex-end; }

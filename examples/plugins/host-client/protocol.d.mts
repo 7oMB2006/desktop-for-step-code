@@ -13,6 +13,7 @@ export interface HostDeclaration {
   readonly consumer: { readonly kind: 'mcp-stdio'; readonly server: string };
   readonly capabilities: readonly Capability[];
   readonly independentCapabilities?: readonly Capability[];
+  readonly independentTools?: true;
 }
 export interface LaunchBase {
   version: 'dfsc-launch-v1'; pluginId: string; consumer: string; instance: string; fingerprint: string;
@@ -57,7 +58,7 @@ export function hash(value: unknown): boolean;
 export function keys(value: unknown, allowed: string[], required?: string[]): void;
 export function boundedJson(value: unknown, limit: number): string;
 export function parseModelSelection(value: unknown, declared: readonly Capability[]): ModelSelection;
-export function parseIndependentCapabilities(value: unknown, declared: readonly Capability[]): Capability[];
+export function parseIndependentCapabilities(value: unknown, declared: readonly Capability[], allowEmpty?: boolean): Capability[];
 export function parseHostDeclaration(value: unknown, manifest: unknown): HostDeclaration;
 export function parseLaunch(value: unknown, expected: { pluginId: string; consumer: string }, now?: number): LaunchContext;
 export function takeLaunchContext(environment: NodeJS.ProcessEnv, expected: { pluginId: string; consumer: string }, now?: number): LaunchContext;

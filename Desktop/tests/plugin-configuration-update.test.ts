@@ -53,11 +53,15 @@ test('hosted migration preserves the broker boundary and only relaxes existing r
     status: 'compatible', changes: [{ code: 'required-relaxed', field: 'key' },
       { code: 'presentation', field: 'key' }, { code: 'host-reconfigure' }],
   });
+  const toolsHost = { ...routedHost, independentTools: true };
+  assert.equal(compareHostedConfigurationSchemas(previous, next, routedHost, toolsHost).status, 'compatible');
   for (const [before, after, replacement] of [
     [host, { ...routedHost, capabilities: ['model.text', 'model.asr', 'model.video'] }, next],
     [host, { ...routedHost, independentCapabilities: ['model.video'] }, next],
     [host, { ...routedHost, $schema: '' }, next],
     [routedHost, host, next],
+    [toolsHost, routedHost, next],
+    [routedHost, { ...routedHost, independentTools: false }, next],
     [host, { ...routedHost, consumer: { kind: 'mcp-stdio', server: 'other' } }, next],
     [host, routedHost, changed(value => { value.modelConnection = 'independent'; })],
     [host, routedHost, changed(value => { value.groups[0].fields[0].maxLength = 4; })],

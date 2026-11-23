@@ -1,1 +1,11 @@
 @import '../../src/remote-access.css';
+
+.usage-overview-scroll {
+  flex: 1;
+  width: 100%;
+  min-height: 0;
+  background: var(--bg);
+  overflow: auto;
+}
+
+.usage-overview-scroll .usage-preview-surface { min-height: 100%; }

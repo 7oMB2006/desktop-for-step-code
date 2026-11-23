@@ -123,7 +123,7 @@
 .first-run-workspace .new-session { width: 100%; min-height: 340px; }
 .first-run-workspace .first-run-composer-wrap { width: 100%; max-width: 920px; padding: 0 20px; margin: auto auto 8px; }
 .first-run-composer-wrap .composer { box-shadow: none; }
-.first-run-composer-wrap .composer > textarea:focus-visible { outline: 2px solid var(--primary); outline-offset: -4px; }
+.first-run-composer-wrap .composer > textarea { --form-focus-offset: -4px; }
 .first-run-composer-wrap .composer-tools > span:not(.spacer) { font-size: 11px; color: var(--muted); }
 .first-run-composer-wrap .composer-footer { gap: 12px; line-height: 1.6; }
 @keyframes first-run-enter { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }

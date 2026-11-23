@@ -34,6 +34,14 @@
 .composer-inline-link-icon .message-link-site, .composer-inline-link-icon .message-link-site svg { width: .95em; height: .95em; }
 .composer-inline-link-icon .message-link-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 .composer-session-reference { user-select: none; }
-.composer-session-reference-source { font-size: 0; }
+.composer-session-reference-source {
+  /* The leading caret still needs normal font metrics and room to paint. */
+  display: inline-block;
+  inline-size: 0;
+  overflow: clip;
+  overflow-clip-margin: 1px;
+  white-space: nowrap;
+  -webkit-text-fill-color: transparent;
+}
 .composer-inline-command-icon .command-reference > span:last-child { display: none; }
 .composer-command-slash { font-size: 0; }

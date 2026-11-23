@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { ArrowLeft, ArrowRight, Check, CircleHelp, X } from 'lucide-react';
 import type { Questionnaire, QuestionDraft, QuestionAnswer } from './questionnaire';
 import { validAnswer, serializeAnswers } from './questionnaire';
+import { revealFocusedTextField } from './form-focus';
 import './permission-approval.css';
 import './question-review.css';
 
@@ -59,7 +60,9 @@ export function QuestionReview({ question, requestId, open, zh, drafts, onLater,
     const moved = previousPage.current !== draft.page;
     previousPage.current = draft.page;
     if (!active || !visible || (!moved && !draft.answers[draft.page]?.wasCustom)) return;
-    panel.current?.querySelector<HTMLElement>('textarea, input:checked, input')?.focus({ preventScroll: true });
+    const field = panel.current?.querySelector<HTMLElement>('textarea')
+      ?? panel.current?.querySelector<HTMLElement>('input');
+    field?.focus({ preventScroll: true });
   }, [draft.page, draft.answers[draft.page]?.wasCustom, active, visible]);
   const update = (next: QuestionDraft) => {
     clearTimeout(advance.current);
@@ -120,7 +123,7 @@ export function QuestionReview({ question, requestId, open, zh, drafts, onLater,
       onLostPointerCapture={() => { drag.current = undefined; setDragHeight(undefined); }}
       onKeyDown={e => { if (['ArrowUp', 'ArrowDown', 'Home', 'End'].includes(e.key)) { e.preventDefault(); setExpanded(e.key === 'ArrowUp' || e.key === 'End'); } }}><span/></button>
     <header className="approval-drawer-heading"><CircleHelp size={18}/><h2>{t('回答问题', 'Answer questions')}</h2><span className="question-beta">Beta</span></header>
-    <div className="permission-approval-content question-review-content" key={index}>
+    <div className="permission-approval-content question-review-content form-text-focus" key={index} onFocusCapture={revealFocusedTextField}>
       <h3>{q.question}</h3>{q.reason && <p className="question-reason">{q.reason}</p>}
       <div className="question-options" role="radiogroup" aria-label={q.question}>
         {q.options.map((o, i) => <label key={i} className="question-option">

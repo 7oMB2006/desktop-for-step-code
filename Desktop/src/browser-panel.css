@@ -37,7 +37,6 @@
 .browser-addressbar .icon-button { width: 26px; height: 28px; flex: 0 0 26px; }
 .browser-address-field { display: flex; flex: 1; align-items: center; min-width: 0; gap: 7px; padding: 0 9px; height: 30px; border: 1px solid var(--border); border-radius: 5px; background: var(--surface); }
 .browser-address-field > svg { flex-shrink: 0; color: var(--muted); }
-.browser-address-field:focus-within { border-color: var(--primary); }
 .browser-address-field input { width: 100%; min-width: 0; border: 0; outline: none; padding: 0; font-size: 11px; background: transparent; color: var(--ink); }
 .browser-action-error { margin: 0; padding: 8px 12px; color: var(--danger); font-size: 11px; }
 .browser-page { position: relative; flex: 1; min-height: 0; min-width: 0; overflow: hidden; }

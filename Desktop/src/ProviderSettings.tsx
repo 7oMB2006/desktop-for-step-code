@@ -292,13 +292,13 @@ export function ProviderSettings({ providers, language, pending, onSave, onDelet
           </div>
           <label>Base URL<input required type="url" readOnly={fixedPlanRoute} maxLength={2048} value={draft.baseUrl} placeholder="https://api.example.com/v1" onChange={e => update({ baseUrl: e.target.value })}/></label>
           <div className="provider-format"><span id="provider-api-label">{t('API 格式', 'API format')}</span>
-            <button type="button" ref={anchor} disabled={fixedPlanRoute} aria-labelledby="provider-api-label provider-api-value" aria-haspopup="menu" aria-expanded={menu}
+            <button type="button" className="form-focus-trigger" ref={anchor} disabled={fixedPlanRoute} aria-labelledby="provider-api-label provider-api-value" aria-haspopup="menu" aria-expanded={menu}
               onClick={() => setMenu(v => !v)}><span id="provider-api-value">{preset?.brand === 'anthropic' ? 'Anthropic Messages · /v1/messages' : formats.find(f => f.id === draft.api)?.label}</span><DisclosureChevron/></button>
             <AppMenu anchor={anchor} open={menu} label={t('API 格式', 'API format')} items={formats} selected={draft.api}
               onSelect={id => update({ api: id as ProviderApi })} onClose={closeMenu}/>
           </div>
           <div className="provider-format"><span id="provider-catalog-label">{t('公共模型目录', 'Public model catalog')}</span>
-            <button type="button" ref={catalogAnchor} aria-labelledby="provider-catalog-label provider-catalog-value" aria-haspopup="menu" aria-expanded={catalogMenu}
+            <button type="button" className="form-focus-trigger" ref={catalogAnchor} aria-labelledby="provider-catalog-label provider-catalog-value" aria-haspopup="menu" aria-expanded={catalogMenu}
               onClick={() => setCatalogMenu(value => !value)}><span id="provider-catalog-value">{draft.catalogProvider === 'none' ? t('不使用', 'Disabled') : catalogProviders.find(p => p.id === draft.catalogProvider)?.label ?? t('自动匹配官方地址', 'Auto: official endpoints')}</span><DisclosureChevron/></button>
             <AppMenu anchor={catalogAnchor} open={catalogMenu} label={t('公共模型目录', 'Public model catalog')} selected={draft.catalogProvider ?? 'auto'}
               items={[{ id: 'auto', label: t('自动匹配官方地址', 'Auto: official endpoints') }, { id: 'none', label: t('不使用', 'Disabled') }, ...catalogProviders.map(({ id, label }) => ({ id, label }))]}

@@ -2,6 +2,8 @@ import { _electron as electron } from 'playwright';
 import assert from 'node:assert/strict';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { mkdtemp } from './test-profile.mjs';
+import { closeDesktopFixtureAndWait } from './close-desktop-fixture.mjs';
+import { assertFocusVisible } from './assert-focus-visible.mjs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import semver from 'semver';
@@ -17,19 +19,21 @@ await writeFile(join(profile, 'preferences.json'), JSON.stringify({ theme: 'ligh
 await mkdir('test-results', { recursive: true });
 const env = { ...process.env, DESKTOP_TEST_USER_DATA: profile, DESKTOP_TEST_NO_FOCUS: '1' };
 delete env.ELECTRON_RUN_AS_NODE;
+delete env.STEP_API_KEY;
 let app;
 const errors = [];
 const launch = async () => {
   const executablePath = process.env.DESKTOP_VERIFY_EXE;
   app = await electron.launch({ ...(executablePath ? { executablePath } : { args: [resolve('.')] }), env, timeout: 60000 });
   const page = await app.firstWindow();
-  await app.evaluate(({ BrowserWindow, dialog, net, shell }, { currentVersion, nextVersion, feedVersion }) => {
+  await app.evaluate(({ BrowserWindow, clipboard, dialog, net, shell }, { currentVersion, nextVersion, feedVersion }) => {
     const window = BrowserWindow.getAllWindows()[0];
     window.setOpacity(0); window.setIgnoreMouseEvents(true); window.showInactive(); window.setSize(1280, 900);
     dialog.showMessageBox = async () => ({ response: 1 });
-    globalThis.updateFixture = { time: Date.now(), calls: [], opened: [], mode: 'available', release: null };
+    globalThis.updateFixture = { time: Date.now(), calls: [], opened: [], copied: '', mode: 'available', release: null };
     Date.now = () => globalThis.updateFixture.time;
     shell.openExternal = async url => { globalThis.updateFixture.opened.push(url); };
+    clipboard.writeText = text => { globalThis.updateFixture.copied = text; };
     net.fetch = async (url, options) => {
       const fixture = globalThis.updateFixture;
       fixture.calls.push({ url, credentials: options.credentials, redirect: options.redirect, headers: options.headers });
@@ -77,9 +81,46 @@ try {
   await page.locator('.sidebar-settings').click();
   await page.getByRole('button', { name: '通用', exact: true }).click();
   assert.equal(await page.getByRole('region', { name: '应用更新' }).count(), 0);
-  await page.getByRole('button', { name: '版本更新', exact: true }).click();
+  const search = page.getByRole('searchbox', { name: '搜索设置', exact: true });
+  await search.fill('下载更新');
+  await search.press('Enter');
+  const aboutTab = page.getByRole('button', { name: '关于', exact: true });
+  const updatesHeading = page.getByRole('heading', { name: '版本更新', exact: true });
   const updates = page.getByRole('region', { name: '应用更新' });
   await updates.getByText('尚未检查更新', { exact: true }).waitFor();
+  await page.waitForFunction(() => document.activeElement?.getAttribute('data-settings-anchor') === 'app-updates');
+  assert.equal(await aboutTab.getAttribute('aria-current'), 'page');
+  const info = await page.evaluate(() => window.desktop.appBuildInfo());
+  assert.equal(info.desktopVersion, currentVersion);
+  assert.equal(info.platform, process.platform);
+  const versions = page.locator('.about-versions');
+  await versions.getByText(`v${currentVersion}`, { exact: true }).waitFor();
+  const expectedBaselines = new Map([
+    ['29eb460780489801ce8afc8bffc1a2efae7cbded', 'v0.1.7'],
+    ['5309624e5deff3d8fee031f0853fe7e07bc68801', 'v0.1.8'],
+  ]);
+  assert.match(info.runtime?.commit ?? '', /^[a-f0-9]{40}$/);
+  assert.equal(info.runtime.baseline, expectedBaselines.get(info.runtime.commit));
+  await versions.getByText(info.runtime.baseline ?? '基线未知', { exact: true }).waitFor();
+  await versions.getByRole('button', { name: '复制构建提交', exact: true }).click();
+  await versions.getByRole('button', { name: '已复制构建提交', exact: true }).waitFor();
+  assert.equal(await app.evaluate(() => globalThis.updateFixture.copied), info.runtime.commit);
+  const site = page.getByRole('link', { name: 'Desktop for Step Code 官网', exact: true });
+  await site.scrollIntoViewIfNeeded();
+  await site.hover();
+  assert.notEqual(await site.evaluate(element => getComputedStyle(element).boxShadow), 'none');
+  await assertFocusVisible(page, site, 'About website keyboard focus');
+  await site.press('Enter');
+  await page.getByRole('link', { name: 'Desktop 项目', exact: true }).click();
+  await page.getByRole('link', { name: 'Step Code 上游', exact: true }).click();
+  assert.deepEqual(await app.evaluate(() => globalThis.updateFixture.opened.splice(0)), [
+    'https://calm-falcon-0dc2.page.stepcloud.com/',
+    'https://github.com/7oMB2006/desktop-for-step-code',
+    'https://github.com/stepfun-ai/Step-Code',
+  ]);
+  await page.waitForFunction(() => [...document.querySelectorAll('.about-site img')]
+    .filter(image => image.checkVisibility()).every(image => image.complete && image.naturalWidth > 0));
+  await page.locator('.about-settings').screenshot({ path: 'test-results/about-settings-live-light.png' });
   assert.equal(await updates.getByRole('checkbox', { name: '自动检查更新' }).isChecked(), true);
   const channelTrigger = updates.getByRole('combobox', { name: '更新通道', exact: true });
   assert.equal(await channelTrigger.inputValue(), 'preview');
@@ -103,9 +144,8 @@ try {
   assert.equal(await channelTrigger.evaluate(element => element === document.activeElement), true);
   await channelTrigger.click();
   await page.waitForFunction(() => document.querySelector('.update-channel-field select')?.matches(':open'));
-  await page.getByRole('heading', { name: '版本更新', exact: true }).click();
+  await updatesHeading.click();
   await page.waitForFunction(() => !document.querySelector('.update-channel-field select')?.matches(':open'));
-  assert.ok((await updates.locator('.update-version').textContent()).includes(`v${currentVersion}`));
   await mode('pending');
   await updates.getByRole('button', { name: '检查更新', exact: true }).click();
   await updates.getByText('正在检查更新…', { exact: true }).waitFor();
@@ -140,7 +180,7 @@ try {
   await page.locator('.update-indicator').waitFor();
   await page.locator('.sidebar-settings').click();
   await updates.waitFor();
-  assert.equal(await page.getByRole('button', { name: '版本更新', exact: true }).getAttribute('class'), 'selected');
+  assert.equal(await aboutTab.getAttribute('aria-current'), 'page');
 
   await app.evaluate(() => { globalThis.updateFixture.mode = 'available'; });
   await chooseChannel(page, 'stable');
@@ -172,7 +212,7 @@ try {
   await updates.getByText(`发现新版本 ${nextVersion}`, { exact: true }).waitFor();
   await page.getByRole('button', { name: '外观', exact: true }).click();
   await page.getByRole('button', { name: '暗', exact: true }).click();
-  await page.getByRole('button', { name: '版本更新', exact: true }).click();
+  await aboutTab.click();
   await page.locator('html[data-theme="dark"]').waitFor();
   await updates.scrollIntoViewIfNeeded();
   await page.screenshot({ path: 'test-results/app-updates-available-dark.png' });
@@ -198,7 +238,7 @@ try {
   await assert.rejects(page.evaluate(() => window.desktop.preferences({ autoCheckUpdates: 'true' })), /Invalid automatic update setting/);
   await page.getByRole('button', { name: '通用', exact: true }).click();
   await page.getByRole('dialog').getByLabel(/^语言/).selectOption('en');
-  await page.getByRole('button', { name: 'Updates', exact: true }).click();
+  await page.getByRole('button', { name: 'About', exact: true }).click();
   await page.getByRole('region', { name: 'App updates' }).waitFor();
   await page.getByRole('region', { name: 'App updates' }).scrollIntoViewIfNeeded();
   await page.screenshot({ path: 'test-results/app-updates-english.png' });
@@ -216,7 +256,7 @@ try {
   assert.ok(requests.every(request => ['https://raw.githubusercontent.com/7oMB2006/desktop-for-step-code/update-feed/latest.json',
     'https://github.com/7oMB2006/desktop-for-step-code/releases.atom'].includes(request.url)
     && request.credentials === 'omit' && request.redirect === 'error' && !request.headers.Authorization));
-  await app.close(); app = undefined;
+  await closeDesktopFixtureAndWait(app); app = undefined;
   const saved = JSON.parse(await readFile(join(profile, 'preferences.json'), 'utf8'));
   assert.equal(saved.autoCheckUpdates, false);
   assert.equal(saved.updateChannel, 'stable');
@@ -224,5 +264,5 @@ try {
   assert.equal((await page.evaluate(() => window.desktop.updateState())).channel, 'stable');
   assert.equal((await page.evaluate(() => window.desktop.snapshot())).preferences.autoCheckUpdates, false);
   assert.deepEqual(errors, []);
-  console.log('App updates: state transitions, official links, missing installer, errors/rate limits, theme/narrow/i18n/reduced motion, preferences and restart passed.');
-} finally { if (app) await app.close(); }
+  console.log('About and app updates: build identity, clipboard, external links, search and badge routing, update states, preferences and restart passed.');
+} finally { if (app) await closeDesktopFixtureAndWait(app); }

@@ -94,7 +94,7 @@ function compareSchemas(previous, next, hosted) {
 
 export function compareHostedConfigurationSchemas(previous, next, oldHost, newHost) {
   const compatible = (value, consumer) => {
-    keys(value, ['$schema', 'schemaVersion', 'hostApiVersion', 'consumer', 'capabilities', 'independentCapabilities']);
+    keys(value, ['$schema', 'schemaVersion', 'hostApiVersion', 'consumer', 'capabilities', 'independentCapabilities', 'independentTools']);
     keys(value.consumer, ['kind', 'server']);
     const list = items => Array.isArray(items) && items.every(item => typeof item === 'string')
       && new Set(items).size === items.length;
@@ -103,6 +103,7 @@ export function compareHostedConfigurationSchemas(previous, next, oldHost, newHo
         && value.$schema.length > 0 && value.$schema.length <= 512 && !value.$schema.includes('\0'))
       && equal(value.consumer, { kind: 'mcp-stdio', server: consumer.server })
       && list(value.capabilities) && value.capabilities.length > 0
+      && (value.independentTools === undefined || value.independentTools === true)
       && (value.independentCapabilities === undefined || list(value.independentCapabilities)
         && value.independentCapabilities.every(item => value.capabilities.includes(item)));
   };
@@ -111,6 +112,7 @@ export function compareHostedConfigurationSchemas(previous, next, oldHost, newHo
     if (!compatible(oldHost, strictConfigurationSchema(previous).consumer)
       || !compatible(newHost, strictConfigurationSchema(next).consumer)
       || !equal([...oldHost.capabilities].sort(), [...newHost.capabilities].sort())
+      || oldHost.independentTools && !newHost.independentTools
       || oldHost.independentCapabilities?.some(item => !newHost.independentCapabilities?.includes(item))) return unsupported;
     const comparison = compareSchemas(previous, next, true);
     if (comparison.status !== 'compatible'

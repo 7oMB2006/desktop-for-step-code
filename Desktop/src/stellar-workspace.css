@@ -176,9 +176,6 @@
   background: var(--side); border-top-color: var(--stellar-line);
 }
 :root[data-theme-material=stellar] :is(.plan-review-content, .question-review-content) { padding-top: 6px; scroll-padding-block: 6px; }
-:root[data-theme-material=stellar] :is(.plan-review-content, .question-review-content) textarea:focus {
-  outline: 2px solid var(--primary); outline-offset: 2px; border-color: var(--primary);
-}
 @media (max-width: 800px) {
   :root[data-theme-material=stellar] .messages { --stellar-reading-fill: #070e14d9; }
   :root[data-theme-material=stellar] .sidebar { background: #131416f7; }

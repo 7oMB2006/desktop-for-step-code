@@ -1,4 +1,5 @@
-import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { lazy, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { PageLoadingState } from './PageLoadingState';
 import { emptyUsageOverview } from './usage-overview';
 import './usage-overview-preview.css';
 
@@ -41,9 +42,8 @@ export function UsageOverviewPanel({ onBack, language }: { onBack: () => void; l
         onBack();
       }
     }}>
-    <div className="usage-overview-scroll"><Suspense fallback={<p role="status">{zh ? '加载中...' : 'Loading...'}</p>}>
-      {pending && !overview.scannedAt ? <p role="status">{zh ? '正在读取本机用量记录…' : 'Reading local usage records...'}</p>
-        : <Overview embedded language={language} overview={overview} pending={pending} error={error} onRefresh={() => { void refresh(); }}/>}
-    </Suspense></div>
+    <PageLoadingState pending={pending && !overview.scannedAt} message={zh ? '正在加载本机用量统计…' : 'Loading local usage overview...'}>
+      <Overview embedded language={language} overview={overview} pending={pending} error={error} onRefresh={() => { void refresh(); }}/>
+    </PageLoadingState>
   </section>;
 }

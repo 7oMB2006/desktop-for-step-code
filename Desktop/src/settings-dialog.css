@@ -70,6 +70,8 @@
 .settings-search > .icon-button { width: 24px; height: 24px; min-height: 24px; }
 .settings-dialog .settings-layout { overflow: hidden; }
 .settings-dialog .settings-layout > nav {
+  display: flex;
+  flex-direction: column;
   width: 190px;
   padding: 20px 12px;
   overflow-y: auto;
@@ -77,12 +79,14 @@
   background: color-mix(in srgb, var(--side) 78%, transparent);
 }
 .settings-dialog .settings-layout > nav button {
+  flex-shrink: 0;
   min-height: 38px;
   gap: 11px;
   padding: 8px 12px;
   margin-bottom: 5px;
   text-align: left;
 }
+.settings-dialog .settings-layout > nav .settings-about-tab { margin-top: auto; margin-bottom: 0; }
 .settings-dialog .settings-layout > nav button svg { color: var(--muted); }
 .settings-dialog .settings-layout > nav button.selected {
   background: color-mix(in oklch, var(--primary) 7%, var(--bg)) !important;
@@ -93,6 +97,13 @@
   overscroll-behavior: contain;
   scrollbar-gutter: stable;
   animation: settings-content-enter 160ms ease-out;
+}
+.settings-dialog .settings-content.is-skills {
+  display: flex;
+  min-height: 0;
+  padding: 0;
+  overflow: hidden;
+  scrollbar-gutter: auto;
 }
 .settings-dialog .settings-content > label { max-width: 560px; }
 .settings-session-title-row { display: flex; align-items: center; gap: 4px; }

@@ -4,7 +4,7 @@ import { closeDesktopFixtureAndWait } from './close-desktop-fixture.mjs';
 import { settleLayout } from './settle-layout.mjs';
 import { waitForSessionFixtureSnapshot } from './session-fixture.mjs';
 import assert from 'node:assert/strict';
-import { cp, mkdir, readFile, realpath, writeFile } from 'node:fs/promises';
+import { cp, mkdir, readFile, realpath, rename, writeFile } from 'node:fs/promises';
 import { mkdtemp } from './test-profile.mjs';
 import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
@@ -12,6 +12,9 @@ import { join, resolve } from 'node:path';
 
 const profile = await realpath(await mkdtemp(join(tmpdir(), 'desktop-capability-ui-')));
 const market = join(profile, 'fixture-market');
+const workspace = join(profile, 'Capability fixture');
+const sessionId = 'capability-fixture';
+const sessionTitle = 'Capability restart fixture';
 const iconPng = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jCj0AAAAASUVORK5CYII=', 'base64');
 await mkdir(join(market, '.step-plugin'), { recursive: true });
 await mkdir(join(market, 'example', 'skills', 'review'), { recursive: true });
@@ -26,8 +29,18 @@ await writeFile(join(market, 'example', 'step.plugin.json'), JSON.stringify({
 await writeFile(join(market, 'example', 'logo.png'), iconPng);
 await writeFile(join(market, 'example', 'skills', 'review', 'SKILL.md'),
   '---\nname: review\ndescription: Review fixture\n---\nReview the task.\n');
-await writeFile(join(profile, 'preferences.json'), JSON.stringify({ language: 'zh', theme: 'light', workspaces: [] }));
-await mkdir(join(profile, 'step-runtime'), { recursive: true });
+await mkdir(workspace);
+await writeFile(join(profile, 'preferences.json'), JSON.stringify({ language: 'zh', theme: 'light', workspaces: [workspace], workspace }));
+const sessions = join(profile, 'step-runtime', 'sessions');
+const sessionFile = join(sessions, `${sessionId}.jsonl`);
+await mkdir(sessions, { recursive: true });
+const timestamp = new Date().toISOString();
+await writeFile(sessionFile, [
+  { type: 'session', version: 3, id: sessionId, cwd: workspace, timestamp },
+  { type: 'message', id: 'user-1', parentId: null, timestamp,
+    message: { role: 'user', content: [{ type: 'text', text: 'Verify capability settings without sending a prompt.' }], timestamp: Date.now() } },
+  { type: 'session_info', id: 'name-1', parentId: 'user-1', timestamp, name: sessionTitle },
+].map(entry => JSON.stringify(entry)).join('\n') + '\n');
 await writeFile(join(profile, 'step-runtime', 'config.toml'), 'defaultProvider = "fixture"\ndefaultModel = "fixture"\n[telemetry]\nenabled = false\n');
 await writeFile(join(profile, 'step-runtime', 'models.json'), JSON.stringify({ providers: { fixture: {
   api: 'openai-completions', baseUrl: 'http://127.0.0.1:1/v1', apiKey: 'fixture-only',
@@ -124,7 +137,8 @@ try {
     const restart = page.locator(footer).getByRole('button', { name: '重启当前会话', exact: true, includeHidden: true });
     await restart.click();
     await waitForSessionFixtureSnapshot(page, snapshot => snapshot.runtimeId && snapshot.runtimeId !== before.runtimeId
-      && snapshot.status === 'connected', 'the replacement capability runtime to connect');
+      && snapshot.state?.sessionId === before.state?.sessionId
+      && snapshot.status === 'connected', 'the replacement capability runtime to reconnect to the same session');
     if (hidesRestart) await restart.waitFor({ state: 'detached' });
     else await restart.and(page.locator('button:enabled')).waitFor({ state: 'visible' });
   };
@@ -134,7 +148,7 @@ try {
     const window = BrowserWindow.getAllWindows()[0];
     window.setOpacity(0); window.setIgnoreMouseEvents(true); window.showInactive();
   });
-  await page.getByRole('heading', { name: /^(让想法阶跃星辰|星辰因你而阶跃)$/ }).waitFor();
+  await page.getByRole('textbox', { name: '消息', exact: true }).waitFor();
   const draft = await page.evaluate(() => window.desktop.snapshot());
   assert.equal(draft.firstRun?.required, false, 'The seeded existing profile bypasses onboarding');
   assert.ok(draft.draftId && !draft.runtimeId, 'Management navigation starts from a draft without a runtime');
@@ -176,8 +190,9 @@ try {
   assert.equal((await page.evaluate(() => window.desktop.snapshot())).runtimeId, undefined, 'Local MCP navigation does not start a runtime');
   await page.locator('.settings-dialog > header').getByRole('button', { name: /^(?:Close|\u5173\u95ed)$/u }).click();
   await page.locator('.settings-dialog').waitFor({ state: 'detached' });
-  const host = await page.evaluate(() => window.desktop.newIndependentSession());
-  assert.ok(host.runtimeId);
+  await page.getByRole('button', { name: sessionTitle, exact: true }).click();
+  await waitForSessionFixtureSnapshot(page, snapshot => snapshot.runtimeId && snapshot.state?.sessionId === sessionId
+    && snapshot.status === 'connected', 'the persisted capability fixture to connect');
   const commands = () => page.evaluate(async () => {
     const active = await window.desktop.snapshot();
     return (await window.desktop.command('get_commands', undefined, active.runtimeId)).commands;
@@ -334,7 +349,10 @@ try {
   await page.locator('.pc-capability-row').filter({ hasText: 'example__tools' }).waitFor();
   await page.screenshot({ path: 'test-results/capabilities-plugins-light.png' });
   await openCategory('Skills');
-  await page.getByText('review', { exact: true }).waitFor();
+  const skillRow = name => page.locator('.skills-preview-list').getByRole('button', { name, exact: true });
+  const activeSkill = () => page.locator('.skills-preview-detail');
+  await skillRow('review').click();
+  await activeSkill().getByText('Review the task.', { exact: true }).waitFor();
   const sessionCommands = page.locator('.cap-preparation').filter({ hasText: '会话命令' });
   await verifyDisclosure(sessionCommands);
   await page.emulateMedia({ reducedMotion: 'reduce' });
@@ -348,15 +366,15 @@ try {
   });
   await sessionCommands.locator('summary').press('Space');
   await page.waitForFunction(() => !document.querySelector('.cap-preparation')?.open);
-  assert.equal(await page.getByRole('button', { name: '删除 review', exact: true }).count(), 0);
-  await page.getByRole('button', { name: '新建 Skill', exact: true }).click();
+  assert.equal(await activeSkill().getByRole('button', { name: '删除 Skill', exact: true }).count(), 0);
+  await page.getByRole('button', { name: '新建', exact: true }).click();
   const originalViewport = page.viewportSize() ?? await page.evaluate(() => ({ width: innerWidth, height: innerHeight }));
   const originalTheme = await page.evaluate(() => document.documentElement.dataset.theme);
   for (const theme of ['light', 'dark']) {
     await page.evaluate(theme => { document.documentElement.dataset.theme = theme; }, theme);
     for (const [layout, width, height] of [['wide', 1280, 900], ['narrow', 640, 720]]) {
       await page.setViewportSize({ width, height });
-      for (const name of ['名称', '描述', '指令内容']) {
+      for (const name of ['名称', '描述', '正文 (Markdown)']) {
         const field = page.getByRole('textbox', { name, exact: true });
         await field.click();
         await field.focus();
@@ -373,6 +391,7 @@ try {
             const top = box.top + parent.clientTop;
             if (css.overflowX !== 'visible' && (rect.left - extent < left - .5 || rect.right + extent > left + parent.clientWidth + .5)) clipped.push(`${parent.className}: horizontal`);
             if (css.overflowY !== 'visible' && (rect.top - extent < top - .5 || rect.bottom + extent > top + parent.clientHeight + .5)) clipped.push(`${parent.className}: vertical`);
+            if (parent instanceof HTMLDialogElement && parent.matches(':modal')) break;
           }
           return { focused: document.activeElement === element, extent, clipped };
         });
@@ -390,24 +409,73 @@ try {
   }, originalTheme);
   await page.getByRole('textbox', { name: '名称', exact: true }).fill('local-review');
   await page.getByRole('textbox', { name: '描述', exact: true }).fill('Local review fixture');
-  await page.getByRole('textbox', { name: '指令内容', exact: true }).fill('Inspect the current task.');
-  await page.getByRole('button', { name: '创建 Skill', exact: true }).click();
-  const toggle = page.getByRole('switch', { name: '启用 local-review', exact: true });
-  await toggle.waitFor();
-  await toggle.click();
-  await page.waitForFunction(() => document.querySelector('[aria-label="启用 local-review"]')?.getAttribute('aria-checked') === 'false');
+  await page.getByRole('textbox', { name: '正文 (Markdown)', exact: true }).fill('Inspect the current task.');
+  await page.getByRole('dialog', { name: '新建 Skill', exact: true }).getByRole('button', { name: '保存', exact: true }).click();
+  const mode = activeSkill().getByRole('button', { name: '调用方式', exact: true });
+  const selectMode = async label => {
+    await mode.click();
+    await page.getByRole('menu', { name: '调用方式', exact: true }).getByRole('menuitemradio', { name: label, exact: true }).click();
+    await mode.getByText(label, { exact: true }).waitFor();
+  };
+  await activeSkill().getByText('Inspect the current task.', { exact: true }).waitFor();
+  await selectMode('仅手动');
+  const manual = (await page.evaluate(() => window.desktop.capabilityCatalog())).skills.find(skill => skill.name === 'local-review');
+  assert.equal(manual.manualOnly, true);
+  assert.equal(manual.enabled, true);
+  assert.equal((await commands()).some(command => command.name === 'skill:local-review'), false, 'Changes never implicitly reload an existing session');
+  await restartSession('.skills-preview-foot');
+  assert.ok((await commands()).some(command => command.name === 'skill:local-review'), 'Manual mode retains the slash command after explicit restart');
+  await selectMode('关闭');
   const catalog = await page.evaluate(() => window.desktop.capabilityCatalog());
   assert.equal(catalog.skills.find(skill => skill.name === 'local-review').enabled, false);
-  await toggle.click();
-  await page.waitForFunction(() => document.querySelector('[aria-label="启用 local-review"]')?.getAttribute('aria-checked') === 'true');
-  assert.equal((await commands()).some(command => command.name === 'skill:local-review'), false, 'Changes never implicitly reload an existing session');
-  await restartSession();
-  assert.ok((await commands()).some(command => command.name === 'skill:local-review'), 'Explicit restart loads the new Skill');
-  await toggle.click();
-  await page.waitForFunction(() => document.querySelector('[aria-label="启用 local-review"]')?.getAttribute('aria-checked') === 'false');
   assert.ok((await commands()).some(command => command.name === 'skill:local-review'), 'Disabling in configuration does not rewrite a live session');
-  await restartSession();
+  await restartSession('.skills-preview-foot');
   assert.equal((await commands()).some(command => command.name === 'skill:local-review'), false, 'Restart respects the upstream disabled pattern');
+  await selectMode('自动');
+  await activeSkill().getByRole('button', { name: '编辑', exact: true }).click();
+  const editor = page.getByRole('dialog', { name: '编辑 Skill', exact: true });
+  await editor.getByRole('textbox', { name: '正文 (Markdown)', exact: true }).fill('Updated fixture instructions.');
+  await editor.getByRole('button', { name: '保存', exact: true }).click();
+  await activeSkill().getByText('Updated fixture instructions.', { exact: true }).waitFor();
+  await activeSkill().getByRole('button', { name: '源文', exact: true }).click();
+  assert.match(await activeSkill().locator('.skills-preview-source').innerText(), /name: local-review/);
+  await activeSkill().getByRole('button', { name: '阅读', exact: true }).click();
+  await activeSkill().getByRole('button', { name: /配套文件/ }).click();
+  await activeSkill().getByRole('button', { name: '新建文件', exact: true }).click();
+  const newFile = page.getByRole('dialog', { name: '新建文件', exact: true });
+  await newFile.getByRole('textbox', { name: '文件路径', exact: true }).fill('references/checklist.md');
+  await newFile.getByRole('textbox', { name: '文本内容', exact: true }).fill('Native fixture checklist.');
+  await newFile.getByRole('button', { name: '保存', exact: true }).click();
+  await activeSkill().getByText('Native fixture checklist.', { exact: true }).waitFor();
+  await activeSkill().getByRole('button', { name: '编辑文件', exact: true }).click();
+  const editFile = page.getByRole('dialog', { name: '编辑文件', exact: true });
+  await editFile.getByRole('textbox', { name: '文件路径', exact: true }).fill('references/renamed.md');
+  await editFile.getByRole('textbox', { name: '文本内容', exact: true }).fill('Renamed fixture checklist.');
+  await editFile.getByRole('button', { name: '保存', exact: true }).click();
+  await activeSkill().getByText('Renamed fixture checklist.', { exact: true }).waitFor();
+  assert.equal(await activeSkill().getByRole('button', { name: 'references/renamed.md', exact: true }).getAttribute('aria-expanded'), 'true');
+  await activeSkill().getByRole('button', { name: 'references/checklist.md', exact: true }).waitFor({ state: 'detached' });
+  await activeSkill().getByRole('button', { name: '删除文件', exact: true }).click();
+  const deleteFile = page.getByRole('dialog', { name: '删除文件？', exact: true });
+  await deleteFile.getByRole('button', { name: '删除', exact: true }).click();
+  await activeSkill().getByText('没有配套文件', { exact: true }).waitFor();
+  const importedSkill = join(profile, 'fixture-skill-import');
+  await mkdir(join(importedSkill, 'references'), { recursive: true });
+  await writeFile(join(importedSkill, 'SKILL.md'), '---\nname: native-imported-skill\ndescription: Imported fixture\n---\nImported in Electron.\n');
+  await writeFile(join(importedSkill, 'references', 'note.md'), 'Copied from the chosen folder.');
+  await app.evaluate(({ dialog }, filePath) => {
+    globalThis.originalSkillPicker = dialog.showOpenDialog;
+    dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [filePath] });
+  }, importedSkill);
+  try {
+    await page.getByRole('button', { name: '导入文件夹', exact: true }).click();
+    await activeSkill().getByText('Imported in Electron.', { exact: true }).waitFor();
+    await activeSkill().getByRole('button', { name: /配套文件/ }).click();
+    await activeSkill().getByRole('button', { name: 'references/note.md', exact: true }).click();
+    await activeSkill().getByText('Copied from the chosen folder.', { exact: true }).waitFor();
+  } finally {
+    await app.evaluate(({ dialog }) => { dialog.showOpenDialog = globalThis.originalSkillPicker; });
+  }
   await page.getByRole('button', { name: 'MCP', exact: true }).click();
   const serverToggle = page.getByRole('switch', { name: '启用 example__tools', exact: true });
   await serverToggle.waitFor();
@@ -426,21 +494,29 @@ try {
   await restartSession();
   await serverRow.getByText(/已连接 · 1 个工具/).waitFor();
   await page.getByRole('button', { name: 'Skills', exact: true }).click();
-  await page.getByText('local-review', { exact: true }).waitFor();
+  await skillRow('local-review').click();
+  await activeSkill().getByText('Updated fixture instructions.', { exact: true }).waitFor();
+  await settleLayout(activeSkill());
   await page.screenshot({ path: 'test-results/capabilities-skills-light.png' });
   await page.evaluate(() => window.desktop.preferences({ theme: 'dark' }));
   await page.reload();
   await page.locator('.sidebar-settings').click();
   await page.getByRole('button', { name: 'Skills', exact: true }).click();
-  await page.getByText('local-review', { exact: true }).waitFor();
+  await skillRow('local-review').click();
   await page.waitForFunction(() => document.documentElement.dataset.theme === 'dark');
+  await activeSkill().getByText('Updated fixture instructions.', { exact: true }).waitFor();
+  await settleLayout(activeSkill());
   await page.screenshot({ path: 'test-results/capabilities-skills-dark.png' });
   await page.setViewportSize({ width: 640, height: 720 });
+  await settleLayout(activeSkill());
   await page.screenshot({ path: 'test-results/capabilities-skills-narrow.png' });
   assert.equal(await page.locator('.settings-content').evaluate(element => element.scrollWidth > element.clientWidth + 1), false);
-  await page.getByRole('button', { name: '删除 local-review', exact: true }).click();
-  await page.getByRole('button', { name: '确认移除', exact: true }).click();
-  await toggle.waitFor({ state: 'detached' });
+  await activeSkill().getByRole('button', { name: '删除 Skill', exact: true }).click();
+  const deleteSkill = page.getByRole('dialog', { name: '删除 Skill？', exact: true });
+  await deleteSkill.getByRole('button', { name: '删除', exact: true }).click();
+  await deleteSkill.waitFor({ state: 'hidden' });
+  await page.getByRole('button', { name: '刷新 Skills', exact: true }).and(page.locator('button:enabled')).waitFor();
+  await skillRow('local-review').waitFor({ state: 'detached' });
   await writeFile(join(source, 'step.plugin.json'), JSON.stringify({ ...candidateManifest, version: '1.2.0' }));
   const blockedUpdate = await page.evaluate(async () => {
     const plugin = (await window.desktop.capabilityCatalog()).plugins.find(item => item.id === 'example');
@@ -454,15 +530,22 @@ try {
   assert.equal(JSON.parse(await readFile(join(profile, 'step-runtime/plugins/example/step.plugin.json'), 'utf8')).version, '1.1.0');
   await page.getByRole('button', { name: '插件', exact: true }).click();
   const beforeBlockedRemoval = await page.evaluate(() => window.desktop.snapshot());
-  const blockedRemoval = await openExampleRemoval();
-  await blockedRemoval.getByText('需要重新检查', { exact: true }).waitFor();
-  await blockedRemoval.locator('.pc-update-reasons').getByText(/会话尚无可用的持久历史/).waitFor();
-  assert.equal(await blockedRemoval.locator('.pc-update-sessions li').count(), 1,
-    'Preflight must identify the actual empty runtime owning this plugin');
-  assert.equal(await blockedRemoval.getByRole('button', { name: /^(释放占用并卸载|卸载插件)$/ }).count(), 0,
-    'An unpersisted session cannot be released or uninstalled');
-  await blockedRemoval.getByRole('button', { name: '取消', exact: true }).click();
-  await blockedRemoval.waitFor({ state: 'hidden' });
+  // Simulate lost history for the otherwise restartable fixture.
+  const unavailableHistory = `${sessionFile}.unavailable`;
+  await rename(sessionFile, unavailableHistory);
+  try {
+    const blockedRemoval = await openExampleRemoval();
+    await blockedRemoval.getByText('需要重新检查', { exact: true }).waitFor();
+    await blockedRemoval.locator('.pc-update-reasons').getByText(/会话尚无可用的持久历史/).waitFor();
+    assert.equal(await blockedRemoval.locator('.pc-update-sessions li').count(), 1,
+      'Preflight must identify the runtime whose history is unavailable');
+    assert.equal(await blockedRemoval.getByRole('button', { name: /^(释放占用并卸载|卸载插件)$/ }).count(), 0,
+      'A session with unavailable history cannot be released for uninstall');
+    await blockedRemoval.getByRole('button', { name: '取消', exact: true }).click();
+    await blockedRemoval.waitFor({ state: 'hidden' });
+  } finally {
+    await rename(unavailableHistory, sessionFile);
+  }
   const afterBlockedRemoval = await page.evaluate(() => window.desktop.snapshot());
   assert.equal(afterBlockedRemoval.runtimeId, beforeBlockedRemoval.runtimeId);
   assert.equal(afterBlockedRemoval.state.sessionId, beforeBlockedRemoval.state.sessionId);
@@ -500,7 +583,8 @@ try {
     await page.getByRole('textbox', { name: '消息', exact: true }).fill(command);
     await page.getByRole('textbox', { name: '消息', exact: true }).press('Escape');
     await page.getByRole('textbox', { name: '消息', exact: true }).press('Enter');
-    await page.locator(heading === '插件' ? '.pc-page-header' : '.cap-heading').getByRole('heading', { name: heading, exact: true }).waitFor();
+    const header = heading === '插件' ? '.pc-page-header' : heading === 'Skills' ? '.skills-preview-list-title' : '.cap-heading';
+    await page.locator(header).getByRole('heading', { name: heading, exact: true }).waitFor();
   }
   await page.locator('.settings-dialog > header').getByRole('button', { name: /^(?:Close|\u5173\u95ed)$/u }).click();
   await page.locator('.settings-dialog').waitFor({ state: 'detached' });
@@ -648,7 +732,7 @@ try {
     await openCategory(category);
     if (category === '插件') await page.getByRole('textbox', { name: '搜索插件', exact: true }).fill('');
     if (tab) await page.getByRole('tab', { name: new RegExp(`^${tab}`) }).click();
-    const currentRefresh = page.getByRole('button', { name: category === '插件' ? '刷新插件目录' : '刷新', exact: true });
+    const currentRefresh = page.getByRole('button', { name: category === '插件' ? '刷新插件目录' : category === 'Skills' ? '刷新 Skills' : '刷新', exact: true });
     await currentRefresh.waitFor();
     const refreshElement = await currentRefresh.elementHandle();
     await page.waitForFunction(button => !button.disabled, refreshElement);
@@ -656,6 +740,7 @@ try {
     await currentRefresh.click();
     await page.waitForFunction(button => button.disabled, refreshElement);
     const controls = category === '插件' ? page.locator('.plugin-center > .pc-page-header button[aria-label="刷新插件目录"], .pc-card-state button, .pc-sources button')
+      : category === 'Skills' ? page.locator('.skills-preview-list-actions button, .skills-preview-foot > button')
       : page.locator('.cap-heading button, .cap-row button, .cap-footer button');
     assert.ok(await controls.count() > 1, `${category}/${tab ?? ''}: loaded rows remain visible during refresh`);
     assert.equal(await controls.evaluateAll(buttons => buttons.every(button => button.disabled)), true,

@@ -2,6 +2,7 @@ import { normalizedWorkspaceKey } from '../src/workspace-key';
 import { WorkspaceDirectoryError } from '../src/workspace-directory-error';
 import { statusAccount } from './status-account';
 import { statusBuild } from './session-status';
+import { bundledStepCode } from './app-build-info';
 import { app, BrowserWindow, dialog, ipcMain, shell, session, net, clipboard, ClipboardItem, nativeImage, nativeTheme, Menu, Notification } from 'electron';
 import { join, resolve, extname, basename } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
@@ -76,7 +77,7 @@ import { PluginUpdateCoordinator } from './plugin-update-coordinator';
 import { PluginReloadCoordinator } from './plugin-reload-coordinator';
 import type { PluginRemovalRequest } from '../src/plugin-update';
 import { diagnoseCapabilityMutation, type CapabilityPhaseMarker } from './capability-diagnostics';
-import { capabilityFailureDetails } from './capability-failure.mjs';
+import { capabilityFailureCode, capabilityFailureDetails } from './capability-failure.mjs';
 import { UsageEstimates } from './usage-estimates';
 import { providerInfos, providerModelNames, runtimeAuth, mergeRuntimeAuth, saveProviderAuth, deleteProviderAuth, projectProviders, discoverProviderModels, keylessEnvironment } from './custom-providers';
 import { SubagentRoleStore } from './subagent-role-store';
@@ -2076,6 +2077,10 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
         return method === 'cronRecoveryPreview' ? await cronRecovery.prepare(args[0], args[1]) : await cronRecovery.recover(args[0], args[1], args[2]);
       } finally { transition = false; }
     }
+    case 'appBuildInfo': return {
+      desktopVersion: updateVersion, platform: process.platform, arch: process.arch,
+      runtime: bundledStepCode(runtimeManifest),
+    };
     case 'updateState': return { ...updates.snapshot(), transfer: installer.snapshot() };
     case 'checkUpdates': await updates.check(); return { ...updates.snapshot(), transfer: installer.snapshot() };
     case 'openUpdate': return shell.openExternal(updates.openTarget(args[0]));
@@ -3473,6 +3478,15 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
       const catalog = await capabilityService.catalog();
       return catalog;
     }
+    case 'capabilitySkillDetail':
+    case 'capabilitySkillFile': {
+      if (settingsMutation || updateInstalling || quitting || quitPending) throw new Error('capability:busy');
+      try {
+        return await (method === 'capabilitySkillDetail'
+          ? capabilityService.skillDetail(args[0])
+          : capabilityService.skillFile(args[0], args[1]));
+      } catch (error) { throw new Error(`capability:${capabilityFailureCode(error)}`); }
+    }
     case 'pluginDesktopCatalog': {
       if (settingsMutation || updateInstalling || quitting || quitPending) throw new Error('Shared settings operation in progress');
       return capabilityService.desktopCatalog();
@@ -4094,7 +4108,7 @@ else app.whenReady().then(async () => {
     if (surface === 'mini' && !miniMethods.has(method)) throw new Error('Return to the main window for this operation');
     const senderId = event.sender.id, generation = rendererGenerations.get(senderId);
     const execute = () => diagnoseCapabilityMutation(method, args[0], async markCapabilityPhase => {
-      if (method === 'quitRespond' || method === 'windowControl') return handle(method, args, surface);
+      if (method === 'quitRespond' || method === 'windowControl' || method === 'appBuildInfo') return handle(method, args, surface);
       if (method === 'navigateSession') {
         // Remote recovery prepares under the workspace lock without selecting a local view.
         await startup;
@@ -4116,7 +4130,7 @@ else app.whenReady().then(async () => {
       // Reads must not observe the admin transport halfway through an idle reload.
       if (providerApplication) await providerApplication;
       const capabilityMutation = ['capabilityMutate', 'pluginUpdateApply', 'pluginRemovalApply', 'capabilityImportSkill', 'bvrSaveConfiguration', 'pluginSaveConfiguration', 'pluginSaveHostSettings', 'saveCompactionSettings'].includes(method);
-      const capabilityRead = ['capabilityCatalog', 'pluginDesktopCatalog', 'pluginDocument', 'pluginRepositoryInfo', 'pluginConfiguration', 'pluginHostSettings', 'pluginWindowOpen',
+      const capabilityRead = ['capabilityCatalog', 'capabilitySkillDetail', 'capabilitySkillFile', 'pluginDesktopCatalog', 'pluginDocument', 'pluginRepositoryInfo', 'pluginConfiguration', 'pluginHostSettings', 'pluginWindowOpen',
         'pluginUpdatePreflight', 'pluginUpdateOperation', 'pluginRemovalPreflight', 'pluginRemovalOperation',
         'pluginReloadStart', 'pluginReloadPreview', 'pluginReloadApply', 'pluginReloadState', 'pluginReloadCancel',
         'pluginConnectionState', 'pluginConnectionChooseProfile', 'pluginConnectionForgetProfile',

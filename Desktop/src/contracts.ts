@@ -157,6 +157,8 @@ export interface DesktopBridge extends SessionImportBridge, BtwBridge, Backgroun
   projectInstructions(owner: import('./project-instructions').ProjectInstructionsOwner): Promise<import('./project-instructions').ProjectInstructionsStatus>;
   finishFirstRun(outcome: 'completed' | 'skipped'): Promise<Snapshot>;
   capabilityCatalog(): Promise<import('./capabilities').CapabilityCatalog>;
+  capabilitySkillDetail(id: string): Promise<import('./capabilities').CapabilitySkillDetail>;
+  capabilitySkillFile(id: string, fileId: string): Promise<import('./capabilities').CapabilitySkillText>;
   pluginDesktopCatalog(): Promise<import('./capabilities').CapabilityCatalog>;
   pluginDocument(input: { ref: string; path: string }): Promise<import('./capabilities').PluginDocument>;
   pluginConnectionState(input: { ref: string }): Promise<import('./capabilities').PluginConnection>;
@@ -196,6 +198,7 @@ export interface DesktopBridge extends SessionImportBridge, BtwBridge, Backgroun
   removeWorkspace(path: string): Promise<Snapshot>;
   relocateWorkspace(path: string): Promise<Snapshot | null>;
   moveSessionToProject(sessionId: string, destination: string): Promise<Snapshot>;
+  appBuildInfo(): Promise<AppBuildInfo>;
   updateState(): Promise<AppUpdateState>;
   checkUpdates(): Promise<AppUpdateState>;
   openUpdate(action: 'release' | 'download'): Promise<void>;
@@ -290,6 +293,12 @@ export interface DesktopBridge extends SessionImportBridge, BtwBridge, Backgroun
   copyText(text: string): Promise<void>;
   diagnostics(): Promise<boolean>;
   onEvent(callback: (event: RuntimeEvent) => void): () => void;
+}
+export interface AppBuildInfo {
+  desktopVersion: string;
+  platform: string;
+  arch: string;
+  runtime: { commit: string; baseline?: string } | null;
 }
 export type UpdateChannel = 'stable' | 'preview';
 export interface AppRelease {

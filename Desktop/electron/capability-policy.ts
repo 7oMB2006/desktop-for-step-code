@@ -19,6 +19,10 @@ const policies = {
   'mcp-toggle': 'next-start',
   'skill-create': 'runtime',
   'skill-toggle': 'runtime',
+  'skill-save': 'runtime',
+  'skill-mode': 'runtime',
+  'skill-file-save': 'runtime',
+  'skill-file-remove': 'runtime',
   'skill-remove': 'runtime',
 } as const satisfies Record<CapabilityMutation['action'], CapabilityScope>;
 

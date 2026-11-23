@@ -9,7 +9,7 @@ import type { PluginHostSettingsInput } from '../src/capabilities';
 import { withPluginHostAccount } from '../electron/plugin-host-account';
 
 async function fixture(t: test.TestContext, settings = true, available = true,
-  options: Pick<NonNullable<Parameters<typeof hostService>[1]>, 'capabilities' | 'independentCapabilities'> = {}) {
+  options: Pick<NonNullable<Parameters<typeof hostService>[1]>, 'capabilities' | 'independentCapabilities' | 'independentTools'> = {}) {
   const f = await hostService(t, { configured: false, settings, ...options });
   await f.broker.close();
   let invalidations = 0;
@@ -31,6 +31,31 @@ async function fixture(t: test.TestContext, settings = true, available = true,
     ...(input.mode === 'account' ? { accountTicket: f.provider.choice()?.ticket } : {}), ...input });
   return { ...f, service, raw, ref, save, internals, invalidations: () => invalidations };
 }
+test('independent tools retain their configuration with every model row unassigned', async t => {
+  const f = await fixture(t, true, true, { independentTools: true });
+  const first = await f.service.hostSettings({ ref: f.ref });
+  assert.equal(first.independentTools, true);
+  assert.equal(first.supportedIndependentCapabilities, undefined, 'Tools do not imply support for any model row');
+  const selection = { revision: first.revision, mode: 'routed' as const, independentCapabilities: [],
+    configuration: { ref: f.ref, revision: first.independent!.revision, values: {},
+      secrets: { key: { action: 'replace' as const, value: 'fixture-tools-key' } } } };
+  await assert.rejects(f.save({ ...selection, accountTicket: 'stale' }), /stale-configuration/);
+  await assert.rejects(f.save({ ...selection, independentCapabilities: ['model.text'] }), /invalid-configuration/);
+  await assert.rejects(f.save({ revision: first.revision, mode: 'independent',
+    configuration: selection.configuration }), /invalid-configuration/);
+  assert.equal(f.invalidations(), 0);
+  const both = await f.save({ ...selection, accountTicket: first.account!.ticket });
+  assert.deepEqual(both.source, { channel: 'plan', region: 'cn' });
+  assert.deepEqual(both.independentCapabilities, []);
+  assert.deepEqual(both.models, {});
+  f.state.auth = {};
+  const onlyTools = await f.save({ ...selection, revision: both.revision,
+    configuration: { ...selection.configuration, revision: both.independent!.revision, secrets: { key: { action: 'keep' } } } });
+  assert.equal(onlyTools.source, undefined);
+  assert.equal(onlyTools.configurationCurrent, true);
+  assert.equal(onlyTools.independent!.hasSecret.key, true);
+  assert.doesNotMatch(JSON.stringify([both, onlyTools]), /fixture-tools-key/);
+});
 test('host settings expose only a safe projection and never select a mode or call a provider on read', async t => {
   const f = await fixture(t);
   const first = await f.service.hostSettings({ ref: f.ref });

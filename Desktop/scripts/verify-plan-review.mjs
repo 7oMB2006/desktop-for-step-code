@@ -10,6 +10,7 @@ import assert from 'node:assert/strict';
 import { assertPersistentTurnStatus } from './turn-status-assertions.mjs';
 import { closeDesktopFixture } from './close-desktop-fixture.mjs';
 import { settleLayout } from './settle-layout.mjs';
+import { assertFocusVisible } from './assert-focus-visible.mjs';
 import { planContext, planPath as planFilePath } from './plan-context.mjs';
 
 const text = value => typeof value === 'string' ? value : value?.filter(c => c.type === 'text').map(c => c.text).join('\n') ?? '';
@@ -346,9 +347,9 @@ try {
   await dialog.getByRole('button', { name: '提出修改', exact: true }).click();
   const feedback = page.getByRole('dialog', { name: '修改计划', exact: true });
   await feedback.waitFor();
-  await feedback.locator('textarea').fill('Add validation');
-  const focusStyle = await feedback.locator('textarea').evaluate(el => { const s = getComputedStyle(el); return { shadow: s.boxShadow, outline: s.outlineStyle }; });
-  assert.deepEqual(focusStyle, { shadow: 'none', outline: 'none' });
+  const feedbackField = feedback.getByRole('textbox', { name: '修改意见', exact: true });
+  await feedbackField.fill('Add validation');
+  await assertFocusVisible(page, feedbackField, 'Plan refinement');
   const editingSnapshot = await page.evaluate(() => window.desktop.snapshot());
   const callsBeforeBack = requests.length;
   assert.equal(editingSnapshot.requests[0].method, 'select', 'Editing is local until notes are submitted');

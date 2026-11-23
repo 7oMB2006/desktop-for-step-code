@@ -1,0 +1,60 @@
+:root {
+  --form-focus-color: color-mix(in srgb, var(--primary) 68%, var(--border));
+  --form-focus-width: 1px;
+  --form-focus-in: 240ms;
+  --form-focus-out: 180ms;
+  --form-focus-ease: cubic-bezier(.25, .65, .4, 1);
+}
+
+:root :where(input:not([type=checkbox], [type=radio], [type=range], [type=color], [type=file],
+    [type=button], [type=submit], [type=reset], [type=image], [type=hidden]), textarea):focus,
+:root :where(select, .form-focus-trigger):focus-visible,
+:is(.fulltext-input, .mini-session-search, .settings-search, .model-picker-search,
+    .archive-search, .scheduled-search, .cap-search, .new-session-search, .skills-preview-search,
+    .browser-address-field):has(> input:focus),
+.sidebar-utility-row:has(.sidebar-search-field > input:focus-visible) {
+  outline: var(--form-focus-width) solid var(--form-focus-color);
+  outline-offset: var(--form-focus-offset, 2px);
+  --form-focus-duration: var(--form-focus-in);
+}
+
+/* Only the bordered shell paints a ring for composite text fields. */
+:is(.fulltext-input, .mini-session-search, .settings-search, .model-picker-search,
+    .archive-search, .scheduled-search, .cap-search, .new-session-search, .skills-preview-search,
+    .browser-address-field, .sidebar-search-field) > input:focus,
+.user-message-editor textarea:focus {
+  outline: none;
+}
+
+:where(input, textarea, select, .form-focus-trigger) { scroll-margin: 4px; }
+:where(.form-text-focus, .settings-content) { scroll-padding: 4px; }
+
+@media (prefers-reduced-motion: no-preference) and (forced-colors: none) {
+  :where(input:not([type=checkbox], [type=radio], [type=range], [type=color], [type=file],
+      [type=button], [type=submit], [type=reset], [type=image], [type=hidden]), textarea, select,
+      .fulltext-input, .mini-session-search, .settings-search, .model-picker-search,
+      .archive-search, .scheduled-search, .cap-search, .new-session-search, .skills-preview-search,
+      .sidebar-utility-row, .browser-address-field) {
+    outline: var(--form-focus-width) solid transparent;
+    outline-offset: var(--form-focus-offset, 2px);
+    transition: outline-color var(--form-focus-duration, var(--form-focus-out)) var(--form-focus-ease);
+  }
+
+  .form-focus-trigger {
+    outline: var(--form-focus-width) solid transparent;
+    outline-offset: var(--form-focus-offset, 2px);
+    transition: background 150ms, outline-color var(--form-focus-duration, var(--form-focus-out)) var(--form-focus-ease);
+  }
+
+  :where(.fulltext-input, .mini-session-search, .settings-search, .model-picker-search,
+      .scheduled-search, .cap-search, .skills-preview-search):has(> button:focus-visible) {
+    transition: none;
+  }
+}
+
+@media (forced-colors: active) {
+  :root {
+    --form-focus-color: Highlight;
+    --form-focus-width: 2px;
+  }
+}

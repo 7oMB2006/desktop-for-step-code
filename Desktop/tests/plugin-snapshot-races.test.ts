@@ -13,6 +13,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import * as path from 'node:path';
 import * as url from 'node:url';
+import { isDeepStrictEqual } from 'node:util';
 import { SourceTextModule, SyntheticModule, createContext } from 'node:vm';
 
 const scenario = process.argv[2], repository = process.argv[3];
@@ -210,8 +211,12 @@ async function modules(fs) {
     reader: join(repository, 'examples/plugins/config-starter/plugins/dfsc-config-example/server/configuration.mjs'),
   };
   const builtins = {
-    'node:crypto': { createHash, randomUUID }, 'node:fs/promises': fs.api,
-    'node:path': path, 'node:url': url,
+    'node:crypto': { createHash, randomUUID },
+    'node:fs/promises': { ...fs.api,
+      link() { assert.fail('Unexpected hard link in plugin snapshot fixture'); },
+      rmdir() { assert.fail('Unexpected rmdir in plugin snapshot fixture'); },
+    },
+    'node:path': path, 'node:url': url, 'node:util': { isDeepStrictEqual },
     'node:child_process': { execFile() { throw new Error('No Git subprocess in this virtual fixture'); } },
   };
   const cache = new Map();

@@ -21,15 +21,17 @@ function validAccount(account) {
   if (!hash(account.id) || !['plan', 'api'].includes(account.channel) || !['cn', 'oversea'].includes(account.region))
     fail('invalid-configuration');
 }
-export function parseHostIndependent(value, declared, models) {
+export function parseHostIndependent(value, declared, models, allowEmpty = false) {
   let selected;
-  try { selected = parseIndependentCapabilities(value, declared); }
+  try { selected = parseIndependentCapabilities(value, declared, allowEmpty); }
   catch { fail('invalid-configuration'); }
   if (selected.some(id => Object.hasOwn(models, id))) fail('invalid-configuration');
   return selected;
 }
 export function usesHostBroker(binding) {
-  return binding.mode === 'follow' || binding.mode === 'routed' && Boolean(binding.account);
+  const hasModels = Object.keys(binding.models).length > 0;
+  return binding.mode === 'follow' && (!binding.declaration.independentTools || hasModels)
+    || binding.mode === 'routed' && Boolean(binding.account) && hasModels;
 }
 
 // Main-only mode snapshots, shared by settings and the verified native launcher.
@@ -85,17 +87,20 @@ export class PluginHostBindingStore {
     const direct = snapshot.mode === 'independent' || snapshot.mode === 'routed';
     if (direct ? !hash(snapshot.configurationRevision) : snapshot.configurationRevision !== null) fail();
     if (snapshot.mode === 'routed') {
-      parseHostIndependent(snapshot.independentCapabilities, CAPABILITIES, snapshot.models);
-      if (Boolean(snapshot.account) !== Boolean(Object.keys(snapshot.models).length)) fail();
+      parseHostIndependent(snapshot.independentCapabilities, CAPABILITIES, snapshot.models, true);
+      if (Object.keys(snapshot.models).length && !snapshot.account) fail();
     }
     if ((snapshot.mode === 'independent' || snapshot.mode === 'paused') && !snapshot.account
       && Object.keys(snapshot.models).length) fail();
     // A package update revokes the old selection, but must not prevent explicit reselection.
     if (snapshot.fingerprint !== receipt.fingerprint) return { ...identity, revision: 'unconfigured' };
     if (snapshot.declarationHash !== declarationHash || snapshot.consumer !== declaration.consumer.server) fail();
+    if (declaration.independentTools && snapshot.mode === 'independent') fail();
     parseModels(snapshot.models, declaration.capabilities);
-    if (snapshot.mode === 'routed')
-      parseHostIndependent(snapshot.independentCapabilities, declaration.independentCapabilities ?? [], snapshot.models);
+    if (snapshot.mode === 'routed') {
+      parseHostIndependent(snapshot.independentCapabilities, declaration.independentCapabilities ?? [], snapshot.models, declaration.independentTools);
+      if (!declaration.independentTools && snapshot.account && !Object.keys(snapshot.models).length) fail();
+    }
     let configurationCurrent = snapshot.mode === 'follow' && snapshot.version === 2;
     if (direct) {
       try {
@@ -117,13 +122,16 @@ export class PluginHostBindingStore {
       || input.mode !== 'routed' && input.independentCapabilities !== undefined) fail('invalid-configuration');
     const before = await this.current(descriptor);
     if (before.revision !== input.revision) fail('stale-configuration');
+    if (before.declaration.independentTools && input.mode === 'independent') fail('invalid-configuration');
     let configurationRevision = null;
     let models = {}, account, independentCapabilities;
     if (input.mode === 'routed') {
       models = parseHostModels(input.models ?? {}, before.declaration.capabilities);
-      independentCapabilities = parseHostIndependent(input.independentCapabilities, before.declaration.independentCapabilities ?? [], models);
-      if (Object.keys(models).length) { validAccount(input.account); account = input.account; }
-      else if (input.account !== undefined) fail('invalid-configuration');
+      independentCapabilities = parseHostIndependent(input.independentCapabilities, before.declaration.independentCapabilities ?? [], models,
+        before.declaration.independentTools);
+      if (Object.keys(models).length || before.declaration.independentTools && input.account !== undefined) {
+        validAccount(input.account); account = input.account;
+      } else if (input.account !== undefined) fail('invalid-configuration');
     } else if (input.mode === 'follow') {
       if (input.configurationRevision !== undefined) fail('invalid-configuration');
       validAccount(input.account);
@@ -159,19 +167,20 @@ export class PluginHostBindingStore {
     const current = await this.current(descriptor);
     if (current.revision === 'unconfigured') fail('invalid-configuration');
     if (!current.configurationCurrent) fail('stale-configuration');
+    const broker = usesHostBroker(current);
+    if (current.mode === 'follow' && !broker) fail('invalid-configuration');
     const dataDirectory = join(this.root, 'desktop-plugins', 'data', current.instance);
     await writePrivateData(this.root, `desktop-plugins/data/${current.instance}/.dfsc-owner.json`,
       { version: 1, instance: current.instance });
     const rechecked = await this.current(descriptor);
     if (rechecked.revision !== current.revision || !rechecked.configurationCurrent) fail('stale-configuration');
-    const broker = usesHostBroker(current);
     const context = { version: 'dfsc-launch-v1', mode: broker ? 'follow' : 'independent', pluginId: current.pluginId,
       consumer: current.consumer, instance: current.instance, fingerprint: current.fingerprint,
       declarationHash: current.declarationHash, revision: current.revision,
       configurationRevision: current.configurationRevision, launchId: randomUUID(),
       runtimeId: trusted.runtimeId, sessionId: trusted.sessionId, accountRevision: trusted.accountRevision,
-      capabilities: current.mode === 'routed'
-        ? broker ? Object.keys(current.models) : current.independentCapabilities : current.declaration.capabilities,
+      capabilities: broker && (current.mode === 'routed' || current.declaration.independentTools) ? Object.keys(current.models)
+        : current.mode === 'routed' ? current.independentCapabilities : current.declaration.capabilities,
       ...(current.independentCapabilities ? { independentCapabilities: current.independentCapabilities } : {}),
       models: broker
         ? Object.fromEntries(Object.entries(current.models).filter(([id]) => id === 'model.asr' || id === 'model.tts')) : {},

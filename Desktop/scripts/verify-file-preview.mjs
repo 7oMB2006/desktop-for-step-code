@@ -412,15 +412,28 @@ function draw(){if(!window.paused)tick++;x.fillStyle='#85d4be';x.fillRect(0,0,40
   stage = 'document-previews';
   const documentLink = name => page.getByRole('link', { name, exact: true });
   await documentLink('审阅 PDF').click();
-  const pdfCanvas = filePanel.locator('.file-preview-pdf-page canvas[data-ready]');
-  const pdfPixel = () => pdfCanvas.evaluate(el => [...el.getContext('2d').getImageData(8, 8, 1, 1).data]);
-  const assertPdfColor = async (expected, message) => {
-    const actual = await pdfPixel();
-    assert.ok(actual.every((value, index) => Math.abs(value - expected[index]) <= 1),
-      `${message}: expected ${expected}, got ${actual}`);
+  const pdfSelector = '#file-panel .file-preview-pdf-page canvas[data-ready]';
+  const pdfCanvas = page.locator(pdfSelector);
+  const assertPdfColor = async (number, expected, message) => {
+    const label = `第 ${number} 页`;
+    try {
+      // A resize can redraw an existing ready canvas asynchronously.
+      await page.waitForFunction(({ selector, label, expected }) => {
+        const canvas = document.querySelector(selector);
+        if (canvas?.getAttribute('aria-label') !== label) return false;
+        return canvas.getContext('2d').getImageData(8, 8, 1, 1).data
+          .every((value, index) => Math.abs(value - expected[index]) <= 1);
+      }, { selector: pdfSelector, label, expected }, { timeout: 10_000, polling: 50 });
+    } catch (error) {
+      const actual = await pdfCanvas.evaluate(canvas => ({
+        page: canvas.getAttribute('aria-label'),
+        pixel: [...canvas.getContext('2d').getImageData(8, 8, 1, 1).data],
+      }), undefined, { timeout: 1000 }).catch(() => null);
+      throw new Error(`${message}: expected ${label} with ${expected}, got ${JSON.stringify(actual)}`, { cause: error });
+    }
   };
   await pdfCanvas.waitFor({ timeout: 15000 });
-  await assertPdfColor([38, 87, 194, 255], 'first PDF page is rendered');
+  await assertPdfColor(1, [38, 87, 194, 255], 'first PDF page is rendered');
   assert.equal(await filePanel.locator('.file-preview-pdf-page a, .file-preview-pdf-page iframe').count(), 0);
   const pdfTextPainted = await pdfCanvas.evaluate(el => {
     const { data } = el.getContext('2d').getImageData(0, Math.floor(el.height * .19), el.width, Math.floor(el.height * .09));
@@ -442,7 +455,7 @@ function draw(){if(!window.paused)tick++;x.fillStyle='#85d4be';x.fillRect(0,0,40
   await page.evaluate(() => document.documentElement.dataset.theme = 'light');
   await filePanel.getByRole('button', { name: '下一页', exact: true }).click();
   await filePanel.getByRole('img', { name: '第 2 页', exact: true }).waitFor();
-  await assertPdfColor([26, 128, 89, 255], 'next page replaces the canvas');
+  await assertPdfColor(2, [26, 128, 89, 255], 'next page replaces the canvas');
   const pageInput = filePanel.getByRole('textbox', { name: '页码', exact: true });
   await pageInput.fill('1');
   await pageInput.press('Enter');
@@ -451,7 +464,7 @@ function draw(){if(!window.paused)tick++;x.fillStyle='#85d4be';x.fillRect(0,0,40
   await refresh.click();
   await filePanel.getByRole('button', { name: '下一页', exact: true }).click();
   await filePanel.getByRole('img', { name: '第 2 页', exact: true }).waitFor();
-  await assertPdfColor([179, 38, 26, 255], 'refresh renders new PDF bytes');
+  await assertPdfColor(2, [179, 38, 26, 255], 'refresh renders new PDF bytes');
   assert.deepEqual(imageRequests, []);
   await writeFile(pdfPath, '%PDF-1.7\nbroken');
   await refresh.click();

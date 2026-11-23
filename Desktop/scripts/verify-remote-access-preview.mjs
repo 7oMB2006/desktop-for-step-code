@@ -3,6 +3,8 @@ import { mkdir } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { chromium } from 'playwright';
 import { createServer } from 'vite';
+import { assertFocusVisible } from './assert-focus-visible.mjs';
+import { settleLayout } from './settle-layout.mjs';
 
 const output = resolve('test-results/remote-access-preview');
 await mkdir(output, { recursive: true });
@@ -38,31 +40,9 @@ try {
     assert.deepEqual(overflow, [], 'Remote surfaces must fit without horizontal overflow');
   };
   const checkFocus = async locator => {
-    await locator.evaluate(async element => {
-      const animations = [];
-      for (let ancestor = element; ancestor; ancestor = ancestor.parentElement) animations.push(...ancestor.getAnimations());
-      await Promise.all(animations.map(animation => animation.finished.catch(() => {})));
-    });
-    await page.keyboard.press('Tab');
+    await settleLayout(locator);
     await locator.scrollIntoViewIfNeeded();
-    await locator.focus();
-    const issues = await locator.evaluate(element => {
-      const bounds = element.getBoundingClientRect();
-      const style = getComputedStyle(element);
-      const gutter = parseFloat(style.outlineWidth) + Math.max(0, parseFloat(style.outlineOffset));
-      const issues = [];
-      if (style.outlineStyle === 'none' || gutter < 4) issues.push('Missing shared focus indicator');
-      for (let ancestor = element.parentElement; ancestor; ancestor = ancestor.parentElement) {
-        const clip = getComputedStyle(ancestor);
-        const rect = ancestor.getBoundingClientRect();
-        if (/(auto|scroll|hidden|clip)/.test(clip.overflowX)
-          && (bounds.left - gutter < rect.left - 1 || bounds.right + gutter > rect.right + 1)) issues.push(`Horizontal clip: ${ancestor.className}`);
-        if (/(auto|scroll|hidden|clip)/.test(clip.overflowY)
-          && (bounds.top - gutter < rect.top - 1 || bounds.bottom + gutter > rect.bottom + 1)) issues.push(`Vertical clip: ${ancestor.className}`);
-      }
-      return issues;
-    });
-    assert.deepEqual(issues, [], 'Focus outline must remain visible on all four sides');
+    await assertFocusVisible(page, locator, `Remote preview ${locator}`, { checkTreatment: true });
   };
   await page.goto(`${base}tests/fixtures/remote-access.html`);
   await page.getByRole('heading', { name: '远程访问', exact: true }).waitFor();
@@ -136,7 +116,7 @@ try {
   await page.waitForFunction(() => document.activeElement?.textContent === '取消');
   await page.keyboard.press('Escape');
   await page.waitForFunction(() => !document.querySelector('.remote-confirmation').open);
-  assert.equal(await button('断开连接').evaluate(element => element === document.activeElement), true);
+  await button('断开连接').and(page.locator(':focus')).waitFor();
   await button('断开连接').click();
   await button('确认断开').click();
   assert.match(await page.locator('.remote-feedback').innerText(), /任务继续运行/);
@@ -159,7 +139,7 @@ try {
   await button('继续').click();
   assert.equal(await page.locator('.remote-stages [data-ready=true]').count(), 3, 'Binding does not validate approvals');
   await button('完成').click();
-  assert.equal(await button('配置飞书').evaluate(element => element === document.activeElement), true, 'Completion returns focus to the channel');
+  await button('配置飞书').and(page.locator(':focus')).waitFor();
   await tab('运行状态').click();
   assert.match(await page.locator('.remote-runtime').innerText(), /独立常驻服务未接入/);
   await screenshot('06-host-status');
@@ -171,7 +151,7 @@ try {
   assert.equal(await page.locator('.remote-channel-detail a').count(), 0, 'No fabricated public URL is created');
   await screenshot('07-planned-web');
   await button('返回接入渠道').click();
-  assert.equal(await button('查看浏览器访问').evaluate(element => element === document.activeElement), true);
+  await button('查看浏览器访问').and(page.locator(':focus')).waitFor();
   await choose('预览状态', '未配置');
   await button('配置飞书').click();
   assert.equal(await button('继续').isDisabled(), true);

@@ -11,6 +11,7 @@ import { prepareSessionFixture } from './session-fixture.mjs';
 import { closeDesktopFixture } from './close-desktop-fixture.mjs';
 import { planContext, planPath } from './plan-context.mjs';
 import { settleLayout } from './settle-layout.mjs';
+import { assertFocusVisible } from './assert-focus-visible.mjs';
 
 const executablePath = process.env.DESKTOP_VERIFY_EXE;
 const resources = executablePath ? (process.platform === 'darwin' ? resolve(dirname(executablePath), '../Resources') : join(dirname(executablePath), 'resources')) : resolve('.');
@@ -271,26 +272,9 @@ try {
     await page.screenshot({ path: join(output, `${name}.png`) });
   };
   const checkFocus = async locator => {
-    await page.locator('.remote-channel-detail,.remote-setup-stage').evaluateAll(elements =>
-      Promise.all(elements.flatMap(element => element.getAnimations().map(animation => animation.finished.catch(() => {})))));
-    await page.keyboard.press('Tab');
+    await settleLayout(locator);
     await locator.scrollIntoViewIfNeeded();
-    await locator.focus();
-    const issues = await locator.evaluate(element => {
-      const bounds = element.getBoundingClientRect(), style = getComputedStyle(element);
-      const gutter = parseFloat(style.outlineWidth) + Math.max(0, parseFloat(style.outlineOffset));
-      const issues = [];
-      if (style.outlineStyle === 'none' || gutter < 4) issues.push('Missing shared focus indicator');
-      for (let ancestor = element.parentElement; ancestor; ancestor = ancestor.parentElement) {
-        const clip = getComputedStyle(ancestor), rect = ancestor.getBoundingClientRect();
-        if (/(auto|scroll|hidden|clip)/.test(clip.overflowX)
-          && (bounds.left - gutter < rect.left - 1 || bounds.right + gutter > rect.right + 1)) issues.push(`Horizontal clip: ${ancestor.className}`);
-        if (/(auto|scroll|hidden|clip)/.test(clip.overflowY)
-          && (bounds.top - gutter < rect.top - 1 || bounds.bottom + gutter > rect.bottom + 1)) issues.push(`Vertical clip: ${ancestor.className}`);
-      }
-      return issues;
-    });
-    assert.deepEqual(issues, [], 'Production focus outline must be visible on all four sides');
+    await assertFocusVisible(page, locator, `Production Remote ${locator}`, { checkTreatment: true });
   };
   const checkSteps = async () => {
     const steps = page.locator('.remote-setup-steps');

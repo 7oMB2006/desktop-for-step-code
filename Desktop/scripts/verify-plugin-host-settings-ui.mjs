@@ -92,6 +92,7 @@ try {
   assert.equal(await plan.getAttribute('aria-checked'), 'true');
   assert.equal(await independent.getAttribute('aria-checked'), 'false');
   assert.match(await tts.innerText(), /stepaudio-2\.5-tts/, 'A same-account draft round trip retains its model');
+  await save.and(page.locator(':disabled')).waitFor();
   assert.equal(await save.isDisabled(), true, 'A return to the saved draft has no changes to save');
   const afterSwitch = await page.evaluate(() => window.pluginHostTest.snapshot());
   assert.deepEqual(afterSwitch.value, beforeSwitch.value, 'Draft changes do not mutate the saved or running source');

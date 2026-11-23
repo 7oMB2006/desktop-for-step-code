@@ -321,7 +321,8 @@ test(`pinned RPC background lane survives parent end and navigation: ${outcome}`
       const requests = modelRequests;
       bump('child released');
       releaseChild();
-      await waitFor(() => host.backgroundLanes?.some(lane => lane.status === 'settling') || !host.backgroundActive);
+      // The final ownership event invalidates reads started while the lane is settling.
+      await waitFor(() => host.backgroundActive === false);
       const snapshot = await pool.readBackground(host);
       assert.equal(snapshot.lanes[0].status, 'completed');
       assert.equal(modelRequests, requests, 'Background completion cannot start a model turn during review');

@@ -1,4 +1,5 @@
 import { assertFocusVisible } from './assert-focus-visible.mjs';
+import { settleLayout } from './settle-layout.mjs';
 import { _electron as electron } from 'playwright';
 import assert from 'node:assert/strict';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
@@ -130,14 +131,17 @@ try {
   const format = page.locator('#provider-api-value');
   const input = label => page.getByLabel(label, { exact: true });
   const evidence = resolve('test-results/provider-presets');
-  const shell = await page.locator('.settings-dialog').boundingBox();
+  const dialog = page.locator('.settings-dialog');
+  await settleLayout(dialog);
+  const shell = await dialog.boundingBox();
   await mkdir(evidence, { recursive: true });
   await openPresets();
+  await presets.waitFor();
   const kimi = presets.locator('[data-preset-brand="kimi"]');
   const variants = presets.locator('.provider-preset-variants[aria-labelledby$="-kimi-name"]');
   const platformChoice = variants.getByRole('button', { name: /Kimi 开放平台 国内.*按量/ });
   const subscriptionChoice = variants.getByRole('button', { name: /Kimi Code 国内.*套餐/ });
-  assert.deepEqual(await page.locator('.settings-dialog').boundingBox(), shell, 'picker uses the same settings shell');
+  assert.deepEqual(await dialog.boundingBox(), shell, 'picker uses the same settings shell');
   assert.deepEqual(await presets.locator('[data-preset-brand]').evaluateAll(tiles => tiles.map(tile => tile.dataset.presetBrand)),
     ['deepseek', 'kimi', 'zhipu', 'bailian', 'minimax', 'openai', 'anthropic', 'gemini', 'siliconflow', 'ark']);
   await page.waitForFunction(() => [...document.querySelectorAll('.provider-preset-tile img')].every(img => img.naturalWidth > 0));

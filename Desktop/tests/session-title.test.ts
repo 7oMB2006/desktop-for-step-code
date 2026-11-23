@@ -11,32 +11,41 @@ import type { ProviderApi } from '../src/contracts';
 const model = { provider: 'step', id: 'step-3.5-flash-2603', name: 'Flash' };
 const reply = (content = 'Inspect preview behavior', finish_reason = 'stop') =>
   Response.json({ choices: [{ finish_reason, message: { content } }] });
+type TitleDiagnostic = Parameters<NonNullable<ConstructorParameters<typeof SessionTitles>[0]['diagnostic']>>[0];
 function fixture(fetch = async (_url: string, _init: RequestInit) => reply()) {
   const worker = {
     id: 'worker', rpc: {}, status: 'connected', models: [model],
     state: { sessionId: 'first', model: { ...model, id: 'step-5-preview' }, isStreaming: true },
   } as SessionRuntime;
-  const state: { enabled: boolean; live: boolean; selected?: ModelIdentity | null; auth: Record<string, unknown> & { step?: {
+  const state: { enabled: boolean; live: boolean; authBusy?: boolean; failSave?: boolean;
+    selected?: ModelIdentity | null; auth: Record<string, unknown> & { step?: {
     type: string; access: string; expires: number; profile: string;
   } } } = {
     enabled: true, live: true, auth: { step: { type: 'oauth', access: 'fixture', expires: Date.now() + 180000, profile: 'step_plan' } },
   };
   const requests: { url: string; init: RequestInit }[] = [];
   const names: string[] = [];
+  const diagnostics: TitleDiagnostic[] = [];
   const titles = new SessionTitles({
-    enabled: () => state.enabled, model: () => state.selected, auth: () => state.auth, live: () => state.live,
-    save: async (_worker, name) => { names.push(name); },
+    enabled: () => state.enabled, model: () => state.selected, auth: () => state.authBusy ? undefined : state.auth,
+    live: () => state.live,
+    save: async (_worker, name) => {
+      if (state.failSave) throw new Error(`Do not log the title: ${name}`);
+      names.push(name);
+    },
     fetch: async (url, init) => { requests.push({ url, init }); return fetch(url, init); },
+    diagnostic: details => diagnostics.push(details),
   });
-  return { worker, state, titles, requests, names };
+  return { worker, state, titles, requests, names, diagnostics };
 }
 
-test('generates once from bounded first text on the current Step billing route', async () => {
+test('generates once with the full short first message and the Plan output budget', async () => {
   const { worker, titles, requests, names } = fixture();
   titles.register(worker);
   titles.accepted(worker, '/init');
   titles.accepted(worker, '  ');
-  titles.accepted(worker, `a${'\u4e2d'.repeat(200)}`);
+  const message = `a${'\u4e2d'.repeat(200)}`;
+  titles.accepted(worker, message);
   titles.accepted(worker, 'This is a later prompt.');
   assert.deepEqual(names, [], 'prompt acknowledgement is not blocked by title generation');
   await setImmediate();
@@ -48,14 +57,30 @@ test('generates once from bounded first text on the current Step billing route',
   assert.deepEqual(Object.keys(body), ['model', 'reasoning_effort', 'max_tokens', 'messages']);
   assert.equal(body.model, model.id);
   assert.equal(body.reasoning_effort, 'low');
-  assert.equal(body.max_tokens, 192);
+  assert.equal(body.max_tokens, 512);
   assert.equal(body.messages.length, 2);
-  assert.deepEqual(body.messages[1], { role: 'user', content: `a${'\u4e2d'.repeat(127)}` });
+  assert.deepEqual(body.messages[1], { role: 'user', content: message });
+});
+
+test('samples both ends of a long Plan prompt without splitting UTF-8 characters', async () => {
+  const { worker, titles, requests, names } = fixture();
+  const objective = '\u6821\u9a8c record deduplication';
+  const message = `a${'\u4e2d'.repeat(220)}\n${'omitted-middle '.repeat(800)}\n${'\u6d4b'.repeat(450)}${objective}`;
+  titles.register(worker);
+  titles.accepted(worker, message);
+  await setImmediate();
+  const body = JSON.parse(String(requests[0].init.body));
+  const input = body.messages[1].content;
+  assert.ok(input.startsWith(`a${'\u4e2d'.repeat(170)}\n[... middle omitted ...]\n`));
+  assert.ok(input.endsWith(objective));
+  assert.ok(Buffer.byteLength(input) <= 1536);
+  assert.doesNotMatch(input, /omitted-middle|\ufffd/u);
+  assert.deepEqual(names, ['Inspect preview behavior']);
 });
 
 test('a signed-in Plan titles third-party chats without depending on the chat model catalog', async () => {
   for (const [profile, host] of [['step_plan', 'api.stepfun.com'], ['step_plan_oversea', 'api.stepfun.ai']]) {
-    const { worker, state, titles, requests, names } = fixture();
+    const { worker, state, titles, requests, names, diagnostics } = fixture();
     state.auth.step!.profile = profile;
     const chatModel = { provider: 'desktop-custom-fixture', id: 'third-party-chat', name: 'Third-party chat' };
     worker.state!.model = chatModel;
@@ -70,6 +95,7 @@ test('a signed-in Plan titles third-party chats without depending on the chat mo
     assert.equal(new Headers(requests[0].init.headers).get('authorization'), 'Bearer fixture');
     assert.equal(JSON.parse(String(requests[0].init.body)).model, model.id);
     assert.equal(worker.state!.model, chatModel);
+    assert.deepEqual(diagnostics, []);
   }
 });
 
@@ -77,15 +103,19 @@ test('keeps the existing Open Platform API behavior for official Step chats', as
   const { worker, state, titles, requests, names } = fixture();
   state.auth.step!.profile = 'platform_oversea';
   titles.register(worker);
-  titles.accepted(worker, 'Official Step chat using Open Platform');
+  const prefix = 'Official Step chat using Open Platform'.padEnd(384, '-');
+  titles.accepted(worker, `${prefix} not included in the request`);
   await setImmediate();
   assert.deepEqual(names, ['Inspect preview behavior']);
   assert.equal(requests.length, 1);
   assert.equal(requests[0].url, 'https://api.stepfun.ai/v1/chat/completions');
+  const body = JSON.parse(String(requests[0].init.body));
+  assert.equal(body.max_tokens, 192);
+  assert.equal(body.messages[1].content, prefix);
 });
 
 test('skips existing and disabled sessions, and keeps Open Platform billing scoped to supported Step chats', () => {
-  const { worker, state, titles, requests } = fixture();
+  const { worker, state, titles, requests, diagnostics } = fixture();
   titles.accepted(worker, 'Existing conversation');
   titles.register(worker);
   state.enabled = false;
@@ -101,10 +131,11 @@ test('skips existing and disabled sessions, and keeps Open Platform billing scop
   worker.state!.model = { ...model, provider: 'custom' };
   titles.accepted(worker, 'Do not bill Open Platform for a third-party chat');
   assert.equal(requests.length, 0);
+  assert.deepEqual(diagnostics, []);
 });
 
 test('a third-party chat never uses Plan without a current Plan login', () => {
-  const { worker, state, titles, requests } = fixture();
+  const { worker, state, titles, requests, diagnostics } = fixture();
   worker.state!.model = { ...model, provider: 'desktop-custom-fixture' };
   state.auth.step!.expires = Date.now() - 1;
   titles.register(worker);
@@ -113,6 +144,7 @@ test('a third-party chat never uses Plan without a current Plan login', () => {
   titles.register(worker);
   titles.accepted(worker, 'No Step login');
   assert.equal(requests.length, 0);
+  assert.deepEqual(diagnostics, [{ stage: 'eligibility', reason: 'account-unavailable' }]);
 });
 
 const manual = { provider: 'desktop-custom-00000000-0000-4000-8000-000000000001', id: 'title-only' };
@@ -227,19 +259,49 @@ test('never writes a late result after manual naming, opting out, or switching i
 });
 
 test('failed, incomplete, and malformed generation keep the first-message fallback without retry', async () => {
-  for (const failure of [
-    () => new Response('Unavailable', { status: 403 }),
-    () => new Response('Title model unavailable', { status: 404 }),
-    () => reply('Looks plausible', 'length'),
-    () => reply('Two\nlines'),
-    () => new Response('x'.repeat(17 * 1024)),
-  ]) {
-    const { worker, titles, requests, names } = fixture(async () => failure());
+  for (const [failure, reason, status] of [
+    [() => new Response('Do not log the provider body', { status: 403 }), 'http-error', 403],
+    [() => new Response('Title model unavailable', { status: 404 }), 'http-error', 404],
+    [() => reply('Looks plausible', 'length'), 'output-limit'],
+    [() => reply('Looks plausible', 'unknown-private-value'), 'incomplete'],
+    [() => reply('Two\nlines'), 'invalid-title'],
+    [() => new Response('x'.repeat(17 * 1024)), 'response-too-large'],
+    [() => new Response('Do not log this malformed JSON'), 'invalid-json'],
+    [() => Response.json({ error: { message: 'Do not log the error' } }), 'provider-error'],
+  ] as const) {
+    const { worker, titles, requests, names, diagnostics } = fixture(async () => failure());
     titles.register(worker);
     titles.accepted(worker, 'Use this fallback');
     await setImmediate();
     titles.accepted(worker, 'Do not retry');
     assert.equal(requests.length, 1);
     assert.deepEqual(names, []);
+    assert.deepEqual(diagnostics, [{ stage: 'response', reason, billing: 'plan', ...(status ? { status } : {}) }]);
+  }
+});
+
+test('diagnoses skipped requests separately from transport and write failures without copying exception text', async t => {
+  for (const [reason, stage] of [
+    ['configuration-busy', 'eligibility'],
+    ['transport-error', 'request'],
+    ['timeout', 'request'],
+    ['write-failed', 'save'],
+  ] as const) {
+    await t.test(reason, async t => {
+      if (reason === 'timeout') t.mock.method(AbortSignal, 'timeout', () => AbortSignal.abort(new Error('Private timeout details')));
+      const { worker, state, titles, requests, names, diagnostics } = fixture(async (_url, { signal }) => {
+        signal?.throwIfAborted();
+        if (reason === 'transport-error') throw new Error('Private network details');
+        return reply('Private title');
+      });
+      state.authBusy = reason === 'configuration-busy';
+      state.failSave = reason === 'write-failed';
+      titles.register(worker);
+      titles.accepted(worker, 'Private prompt');
+      await setImmediate();
+      assert.equal(requests.length, state.authBusy ? 0 : 1);
+      assert.deepEqual(names, []);
+      assert.deepEqual(diagnostics, [{ stage, reason, ...(state.authBusy ? {} : { billing: 'plan' }) }]);
+    });
   }
 });

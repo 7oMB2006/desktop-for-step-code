@@ -595,6 +595,7 @@ const sessionTitles = new SessionTitles({
   live: worker => runtimes.workers.get(worker.id) === worker,
   save: (worker, title) => saveLiveSessionName(worker, title, 'automatic'),
   fetch: providerFetch,
+  diagnostic: details => { void crashLog.record('session-title', new Error('Automatic session title failed'), details); },
 });
 const runtimes: SessionRuntimes = new SessionRuntimes(event => {
   if (event.type === 'desktop_runtimes') browser?.sync();

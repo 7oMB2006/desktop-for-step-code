@@ -454,46 +454,63 @@ try {
   await page.locator(`.session-row[data-reorder-id="${sessionId}"] > button:first-child`).click();
   state = await waitFor(s => s.state?.sessionId === sessionId && s.status === 'connected');
   assert.equal(state.state.thinkingLevel, 'ultra', 'Ultra survives relaunch and explicit session restore');
+  const runtimeRoot = await app.evaluate(({ app }) => app.isPackaged ? process.resourcesPath : process.cwd());
+  const manifest = JSON.parse(await readFile(join(runtimeRoot, 'runtime', 'manifest.json'), 'utf8'));
+  const protectBackgroundCommands = manifest.patches?.includes('desktop-background-command-state') === true;
   hold = true;
   const prompt = page.getByRole('textbox', { name: '消息', exact: true });
   await prompt.fill('Hold this response');
   await submitSessionFixture(page, () => prompt.press('Enter'));
-  await waitFor(s => s.state?.isStreaming);
+  await waitFor(s => s.state?.isStreaming && typeof release === 'function');
   const oldRuntime = await snapshot();
   const beforeProjection = await readFile(join(profile, 'step-runtime/models.json'), 'utf8');
+  const latestName = protectBackgroundCommands ? '任务结束后保存的供应商' : '运行中再次保存的供应商';
   await settings();
   await page.getByLabel('名称', { exact: true }).fill('运行中保存的供应商');
   assert.equal(await page.getByRole('button', { name: '保存', exact: true }).isEnabled(), true);
   await page.getByRole('button', { name: '保存', exact: true }).click();
-  await page.getByText('已保存，待任务空闲后应用', { exact: true }).waitFor();
+  if (protectBackgroundCommands) {
+    await page.locator('.provider-error[role="alert"]').filter({ hasText: '正在运行或有排队消息的会话需先结束' }).waitFor();
+    await assert.rejects(page.evaluate(id => window.desktop.deleteProvider(id), restored.id),
+      /Wait for the current session task to finish/);
+  } else {
+    await page.getByText('已保存，待任务空闲后应用', { exact: true }).waitFor();
+  }
   const pending = await snapshot();
-  assert.equal(pending.providerSettingsPending, true);
+  assert.equal(Boolean(pending.providerSettingsPending), !protectBackgroundCommands);
   assert.equal(pending.runtimeId, oldRuntime.runtimeId);
   assert.equal(pending.state.sessionId, oldRuntime.state.sessionId);
   assert.equal(pending.state.isStreaming, true);
   assert.equal(await readFile(join(profile, 'step-runtime/models.json'), 'utf8'), beforeProjection,
     'in-flight parent and child model projection remains untouched');
-  assert.equal((await page.evaluate(() => window.desktop.settings())).providers[0].name, '运行中保存的供应商');
-  const updated = await page.evaluate(async p => {
-    return window.desktop.saveProvider({ ...p, name: '运行中再次保存的供应商' });
-  }, restored);
-  assert.equal(updated.providerSettingsPending, true);
-  const addedId = await page.evaluate(async p => {
-    await window.desktop.saveProvider({ ...p, id: '', name: '运行中新增供应商' }, 'isolated-extra-fixture');
-    return (await window.desktop.settings()).providers.find(provider => provider.name === '运行中新增供应商').id;
-  }, restored);
-  assert.equal((await snapshot()).models.some(model => model.provider === addedId), false,
-    'a saved addition does not alter an in-flight registry');
-  const removed = await page.evaluate(id => window.desktop.deleteProvider(id), addedId);
-  assert.equal(removed.providerSettingsPending, true, 'pending additions can be removed without stopping the agent');
-  assert.equal(removed.runtimeId, oldRuntime.runtimeId);
-  assert.equal(await readFile(join(profile, 'step-runtime/models.json'), 'utf8'), beforeProjection);
-  while (!release) await page.waitForTimeout(20);
+  assert.equal((await page.evaluate(() => window.desktop.settings())).providers[0].name,
+    protectBackgroundCommands ? restored.name : '运行中保存的供应商');
+  if (!protectBackgroundCommands) {
+    const updated = await page.evaluate(({ provider, name }) =>
+      window.desktop.saveProvider({ ...provider, name }), { provider: restored, name: latestName });
+    assert.equal(updated.providerSettingsPending, true);
+    const addedId = await page.evaluate(async p => {
+      await window.desktop.saveProvider({ ...p, id: '', name: '运行中新增供应商' }, 'isolated-extra-fixture');
+      return (await window.desktop.settings()).providers.find(provider => provider.name === '运行中新增供应商').id;
+    }, restored);
+    assert.equal((await snapshot()).models.some(model => model.provider === addedId), false,
+      'a saved addition does not alter an in-flight registry');
+    const removed = await page.evaluate(id => window.desktop.deleteProvider(id), addedId);
+    assert.equal(removed.providerSettingsPending, true, 'pending additions can be removed without stopping the agent');
+    assert.equal(removed.runtimeId, oldRuntime.runtimeId);
+    assert.equal(await readFile(join(profile, 'step-runtime/models.json'), 'utf8'), beforeProjection);
+  }
   hold = false; release();
+  if (protectBackgroundCommands) {
+    await waitFor(s => !s.state?.isStreaming);
+    await page.getByLabel('名称', { exact: true }).fill(latestName);
+    await page.getByRole('button', { name: '保存', exact: true }).click();
+    await page.getByText('已保存', { exact: true }).waitFor();
+  }
   const applied = await waitFor(s => !s.state?.isStreaming && !s.providerSettingsPending);
   assert.equal(applied.runtimeId, oldRuntime.runtimeId, 'idle reload keeps renderer runtime identity');
   assert.equal(applied.state.sessionId, oldRuntime.state.sessionId);
-  assert.equal(applied.models.find(m => m.provider === provider.id)?.providerName, '运行中再次保存的供应商');
+  assert.equal(applied.models.find(m => m.provider === provider.id)?.providerName, latestName);
   assert.ok(applied.messages.some(m => textOfMessage(m).includes('Custom provider fixture reply.')),
     'the held response finishes normally and survives reload');
   await page.locator('.settings-dialog > header').getByRole('button', { name: /^(?:Close|\u5173\u95ed)$/u }).click();
@@ -687,7 +704,10 @@ try {
     'the provider removal to persist');
   assert.equal((await snapshot()).models.some(m => m.provider === provider.id), false);
   assert.deepEqual(errors, []);
-  console.log('Custom provider UI, three wire protocols with and without authentication, real tool invocation, secure persistence, running save/add/remove, deferred idle application with stable identity, rename, relaunch, disable, rejected save and removal passed. Local HTTP fixtures only.');
+  const runningMutations = protectBackgroundCommands
+    ? 'guarded running save/remove and successful retry when idle'
+    : 'running save/add/remove and deferred idle application';
+  console.log(`Custom provider UI, three wire protocols with and without authentication, real tool invocation, secure persistence, ${runningMutations}, stable identity, rename, relaunch, disable, rejected save and removal passed. Local HTTP fixtures only.`);
 } catch (error) {
   if (page && !page.isClosed()) {
     await page.screenshot({ path: 'test-results/custom-providers-failure.png' }).catch(() => {});

@@ -279,11 +279,14 @@ try {
   await page.getByRole('button', { name: '通用', exact: true }).click();
   await page.getByRole('dialog').getByLabel(/^(语言|Language)$/).selectOption('en');
   await page.getByRole('button', { name: 'Close', exact: true }).click();
+  await page.getByRole('dialog', { name: 'Settings', exact: true }).waitFor({ state: 'hidden' });
+  await page.locator(`[data-reorder-id="${forked.state.sessionId}"]`).locator('button').first().click();
+  // Both branches have the same mock answer. Wait for the edited prompt that identifies this branch.
+  await page.getByText('修改后的问题。', { exact: true }).waitFor();
+  assert.equal((await snapshot()).state.sessionId, forked.state.sessionId);
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(640, 880));
   await page.screenshot({ path: 'test-results/branch-empty-narrow.png' });
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
-  await page.evaluate(id => window.desktop.switchSession(id), forked.state.sessionId);
-  await page.getByText('分支的新回复。', { exact: true }).waitFor();
   await page.waitForFunction(() => document.querySelector('.new-chat')?.disabled === false);
   await page.locator('.message.user').last().hover();
   await page.getByRole('button', { name: 'Edit and retry', exact: true }).last().click();

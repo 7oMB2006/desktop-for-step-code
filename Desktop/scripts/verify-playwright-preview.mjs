@@ -106,7 +106,10 @@ try {
     server.listen(0, '127.0.0.1', () => writeFileSync('owned-preview-port.txt', String(server.address().port)));
   `);
   frontend = await createViteServer({ configFile: false, root: frontendRoot, logLevel: 'silent',
-    server: { host: '127.0.0.1', port: 0, preTransformRequests: false, allowedHosts: [handoffHost] },
+    server: { host: '127.0.0.1', port: 0, preTransformRequests: false, allowedHosts: [handoffHost],
+      // Avoid a libuv fs-event assertion on Windows runner temp paths. Vite still watches real edits.
+      watch: { usePolling: process.platform === 'win32' },
+    },
     plugins: [{ name: 'fixture-network-response', configureServer(server) {
       server.middlewares.use((request, _response, next) => {
         if (request.url === '/?background-connect' && !releaseBackgroundPage) releaseBackgroundPage = next;

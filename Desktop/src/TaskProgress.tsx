@@ -1,6 +1,6 @@
 import { useLayoutEffect, useRef } from 'react';
 import { onTaskCompletion } from './completion-sound';
-import './task-progress.css';
+import { TaskProgressFill } from './TaskProgressFill';
 
 type ProgressProps = {
   runtimeId?: string; sessionId?: string; completed: number; total: number; busy: boolean; language: 'zh' | 'en';
@@ -135,7 +135,7 @@ export function TaskProgress(props: ProgressProps) {
     aria-label={language === 'zh' ? '任务完成进度' : 'Task completion'} aria-valuemin={0} aria-valuemax={total} aria-valuenow={completed}
     aria-valuetext={language === 'zh' ? `${completed} / ${total} 项完成` : `${completed} of ${total} completed`}>
     <div className="task-progress-track">
-      <div className="task-progress-fill" style={{ width: `${total ? 100 * completed / total : 0}%` }}><div className="task-progress-current"/></div>
+      <TaskProgressFill percent={total ? 100 * completed / total : 0}/>
       <div className="task-progress-green"/>
     </div><div className="task-progress-dust" aria-hidden="true"/>
   </div>;

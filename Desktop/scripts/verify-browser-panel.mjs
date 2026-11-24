@@ -10,10 +10,23 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
 const icon = await readFile('public/StepCode.svg');
+const fallbackIcon = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16"><circle cx="8" cy="8" r="8"/></svg>');
+const iconRequests = [];
 const server = createServer((request, response) => {
-  if (request.url === '/icon.png') {
+  if (request.url === '/redirect-icon') {
+    response.writeHead(302, { Location: '/unexpected-icon.svg' }).end();
+    return;
+  }
+  if (request.url === '/icon.png' || request.url === '/site-icon.svg' || request.url === '/favicon.ico'
+    || request.url === '/unexpected-icon.svg') {
+    iconRequests.push({ url: request.url, accept: request.headers.accept, cookie: request.headers.cookie });
     response.writeHead(200, { 'Content-Type': 'image/svg+xml' });
-    response.end(icon);
+    response.end(request.url === '/favicon.ico' ? fallbackIcon : icon);
+    return;
+  }
+  if (request.url === '/favicon-fallback') {
+    response.writeHead(200, { 'Content-Type': 'text/html' });
+    response.end('<!doctype html><title>Fallback icon fixture</title><link rel="icon" href="/redirect-icon">');
     return;
   }
   if (request.url === '/redirect') { response.writeHead(302, { Location: 'file:///C:/Windows/win.ini' }); response.end(); return; }
@@ -21,6 +34,7 @@ const server = createServer((request, response) => {
   const second = request.url === '/details';
   response.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Set-Cookie': 'browser_fixture=isolated; SameSite=Lax' });
   response.end(`<!doctype html><html lang="zh"><meta charset="utf-8"><title>${second ? '项目详情' : '项目预览'}</title>
+    <link rel="icon" href="/site-icon.svg" type="image/svg+xml">
     <style>*{box-sizing:border-box}body{margin:0;font:14px/1.6 "Segoe UI",sans-serif;color:#20242a;background:#fff}
     header{padding:22px 28px;border-bottom:1px solid #e7e9ed;display:flex;justify-content:space-between;align-items:center}
     header strong{font-size:15px}header span{font-size:11px;color:#697383}main{padding:30px 28px;max-width:850px}
@@ -124,10 +138,46 @@ try {
   await panel.getByRole('textbox', { name: '网页地址', exact: true }).fill(`127.0.0.1:${port}`);
   await panel.getByRole('textbox', { name: '网页地址', exact: true }).press('Enter');
   await waitForBrowserFixtureSnapshot(page, snapshot => snapshot.tabs[0]?.title === '项目预览', 'the initial page title');
+  await panel.locator('.browser-tab-icon img').waitFor();
+  await page.waitForFunction(() => document.querySelector('.browser-tab-icon img')?.naturalWidth > 0);
   const nativePageId = () => app.evaluate(({ webContents }, url) =>
     webContents.getAllWebContents().find(contents => contents.getURL() === url)?.id, url);
   const originalPageId = await nativePageId();
   assert.ok(originalPageId);
+  const checkTabIcon = async (address, expectedOrigin, expectedIcon) => {
+    const tab = await page.evaluate(async address => {
+      const current = await window.desktop.browserList();
+      return (await window.desktop.browserCreate(address, current.context)).activeId;
+    }, address);
+    try {
+      const loaded = await waitForBrowserFixtureSnapshot(page, snapshot => snapshot.tabs.some(value =>
+        value.id === tab && !value.loading && value.favicon && (!expectedIcon || value.favicon === expectedIcon)
+          && new URL(value.url).origin === expectedOrigin),
+      `a rendered favicon for ${expectedOrigin}`, 20000);
+      await page.waitForFunction(id =>
+        document.querySelector(`.browser-tab[data-order="${CSS.escape(id)}"] .browser-tab-icon img`)?.naturalWidth > 0, tab);
+      return loaded.tabs.find(value => value.id === tab);
+    } finally {
+      await page.evaluate(async tab => {
+        const current = await window.desktop.browserList();
+        return window.desktop.browserClose(tab, current.context);
+      }, tab);
+    }
+  };
+  await checkTabIcon(`${url}favicon-fallback`, new URL(url).origin, `data:image/svg+xml;base64,${fallbackIcon.toString('base64')}`);
+  assert.ok(iconRequests.some(request => request.url === '/favicon.ico' && request.accept === 'image/*' && !request.cookie),
+    'the conventional favicon was fetched without the personal browser cookie');
+  assert.ok(!iconRequests.some(request => request.url === '/unexpected-icon.svg' && request.accept === 'image/*'),
+    'the favicon fetch did not follow redirects');
+  if (process.env.DESKTOP_VERIFY_LIVE_BAIDU === '1') {
+    const origin = 'https://www.baidu.com';
+    await checkTabIcon(`${origin}/`, origin);
+    const profiles = await page.evaluate(() => window.desktop.browserProfiles());
+    assert.ok(profiles.sites.personal.some(
+      site => site.domain === 'baidu.com' && site.host === 'www.baidu.com' && site.favicon),
+    'Baidu uses the recorded host and favicon in browser settings');
+    console.log('Live Baidu: built-in browser tab decoded the favicon, and browser settings received it.');
+  }
   await selectSession('browser-b');
   assert.equal(await rail.getAttribute('aria-pressed'), 'false');
   if (await summary.getAttribute('aria-pressed') === 'true') await summary.click();
@@ -436,6 +486,30 @@ try {
   assert.notEqual(second, first);
   await page.evaluate(id => window.desktop.browserSelect(id), first);
   await webPage.getByRole('textbox', { name: '测试输入' }).fill('保留在会话 A');
+  const tabRow = id => panel.locator(`.browser-tab[data-order="${id}"]`);
+  const dragSecond = async cancel => {
+    const grip = await tabRow(second).locator('[data-order-grip]').boundingBox();
+    const destination = await tabRow(first).boundingBox();
+    assert.ok(grip && destination);
+    await page.mouse.move(grip.x + grip.width / 2, grip.y + grip.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(destination.x + 5, grip.y + grip.height / 2, { steps: 8 });
+    await tabRow(second).locator(':scope[data-order-dragging]').waitFor();
+    if (cancel) await page.keyboard.press('Escape');
+    await page.mouse.up();
+    await settleLayout(page.locator('.app'));
+  };
+  await dragSecond(true);
+  assert.deepEqual((await list()).tabs.map(tab => tab.id), [first, second], 'Escape cancels the move');
+  await dragSecond(false);
+  await waitForBrowserFixtureSnapshot(page, snapshot => snapshot.tabs[0]?.id === second && snapshot.activeId === first,
+    'dragged tab order without activating the tab');
+  await tabRow(second).getByRole('tab').press('Alt+ArrowRight');
+  await waitForBrowserFixtureSnapshot(page, snapshot => snapshot.tabs[1]?.id === second && snapshot.activeId === first,
+    'keyboard tab reordering');
+  await page.waitForFunction(id => document.activeElement?.closest('.browser-tab')?.dataset.order === id, second);
+  await tabRow(second).getByRole('tab').press('Alt+ArrowLeft');
+  await waitForBrowserFixtureSnapshot(page, snapshot => snapshot.tabs[0]?.id === second, 'reordered tab stays first');
   const originalContext = (await list()).context;
   await selectSession('browser-b');
   assert.equal(await rail.getAttribute('aria-pressed'), 'false', 'B does not adopt A’s open panel');
@@ -444,6 +518,8 @@ try {
   await assert.rejects(page.evaluate(id => window.desktop.browserClose(id), second), /Unknown browser tab/);
   await assert.rejects(page.evaluate(({ url, context }) => window.desktop.browserOpenLink(url, context),
     { url, context: originalContext }), /Browser conversation changed/);
+  await assert.rejects(page.evaluate(({ first, second, originalContext }) => window.desktop.browserMove(first, second, true, originalContext),
+    { first, second, originalContext }), /Browser conversation changed/);
   await rail.click();
   const other = await waitForBrowserFixtureSnapshot(page, snapshot => snapshot.tabs.length === 1, 'B starts with a blank tab');
   assert.ok(other.tabs.every(tab => tab.id !== first && tab.id !== second));
@@ -473,7 +549,7 @@ try {
   await panel.getByRole('button', { name: '关闭浏览器面板', exact: true }).click();
   await selectSession('browser-a');
   assert.equal(await rail.getAttribute('aria-pressed'), 'true', 'closing in B does not close A');
-  assert.deepEqual((await list()).tabs.map(tab => tab.id), [first, second]);
+  assert.deepEqual((await list()).tabs.map(tab => tab.id), [second, first]);
   await selectSession('browser-b');
   assert.equal(await rail.getAttribute('aria-pressed'), 'false', 'B restores its explicit closure');
   assert.equal((await list()).activeId, otherPageId, 'panel closure retains B’s selection');
@@ -587,11 +663,12 @@ try {
   assert.equal(await widthControl.getAttribute('data-width'), 'wide');
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
   await page.evaluate(({ first, url }) => window.desktop.browserAction(first, 'navigate', `${url}fail`), { first, url });
-  await waitForBrowserFixtureSnapshot(page, snapshot => snapshot.tabs[0]?.error, 'the failed page');
+  await waitForBrowserFixtureSnapshot(page, snapshot => snapshot.tabs.find(tab => tab.id === first)?.error, 'the failed page');
+  assert.equal(await tabRow(first).locator('.browser-tab-icon img').count(), 0, 'a failed navigation falls back to the globe');
   await panel.getByText('网页无法加载', { exact: true }).waitFor();
   assert.equal((await viewState()).filter(view => view.visible && view.url?.startsWith('http:')).length, 0);
   await page.evaluate(({ first, url }) => window.desktop.browserAction(first, 'navigate', url), { first, url });
-  await waitForBrowserFixtureSnapshot(page, snapshot => snapshot.tabs[0]?.title === '项目预览', 'the retried page title');
+  await waitForBrowserFixtureSnapshot(page, snapshot => snapshot.tabs.find(tab => tab.id === first)?.title === '项目预览', 'the retried page title');
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1706, 1066));
   await page.reload();
   await page.getByText('Step Code 已连接', { exact: true }).waitFor({ state: 'attached', timeout: 60000 });

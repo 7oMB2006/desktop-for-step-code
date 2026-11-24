@@ -28,6 +28,7 @@ import { runtimeStartup, startupBlocked, type RuntimeStartup } from '../src/runt
 
 export interface WorkerTransport {
   readonly pid?: number;
+  ownsPreviewListener?(port: number, startedAt: number, signal?: AbortSignal): Promise<boolean>;
   start(node: string, entry: string, cwd: string, env: NodeJS.ProcessEnv, args?: string[]): void;
   request(type: string, args?: Record<string, unknown>, timeout?: number): Promise<any>;
   respond(value: Record<string, unknown>): void;

@@ -220,6 +220,12 @@ export interface DesktopBridge extends SessionImportBridge, BtwBridge, Backgroun
   browserList(): Promise<BrowserSnapshot>;
   browserCreate(address?: string, context?: number): Promise<BrowserSnapshot>;
   browserSelect(id: string, context?: number): Promise<BrowserSnapshot>;
+  browserMove(id: string, targetId: string, after: boolean, context: number): Promise<BrowserSnapshot>;
+  browserHandoff(id: string, context: number): Promise<BrowserSnapshot>;
+  browserProfiles(): Promise<BrowserProfileSnapshot>;
+  browserProfileOpen(profile: BrowserProfile, target: BrowserProfileTarget, context: number): Promise<BrowserSnapshot>;
+  browserProfileClear(profile: BrowserProfile, domain: string): Promise<BrowserProfileSnapshot>;
+  browserPreset(domain: string, mode: BrowserPresetMode | null, previous?: string): Promise<BrowserProfileSnapshot>;
   browserClose(id: string, context?: number): Promise<BrowserSnapshot>;
   browserAction(id: string, action: BrowserAction, address?: string, context?: number): Promise<BrowserSnapshot>;
   browserLayout(bounds: BrowserBounds | null, context?: number): Promise<void>;
@@ -336,7 +342,15 @@ export type FileOpenResult = { destination: 'preview'; file: FilePreviewData }
   | { destination: 'browser'; browser: BrowserSnapshot } | { destination: 'external' };
 export type BrowserAction = 'navigate' | 'back' | 'forward' | 'reload' | 'stop' | 'stopTesting' | 'external' | 'zoomIn' | 'zoomOut' | 'zoomReset';
 export interface BrowserBounds { x: number; y: number; width: number; height: number }
-export interface BrowserTab { id: string; title: string; url: string; loading: boolean; canGoBack: boolean; canGoForward: boolean; zoom: number; error?: string; localFile?: string; testing?: boolean; playwrightBusy?: boolean }
+export type BrowserProfile = 'personal' | 'agent';
+export type BrowserPresetMode = 'anonymous' | 'agent';
+export type BrowserHandoffMode = 'read' | 'fill';
+export interface BrowserSite { domain: string; favicon?: string }
+export type BrowserProfileTarget = string | { origin: string };
+export interface BrowserProfileSite extends BrowserSite { host?: string; openOrigin?: string }
+export interface BrowserPreset extends BrowserSite { mode: BrowserPresetMode }
+export interface BrowserProfileSnapshot { sites: Record<BrowserProfile, BrowserProfileSite[]>; presets: BrowserPreset[] }
+export interface BrowserTab { id: string; title: string; url: string; loading: boolean; canGoBack: boolean; canGoForward: boolean; zoom: number; error?: string; localFile?: string; testing?: boolean; playwrightBusy?: boolean; favicon?: string; handoff?: BrowserHandoffMode; handoffPersistent?: boolean; canHandoff?: boolean; profile?: BrowserProfile }
 export interface BrowserSnapshot {
   revision: number; owner: string; context: number; canCreate: boolean; activeId?: string; tabs: BrowserTab[];
 }

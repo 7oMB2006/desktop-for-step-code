@@ -11,7 +11,8 @@ export async function prepareAgentPreviewFixture(profile) {
   for (const entry of await readdir(runtimeSource, { withFileTypes: true })) {
     const source = join(runtimeSource, entry.name);
     const target = join(runtime, entry.name);
-    if (entry.name === 'desktop-sessions.mjs') await copyFile(resolve('electron', entry.name), target);
+    if (['desktop-sessions.mjs', 'windows-runtime-job.ps1'].includes(entry.name))
+      await copyFile(resolve('electron', entry.name), target);
     else {
       const type = entry.isSymbolicLink() ? await stat(source) : entry;
       if (type.isDirectory()) await symlink(await realpath(source), target, directoryLink);

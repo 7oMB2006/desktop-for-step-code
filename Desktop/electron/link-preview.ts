@@ -23,12 +23,16 @@ export function previewUrl(value: unknown): URL {
   url.hash = '';
   return url;
 }
-async function readPublic(url: URL, signal: AbortSignal, limit: number, redirects = 0): Promise<{ bytes: Buffer; type: string; url: URL }> {
+async function resolvePublic(url: URL) {
   const host = url.hostname.replace(/^\[|\]$/g, '');
   const addresses = await lookup(host, { all: true });
   if (!addresses.length || addresses.some(item => !publicAddress(item.address))) throw new Error('Non-public destination');
+  return addresses[0];
+}
+async function readPreviewResource(url: URL, signal: AbortSignal, limit: number, redirects = 0,
+  localOrigin?: string): Promise<{ bytes: Buffer; type: string; url: URL }> {
+  const selected = localOrigin ? await resolveLoopback(url, localOrigin) : await resolvePublic(url);
   signal.throwIfAborted();
-  const selected = addresses[0];
   return new Promise((resolve, reject) => {
     // Pin the validated DNS answer to the request, including every redirect.
     const req = (url.protocol === 'https:' ? httpsRequest : httpRequest)(url, {
@@ -39,8 +43,8 @@ async function readPublic(url: URL, signal: AbortSignal, limit: number, redirect
       const code = response.statusCode ?? 0;
       if (code >= 300 && code < 400 && response.headers.location) {
         response.resume();
-        if (redirects >= 3) { reject(new Error('Too many redirects')); return; }
-        try { resolve(readPublic(previewUrl(new URL(response.headers.location, url).href), signal, limit, redirects + 1)); }
+        if (localOrigin || redirects >= 3) { reject(new Error('Redirect unavailable')); return; }
+        try { resolve(readPreviewResource(previewUrl(new URL(response.headers.location, url).href), signal, limit, redirects + 1)); }
         catch (error) { reject(error); }
         return;
       }
@@ -56,6 +60,65 @@ async function readPublic(url: URL, signal: AbortSignal, limit: number, redirect
     });
     req.on('error', reject); req.end();
   });
+}
+const iconLimit = 96 * 1024;
+const iconTypes = new Set(['image/svg+xml', 'image/png', 'image/jpeg', 'image/webp', 'image/gif', 'image/x-icon', 'image/vnd.microsoft.icon']);
+
+function faviconType(value: string) {
+  const type = value.split(';')[0].trim().toLowerCase();
+  return iconTypes.has(type) ? type : undefined;
+}
+
+export function inlineFavicon(value: string) {
+  if (value.length > Math.ceil(iconLimit / 3) * 4 + 64) return undefined;
+  const match = /^data:(image\/[a-z.+-]+);base64,([a-z0-9+/]+={0,2})$/i.exec(value);
+  if (match && iconTypes.has(match[1].toLowerCase()) && Buffer.byteLength(match[2], 'base64') <= iconLimit) return value;
+}
+
+async function resolveLoopback(url: URL, origin: string) {
+  if (!['http:', 'https:'].includes(url.protocol) || url.origin !== origin || url.username || url.password)
+    throw new Error('Non-local favicon');
+  const host = url.hostname.replace(/^\[|\]$/g, '');
+  const addresses = await lookup(host, { all: true });
+  if (!addresses.length || addresses.some(item => !['127.0.0.1', '::1'].includes(item.address))) throw new Error('Non-loopback destination');
+  return addresses[0];
+}
+
+export async function fetchSameOriginFavicon(address: string, page: URL, signal: AbortSignal,
+  fetchResource: (address: string, options: RequestInit) => Promise<Response>) {
+  if (address.length > 4096) return;
+  const url = new URL(address);
+  if (!['http:', 'https:'].includes(url.protocol) || url.origin !== page.origin || url.username || url.password) return;
+  const response = await fetchResource(url.href, { signal, credentials: 'omit', redirect: 'error',
+    headers: { Accept: 'image/*' } });
+  const type = faviconType(response.headers.get('content-type') ?? '');
+  if (response.status !== 200 || !type || Number(response.headers.get('content-length')) > iconLimit) {
+    await response.body?.cancel();
+    return;
+  }
+  if (!response.body) return;
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    size += value.byteLength;
+    if (size > iconLimit) { await reader.cancel(); return; }
+    chunks.push(value);
+  }
+  return `data:${type};base64,${Buffer.concat(chunks).toString('base64')}`;
+}
+
+export async function fetchFavicon(address: string, signal: AbortSignal, page?: URL) {
+  const localOrigin = page && ['localhost', '127.0.0.1', '[::1]'].includes(page.hostname) ? page.origin : undefined;
+  const url = localOrigin && address.length <= 4096 ? new URL(address) : previewUrl(address);
+  // A private or local page must not cause an out-of-partition request to another host.
+  if (!localOrigin && page && page.origin !== url.origin) await resolvePublic(page);
+  const image = await readPreviewResource(url, signal, iconLimit, 0, localOrigin);
+  // Render as an image only: Chromium does not execute SVG scripts or load its external resources.
+  const type = faviconType(image.type);
+  if (type) return `data:${type};base64,${image.bytes.toString('base64')}`;
 }
 export function previewMetadata(html: string, url: URL): Pick<LinkPreview, 'title' | 'description'> & { iconUrl: string } {
   const { document } = parseHTML(html);
@@ -78,16 +141,12 @@ export async function linkPreview(value: unknown): Promise<LinkPreview> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 6500);
     try {
-      const page = await readPublic(url, controller.signal, 768 * 1024);
+      const page = await readPreviewResource(url, controller.signal, 768 * 1024);
       if (!['text/html', 'application/xhtml+xml'].includes(page.type)) return { url: url.href };
       const metadata = previewMetadata(page.bytes.toString('utf8'), page.url);
       let icon: string | undefined;
       try {
-        const image = await readPublic(previewUrl(metadata.iconUrl), controller.signal, 96 * 1024);
-        // SVG stays in an image data URL, never inline DOM. Chromium image mode
-        // disables scripts and external resources, and the renderer CSP remains closed.
-        if (['image/svg+xml', 'image/png', 'image/jpeg', 'image/webp', 'image/gif', 'image/x-icon', 'image/vnd.microsoft.icon'].includes(image.type))
-          icon = `data:${image.type};base64,${image.bytes.toString('base64')}`;
+        icon = await fetchFavicon(metadata.iconUrl, controller.signal);
       } catch { /* The globe remains when the site's favicon is unavailable. */ }
       return { url: url.href, title: metadata.title, description: metadata.description, icon };
     } catch { return { url: url.href }; }

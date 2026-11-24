@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { WebContents } from 'electron';
+import { automationNavigation, type AutomationScope } from './browser-policy';
 
 interface Command { id: number; sessionId?: string; method: string; params?: Record<string, unknown> }
 type Sender = (message: Record<string, unknown>) => void;
@@ -53,7 +54,7 @@ export class PreviewProtocolScope {
   private viewport?: string;
   private readonly debugger;
 
-  constructor(private guest: WebContents, private origin: string, private send: Sender, private onDetach: () => void) {
+  constructor(private guest: WebContents, private scope: AutomationScope, private send: Sender, private onDetach: () => void) {
     this.debugger = guest.debugger;
   }
 
@@ -67,6 +68,9 @@ export class PreviewProtocolScope {
       const { frameTree } = await this.debugger.sendCommand('Page.getFrameTree');
       if (!frameTree?.frame?.id || !this.allowsNavigation(this.guest.getURL()) || this.closed)
         throw new Error('Preview page is unavailable');
+      // Suppress the OS picker instead of allowing the helper to select host files.
+      await this.debugger.sendCommand('Page.setInterceptFileChooserDialog', { enabled: true });
+      if (this.closed) throw new Error('Preview permission ended');
       this.target = frameTree.frame.id;
     } catch (error) {
       this.close();
@@ -75,8 +79,7 @@ export class PreviewProtocolScope {
   }
 
   allowsNavigation(url: unknown) {
-    return typeof url === 'string' && URL.canParse(url) && new URL(url).protocol === 'http:'
-      && previewResourceAllowed(url, this.origin, 'mainFrame');
+    return automationNavigation(url, this.scope);
   }
 
   private message = (_event: unknown, method: string, params: unknown, childSession?: string) => {
@@ -125,10 +128,12 @@ export class PreviewProtocolScope {
         // Playwright sees a single attached page and never focuses it.
         return {};
       case 'Page.setInterceptFileChooserDialog':
+        // Playwright may clear its own listeners; the host keeps its guard until detach.
         if (params.enabled === false) return {};
         return deny();
       case 'Page.navigate':
-        if ((params.frameId && params.frameId !== this.target) || !this.allowsNavigation(params.url)) return deny();
+        if (this.scope.kind === 'attached' || this.scope.kind === 'public' && this.scope.signedIn
+          || (params.frameId && params.frameId !== this.target) || !this.allowsNavigation(params.url)) return deny();
         break;
       case 'Page.createIsolatedWorld':
         params = { frameId: params.frameId, worldName: params.worldName, grantUniveralAccess: false };

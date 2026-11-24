@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { browserBounds, browserNavigation, browserPreviewUrl, browserUrl } from '../electron/browser-policy';
+import { browserAutomationTarget, browserBounds, browserHandoffOrigin, browserNavigation, browserPreviewUrl, browserUrl } from '../electron/browser-policy';
 
 test('browser addresses accept explicit web URLs and normalize local preview hosts', () => {
   assert.equal(browserUrl('localhost:4173/path'), 'http://localhost:4173/path');
@@ -22,6 +22,16 @@ test('page navigation never treats relative URLs or bare hosts as allowed absolu
   assert.equal(browserNavigation('about:blank'), true);
   for (const value of ['example.com', '/relative', 'javascript:alert(1)', 'file:///C:/', 'https://u:p@example.com/'])
     assert.equal(browserNavigation(value), false);
+});
+test('existing HTTP and HTTPS tabs can be shared without broadening agent-initiated navigation', () => {
+  assert.equal(browserHandoffOrigin('http://example.com/write?q=draft'), 'http://example.com');
+  assert.equal(browserHandoffOrigin('http://localhost:4173/path'), 'http://localhost:4173');
+  assert.equal(browserHandoffOrigin('https://example.com:8443/write'), 'https://example.com:8443');
+  assert.equal(browserHandoffOrigin('https://intranet.local/'), 'https://intranet.local');
+  for (const url of ['about:blank', 'example.com', 'file:///C:/index.html', 'https://u:p@example.com/'])
+    assert.equal(browserHandoffOrigin(url), undefined, url);
+  for (const url of ['http://example.com/', 'https://example.com:8443/', 'https://intranet.local/'])
+    assert.throws(() => browserAutomationTarget(url), /loopback|public HTTPS/);
 });
 test('agent previews only accept explicit HTTP URLs on the supported loopback hosts', () => {
   assert.equal(browserPreviewUrl('http://localhost:5173/preview'), 'http://localhost:5173/preview');

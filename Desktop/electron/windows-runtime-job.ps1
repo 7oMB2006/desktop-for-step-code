@@ -1,4 +1,4 @@
-param([string]$Spec, [string]$Verify)
+param([string]$Spec, [string]$Verify, [string]$PreviewJob, [int]$PreviewPort, [long]$PreviewStartedAt)
 $ErrorActionPreference = 'Stop'
 Add-Type -TypeDefinition @'
 using System;
@@ -47,6 +47,8 @@ public static class DfscRuntimeJob {
   [DllImport("kernel32.dll", SetLastError=true)] static extern bool SetInformationJobObject(IntPtr job, int type, ref ExtendedLimits info, uint length);
   [DllImport("kernel32.dll", SetLastError=true)] static extern bool QueryInformationJobObject(IntPtr job, int type, out Accounting info, uint length, IntPtr returned);
   [DllImport("kernel32.dll", SetLastError=true)] static extern bool TerminateJobObject(IntPtr job, uint code);
+  [DllImport("kernel32.dll", SetLastError=true)] static extern bool IsProcessInJob(IntPtr process, IntPtr job, out bool result);
+  [DllImport("kernel32.dll", SetLastError=true)] static extern IntPtr OpenProcess(uint access, bool inherit, int pid);
   [DllImport("kernel32.dll", SetLastError=true)] static extern bool InitializeProcThreadAttributeList(IntPtr list, int count, uint flags, ref IntPtr size);
   [DllImport("kernel32.dll", SetLastError=true)] static extern bool UpdateProcThreadAttribute(IntPtr list, uint flags, IntPtr attribute, IntPtr value, IntPtr size, IntPtr previous, IntPtr returned);
   [DllImport("kernel32.dll")] static extern void DeleteProcThreadAttributeList(IntPtr list);
@@ -82,6 +84,25 @@ public static class DfscRuntimeJob {
     try {
       for (int i = 0; i < 100; i++) { if (Empty(job)) return true; Thread.Sleep(50); }
       return false;
+    } finally { CloseHandle(job); }
+  }
+  public static bool OwnsListeners(string name, int[] pids, long startedAt) {
+    IntPtr job = OpenJobObject(4, false, name);
+    if (job == IntPtr.Zero) return false;
+    try {
+      foreach (int pid in pids) {
+        IntPtr handle = OpenProcess(0x1000, false, pid);
+        if (handle == IntPtr.Zero) return false;
+        try {
+          bool belongs;
+          if (!IsProcessInJob(handle, job, out belongs) || !belongs) return false;
+          using (var process = System.Diagnostics.Process.GetProcessById(pid)) {
+            if (process.StartTime.ToUniversalTime() < new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc).AddMilliseconds(startedAt))
+              return false;
+          }
+        } finally { CloseHandle(handle); }
+      }
+      return pids.Length > 0;
     } finally { CloseHandle(job); }
   }
   public static int Run(string name, string executable, string[] args, string cwd) {
@@ -128,6 +149,12 @@ public static class DfscRuntimeJob {
 }
 '@
 try {
+  if ($PreviewJob) {
+    if ($PreviewJob -notmatch '^Local\\DFSC-[a-f0-9-]{36}$' -or $PreviewPort -lt 1 -or $PreviewPort -gt 65535 -or $PreviewStartedAt -lt 1) { exit 2 }
+    $listeners = @(Get-NetTCPConnection -LocalPort $PreviewPort -State Listen | Select-Object -ExpandProperty OwningProcess -Unique)
+    if ([DfscRuntimeJob]::OwnsListeners($PreviewJob, [int[]]$listeners, $PreviewStartedAt)) { exit 0 }
+    exit 1
+  }
   if ($Verify) {
     if ($Verify -notmatch '^Local\\DFSC-[a-f0-9-]{36}$') { exit 2 }
     if ([DfscRuntimeJob]::Released($Verify)) { exit 0 }

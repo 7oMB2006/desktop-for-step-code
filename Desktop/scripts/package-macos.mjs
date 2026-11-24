@@ -15,8 +15,8 @@ if (runtime.platform !== process.platform || runtime.arch !== process.arch) thro
 const stage = await realpath(await mkdtemp(join(tmpdir(), 'desktop-macos-package-')));
 try {
   // esbuild bundles the main-process dependencies and Vite bundles the renderer.
-  // Only the separately staged PTY host needs native modules. Avoid collecting the
-  // development tree: electron-builder 26 misreads pnpm's hoisted virtual paths.
+  // The PTY host and Playwright helper have their own staged resources. Avoid
+  // collecting the development tree: electron-builder 26 misreads pnpm's hoisted virtual paths.
   for (const name of ['dist', 'runtime', 'terminal-runtime', 'build', 'scripts'])
     await cp(join(source, name), join(stage, name), { recursive: true });
   const { dependencies, devDependencies, pnpm, packageManager, scripts, build: config, ...metadata } = manifest;

@@ -1,4 +1,5 @@
 import type { BrowserBounds } from '../src/contracts';
+import { publicBrowserSite } from './public-browser-policy';
 
 export const MAX_BROWSER_TABS = 12;
 
@@ -19,12 +20,38 @@ export function browserNavigation(url: string): boolean {
   try { return browserUrl(url) === url; } catch { return false; }
 }
 
+export function browserHandoffOrigin(url: string): string | undefined {
+  if (url !== 'about:blank' && browserNavigation(url)) return new URL(url).origin;
+}
+
 export function browserPreviewUrl(input: unknown): string {
   if (typeof input === 'string' && /^http:\/\/(?:localhost|127\.0\.0\.1|\[::1\])(?=[:/?#]|$)/iu.test(input.trim())) {
     const url = new URL(browserUrl(input));
     if (url.protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname)) return url.href;
   }
   throw new Error('Preview requires an explicit local HTTP URL (localhost, 127.0.0.1, or [::1])');
+}
+
+export type AutomationScope = { kind: 'local'; origin: string } | { kind: 'public'; site: string; signedIn?: boolean }
+  | { kind: 'attached'; origin: string; mode: 'read' | 'fill' };
+
+export function browserAutomationTarget(input: unknown): { url: string; scope: AutomationScope } {
+  try {
+    const url = browserPreviewUrl(input);
+    return { url, scope: { kind: 'local', origin: new URL(url).origin } };
+  } catch {
+    if (typeof input === 'string' && /^https:\/\//i.test(input.trim())) {
+      const url = browserUrl(input);
+      const site = publicBrowserSite(url);
+      if (site) return { url, scope: { kind: 'public', site } };
+    }
+  }
+  throw new Error('Use an explicit loopback HTTP preview URL or a public HTTPS website');
+}
+
+export function automationNavigation(url: unknown, scope: AutomationScope) {
+  if (typeof url !== 'string' || !browserNavigation(url)) return false;
+  return scope.kind === 'public' ? publicBrowserSite(url) === scope.site : new URL(url).origin === scope.origin;
 }
 
 export function browserBounds(input: unknown, width: number, height: number): BrowserBounds | null {

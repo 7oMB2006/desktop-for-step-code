@@ -2,6 +2,8 @@ import { execFile, spawn, type ChildProcess, type ChildProcessWithoutNullStreams
 import { dirname, join, resolve } from 'node:path';
 import { StringDecoder } from 'node:string_decoder';
 import { randomUUID } from 'node:crypto';
+import { promisify } from 'node:util';
+import { descendantListenersOwned } from './preview-listener';
 
 export class JsonLines {
   private decoder = new StringDecoder('utf8');
@@ -66,6 +68,7 @@ export class RpcManagementStopError extends Error {
 }
 
 const powershell = () => join(process.env.SystemRoot ?? 'C:\\Windows', 'System32/WindowsPowerShell/v1.0/powershell.exe');
+const exec = promisify(execFile);
 
 export class RpcProcess {
   private child?: ChildProcessWithoutNullStreams;
@@ -82,6 +85,25 @@ export class RpcProcess {
   };
   private disconnected = false;
   private job?: { name: string; script: string };
+  async ownsPreviewListener(port: number, startedAt: number, signal?: AbortSignal) {
+    const { child, job, pid } = this;
+    if (!child || !pid || this.disconnected || !Number.isInteger(port) || port < 1 || port > 65535
+      || !Number.isSafeInteger(startedAt) || startedAt <= 0 || signal?.aborted) return false;
+    const options = { windowsHide: true, timeout: 4500, maxBuffer: 256 * 1024, signal };
+    try {
+      if (job) {
+        await exec(powershell(), ['-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
+          '-File', job.script, '-PreviewJob', job.name, '-PreviewPort', String(port),
+          '-PreviewStartedAt', String(startedAt)], options);
+      } else if (process.platform === 'darwin') {
+        const { stdout: listeners } = await exec('/usr/sbin/lsof', ['-nP', '-a', `-iTCP:${port}`, '-sTCP:LISTEN', '-t'], options);
+        const { stdout: processes } = await exec('/bin/ps', ['-axo', 'pid=,ppid=,lstart='],
+          { ...options, env: { ...process.env, LC_ALL: 'C', TZ: 'UTC' } });
+        if (!descendantListenersOwned(listeners, processes, pid, startedAt)) return false;
+      } else return false;
+      return this.child === child && this.pid === pid && !this.disconnected && !signal?.aborted;
+    } catch { return false; }
+  }
   private stderr = '';
   private pending = new Map<string, { resolve: (data: any) => void; reject: (e: Error) => void; timer: NodeJS.Timeout }>();
   get hasPendingRequests() { return this.pending.size > 0; }

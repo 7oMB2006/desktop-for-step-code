@@ -1,14 +1,13 @@
 import { build } from 'esbuild';
 import { execFileSync } from 'node:child_process';
 import { build as viteBuild } from 'vite';
-import { cp, mkdir, rm } from 'node:fs/promises';
+import { cp, mkdir } from 'node:fs/promises';
 import './icons.mjs';
 import './build-terminal.mjs';
+import './build-playwright-preview.mjs';
 const usagePreview = process.env.DESKTOP_USAGE_OVERVIEW_PREVIEW === '1';
 const define = { DESKTOP_USAGE_OVERVIEW_PREVIEW: JSON.stringify(usagePreview) };
 await build({ entryPoints: ['electron/main.ts', 'electron/preload.ts', 'electron/tray-preload.ts', 'electron/keyless-fetch.ts', 'electron/macos-update-helper.ts'], outdir: 'dist', outExtension: { '.js': '.cjs' }, bundle: true, platform: 'node', format: 'cjs', external: ['electron'], sourcemap: true, define });
-// Older experimental builds copied this source-only helper into package inputs.
-await rm('dist/playwright-preview-helper.cjs', { force: true });
 await viteBuild({ base: './', define, build: { outDir: 'dist/renderer', emptyOutDir: true, rolldownOptions: { input: ['index.html', 'tray-menu.html', ...(usagePreview ? ['tests/fixtures/usage-overview.html'] : [])] } } });
 await mkdir('dist/licenses', { recursive: true });
 await cp('src/assets/providers/NOTICE.txt', 'dist/licenses/provider-marks.txt');
@@ -19,6 +18,8 @@ for (const name of ['file-associations.cs', 'file-associations.ps1'])
   await cp(`electron/${name}`, `dist/file-opening/${name}`);
 for (const [source, name] of [
   ['three/LICENSE', 'three.txt'],
+  ['tldts/LICENSE', 'tldts.txt'],
+  ['tldts-core/LICENSE', 'tldts-core.txt'],
   ['@number-flow/react/LICENSE.md', 'number-flow-react.txt'],
   ['@tanstack/react-virtual/LICENSE', 'tanstack-virtual.txt'],
   ['react-colorful/LICENSE', 'react-colorful.txt'],

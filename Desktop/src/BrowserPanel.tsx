@@ -1,9 +1,12 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { ArrowLeft, ArrowRight, ExternalLink, Globe, LockKeyhole, Plus, RotateCw, Square, X, ZoomIn, ZoomOut } from 'lucide-react';
+import { ArrowLeft, ArrowRight, ExternalLink, Globe, LockKeyhole, Plus, RotateCw, Share2, Square, X, ZoomIn, ZoomOut } from 'lucide-react';
 import type { BrowserAction, BrowserSnapshot } from './contracts';
 import { RightPanelExpandButton } from './RightPanelExpandButton';
 import { RightPanelWidthControl } from './RightPanelWidthControl';
 import { MatrixPulse } from './WorkingIndicator';
+import { SiteIcon } from './SiteIcon';
+import { TaskProgressFill } from './TaskProgressFill';
+import { bindPriorityDrag, capturePriorityRows, settlePriorityRows } from './priority-order-motion';
 import './browser-panel.css';
 
 const empty: BrowserSnapshot = { revision: -1, owner: '', context: -1, canCreate: false, tabs: [] };
@@ -25,11 +28,14 @@ export function BrowserPanel({ owner, open, replaced, overlay, expanded, blocked
   const pending = context !== undefined && creating === context;
   const host = useRef<HTMLDivElement>(null);
   const input = useRef<HTMLInputElement>(null);
+  const tabStrip = useRef<HTMLDivElement>(null);
+  const settleMove = useRef<{ before: ReturnType<typeof capturePriorityRows>; focus?: string } | null>(null);
   const latest = useRef({ open, blocked, context });
   latest.current = { open, blocked, context };
   const zh = language === 'zh';
   const t = (cn: string, en: string) => zh ? cn : en;
   const selected = snapshot.tabs.find(tab => tab.id === snapshot.activeId);
+  const tabOrder = snapshot.tabs.map(tab => tab.id).join(',');
   const shownAddress = selected?.localFile ?? (selected?.url === 'about:blank' ? '' : selected?.url ?? '');
   if (open && !present) setPresent(true);
   const accept = (next: BrowserSnapshot) => setSnapshot(previous => next.revision >= previous.revision ? next : previous);
@@ -55,6 +61,47 @@ export function BrowserPanel({ owner, open, replaced, overlay, expanded, blocked
   const action = (kind: BrowserAction, value?: string) => {
     if (selected && window.desktop) void run(() => window.desktop!.browserAction(selected.id, kind, value, context));
   };
+  function settleTabMove() {
+    const list = tabStrip.current;
+    const move = settleMove.current;
+    settleMove.current = null;
+    if (!list || !move) return;
+    settlePriorityRows(list, move.before, 'x');
+    if (move.focus) {
+      const row = [...list.querySelectorAll<HTMLElement>('[data-order]')].find(item => item.dataset.order === move.focus);
+      const button = row?.querySelector<HTMLElement>('[role="tab"]');
+      button?.focus({ preventScroll: true });
+      button?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    }
+  }
+  async function moveTab(id: string, index: number, before: ReturnType<typeof capturePriorityRows>, keyboard = false) {
+    const from = snapshot.tabs.findIndex(tab => tab.id === id);
+    const target = snapshot.tabs[index];
+    if (settleMove.current || !target || from < 0 || from === index || context === undefined || !window.desktop) {
+      if (tabStrip.current && !settleMove.current) settlePriorityRows(tabStrip.current, before, 'x');
+      return;
+    }
+    const move = { before, focus: keyboard ? id : undefined };
+    settleMove.current = move;
+    try {
+      setError('');
+      const next = await window.desktop.browserMove(id, target.id, from < index, context);
+      accept(next);
+      // A no-op does not change the DOM order or trigger the layout effect.
+      if (next.tabs.map(tab => tab.id).join(',') === tabOrder && settleMove.current === move) settleTabMove();
+    } catch {
+      if (settleMove.current === move) settleTabMove();
+      if (latest.current.context === context) setError(t('移动标签失败，请重试', 'Could not move the tab. Try again.'));
+    }
+  }
+  const dragMove = useRef(moveTab);
+  dragMove.current = moveTab;
+  useLayoutEffect(() => { settleTabMove(); }, [tabOrder, context]);
+  useEffect(() => {
+    const list = tabStrip.current;
+    if (!list || !open || blocked || replaced || context === undefined) return;
+    return bindPriorityDrag(list, (id, index, before) => { void dragMove.current(id, index, before); }, 'x');
+  }, [open, blocked, replaced, context, tabOrder]);
   useEffect(() => {
     const bridge = window.desktop;
     if (!bridge) return;
@@ -121,26 +168,42 @@ export function BrowserPanel({ owner, open, replaced, overlay, expanded, blocked
     <aside id="browser-panel" className={`browser-panel right-inspector-surface${expanded ? ' is-expanded' : ''}${open ? '' : ' is-closing'}`}
       style={{ visibility: present && !replaced ? undefined : 'hidden' }} aria-label={t('浏览器', 'Browser')} aria-hidden={!open} inert={!open}>
       <header className="right-panel-header"><h2>{t('浏览器', 'Browser')}</h2>
-        {selected?.testing && <button className="icon-button" {...label('停止 Playwright 验收', 'Stop Playwright testing')}
+        {selected?.canHandoff && context !== undefined && <button className="icon-button"
+          aria-pressed={Boolean(selected.handoff)} {...label('交给 Agent', 'Share tab with Agent')}
+          onClick={() => void run(() => window.desktop!.browserHandoff(selected.id, context))}><Share2 size={15}/></button>}
+        {(selected?.testing || selected?.handoff) && <button className="icon-button" {...(selected.testing
+          ? label('停止 Playwright 验收', 'Stop Playwright testing') : label('取消共享', 'Remove sharing'))}
           onClick={() => action('stopTesting')}><Square size={14}/></button>}
         <RightPanelWidthControl panel="browser" language={language} value={expanded ? 'fullscreen' : width} onChange={chooseWidth}
           onError={setError}/>
         <RightPanelExpandButton expanded={expanded} language={language} onToggle={onToggleExpanded}/>
         <button className="icon-button" aria-label={t('关闭浏览器面板', 'Close browser panel')} onClick={onClose}><X size={16}/></button>
       </header>
-      <div className="browser-tabs" role="tablist" aria-label={t('网页标签', 'Browser tabs')}>
-        {snapshot.tabs.map(tab => <div className={`browser-tab${tab.id === selected?.id ? ' is-active' : ''}${tab.testing ? ' is-testing' : ''}`} key={tab.id}>
+      <div ref={tabStrip} className="browser-tabs" role="tablist" aria-label={t('网页标签', 'Browser tabs')}>
+        {snapshot.tabs.map((tab, index) => <div className={`browser-tab${tab.id === selected?.id ? ' is-active' : ''}${tab.testing ? ' is-testing' : ''}`}
+          key={tab.id} data-order={tab.id}>
+          <span className="browser-tab-icon" aria-hidden="true" data-order-grip={snapshot.tabs.length > 1 ? '' : undefined}
+            data-tooltip={snapshot.tabs.length > 1 ? t('拖动调整标签顺序', 'Drag to reorder tab') : undefined}>
+            {tab.playwrightBusy && open && !replaced && !blocked ? <MatrixPulse/> : <SiteIcon key={tab.url} source={tab.favicon} size={12}/>}
+          </span>
           <button className="text-tab" role="tab" aria-selected={tab.id === selected?.id} aria-controls="browser-page" title={tab.title || tab.url}
             aria-description={tab.testing ? tab.playwrightBusy ? t('Agent 正在操作', 'Agent is using this tab')
               : t('Playwright 已连接', 'Playwright connected') : undefined}
+            aria-keyshortcuts="Alt+ArrowLeft Alt+ArrowRight"
+            onKeyDown={event => {
+              if (!event.altKey || event.ctrlKey || event.metaKey || event.shiftKey || !['ArrowLeft', 'ArrowRight'].includes(event.key)) return;
+              event.preventDefault();
+              event.stopPropagation();
+              const list = tabStrip.current;
+              if (list) void moveTab(tab.id, index + (event.key === 'ArrowLeft' ? -1 : 1), capturePriorityRows(list, 'x'), true);
+            }}
             onClick={() => void run(() => window.desktop!.browserSelect(tab.id, context))}>
-            <span className="browser-tab-icon" aria-hidden="true">
-              {tab.playwrightBusy && open && !replaced && !blocked ? <MatrixPulse/> : <Globe size={12}/>}
-            </span>
             <span className="browser-tab-title">{tab.title || (tab.url === 'about:blank' ? t('新标签页', 'New tab') : tab.url)}</span>
           </button>
           <button className="icon-button" aria-label={`${t('关闭标签', 'Close tab')} ${tab.title || tab.url}`}
             onClick={() => void run(() => window.desktop!.browserClose(tab.id, context))}><X size={12}/></button>
+          {tab.testing && open && !replaced && !blocked &&
+            <span className="browser-tab-activity" aria-hidden="true"><TaskProgressFill percent={100}/></span>}
         </div>)}
         <button className="icon-button" {...(atLimit
           ? label('已达标签页上限，请先关闭其他标签页', 'Tab limit reached. Close another tab first.')
@@ -182,7 +245,11 @@ export function BrowserPanel({ owner, open, replaced, overlay, expanded, blocked
       </div>
       <footer className="browser-footer"><span>{selected?.loading ? t('加载中', 'Loading') : selected?.error ? t('加载失败', 'Load failed')
         : selected?.playwrightBusy ? t('Playwright 验收中', 'Playwright testing')
-        : selected?.testing ? t('Playwright 已连接', 'Playwright connected') : selected?.localFile ? t('本地预览', 'Local preview') : t('就绪', 'Ready')}</span>
+        : selected?.testing ? t('Playwright 已连接', 'Playwright connected')
+        : selected?.handoff === 'read' ? selected.handoffPersistent ? t('持续共享 · 仅查看', 'Kept shared · View only') : t('下轮共享 · 仅查看', 'Shared next turn · View only')
+        : selected?.handoff === 'fill' ? selected.handoffPersistent ? t('持续共享 · 填写表单', 'Kept shared · Fill fields') : t('下轮共享 · 填写表单', 'Shared next turn · Fill fields')
+        : selected?.profile === 'agent' ? t('Agent 专用资料', 'Agent profile')
+        : selected?.localFile ? t('本地预览', 'Local preview') : t('就绪', 'Ready')}</span>
         <button className="icon-button" {...label('缩小网页', 'Zoom out')} disabled={!selected || selected.zoom <= .5} onClick={() => action('zoomOut')}><ZoomOut size={13}/></button>
         <button className="browser-zoom" {...label('重置缩放', 'Reset zoom')} disabled={!selected} onClick={() => action('zoomReset')}>{Math.round((selected?.zoom ?? 1) * 100)}%</button>
         <button className="icon-button" {...label('放大网页', 'Zoom in')} disabled={!selected || selected.zoom >= 2} onClick={() => action('zoomIn')}><ZoomIn size={13}/></button>

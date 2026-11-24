@@ -24,7 +24,7 @@ const fixture = () => {
   let url = home;
   const guest = { debugger: debuggerClient, getURL: () => url, getTitle: () => 'Test preview',
     getUserAgent: () => 'Chrome fixture' } as unknown as WebContents;
-  const scope = new PreviewProtocolScope(guest, origin, value => forwarded.push(value), () => scope.close());
+  const scope = new PreviewProtocolScope(guest, { kind: 'local', origin }, value => forwarded.push(value), () => scope.close());
   return { scope, debuggerClient, forwarded, redirect: () => { url = 'https://example.invalid'; } };
 };
 
@@ -64,10 +64,13 @@ test('only one real target is announced and unknown targets, global storage, foc
   await assert.rejects(scope.dispatch({ id: 5, sessionId: 'other', method: 'Runtime.evaluate' }), /unavailable/);
   await assert.rejects(scope.dispatch({ id: 6, sessionId, method: 'Page.navigate', params: { url: 'http://127.0.0.1:5174/' } }), /unavailable/);
   await assert.rejects(scope.dispatch({ id: 7, sessionId, method: 'Page.addScriptToEvaluateOnNewDocument', params: { source: 'untrusted()' } }), /unavailable/);
+  await scope.dispatch({ id: 11, sessionId, method: 'Page.setInterceptFileChooserDialog', params: { enabled: false } });
+  await assert.rejects(scope.dispatch({ id: 12, sessionId, method: 'DOM.setFileInputFiles' }), /unavailable/);
   await scope.dispatch({ id: 8, sessionId, method: 'Page.bringToFront' });
   await scope.dispatch({ id: 9, sessionId, method: 'Page.createIsolatedWorld',
     params: { frameId: 'main-frame', worldName: 'utility', grantUniveralAccess: true } });
   assert.deepEqual(debuggerClient.forwarded, [['Page.getFrameTree', undefined],
+    ['Page.setInterceptFileChooserDialog', { enabled: true }],
     ['Page.createIsolatedWorld', { frameId: 'main-frame', worldName: 'utility', grantUniveralAccess: false }]]);
   debuggerClient.emit('message', {}, 'Runtime.consoleAPICalled', {}, 'child-session');
   debuggerClient.emit('message', {}, 'Target.attachedToTarget', { targetInfo: { targetId: 'other' } });
@@ -89,5 +92,5 @@ test('revocation drops the debugger and stale commands without touching the page
   assert.equal(debuggerClient.isAttached(), false);
   assert.equal(debuggerClient.listenerCount('message'), 0);
   assert.deepEqual(debuggerClient.forwarded.map(([command]) => command),
-    ['Page.getFrameTree', 'Emulation.setDeviceMetricsOverride', 'Emulation.clearDeviceMetricsOverride']);
+    ['Page.getFrameTree', 'Page.setInterceptFileChooserDialog', 'Emulation.setDeviceMetricsOverride', 'Emulation.clearDeviceMetricsOverride']);
 });

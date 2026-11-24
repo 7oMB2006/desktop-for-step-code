@@ -16364,3 +16364,84 @@ Playwright click, checks the fixed tab width and reduced-motion fallback, and
 verifies that closing the panel neither stops the helper nor lets a later
 `show` or same-turn reconnection reopen it. Stop, reapproval in a new turn,
 normal settlement and denial preserve the original guest and its form state.
+
+## 2026-11-24: Built-in Playwright in the desktop package
+
+This supersedes the source-only restriction above. The normal runtime sends
+the local-frontend verification default to the model and registers
+`desktop_playwright` without an experimental environment flag. The Desktop
+build stages its pinned helper and dependencies in app resources. They attach
+only to the approved, same-origin loopback test tab; they do not install or
+launch a separate browser. Confirmation is still required unless Full Access
+is active and Desktop verifies a listener started by the current runtime
+during that turn. Unrelated or pre-existing services, and any reconnection
+after the user stops testing in that turn, still require confirmation.
+Real-site logins, live submissions and host-file uploads are out of scope.
+
+The source build and Windows unpacked verification executable passed
+`verify-playwright-preview.mjs` with a disposable profile and mock model
+provider. The fixture checks the actual runtime system prompt, a local test
+form submitted after hiding its owner tab, advancing WebGL frames, screenshot
+pixels, HMR, no focus calls or new Electron windows, tab title and busy pulse,
+reduced motion, Stop, approval denial and rejection of non-loopback URLs.
+The verified app restores background throttling on disconnect. The same
+fixture is now in shared CI, including macOS package acceptance. This local
+run is not evidence of macOS execution, real-model tool selection, or
+exclusive-fullscreen game compatibility.
+
+For the Full Access exception, the Windows source Electron fixture enables
+the real session permission tier and launches a fresh listener through
+`run_command`. The first connection needs no confirmation. Invoking Stop
+disconnects the debugger and makes a same-turn restart require confirmation;
+a separate listener also still requires confirmation. The browser stays
+isolated and the fixture sees no foreground focus calls. The macOS listener
+ancestry check has unit coverage, not a macOS execution result.
+
+## 2026-11-24: Anonymous public HTTPS in built-in Playwright
+
+This extends the loopback-only boundary for `desktop_playwright` without
+changing local preview permissions. The public guest uses an in-memory
+partition separate from both local test previews and manual browser tabs.
+It does not open the Browser panel, select over an existing tab, or take
+foreground focus. Top-level and frame navigation stay on the attached
+registrable site; public HTTPS assets can use other hosts. The egress route
+pins a validated public address, rejects private destinations, and only
+allows GET and HEAD requests from the guest.
+
+`verify-playwright-preview.mjs` covers ordinary-tier denial, Full Access
+without a first-site dialog, confirmation before a different site, search
+and profile navigation across same-site subdomains, CDN loading, blocked
+private and write requests, cookie isolation, separate manual tabs, and the
+existing local fixture. Set `DESKTOP_VERIFY_PLAYWRIGHT_BILIBILI=1` for the
+optional live anonymous search; it asserts the actual profile link rather
+than the query text. This uses scripted model tool calls and does not certify
+live model tool selection, authenticated flows, macOS execution, or Windows
+installer execution.
+
+The Windows x64 verification executable extracted by the packager passed
+both `verify-playwright-preview.mjs` (including the live Bilibili search)
+and `verify-agent-preview.mjs` with disposable profiles. The candidate
+bundled Step Code `5309624e5deff3d8fee031f0853fe7e07bc68801` (v018).
+
+## Browser profiles and existing-tab handoff
+
+Windows source Electron passed the browser panel and Playwright fixtures.
+The settings search located Browser profiles, the production UI saved a
+site preset, and an Agent tab used only the dedicated profile's test Cookie.
+The anonymous tab sent neither profile's Cookie; the signed-in tab loaded
+its CDN asset without sending the CDN's Cookie. Clearing a site in the
+Agent profile left the personal Cookie and the Agent profile's other site
+intact. Another persistent test Cookie and the preset survived app restart.
+
+The existing-tab fixture kept the original WebContents and user draft when
+another tab was selected, denied writes in view mode, and filled only the
+ordinary field in fill mode. It denied the one-time-code field, Enter and
+navigation. Cancelling before connection and navigating to a new document
+both revoked the grant; no replacement tab was allowed. The optional live
+anonymous Bilibili search returned the expected account link using the
+configured DNS fallback, without foreground or panel activation.
+
+Typecheck, production build and focused browser tests passed. The full
+desktop test suite still reported failures including CLM, compaction
+settings and the pinned slash-runtime revision. This run did not verify a
+new installer, macOS, a user's real login, or live model tool selection.

@@ -3,7 +3,7 @@ import { dirname, join, resolve } from 'node:path';
 import { StringDecoder } from 'node:string_decoder';
 import { randomUUID } from 'node:crypto';
 import { promisify } from 'node:util';
-import { descendantListenersOwned } from './preview-listener';
+import { descendantListenersOwned, previewListenerPids } from './preview-listener';
 
 export class JsonLines {
   private decoder = new StringDecoder('utf8');
@@ -85,7 +85,7 @@ export class RpcProcess {
   };
   private disconnected = false;
   private job?: { name: string; script: string };
-  async ownsPreviewListener(port: number, startedAt: number, signal?: AbortSignal) {
+  async ownsPreviewListener(port: number, startedAt: number, signal?: AbortSignal, darwinHelper?: string) {
     const { child, job, pid } = this;
     if (!child || !pid || this.disconnected || !Number.isInteger(port) || port < 1 || port > 65535
       || !Number.isSafeInteger(startedAt) || startedAt <= 0 || signal?.aborted) return false;
@@ -95,11 +95,12 @@ export class RpcProcess {
         await exec(powershell(), ['-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
           '-File', job.script, '-PreviewJob', job.name, '-PreviewPort', String(port),
           '-PreviewStartedAt', String(startedAt)], options);
-      } else if (process.platform === 'darwin') {
+      } else if (process.platform === 'darwin' && darwinHelper) {
         const { stdout: listeners } = await exec('/usr/sbin/lsof', ['-nP', '-a', `-iTCP:${port}`, '-sTCP:LISTEN', '-t'], options);
-        const { stdout: processes } = await exec('/bin/ps', ['-axo', 'pid=,ppid=,lstart='],
-          { ...options, env: { ...process.env, LC_ALL: 'C', TZ: 'UTC' } });
-        if (!descendantListenersOwned(listeners, processes, pid, startedAt)) return false;
+        const pids = previewListenerPids(listeners);
+        if (!pids || pids.includes(pid)) return false;
+        const { stdout: processes } = await exec(darwinHelper, [String(pid), ...pids.map(String)], options);
+        if (!descendantListenersOwned(pids, processes, pid, startedAt)) return false;
       } else return false;
       return this.child === child && this.pid === pid && !this.disconnected && !signal?.aborted;
     } catch { return false; }

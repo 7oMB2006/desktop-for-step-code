@@ -96,6 +96,7 @@
       "!dist/playwright-preview-helper.cjs",
       "!dist/playwright-preview",
       "!dist/playwright-preview/**",
+      "!dist/macos-runtime/**",
       "package.json"
     ],
     "extraResources": [
@@ -195,6 +196,12 @@
     "mac": {
       "target": [
         "dir"
+      ],
+      "extraResources": [
+        {
+          "from": "dist/macos-runtime/preview-listener",
+          "to": "macos-runtime/preview-listener"
+        }
       ],
       "category": "public.app-category.developer-tools",
       "icon": "build/icon.png",

@@ -13,7 +13,12 @@ await mkdir('dist/licenses', { recursive: true });
 await cp('src/assets/providers/NOTICE.txt', 'dist/licenses/provider-marks.txt');
 await mkdir('dist/file-opening', { recursive: true });
 await cp('dist/macos-update-helper.cjs', 'dist/file-opening/macos-update-helper.cjs');
-if (process.platform === 'darwin') execFileSync('/usr/bin/xcrun', ['swiftc', '-target', 'arm64-apple-macosx13.5', '-O', 'electron/file-applications-macos.swift', '-o', 'dist/file-opening/file-applications-macos']);
+if (process.platform === 'darwin') {
+  execFileSync('/usr/bin/xcrun', ['swiftc', '-target', 'arm64-apple-macosx13.5', '-O', 'electron/file-applications-macos.swift', '-o', 'dist/file-opening/file-applications-macos']);
+  await mkdir('dist/macos-runtime', { recursive: true });
+  execFileSync('/usr/bin/xcrun', ['clang', '-target', 'arm64-apple-macosx13.5', '-O2',
+    'electron/preview-listener-macos.c', '-o', 'dist/macos-runtime/preview-listener']);
+}
 for (const name of ['file-associations.cs', 'file-associations.ps1'])
   await cp(`electron/${name}`, `dist/file-opening/${name}`);
 for (const [source, name] of [

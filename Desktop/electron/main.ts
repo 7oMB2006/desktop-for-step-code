@@ -1311,7 +1311,8 @@ const collaboration: SessionCollaboration = new SessionCollaboration(runtimes, j
       scope.signedIn = tabs.profiles.usesAgentProfile(scope.site);
     }
     const owned = scope.kind === 'local' && run && !run.stoppedByUser && worker.permissionPreset === 'full-access'
-      && await worker.rpc.ownsPreviewListener?.(Number(new URL(target.url).port || 80), run.startedAt, signal);
+      && await worker.rpc.ownsPreviewListener?.(Number(new URL(target.url).port || 80), run.startedAt, signal,
+        process.platform === 'darwin' ? join(app.isPackaged ? process.resourcesPath : __dirname, 'macos-runtime/preview-listener') : undefined);
     requireLocalRun();
     const zh = preferences.language === 'zh';
     if (scope.kind === 'local' && (!owned || run?.stoppedByUser || worker.permissionPreset !== 'full-access')) {

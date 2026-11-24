@@ -33,13 +33,14 @@ for (const name of ['file-applications-macos', 'macos-update-helper.cjs']) asser
 assert.equal(execFileSync('/usr/bin/plutil', ['-extract', 'LSMinimumSystemVersion', 'raw', '-o', '-', join(app, 'Contents/Info.plist')], { encoding: 'utf8' }).trim(), '13.5');
 assert.match(execFileSync('/usr/bin/otool', ['-l', join(resources, 'file-opening/file-applications-macos')], { encoding: 'utf8' }), /minos 13\.5/);
 const checked = [];
+const extraResources = [...source.build.extraResources, ...source.build.mac.extraResources];
 async function walk(root) {
   for (const entry of await readdir(root, { withFileTypes: true })) {
     const path = join(root, entry.name);
     if (entry.isDirectory()) await walk(path);
     else {
       const bytes = await readFile(path);
-      const extra = source.build.extraResources.find(({ from }) => path === from || path.startsWith(`${from}/`));
+      const extra = extraResources.find(({ from }) => path === from || path.startsWith(`${from}/`));
       const target = extra ? await readFile(join(resources, extra.to, relative(extra.from, path)))
         : path.startsWith('dist/') ? extractFile(archive, path) : await readFile(join(resources, path));
       assert.equal(hash(bytes), hash(target), `${path} differs in the package`);
@@ -48,6 +49,12 @@ async function walk(root) {
   }
 }
 await walk('dist');
+assert.ok(checked.includes('dist/macos-runtime/preview-listener'));
+const listener = join(resources, 'macos-runtime/preview-listener');
+assert.ok((await stat(listener)).mode & 0o111);
+assert.match(execFileSync('/usr/bin/otool', ['-l', listener], { encoding: 'utf8' }), /minos 13\.5/);
+const processRecord = execFileSync(listener, [String(process.pid), String(process.pid)], { encoding: 'utf8' }).trim();
+assert.match(processRecord, new RegExp(`^${process.pid} ${process.ppid} \\d+$`));
 for (const path of ['playwright-preview-helper.cjs', 'node_modules/@playwright/mcp/package.json',
   'node_modules/playwright/package.json', 'node_modules/playwright-core/package.json'])
   assert.ok(checked.includes(`dist/playwright-preview/${path}`), `Missing Playwright package resource: ${path}`);

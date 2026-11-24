@@ -20,11 +20,18 @@
 .browser-panel.is-closing { opacity: 0; transform: translateX(8px); pointer-events: none; }
 .browser-track.is-overlay .browser-panel { box-shadow: -8px 0 20px oklch(0 0 0 / .06); }
 .browser-tabs { display: flex; align-items: center; gap: 4px; padding: 0 10px; min-height: 39px; overflow-x: auto; border-bottom: 1px solid var(--border); }
-.browser-tab { display: flex; align-items: center; flex-shrink: 0; border-bottom: 2px solid transparent; min-height: 38px; }
+.browser-tab { position: relative; display: flex; align-items: center; flex-shrink: 0; border-bottom: 2px solid transparent; min-height: 38px; }
+.browser-tab[data-order-dragging] { z-index: 2; border-radius: 5px; background: var(--bg); box-shadow: 0 1px 5px oklch(0 0 0 / .16); }
 .browser-tab.is-active { border-bottom-color: var(--primary); }
-.browser-tab > .text-tab { gap: 6px; font-size: 11px; --tab-padding-inline: 8px; }
+.browser-tab-activity {
+  position: absolute; inset: auto 0 -2px; height: 2px; overflow: hidden; border-radius: 1px;
+  pointer-events: none; --task-progress-flow-end: calc(100% + 100px);
+}
+.browser-tab > .text-tab { font-size: 11px; --tab-padding-inline: 6px; }
 .browser-tab.is-active > button[role="tab"] { color: var(--ink); }
-.browser-tab-icon { display: inline-flex; width: 12px; height: 12px; flex: 0 0 12px; }
+.browser-tab-icon { display: grid; place-items: center; width: 24px; height: 30px; flex: 0 0 24px; }
+.browser-tab-icon[data-order-grip] { cursor: grab; touch-action: none; user-select: none; }
+.browser-tab[data-order-dragging] .browser-tab-icon { cursor: grabbing; }
 .browser-tab-icon .matrix-pulse { width: 12px; height: 12px; }
 .browser-tab-title {
   max-width: 145px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
@@ -55,4 +62,6 @@
 @media (forced-colors: active) {
   .browser-tab.is-testing .browser-tab-title { text-decoration: underline dotted; }
   .browser-tab-icon .matrix-pulse rect { fill: currentColor; }
+  .browser-tab-activity .task-progress-fill { forced-color-adjust: none; background: Highlight; }
+  .browser-tab-activity .task-progress-current { display: none; }
 }

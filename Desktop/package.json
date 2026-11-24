@@ -1,6 +1,6 @@
 {
   "name": "desktop-for-step-code",
-  "version": "0.6.0",
+  "version": "1.0.0",
   "private": true,
   "description": "Community desktop client for Step Code",
   "author": "Desktop for Step Code contributors",
@@ -19,7 +19,6 @@
     "package:mac": "pnpm build && pnpm stage:runtime && node scripts/package-macos.mjs"
   },
   "dependencies": {
-    "three": "0.180.0",
     "@number-flow/react": "0.6.2",
     "@tanstack/react-virtual": "3.14.26",
     "@xmldom/xmldom": "0.9.12",
@@ -48,11 +47,12 @@
     "remark-math": "6.0.0",
     "remark-parse": "11.0.0",
     "semver": "7.8.5",
+    "three": "0.180.0",
+    "tldts": "7.5.5",
     "unified": "11.0.5",
     "yauzl": "3.4.0"
   },
   "devDependencies": {
-    "@types/three": "0.180.0",
     "@playwright/mcp": "0.0.86",
     "@resvg/resvg-js": "^2.6.2",
     "@types/mdast": "4.0.4",
@@ -60,6 +60,7 @@
     "@types/react": "19.3.0",
     "@types/react-dom": "19.3.0",
     "@types/semver": "7.8.0",
+    "@types/three": "0.180.0",
     "@types/yauzl": "2.10.3",
     "csv-parse": "7.0.3",
     "electron": "44.4.5",
@@ -93,9 +94,28 @@
     "files": [
       "dist/**",
       "!dist/playwright-preview-helper.cjs",
+      "!dist/playwright-preview",
+      "!dist/playwright-preview/**",
+      "!dist/macos-runtime/**",
       "package.json"
     ],
     "extraResources": [
+      {
+        "from": "dist/playwright-preview/playwright-preview-helper.cjs",
+        "to": "playwright-preview/playwright-preview-helper.cjs"
+      },
+      {
+        "from": "dist/playwright-preview/node_modules/@playwright/mcp",
+        "to": "playwright-preview/node_modules/@playwright/mcp"
+      },
+      {
+        "from": "dist/playwright-preview/node_modules/playwright",
+        "to": "playwright-preview/node_modules/playwright"
+      },
+      {
+        "from": "dist/playwright-preview/node_modules/playwright-core",
+        "to": "playwright-preview/node_modules/playwright-core"
+      },
       {
         "from": "dist/keyless-fetch.cjs",
         "to": "runtime-adapters/keyless-fetch.cjs"
@@ -176,6 +196,12 @@
     "mac": {
       "target": [
         "dir"
+      ],
+      "extraResources": [
+        {
+          "from": "dist/macos-runtime/preview-listener",
+          "to": "macos-runtime/preview-listener"
+        }
       ],
       "category": "public.app-category.developer-tools",
       "icon": "build/icon.png",

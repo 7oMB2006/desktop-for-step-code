@@ -9,7 +9,7 @@
 .task-progress-dust i:nth-child(4n) { background: var(--green); }
 .sb-task-progress[data-phase=complete] .task-progress-green { mask-image: none; }
 .sb-task-progress[data-phase=complete] .task-progress-current { animation: none; opacity: 0; }
-@keyframes task-progress-flow { to { background-position: 390px 0; } }
+@keyframes task-progress-flow { to { background-position: var(--task-progress-flow-end, 390px) 0; } }
 @media (prefers-reduced-motion: reduce) {
   .task-progress-fill { transition: none; }
   .task-progress-current { animation: none; }

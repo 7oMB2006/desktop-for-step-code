@@ -51,7 +51,7 @@ test('Mac CI runs the same serial inventory against source and package and stage
   const workflow = readFileSync(new URL('../.github/workflows/macos-integration.yml', import.meta.url), 'utf8').replaceAll('\r\n', '\n');
   const acceptance = readFileSync(new URL('../.github/workflows/macos-acceptance.yml', import.meta.url), 'utf8');
   assert.equal(acceptance.split('node ../scripts/ci-macos.mjs').length - 1, 2);
-  assert.match(workflow, /DESKTOP_MACOS_RELEASE_VERSION: 0\.6\.0/);
+  assert.doesNotMatch(workflow, /DESKTOP_MACOS_RELEASE_VERSION:/, 'CI must inherit the version from Desktop/package.json');
   assert.match(acceptance, /DESKTOP_VERIFY_EXE:/);
   assert.match(acceptance, /tests\/macos-terminal.test.ts/);
   assert.match(acceptance, /if: inputs\.group == 'runtime'/);

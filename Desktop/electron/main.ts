@@ -105,8 +105,9 @@ import { hydrateWorkflowHistory, WorkflowBindings } from './workflow-history';
 import { readWorkflowCatalog } from './workflow-catalog';
 import { workflowsFromMessages, workflowIsActive } from '../src/workflow-state';
 import { TerminalSessions } from './terminal-sessions';
-import { BrowserTabs } from './browser-tabs';
-import { browserPreviewUrl } from './browser-policy';
+import { BrowserTabs, type BrowserHandoff } from './browser-tabs';
+import { browserProfile, profileSite } from './browser-profiles';
+import { browserAutomationTarget } from './browser-policy';
 import { previewInput } from './playwright-preview';
 import { linkPreview } from './link-preview';
 import { artifactFile } from './artifact-files';
@@ -167,8 +168,11 @@ const modelSelections = new ModelSelections(join(app.getPath('userData'), 'model
 let window: BrowserWindow;
 let startupWindow: StartupWindow | undefined;
 let browser: BrowserTabs | undefined;
-const playwrightPreviewEnabled = !app.isPackaged && process.env.DESKTOP_EXPERIMENTAL_PLAYWRIGHT_PREVIEW === '1';
-const localPreviewRuns = new WeakMap<SessionRuntime, { playwrightRevealed: boolean }>();
+type LocalPreviewRun = {
+  startedAt: number; playwrightRevealed: boolean; stoppedByUser?: boolean; publicSite?: string; handoff?: BrowserHandoff;
+  handoffAttempted?: boolean;
+};
+const localPreviewRuns = new WeakMap<SessionRuntime, LocalPreviewRun>();
 const filePreviews = new FilePreviews(id => runtimes.require(id).cwd);
 const localPages = new LocalPagePreview();
 const localFileGrants = new Map<string, string>();
@@ -617,9 +621,11 @@ const runtimes: SessionRuntimes = new SessionRuntimes(event => {
   }
   if (event.type === 'desktop_task_completed') event = { ...event, playSound: preferences.completionSound === true };
   const queueWorker = runtimes.workers.get(event.runtimeId);
+  if (queueWorker && event.type === 'desktop_permission' && queueWorker.permissionPreset !== 'full-access')
+    browser?.revokePersistentHandoff(queueWorker.id);
   if (queueWorker && (event.type === 'agent_end' || event.type === 'desktop_exit')) {
     localPreviewRuns.delete(queueWorker);
-    browser?.stopPlaywright(queueWorker.id);
+    browser?.stopPlaywright(queueWorker.id, event.type === 'agent_end' && queueWorker.permissionPreset === 'full-access');
   }
   if (event.type === 'desktop_btw') {
     if (queueWorker) btw.event(queueWorker, event);
@@ -1256,6 +1262,9 @@ async function tryAutomaticCron(workspace?: string) {
   catch (error) { void crashLog.record('cron-auto-recovery', error); }
   finally { transition = false; emit({ type: 'desktop_cron_changed' }); }
 }
+function sharedTabOnly(run?: LocalPreviewRun) {
+  return Boolean(run?.handoff && (!run.handoff.persistentWorker || run.handoffAttempted));
+}
 const collaboration: SessionCollaboration = new SessionCollaboration(runtimes, join(runtimeRoot, 'desktop-sessions.mjs'), () => preferences.language,
   (worker, message) => { pendingMessages.enqueue(worker, message, { message }); },
   { extensionPath: join(runtimeRoot, 'desktop-remote.mjs'),
@@ -1263,10 +1272,14 @@ const collaboration: SessionCollaboration = new SessionCollaboration(runtimes, j
   new SessionAttachmentExports(join(app.getPath('userData'), 'cache', 'session-attachment-exports')),
   (worker, url) => {
     if (quitting || !browser) throw new Error('Desktop browser is unavailable');
+    if (sharedTabOnly(localPreviewRuns.get(worker))) throw new Error('This turn was authorized for the shared tab only. Do not open a replacement page.');
     return browser.openPreview(browserOwner(undefined, worker), url);
-  }, playwrightPreviewEnabled ? async (worker, raw, signal) => {
+  }, async (worker, raw, signal) => {
     const owner = browserOwner(undefined, worker);
     const run = localPreviewRuns.get(worker);
+    if (raw.operation === 'shared-context' && Object.keys(raw).length === 2)
+      return { mode: browser && !quitting && run?.handoff ? browser.sharedMode(owner, run.handoff) : null,
+        persistent: Boolean(run?.handoff?.persistentWorker) };
     const requireLocalRun = () => {
       if (!browser || quitting || quitPending || !owner || !run || localPreviewRuns.get(worker) !== run
         || !worker.runActive || worker.stopping || worker.mutating || worker.remoteAttached || worker.cronGated
@@ -1277,22 +1290,63 @@ const collaboration: SessionCollaboration = new SessionCollaboration(runtimes, j
     };
     const tabs = requireLocalRun();
     const input = previewInput(raw);
+    if (input.action === 'attach') {
+      const grant = run?.handoff;
+      if (!run || !grant || run.stoppedByUser || run.handoffAttempted)
+        throw new Error('No tab is available to attach for this turn. Ask the user to share the intended tab from Browser.');
+      run.handoffAttempted = true;
+      if (grant.persistentWorker && worker.permissionPreset !== 'full-access')
+        throw new Error('The shared tab is no longer available');
+      await tabs.attachPlaywright(owner, worker.id, grant, signal, () => { run.stoppedByUser = true; });
+      return { content: [{ type: 'text', text: grant.mode === 'fill'
+        ? 'Attached to the original shared page, without navigating. Use snapshot and type to fill ordinary fields. The user submits the form.'
+        : 'Attached to the original shared page in view-only mode, without navigating. Use snapshot or screenshot.' }] };
+    }
     if (input.action !== 'start') return tabs.controlPlaywright(worker.id, owner, input, signal);
-    const url = browserPreviewUrl(input.url);
-    const origin = new URL(url).origin;
+    if (sharedTabOnly(run)) throw new Error('This turn was authorized for the shared tab only. Do not open a replacement page.');
+    const target = browserAutomationTarget(input.url);
+    const scope = target.scope;
+    if (scope.kind === 'public') {
+      await tabs.profilesReady;
+      scope.signedIn = tabs.profiles.usesAgentProfile(scope.site);
+    }
+    const owned = scope.kind === 'local' && run && !run.stoppedByUser && worker.permissionPreset === 'full-access'
+      && await worker.rpc.ownsPreviewListener?.(Number(new URL(target.url).port || 80), run.startedAt, signal,
+        process.platform === 'darwin' ? join(app.isPackaged ? process.resourcesPath : __dirname, 'macos-runtime/preview-listener') : undefined);
+    requireLocalRun();
     const zh = preferences.language === 'zh';
-    const approved = await runtimes.confirm(worker, zh ? '允许 Playwright 验收本地预览？' : 'Allow Playwright to test this local preview?',
-      zh ? `本轮仅可操作当前会话中 ${origin} 的隔离预览。不会读取其他标签的登录状态。你可以随时停止。`
-        : `This turn may control only an isolated ${origin} preview in this conversation. Other tabs and their sign-ins are not accessible. You can stop it at any time.`, signal);
-    if (!approved) throw new Error('Playwright preview was not approved');
-    const preview = await requireLocalRun().startPlaywright(owner, worker.id, url, signal, () => {
+    if (scope.kind === 'local' && (!owned || run?.stoppedByUser || worker.permissionPreset !== 'full-access')) {
+      const { origin } = scope;
+      const approved = await runtimes.confirm(worker, zh ? '允许 Playwright 验收本地预览？' : 'Allow Playwright to test this local preview?',
+        zh ? `本轮仅可操作当前会话中 ${origin} 的隔离测试预览，包括填写和提交测试表单。不会读取其他标签的登录状态，也不会切到前台。你可以随时停止。`
+          : `This turn may control only an isolated ${origin} test preview in this conversation, including filling and submitting test forms. Other tabs and their sign-ins are not accessible. It will not take foreground focus. You can stop it at any time.`, signal);
+      if (!approved) throw new Error('Playwright preview was not approved');
+    }
+    if (scope.kind === 'public' && (run?.stoppedByUser || (run?.publicSite !== scope.site
+      && (run?.publicSite || worker.permissionPreset !== 'full-access')))) {
+      const approved = await runtimes.confirm(worker, zh ? '允许 Agent 浏览此网站？' : 'Allow the agent to browse this site?',
+        scope.signedIn
+          ? (zh ? `本轮按站点预设使用 Agent 专用资料查看 ${scope.site}。不会使用「我的浏览器」，也不会代你填写或提交。`
+            : `This turn may view ${scope.site} with the Agent profile configured in Settings. My browser is not used. Fields and submissions are unavailable.`)
+          : (zh ? `本轮可在隔离的内置标签页浏览 ${scope.site}，不使用你的登录状态，不上传文件，也不会切到前台。你可以随时停止。`
+            : `This turn may browse ${scope.site} in an isolated built-in tab without using your sign-ins, uploading files or taking foreground focus. You can stop it at any time.`), signal);
+      if (!approved) throw new Error('Browser site was not approved');
+    }
+    const preview = await requireLocalRun().startPlaywright(owner, worker.id, target, signal, () => {
       requireLocalRun();
-      if (!run || run.playwrightRevealed) return false;
+      if (!run || scope.kind === 'public' || run.playwrightRevealed) return false;
       run.playwrightRevealed = true;
       return true;
+    }, () => {
+      if (run) run.stoppedByUser = true;
     });
+    if (scope.kind === 'public' && run) {
+      run.publicSite = scope.site;
+      if (scope.signedIn) return { content: [{ type: 'text', text: `Opened ${scope.site} in the configured Agent profile. This is view-only; use snapshot or screenshot.` }] };
+      return { content: [{ type: 'text', text: `Playwright connected to an isolated built-in tab for ${scope.site}. The Browser panel stays as the user left it. Use snapshot before clicking.` }] };
+    }
     return { content: [{ type: 'text', text: `Playwright connected to the original preview tab at ${new URL(preview.url).origin}. The Browser panel reveals it once per turn in this conversation. Use snapshot before clicking.` }] };
-  } : undefined,
+  },
   { ready: webSearchReady, search: (query, signal) => searchWeb(webSearchRuntimeReady() ? authData : {}, query, signal) });
 function recycleSessionRuntimes() {
   if (transition && !sessionNavigation.busy) return;
@@ -2305,6 +2359,32 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
     case 'browserSelect':
       browser!.assertContext(args[1]);
       return browser!.select(text(args[0], 80));
+    case 'browserMove':
+      if (typeof args[2] !== 'boolean' || typeof args[3] !== 'number') throw new Error('Invalid browser tab move');
+      browser!.assertContext(args[3]);
+      return browser!.move(text(args[0], 80), text(args[1], 80), args[2]);
+    case 'browserHandoff':
+      if (typeof args[1] !== 'number') throw new Error('Invalid browser context');
+      return browser!.chooseHandoff(text(args[0], 80), browser!.assertContext(args[1]), () => {
+        const worker = runtimes.active;
+        return !sessionDraft && worker?.state?.sessionId && worker.permissionPreset === 'full-access' ? worker.id : undefined;
+      });
+    case 'browserProfiles':
+      await browser!.profilesReady;
+      return browser!.profiles.snapshot();
+    case 'browserProfileOpen': {
+      if (typeof args[2] !== 'number') throw new Error('Invalid browser context');
+      await browser!.profilesReady;
+      browser!.assertContext(args[2]);
+      const profile = browserProfile(args[0]);
+      return browser!.openProfile(profile, browser!.profiles.openAddress(profile, args[1]));
+    }
+    case 'browserProfileClear':
+      await browser!.profilesReady;
+      return browser!.profiles.clear(browserProfile(args[0]), profileSite(args[1]));
+    case 'browserPreset':
+      await browser!.profilesReady;
+      return browser!.profiles.setPreset(profileSite(args[0]), args[1], args[2] === undefined ? undefined : profileSite(args[2]));
     case 'browserClose':
       browser!.assertContext(args[1]);
       return browser!.close(text(args[0], 80));
@@ -3244,8 +3324,10 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
               await runtimes.preparePrompt(worker, '/init');
               payload.message = await projectInstructionsMessage(worker.cwd, '/init');
             }
-            if (playwrightPreviewEnabled && type === 'prompt' && surface === 'main' && !projectRules
-              && !(payload.message as string).trimStart().startsWith('/')) localPreviewRuns.set(worker, { playwrightRevealed: false });
+            if (type === 'prompt' && surface === 'main' && !projectRules
+              && !(payload.message as string).trimStart().startsWith('/'))
+              localPreviewRuns.set(worker, { startedAt: Date.now(), playwrightRevealed: false,
+                handoff: browser?.reserveHandoff(browserOwner(undefined, worker), worker.id, worker.permissionPreset === 'full-access') });
             const submission = type === 'prompt' ? runtimes.submitPrompt(worker, payload, true, undefined, preparationCurrent)
               : rpc.request(type, payload, type === 'compact' ? 600000 : 30000);
             response = await submission;
@@ -3263,7 +3345,7 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
         } catch (error) {
           if (type === 'prompt') {
             localPreviewRuns.delete(worker);
-            browser?.stopPlaywright(worker.id);
+            browser?.stopPlaywright(worker.id, worker.permissionPreset === 'full-access');
             if (error instanceof Error && error.message.startsWith('STARTUP_NOT_READY:')) restoreLaunch?.();
             else { worker.failed = true; pendingMessages.pause(worker); }
           }

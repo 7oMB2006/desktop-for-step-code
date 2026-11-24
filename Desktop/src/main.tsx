@@ -142,6 +142,8 @@ import { CustomBackgroundSettings } from './CustomBackgroundSettings';
 import { TerminalPanel } from './TerminalPanel';
 import { normalizePanelPreferences, type TerminalDock } from './panel-preferences';
 import { BrowserPanel } from './BrowserPanel';
+import { BrowserSettings } from './BrowserSettings';
+import type { BrowserProfile, BrowserProfileTarget } from './contracts';
 import { FilePreviewPanel } from './FilePreviewPanel';
 import { FileOpeningContext } from './FileOpening';
 import { RightPanelHandle } from './RightPanelHandle';
@@ -1570,6 +1572,20 @@ function App() {
     if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) finishSettingsClose();
     else setSettingsClosing(true);
   };
+  const openBrowserProfile = async (profile: BrowserProfile, target: BrowserProfileTarget) => {
+    if (!bridge || isMini || navigationPending.current) throw new Error('Browser conversation is unavailable');
+    const sequence = ++openingSequence.current;
+    const owner = latestData.current.browserOwner;
+    const current = () => !navigationPending.current && openingSequence.current === sequence
+      && latestData.current.browserOwner === owner;
+    const before = await bridge.browserList();
+    if (!owner || before.owner !== owner || !current()) throw new Error('Browser conversation changed');
+    await bridge.browserProfileOpen(profile, target, before.context);
+    if (!current()) return;
+    closeSettings();
+    setDetails('');
+    setRightPanel('browser');
+  };
   const openUsage = () => {
     if (isMini) { void run(() => handoff('usage')); return; }
     setRemoteOpen(false);
@@ -1603,6 +1619,7 @@ function App() {
   const settingsCategories = [
     ['account', StepPlatformIcon, '账户', 'Account'], ['providers', ProviderIcon, '供应商', 'Providers'],
     ['web-search', Globe, '联网搜索', 'Web search'],
+    ...(!isMini ? [['browser', Globe, '内置浏览器', 'Built-in browser'] as const] : []),
     ['plugins', Plug, '插件', 'Plugins'], ['mcp', McpIcon, 'MCP', 'MCP'], ['skills', BookOpen, 'Skills', 'Skills'],
     ['instructions', FileText, '全局指令', 'Global instructions'], ['general', SunMoon, '通用', 'General'],
     ['interface', SlidersHorizontal, '界面复杂度', 'Interface complexity'], ['appearance', Pencil, '外观', 'Appearance'],
@@ -3066,6 +3083,7 @@ function App() {
       <div key={tab} ref={settingsContent} hidden={searchingSettings} className={`settings-content${tab === 'skills' ? ' is-skills' : ''}`}
         onFocusCapture={revealFocusedTextField}>
       {tab === 'web-search' && bridge ? <WebSearchSettings bridge={bridge} language={data.preferences.language} onAccount={() => selectSettingsTab('account')}/>
+        : tab === 'browser' && bridge && !isMini ? <BrowserSettings bridge={bridge} language={data.preferences.language} onOpen={openBrowserProfile}/>
         : tab === 'instructions' ? <GlobalInstructionsSettings editor={globalInstructionsEditor} language={data.preferences.language}/> : tab === 'interface' ? <InterfaceSettings value={interfaceSettings} language={data.preferences.language} onChange={interfaceSettings => setPreference({ interfaceSettings })}/> : tab === 'appearance' ? <>
         <ThemeSettings preferences={data.preferences} systemDark={systemDark} language={data.preferences.language} packs={data.themePacks}
           loadScene={bridge?.themeScene} loadPoster={bridge?.themePoster} onChange={patch => void setPreference(patch)}/>

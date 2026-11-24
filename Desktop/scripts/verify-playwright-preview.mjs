@@ -419,7 +419,10 @@ try {
     return { size: image.getSize(), bgra: [...image.crop({ x: 30, y: 30, width: 1, height: 1 }).toBitmap()] };
   }, shots[0].data);
   assert.deepEqual(pixel.size, { width: original.bounds.width, height: original.bounds.height });
-  assert.deepEqual(pixel.bgra, [64, 166, 25, 255]);
+  assert.equal(pixel.bgra[3], 255, 'the captured WebGL pixel must be opaque');
+  // Graphics backends may quantize the same floating-point clear color one byte apart.
+  assert.ok([64, 166, 25].every((expected, index) => Math.abs(pixel.bgra[index] - expected) <= 1),
+    `Expected the WebGL clear color, got BGRA ${pixel.bgra}`);
   assert.deepEqual(await page.evaluate(async () => (await window.desktop.browserList()).tabs), []);
   assert.equal(await panel.count(), 0);
   assert.deepEqual(await reveals(), ['session:playwright-a'], 'background Show must not steal the panel');

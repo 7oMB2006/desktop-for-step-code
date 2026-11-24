@@ -65,8 +65,6 @@ jobs:
     if: needs.changes.outputs.docs-only == 'false'
     runs-on: macos-15
     timeout-minutes: 90
-    env:
-      DESKTOP_MACOS_RELEASE_VERSION: 0.6.0
     outputs:
       commit: ${{ steps.candidate.outputs.commit }}
       sha256: ${{ steps.candidate.outputs.sha256 }}

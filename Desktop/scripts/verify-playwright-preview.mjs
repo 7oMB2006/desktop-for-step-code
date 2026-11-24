@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, realpath, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -91,7 +91,8 @@ const ref = (text, label) => {
   assert.ok(line, text);
   return /\[ref=((?:f\d+)?e\d+)\]/.exec(line)[1];
 };
-const profile = await mkdtemp(join(tmpdir(), 'step-playwright-preview-'));
+// Vite's file access checks must see the real path, not a Windows TEMP short-name alias.
+const profile = await realpath(await mkdtemp(join(tmpdir(), 'step-playwright-preview-')));
 try {
   const frontendRoot = join(profile, 'frontend');
   const marker = join(frontendRoot, 'marker.js');
@@ -120,6 +121,9 @@ try {
   });
   await frontend.listen();
   const origin = `http://127.0.0.1:${frontend.httpServer.address().port}`;
+  const index = await fetch(origin, { headers: { Accept: 'text/html' } });
+  assert.equal(index.status, 200, 'Vite must serve the isolated frontend index');
+  assert.match(await index.text(), /<title>Playwright preview fixture<\/title>/);
   const stoppedOperations = [
     ['start', () => ({ url: origin })],
     ['snapshot'],
@@ -796,7 +800,10 @@ try {
   if (failure) console.error('Fixture provider failed:', failure);
   console.error('Fixture provider steps:', providerSteps);
   console.error('Fixture tool results:', [...resultByOperation].map(([operation, text]) => [operation, text.slice(0, 200)]));
-  if (page) console.error('Fixture conversation tail:', (await page.locator('.messages').innerText({ timeout: 2000 }).catch(() => '')).slice(-2200));
+  if (page) {
+    console.error('Fixture browser snapshot:', await page.evaluate(() => window.desktop.browserList()).catch(() => undefined));
+    console.error('Fixture conversation tail:', (await page.locator('.messages').innerText({ timeout: 2000 }).catch(() => '')).slice(-2200));
+  }
   console.error(error);
   await app?.evaluate(({ app }) => { setTimeout(() => app.exit(1), 50).unref(); }).catch(() => {});
   throw error;

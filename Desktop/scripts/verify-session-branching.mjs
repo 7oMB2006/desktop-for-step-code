@@ -283,11 +283,12 @@ try {
   await page.locator(`[data-reorder-id="${forked.state.sessionId}"]`).locator('button').first().click();
   // Both branches have the same mock answer. Wait for the edited prompt that identifies this branch.
   await page.getByText('修改后的问题。', { exact: true }).waitFor();
-  assert.equal((await snapshot()).state.sessionId, forked.state.sessionId);
+  // A read-only history preview can paint before the target runtime becomes authoritative.
+  await page.waitForFunction(async id => (await window.desktop.snapshot()).state?.sessionId === id, forked.state.sessionId);
+  await page.waitForFunction(() => document.querySelector('.new-chat')?.disabled === false);
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(640, 880));
   await page.screenshot({ path: 'test-results/branch-empty-narrow.png' });
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
-  await page.waitForFunction(() => document.querySelector('.new-chat')?.disabled === false);
   await page.locator('.message.user').last().hover();
   await page.getByRole('button', { name: 'Edit and retry', exact: true }).last().click();
   const englishEditor = page.getByRole('textbox', { name: 'Edit message', exact: true });

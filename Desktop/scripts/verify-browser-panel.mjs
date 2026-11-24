@@ -504,12 +504,18 @@ try {
   await dragSecond(false);
   await waitForBrowserFixtureSnapshot(page, snapshot => snapshot.tabs[0]?.id === second && snapshot.activeId === first,
     'dragged tab order without activating the tab');
+  const waitForSecondPosition = index => page.waitForFunction(({ id, index }) =>
+    document.querySelectorAll('.browser-tab[data-order]')[index]?.dataset.order === id, { id: second, index });
+  // The main process can report the new order before the tab strip commits it.
+  await waitForSecondPosition(0);
   await tabRow(second).getByRole('tab').press('Alt+ArrowRight');
   await waitForBrowserFixtureSnapshot(page, snapshot => snapshot.tabs[1]?.id === second && snapshot.activeId === first,
     'keyboard tab reordering');
+  await waitForSecondPosition(1);
   await page.waitForFunction(id => document.activeElement?.closest('.browser-tab')?.dataset.order === id, second);
   await tabRow(second).getByRole('tab').press('Alt+ArrowLeft');
   await waitForBrowserFixtureSnapshot(page, snapshot => snapshot.tabs[0]?.id === second, 'reordered tab stays first');
+  await waitForSecondPosition(0);
   const originalContext = (await list()).context;
   await selectSession('browser-b');
   assert.equal(await rail.getAttribute('aria-pressed'), 'false', 'B does not adopt A’s open panel');

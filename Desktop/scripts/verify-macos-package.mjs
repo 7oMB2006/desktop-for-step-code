@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { readFile, readdir, stat, mkdir, writeFile } from 'node:fs/promises';
-import { join, resolve } from 'node:path';
+import { join, relative, resolve } from 'node:path';
 import { extractFile } from '@electron/asar';
 import { readRuntimeBaseline } from './runtime-baseline.mjs';
 
@@ -39,8 +39,8 @@ async function walk(root) {
     if (entry.isDirectory()) await walk(path);
     else {
       const bytes = await readFile(path);
-      const target = path === 'dist/keyless-fetch.cjs'
-        ? await readFile(join(resources, 'runtime-adapters/keyless-fetch.cjs'))
+      const extra = source.build.extraResources.find(({ from }) => path === from || path.startsWith(`${from}/`));
+      const target = extra ? await readFile(join(resources, extra.to, relative(extra.from, path)))
         : path.startsWith('dist/') ? extractFile(archive, path) : await readFile(join(resources, path));
       assert.equal(hash(bytes), hash(target), `${path} differs in the package`);
       checked.push(path);
@@ -48,6 +48,9 @@ async function walk(root) {
   }
 }
 await walk('dist');
+for (const path of ['playwright-preview-helper.cjs', 'node_modules/@playwright/mcp/package.json',
+  'node_modules/playwright/package.json', 'node_modules/playwright-core/package.json'])
+  assert.ok(checked.includes(`dist/playwright-preview/${path}`), `Missing Playwright package resource: ${path}`);
 await walk('runtime');
 for (const name of ['desktop-web-search.mjs', 'native-step-search.mjs']) {
   const expected = hash(await readFile(join('electron', name)));

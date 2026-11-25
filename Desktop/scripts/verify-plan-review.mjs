@@ -8,7 +8,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
 import assert from 'node:assert/strict';
 import { assertPersistentTurnStatus } from './turn-status-assertions.mjs';
-import { closeDesktopFixture } from './close-desktop-fixture.mjs';
+import { closeDesktopFixture, closeDesktopFixtureAndWait } from './close-desktop-fixture.mjs';
 import { settleLayout } from './settle-layout.mjs';
 import { assertFocusVisible } from './assert-focus-visible.mjs';
 import { planContext, planPath as planFilePath } from './plan-context.mjs';
@@ -407,7 +407,7 @@ try {
   assert.equal((await page.evaluate(() => window.desktop.snapshot())).launch.plan, true);
   assert.deepEqual(errors, []);
   const sessionId = (await page.evaluate(() => window.desktop.snapshot())).state.sessionId;
-  await app.close();
+  await closeDesktopFixtureAndWait(app);
   app = await electron.launch(launchOptions);
   const restored = await app.firstWindow();
   restored.setDefaultTimeout(30000);

@@ -28,7 +28,9 @@ export function validateDocumentation(load = read) {
   assert.match(fetcher, /patches\/\$\{name\}\/step-code-desktop\.patch/);
   const windows = load('.github/workflows/windows-integration.yml');
   for (const operation of ['fetch', 'patch']) assert.ok(windows.includes(`node scripts/ci-step-code.mjs ${operation}`));
-  assert.match(load('.github/actions/setup-macos/action.yml'), /run: node scripts\/ci-step-code\.mjs/);
+  const macos = load('.github/actions/setup-macos/action.yml');
+  assert.match(macos, /run: node scripts\/ci-step-code\.mjs/);
+  for (const build of [windows, macos]) assert.match(build, /corepack pnpm build:offline\b/);
   for (const path of ['.github/workflows/macos-integration.yml', '.github/workflows/macos-acceptance.yml'])
     assert.match(load(path), /uses: \.\/\.github\/actions\/setup-macos/, `${path} must use the native build action`);
 }

@@ -93,3 +93,4 @@ A/B 会话。切换、回收和 fork 保留原来的 Git Bash 进程树，fork �
 
 CI 验收 Cron 会话归属及旧任务保留，不再按 v017 的项目级恢复行为验收。Windows
 后台进程树验收仍需要显式的解包安装器。真实账户与原生安装生命周期需独立验收。
+`step-code-desktop-ci-fixtures.patch` 仅给并发排队测试显式设置上限 2，不改变运行时默认值 8。

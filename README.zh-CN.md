@@ -81,7 +81,7 @@ node scripts/apply-step-code-desktop-patch.mjs Step-Code patches\v018\step-code-
 
 Push-Location Step-Code
 corepack pnpm install --frozen-lockfile
-corepack pnpm build
+corepack pnpm build:offline
 Pop-Location
 
 Push-Location Desktop

@@ -82,7 +82,7 @@ jobs:
         run: |
           corepack pnpm install --frozen-lockfile
           if ($LASTEXITCODE -ne 0) { throw 'Step Code install failed' }
-          corepack pnpm build
+          corepack pnpm build:offline
           if ($LASTEXITCODE -ne 0) { throw 'Step Code build failed' }
 
       - name: Install Desktop dependencies

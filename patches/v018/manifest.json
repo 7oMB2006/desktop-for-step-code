@@ -4,7 +4,7 @@
     "commits": []
   },
   "patches": {
-    "step-code-desktop.patch": "815d252274220fe549064fe25e9618af2f46f746",
+    "step-code-desktop.patch": "0cef676e6fdd3ca40dcb62b766c0768dfe046e91",
     "step-code-desktop-subagent-session-privacy.patch": "af8845c60d3f04fd5fd194b022d2205e5593d11c",
     "step-code-desktop-gemini-api.patch": "a10fcb0e8ea12de1cdc350b0866748de7225f398",
     "step-code-desktop-web-search.patch": "1394659364742280c5d55f9458cbab25c7955c2d",
@@ -166,7 +166,7 @@
     "packages/coding-agent/src/step/mcp-startup.test.ts": "8b0f88704eeec33916b51f509d7c4d67af4061ae",
     "packages/coding-agent/src/step/mcp.test.ts": "e890742992633b56b258bc2e4cb3f2a4c3078e97",
     "packages/coding-agent/src/step/mcp.ts": "f353bb9d7b0639a0006b5b07ada835e7b951c78d",
-    "packages/coding-agent/src/step/plugins.ts": "23d2d63ab6a30698371b2b4dd756079a766154b1",
+    "packages/coding-agent/src/step/plugins.ts": "4e6201b691982799d69b8c0131b2c7f80c0aa274",
     "packages/coding-agent/src/step/stepcode-config.ts": "0eb41a6aba45cebaa0294315a3ba75d2ad197cfe",
     "packages/coding-agent/src/step/tool-profile.ts": "ab34399e2c46a97a7cdd10aa8c1eeebc6c8a3f64",
     "packages/coding-agent/src/step/usage/recording.ts": "89a3150013609bc9bac70d87a7f1c682664552bf",

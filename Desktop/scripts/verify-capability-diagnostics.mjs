@@ -253,22 +253,23 @@ const holdDirectory = async path => {
 const releaseDirectory = async () => {
   if (!holder) return;
   const processToClose = holder;
-  let timer, exited;
+  let timer, closed;
   try {
     await new Promise((resolve, reject) => {
-      exited = (code, signal) => code === 0 && !signal ? resolve() : reject(new Error('Directory holder did not exit cleanly'));
-      if (processToClose.exitCode !== null || processToClose.signalCode !== null) {
-        exited(processToClose.exitCode, processToClose.signalCode);
+      closed = (code, signal) => code === 0 && !signal ? resolve() : reject(new Error('Directory holder did not exit cleanly'));
+      if ((processToClose.exitCode !== null || processToClose.signalCode !== null)
+        && processToClose.stdio.every(stream => !stream || stream.destroyed)) {
+        closed(processToClose.exitCode, processToClose.signalCode);
         return;
       }
-      processToClose.once('exit', exited);
+      processToClose.once('close', closed);
       timer = setTimeout(() => reject(new Error('Directory holder shutdown timed out')), 5000);
       processToClose.stdin.end();
     });
     holder = undefined;
   } finally {
     clearTimeout(timer);
-    if (exited) processToClose.off('exit', exited);
+    if (closed) processToClose.off('close', closed);
   }
 };
 const confirmOwnedProcessesExited = async () => {

@@ -1,5 +1,16 @@
 # Platform port coordination
 
+Windows x64 and macOS Apple Silicon ship together from the same Desktop commit
+and native runtime pin starting with v1.0.0. See the [release checklist](RELEASE.md)
+and [macOS build guide](MACOS.md) for current work. Keep ownership boundaries in
+place: do not overwrite another platform's branch or import the separate Linux
+port implicitly.
+
+## Historical 0.6.0 handoff
+
+The branch names, frozen commits and candidate status below document the 0.6.0
+port, not current instructions for `main`.
+
 This file records the macOS work for the maintainer and the ChatGPT Dot agent
 working on Linux. It lives on the macOS branch; it does not change Linux policy.
 

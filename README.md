@@ -7,68 +7,61 @@
 </p>
 <hr>
 <p align="center">Let ideas reach the stars.</p>
-<p align="center">Windows x64 · Electron · React · TypeScript · MIT</p>
+<p align="center">A third-party Step Code desktop workspace for Windows x64 and macOS Apple Silicon.</p>
 <p align="center"><a href="README.md">English</a> · <a href="README.zh-CN.md">简体中文</a></p>
-<p align="center"><a href="https://calm-falcon-0dc2.page.stepcloud.com/"><strong>Explore the Showcase Website</strong></a> (Chinese) · Product demos, downloads and the people behind the project</p>
+<p align="center"><a href="https://github.com/7oMB2006/desktop-for-step-code/releases/latest"><strong>Download for Windows or macOS</strong></a> · <a href="https://calm-falcon-0dc2.page.stepcloud.com/">Product showcase (Chinese)</a></p>
 <p align="center">
   <img src="assets/readme/home-workspace-v0.6.0.png" width="960" alt="Desktop for Step Code v0.6.0 workspace and new conversation screen in Chinese">
 </p>
 
-A Windows desktop client for [Step Code](https://github.com/stepfun-ai/Step-Code). It provides desktop workspaces, conversations, and session management; Step Code powers agent execution.
+A community-built client for [Step Code](https://github.com/stepfun-ai/Step-Code), not a StepFun product. Desktop brings projects, conversations and tools into one workspace; Step Code runs the Agent and owns its execution permission policies.
 
-### Why This Project
+### Download and Run
 
-The original idea was to explore a community-built desktop client for Step Code while no official Step Code desktop app has been released. Given my love for StepFun, I also look forward to its official release.
+Get the installer and SHA-256 checksums from the [latest stable release](https://github.com/7oMB2006/desktop-for-step-code/releases/latest).
+
+| Platform | Installation | Checksum file |
+| --- | --- | --- |
+| Windows x64 | Run the `Desktop.for.Step.Code.Setup.<version>.exe` installer. | `SHA256SUMS.txt` |
+| macOS Apple Silicon (13.5+) | Unzip the ARM64 archive and move the app to Applications. | `SHA256SUMS-macos-arm64.txt` |
+
+The Windows installer is unsigned; the Mac app is not Developer ID signed or notarized. Verify the downloaded file against its checksum without disabling system protections. No Intel Mac or Linux installer is provided for v1.0.0.
+
+Launch the app, sign in under Account with Step Plan or a Step Platform API key, or configure a custom provider (Beta). Open a project or start an independent conversation and choose a model. The app bundles Electron, Step Code and Node; Git/Bash, project tools and MCP server dependencies are separate when needed.
+
+For upgrades, open **Settings → About**. Supported installations can download in the app and restart to install after you confirm; other builds can use the release page. Finish tasks and quit the old app before a manual upgrade. Upgrade in place without uninstalling or removing app data. See [Updates](docs/UPDATES.md).
 
 ### Features
 
 - Streaming conversations, model and thinking-level selection
 - Custom providers (Beta), model discovery, capability settings and connection diagnostics
-- Independent sessions and project workspaces, ordering, pinning, archiving and branching
+- Independent sessions and project workspaces, ordering, pinning, archiving and branching, plus [full-text search with message navigation](docs/SESSION_SEARCH.md)
 - Concurrent sessions, queued sends, steering, quotes and cross-session links
 - Image attachments, tool approvals, subagent status and elapsed-time feedback
 - Plan review and execution, Goal controls, and Ultracode workflow inspection and explicit recovery
 - CLM context maintenance, inline commands and links, and persistent turn-status controls
 - Summary, context and diff inspection, with bounded recorded-change undo
-- A terminal, user-operated browser, file previews and delivery references
+- A terminal, file previews and delivery references
+- [Built-in browser with Playwright](docs/BROWSER_AUTOMATION_PLAN.md) for Agent-led web testing without opening a foreground system browser. You can share an existing tab for viewing or filling ordinary fields, but not submission.
 - Step account sign-in, MCP configuration, and resource discovery
-- Global custom instructions (current source): edit in Settings across projects; newly started session runtimes load them without hot-updating resident conversations. See [verification](docs/VERIFICATION.md#global-instructions-2026-11-09).
+- [Community plugin marketplace](docs/CAPABILITIES.md#community-marketplace) for plugins and themes, with a manually added source and a GitHub submission path
+- Built-in MiniChat, continuous dictation, settings search and global custom instructions
 - Chinese and English UI, with light and dark themes
 - GitHub update checks and notifications, with selectable release channels
 - Background tray operation and window restoration
 - Font and size settings for the interface, messages, code and Diff, plus message line spacing
 
-The app keeps its data in a dedicated directory (`%APPDATA%\Desktop for Step Code`) instead of reusing a personal Step Code CLI profile. Step Code owns agent execution and permission policies; Desktop adds session orchestration and desktop interactions. Concurrent collaboration does not provide file locks or transaction isolation.
+### Data and Troubleshooting
 
-Step login credentials are encrypted for the current Windows user in `step-runtime/auth.dpapi`. Existing desktop `auth.json` data is migrated on startup, and the plaintext file is removed after the encrypted copy is saved. Uninstall removes the desktop Step credential files while keeping sessions, settings and independent workspace files; signing out removes the Step credential as well. This protects against casual offline reading of the file, not software running with access to the same Windows account. Other configured MCP secrets are outside this credential migration.
+Desktop uses `%APPDATA%\Desktop for Step Code` on Windows and `~/Library/Application Support/Desktop for Step Code/` on macOS, not your personal Step Code CLI profile. Windows user encryption or macOS Keychain-backed encryption protects the saved Step credentials; it does not protect against arbitrary software running as the same user. Signing out clears the saved Step credentials. Check the `logs/` subdirectory for crash reports before reinstalling. Concurrent sessions do not provide file locks or transaction isolation.
 
-If the app fails to start or the Step Code runtime exits unexpectedly, a `crash-<timestamp>-<id>.log` is written to `%APPDATA%\Desktop for Step Code\logs\` with the app version, the startup phase, and the error. That data lives under `%APPDATA%` rather than the install directory, so reinstalling does not clear it; read the newest crash log before reinstalling.
+Open **Settings → Plugins → Installed → StepPage** to prepare the official bundle explicitly with bundled Node. Setup does not run silently or copy a personal StepPage profile. See [StepPage setup and limits](docs/STEPPAGE.md).
 
-The built-in StepPage MCP server cannot start on Windows: the command the upstream registers is a shell wrapper, which Windows cannot spawn directly, and the official installer is a shell script as well, which the upstream code explicitly skips on Windows. When the desktop app detects the official bundle under `%USERPROFILE%\.steppage-mcp\bin\`, it registers a working server on your behalf, with the command pointing at the bundled Node runtime and the argument at that bundle; authentication reuses your Step sign-in, so no extra key is needed. Publishing to StepPage has not been acceptance-tested.
-
-### Download and Run
-
-The latest Windows x64 community preview, **v0.4.0**, follows the Step Code v0.1.4 announcement's source baseline `3ba89e0c`. It adds Ultracode recovery, CLM context maintenance and Windows command improvements, with three permission tiers, approval and Plan-review drawers, Plan/Goal/Ultracode turn states, and inline command and link presentation. Custom providers remain Beta.
-
-**[Download the Windows x64 installer](https://github.com/7oMB2006/desktop-for-step-code/releases/download/v0.4.0/Desktop.for.Step.Code.Setup.0.4.0.exe)** · [Release notes and checksums](https://github.com/7oMB2006/desktop-for-step-code/releases/tag/v0.4.0) · [All releases](https://github.com/7oMB2006/desktop-for-step-code/releases)
-
-1. Download the installer, verify its SHA-256 against the release notes, and run it.
-2. Launch the app and sign in under Account Settings with your own Step Plan account or Step Platform API key, or configure a custom provider.
-3. Open a local project or choose an independent session, select a model, and start a conversation.
-
-The installer includes Electron and pinned Step Code and Node runtimes; the development dependencies below are not required. Git/Bash, project-specific tools, and MCP server dependencies must be installed separately. Model access and usage limits depend on your account.
-
-**Custom providers (Beta):** Chat Completions, Responses and Anthropic Messages are supported through generic protocol configuration. Compatibility depends on the provider and model; a successful short-request diagnostic does not establish streaming, tool-use, image-input or long-task compatibility. Dedicated integrations for well-known providers currently have low priority, with no promised date.
-
-**Installation notice:** The v0.4.0 installer is unsigned. Windows may display SmartScreen or an "unknown publisher" warning. Verify the download source and checksum; do not disable system security protections.
-
-**Updates:** Since v0.2.0, the app checks for updates after startup and every six hours. You can also check manually or disable automatic checks under Settings → Updates. The default channel includes releases and previews; **v0.4.0 is a GitHub Pre-release and will not appear on the releases-only channel.** Downloads open in your system browser, and you run installers yourself; the app does not silently install updates or restart automatically. v0.1.0 users must download this upgrade manually from [Releases](https://github.com/7oMB2006/desktop-for-step-code/releases).
-
-**Exit and upgrade:** Closing the window keeps the app in the tray and lets running tasks continue. Before upgrading, finish tasks and explicitly quit through File → Exit App or the tray menu, then run the installer over the existing installation.
-
-The Windows release targets Windows x64. A separate macOS Apple Silicon preview is described below; Linux and WSL compatibility are not promised by this track. To run from source, follow the build instructions below.
+Custom providers use Chat Completions, Responses or Anthropic Messages. Model behavior varies by provider; a successful connection check alone does not verify tool use, streaming, image input or long tasks.
 
 ### Build from Source
+
+Windows instructions follow. For a native Apple Silicon build and package verification, see the [macOS guide](docs/MACOS.md).
 
 Requirements: Windows x64, Git, Node.js 24.16.0 and Corepack. Avoid Node.js 24.0 through 24.15 on Windows: their TCP-connect path can crash the process (nodejs/node#63620). Before building, fetch the pinned Step Code upstream revision in the repository root and apply the Windows/Desktop integration patch maintained here.
 
@@ -95,10 +88,7 @@ node scripts/verify-electron.mjs
 corepack pnpm dev
 ```
 
-The Windows development baseline above is newer than the published v0.5.1 runtime.
-Development, CI and 1.0.0 builds use the reviewed v0.1.8 source baseline and `patches/v018/`.
-The macOS 0.6.0 release baseline retains v0.1.5 and `patches/v015/`, plus a
-Darwin process-tree cleanup patch; see [MACOS.md](docs/MACOS.md).
+Both v1.0.0 builds use the reviewed Step Code `v018` source baseline and `patches/v018/`. This pin does not identify an upstream GitHub Release or prove a match with an upstream binary. See [runtime integration](docs/UPSTREAM_V018.md).
 
 To produce a Windows x64 installer:
 
@@ -111,14 +101,8 @@ node scripts/checksums.mjs
 
 See the [Development TODO](TODO.md) (Chinese) for planned work and priorities.
 
-v0.4.0 remains a community preview, not an official StepFun product or a stability guarantee. Its final package passed 44 Windows checks and seven supplementary checks using isolated profiles and deterministic local services; the maintainer confirmed the preceding RC2 experience. These results do not establish paid-model quality or a new installer-lifecycle test. Earlier cloud-desktop and installation tests remain historical evidence, not coverage of every Windows 10/11 configuration, provider, model or MCP scenario, nor proof that every multi-agent issue is resolved.
-
-See [VERIFICATION.md](docs/VERIFICATION.md) and the [release preparation record](docs/RELEASE.md) (Chinese) for the evidence and scope. The Summary board shows MCP connection states supplied by the runtime; enabled configuration alone is not a health check, and connection status does not establish successful service calls.
+See the [release record](docs/RELEASE.md) and [verification evidence](docs/VERIFICATION.md) for shipped scope and acceptance limits. Fixture coverage does not establish compatibility with every provider, site or real account.
 
 ### License
 
 Desktop for Step Code is licensed under MIT. Step Code and its Pi upstream components retain their respective licenses and notices.
-
-### macOS Apple Silicon preview branch
-
-This branch prepares **0.6.0** from the frozen Windows PR #163 merge, preserving native Mac behavior and auditing the complete v0.1.5 runtime integration. It produces a local unsigned ARM64 candidate for user testing. See [macOS build](docs/MACOS.md), [platform coordination](docs/PLATFORM_HANDOFF.md) and [candidate/release handoff](docs/releases/v0.6.0-macos-preparation.zh-CN.md). Later Windows main and the Linux branch are outside this preparation. No new public download is claimed here.

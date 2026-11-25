@@ -1,35 +1,35 @@
 {
   "schemaVersion": 1,
   "repository": "7oMB2006/desktop-for-step-code",
-  "generatedAt": "2026-11-25T10:54:47.833Z",
+  "generatedAt": "2026-11-25T17:01:32.516Z",
   "channels": {
     "stable": {
-      "version": "1.0.0",
-      "tag": "v1.0.0",
-      "name": "Desktop for Step Code 1.0.0",
+      "version": "1.0.1",
+      "tag": "v1.0.1",
+      "name": "Desktop for Step Code 1.0.1",
       "prerelease": false,
-      "notes": "# Desktop for Step Code v1.0.0\r\n\r\nWindows x64 和 macOS Apple Silicon 同步发布。1.0.0 让 Agent 可以在内置浏览器里直接验收网页，也带来了会话全文搜索、公开的社区插件市场，以及更流畅的长会话体验。两端均内置 Step Code `v018` 源码基线。\r\n\r\n## 新功能\r\n\r\n- **内置浏览器与 Playwright**：Agent 验收前端时默认使用会话内的浏览器，可截图、检查页面和测试交互，不必启动前台 Chromium。浏览器支持公网 HTTPS、站点资料管理、标签图标和拖动排序，也会提示 Agent 正在使用哪个标签。可把已打开的原标签共享给 Agent，保留登录状态与页面内容，并授权查看或填写普通字段；共享操作不包含提交。\r\n- **社区插件市场**：[DFSC 社区插件市场](https://github.com/7oMB2006/dfsc-community-plugins) 已开放首批插件与主题的分发。插件能力与使用限制见[天工开物 · 开放范围](https://calm-falcon-0dc2.page.stepcloud.com/tiangong.html?site=mwuoz01i)。可在「设置 → 插件 → 市场来源」手动添加该 Git 仓库，再到「发现」浏览和安装已收录的插件与主题。作者可通过 GitHub PR 申请收录，由维护者审核后上架。市场来源不默认添加。\r\n- **会话搜索与文件预览**：全文搜索支持正文片段、项目和归档筛选，可直接跳到命中的原消息。Agent 可使用会话里的图片附件；右栏可预览 PDF、CSV/TSV，SVG 可切到源码。\r\n- **桌面体验**：新增原生 MiniChat，最小化小窗不会停止任务；新增连续语音听写、首次启动引导、全局自定义指令、设置搜索和「关于」页。主题与背景可独立选择，声明式主题包可通过市场安装。任务完成时支持桌面通知，macOS Dock 可显示未读角标。\r\n- **Agent 协作**：新增独立旁问，可查看、停止后台子代理，给支持续接的子代理追加任务，并按角色配置模型。普通任务可单次启用「完成后自查」，`/workflows` 可只读查看工作流和运行记录。\r\n- **模型与联网搜索**：新增供应商连接预设、代理和分层模型发现，支持模型收藏、搜索与供应商提供的 Ultra 思考档位。联网搜索可单独配置、调整服务优先级，并在服务失败时按配置尝试下一家。\r\n- **Skills、插件与 MCP**：可查看和编辑本地 Skill 正文、管理附属文件、设为仅手动调用，也可从摘要板直达设置；插件提供的 Skill 保持只读。MCP 支持原地重载；经 Broker 接入的插件可按能力独立选择模型来源，不必跟随聊天模型。\r\n- **飞书 Remote 与定时任务**：飞书 Remote Beta 支持在已授权的私聊中切换会话、查看流式回复和处理审批，仍需 Desktop 在线。持久定时任务绑定原会话，获授权后可在应用重启时按需唤醒。\r\n\r\n## 性能优化\r\n\r\n- **长会话更流畅**：复用流式 Markdown 中已完成的内容，在视口附近调度代码高亮，减少长对话滚动、拖动侧栏和查看上下文时的卡顿。\r\n- **切换会话先显示历史**：切到尚未就绪的会话时，可先阅读历史和编辑草稿，工具就绪后再发送；切换过程保留草稿和阅读位置。\r\n- **切换模型不重载历史**：切换模型或思考档位只更新对应会话或草稿，不再刷新会话历史和整个界面；紧接着发送也会使用新选择。\r\n\r\n## 修复\r\n\r\n- 修复粘贴会话引用后光标被遮住、设置和重命名输入框的焦点描边被裁切，以及缺失工作目录时切换会话重复弹出提示。\r\n- 修复可选 MCP 启动失败阻塞会话的问题，并改善插件占用时的更新和卸载提示。\r\n- 修复旧定时任务归属无法确认时的恢复问题：这类任务只读保留，不自动补跑。\r\n- 优化连续听写停止后的收起衔接、用量页首次慢加载的过渡，以及会话侧栏和右栏的切换反馈。\r\n\r\n## 下载与升级\r\n\r\n| 平台 | 下载附件 | 校验文件 |\r\n|---|---|---|\r\n| Windows x64 | `Desktop.for.Step.Code.Setup.1.0.0.exe` | `SHA256SUMS.txt` |\r\n| macOS Apple Silicon（macOS 13.5+） | `Desktop.for.Step.Code.1.0.0.arm64.zip` | `SHA256SUMS-macos-arm64.txt` |\r\n\r\n升级前请结束正在运行的任务、退出旧版并备份重要数据。无需先卸载，也不要删除配置目录。\r\n\r\n- **Windows**：运行下载的 EXE，覆盖安装旧版。安装器未签名。\r\n- **macOS**：解压 ZIP，将应用拖到「应用程序」并替换旧版。应用未使用 Developer ID 签名，也未公证。\r\n\r\n安装前建议核对附件哈希；系统可能提示确认。\r\n\r\n## 已知边界\r\n\r\n- 飞书 Remote 和定时任务后台唤醒仍为 Beta。内置 Playwright 只操作 DFSC 浏览器中获准使用的标签，不是整个桌面的 Computer Use。\r\n- 市场收录不等于安全认证；安装前请核对插件来源、权限和依赖。本版未开放任意插件 WebUI。\r\n- 本次不提供 Intel Mac 或 Linux 安装包。\r\n\r\n## 构建来源\r\n\r\n两端 Desktop 源码提交均为 `007dce6d571b8ddba39dab7cad6b842c0bdba533`，内置 Step Code v018 源码提交为 `5309624e5deff3d8fee031f0853fe7e07bc68801`。完整构建来源和运行时清单见 Release 附件。\r\n",
-      "url": "https://github.com/7oMB2006/desktop-for-step-code/releases/tag/v1.0.0",
-      "publishedAt": "2026-11-25T10:54:03Z",
+      "notes": "本版提供 Windows x64 安装包，可从 `v1.0.0` 直接覆盖升级，无需先卸载。macOS 本版不发包，继续使用 `v1.0.0`。\n\n### 星辰巡航\n\n- 在「设置 → 外观 → 星辰巡航」中可以关闭「推进清单星图」。默认开启；关闭后任务列表和进度照常显示，设置会在重启后保留。\n- 完善星辰主题下的会话正文底部渐隐、模型推理档位的星海效果，以及启动、托盘、MiniChat 和插件独立窗口的主题表现。\n\n**能力边界：** 这些是 DFSC 客户端的主题效果，不新增第三方插件或主题 API。\n\n**用户怎么拿到：** 更新 DFSC 客户端至 `1.0.1`，并启用星辰巡航。已安装该主题的用户不必重装主题；仅刷新社区市场不会获得这些客户端改动。\n\n### Windows 验证\n\nWindows CI 通过，已在本机通过 `v1.0.0 → v1.0.1` 安装器覆盖升级验收。Step Code 运行时钉点保持不变。\r\n",
+      "url": "https://github.com/7oMB2006/desktop-for-step-code/releases/tag/v1.0.1",
+      "publishedAt": "2026-11-25T17:01:08Z",
       "installer": {
-        "name": "Desktop.for.Step.Code.Setup.1.0.0.exe",
-        "url": "https://github.com/7oMB2006/desktop-for-step-code/releases/download/v1.0.0/Desktop.for.Step.Code.Setup.1.0.0.exe",
-        "size": 155058618,
+        "name": "Desktop.for.Step.Code.Setup.1.0.1.exe",
+        "url": "https://github.com/7oMB2006/desktop-for-step-code/releases/download/v1.0.1/Desktop.for.Step.Code.Setup.1.0.1.exe",
+        "size": 155193148,
         "inApp": true
       }
     },
     "preview": {
-      "version": "1.0.0",
-      "tag": "v1.0.0",
-      "name": "Desktop for Step Code 1.0.0",
+      "version": "1.0.1",
+      "tag": "v1.0.1",
+      "name": "Desktop for Step Code 1.0.1",
       "prerelease": false,
-      "notes": "# Desktop for Step Code v1.0.0\r\n\r\nWindows x64 和 macOS Apple Silicon 同步发布。1.0.0 让 Agent 可以在内置浏览器里直接验收网页，也带来了会话全文搜索、公开的社区插件市场，以及更流畅的长会话体验。两端均内置 Step Code `v018` 源码基线。\r\n\r\n## 新功能\r\n\r\n- **内置浏览器与 Playwright**：Agent 验收前端时默认使用会话内的浏览器，可截图、检查页面和测试交互，不必启动前台 Chromium。浏览器支持公网 HTTPS、站点资料管理、标签图标和拖动排序，也会提示 Agent 正在使用哪个标签。可把已打开的原标签共享给 Agent，保留登录状态与页面内容，并授权查看或填写普通字段；共享操作不包含提交。\r\n- **社区插件市场**：[DFSC 社区插件市场](https://github.com/7oMB2006/dfsc-community-plugins) 已开放首批插件与主题的分发。插件能力与使用限制见[天工开物 · 开放范围](https://calm-falcon-0dc2.page.stepcloud.com/tiangong.html?site=mwuoz01i)。可在「设置 → 插件 → 市场来源」手动添加该 Git 仓库，再到「发现」浏览和安装已收录的插件与主题。作者可通过 GitHub PR 申请收录，由维护者审核后上架。市场来源不默认添加。\r\n- **会话搜索与文件预览**：全文搜索支持正文片段、项目和归档筛选，可直接跳到命中的原消息。Agent 可使用会话里的图片附件；右栏可预览 PDF、CSV/TSV，SVG 可切到源码。\r\n- **桌面体验**：新增原生 MiniChat，最小化小窗不会停止任务；新增连续语音听写、首次启动引导、全局自定义指令、设置搜索和「关于」页。主题与背景可独立选择，声明式主题包可通过市场安装。任务完成时支持桌面通知，macOS Dock 可显示未读角标。\r\n- **Agent 协作**：新增独立旁问，可查看、停止后台子代理，给支持续接的子代理追加任务，并按角色配置模型。普通任务可单次启用「完成后自查」，`/workflows` 可只读查看工作流和运行记录。\r\n- **模型与联网搜索**：新增供应商连接预设、代理和分层模型发现，支持模型收藏、搜索与供应商提供的 Ultra 思考档位。联网搜索可单独配置、调整服务优先级，并在服务失败时按配置尝试下一家。\r\n- **Skills、插件与 MCP**：可查看和编辑本地 Skill 正文、管理附属文件、设为仅手动调用，也可从摘要板直达设置；插件提供的 Skill 保持只读。MCP 支持原地重载；经 Broker 接入的插件可按能力独立选择模型来源，不必跟随聊天模型。\r\n- **飞书 Remote 与定时任务**：飞书 Remote Beta 支持在已授权的私聊中切换会话、查看流式回复和处理审批，仍需 Desktop 在线。持久定时任务绑定原会话，获授权后可在应用重启时按需唤醒。\r\n\r\n## 性能优化\r\n\r\n- **长会话更流畅**：复用流式 Markdown 中已完成的内容，在视口附近调度代码高亮，减少长对话滚动、拖动侧栏和查看上下文时的卡顿。\r\n- **切换会话先显示历史**：切到尚未就绪的会话时，可先阅读历史和编辑草稿，工具就绪后再发送；切换过程保留草稿和阅读位置。\r\n- **切换模型不重载历史**：切换模型或思考档位只更新对应会话或草稿，不再刷新会话历史和整个界面；紧接着发送也会使用新选择。\r\n\r\n## 修复\r\n\r\n- 修复粘贴会话引用后光标被遮住、设置和重命名输入框的焦点描边被裁切，以及缺失工作目录时切换会话重复弹出提示。\r\n- 修复可选 MCP 启动失败阻塞会话的问题，并改善插件占用时的更新和卸载提示。\r\n- 修复旧定时任务归属无法确认时的恢复问题：这类任务只读保留，不自动补跑。\r\n- 优化连续听写停止后的收起衔接、用量页首次慢加载的过渡，以及会话侧栏和右栏的切换反馈。\r\n\r\n## 下载与升级\r\n\r\n| 平台 | 下载附件 | 校验文件 |\r\n|---|---|---|\r\n| Windows x64 | `Desktop.for.Step.Code.Setup.1.0.0.exe` | `SHA256SUMS.txt` |\r\n| macOS Apple Silicon（macOS 13.5+） | `Desktop.for.Step.Code.1.0.0.arm64.zip` | `SHA256SUMS-macos-arm64.txt` |\r\n\r\n升级前请结束正在运行的任务、退出旧版并备份重要数据。无需先卸载，也不要删除配置目录。\r\n\r\n- **Windows**：运行下载的 EXE，覆盖安装旧版。安装器未签名。\r\n- **macOS**：解压 ZIP，将应用拖到「应用程序」并替换旧版。应用未使用 Developer ID 签名，也未公证。\r\n\r\n安装前建议核对附件哈希；系统可能提示确认。\r\n\r\n## 已知边界\r\n\r\n- 飞书 Remote 和定时任务后台唤醒仍为 Beta。内置 Playwright 只操作 DFSC 浏览器中获准使用的标签，不是整个桌面的 Computer Use。\r\n- 市场收录不等于安全认证；安装前请核对插件来源、权限和依赖。本版未开放任意插件 WebUI。\r\n- 本次不提供 Intel Mac 或 Linux 安装包。\r\n\r\n## 构建来源\r\n\r\n两端 Desktop 源码提交均为 `007dce6d571b8ddba39dab7cad6b842c0bdba533`，内置 Step Code v018 源码提交为 `5309624e5deff3d8fee031f0853fe7e07bc68801`。完整构建来源和运行时清单见 Release 附件。\r\n",
-      "url": "https://github.com/7oMB2006/desktop-for-step-code/releases/tag/v1.0.0",
-      "publishedAt": "2026-11-25T10:54:03Z",
+      "notes": "本版提供 Windows x64 安装包，可从 `v1.0.0` 直接覆盖升级，无需先卸载。macOS 本版不发包，继续使用 `v1.0.0`。\n\n### 星辰巡航\n\n- 在「设置 → 外观 → 星辰巡航」中可以关闭「推进清单星图」。默认开启；关闭后任务列表和进度照常显示，设置会在重启后保留。\n- 完善星辰主题下的会话正文底部渐隐、模型推理档位的星海效果，以及启动、托盘、MiniChat 和插件独立窗口的主题表现。\n\n**能力边界：** 这些是 DFSC 客户端的主题效果，不新增第三方插件或主题 API。\n\n**用户怎么拿到：** 更新 DFSC 客户端至 `1.0.1`，并启用星辰巡航。已安装该主题的用户不必重装主题；仅刷新社区市场不会获得这些客户端改动。\n\n### Windows 验证\n\nWindows CI 通过，已在本机通过 `v1.0.0 → v1.0.1` 安装器覆盖升级验收。Step Code 运行时钉点保持不变。\r\n",
+      "url": "https://github.com/7oMB2006/desktop-for-step-code/releases/tag/v1.0.1",
+      "publishedAt": "2026-11-25T17:01:08Z",
       "installer": {
-        "name": "Desktop.for.Step.Code.Setup.1.0.0.exe",
-        "url": "https://github.com/7oMB2006/desktop-for-step-code/releases/download/v1.0.0/Desktop.for.Step.Code.Setup.1.0.0.exe",
-        "size": 155058618,
+        "name": "Desktop.for.Step.Code.Setup.1.0.1.exe",
+        "url": "https://github.com/7oMB2006/desktop-for-step-code/releases/download/v1.0.1/Desktop.for.Step.Code.Setup.1.0.1.exe",
+        "size": 155193148,
         "inApp": true
       }
     }

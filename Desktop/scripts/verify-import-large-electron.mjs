@@ -6,6 +6,7 @@ import { performance } from 'node:perf_hooks';
 import { _electron as electron } from 'playwright';
 import { queueFixture } from './queue-demo-fixture.mjs';
 import { closeDesktopFixture } from './close-desktop-fixture.mjs';
+import { waitForSessionFixtureSnapshot, waitForSessionFixtureTools } from './session-fixture.mjs';
 
 const evidence = resolve('test-results');
 await mkdir(evidence, { recursive: true });
@@ -75,13 +76,21 @@ try {
   assert.ok((await output.textContent()).length < 40000);
   await output.getByRole('button', { name: '下一段' }).click();
   assert.equal(await output.getAttribute('data-page'), '2');
+  const active = await waitForSessionFixtureSnapshot(page, snapshot => snapshot.state?.sessionId === imported.sessionId,
+    'the imported conversation to have an active runtime');
+  await waitForSessionFixtureTools(page, active.runtimeId);
+  const followUp = 'Continue the large imported sample.';
+  await page.getByRole('textbox', { name: '消息', exact: true }).fill(followUp);
   const sent = performance.now();
-  await page.getByRole('textbox', { name: '消息', exact: true }).fill('Continue the large imported sample.');
   await page.getByRole('textbox', { name: '消息', exact: true }).press('Enter');
-  await page.getByText('这一轮已处理完成。', { exact: true }).waitFor({ timeout: 10000 });
+  await waitForSessionFixtureSnapshot(page, snapshot => snapshot.state?.sessionId === imported.sessionId
+    && fixture.requests.some(text => text.includes(followUp))
+    && snapshot.messages.some(message => message.role === 'user' && (typeof message.content === 'string'
+      ? message.content === followUp : message.content?.some(block => block.type === 'text' && block.text === followUp))),
+  'the imported conversation to send its follow-up to the provider', 10000);
+  await page.getByText('这一轮已处理完成。', { exact: true }).waitFor({ timeout: Math.max(1, 10000 - (performance.now() - sent)) });
   const continueMs = performance.now() - sent;
   assert.ok(continueMs < 10000, `local continuation took ${continueMs.toFixed(0)}ms`);
-  assert.ok(fixture.requests.some(text => text.includes('Continue the large imported sample.')));
   assert.equal(await readFile(sourcePath, 'utf8'), original, 'source history remains unchanged');
   assert.deepEqual(errors, []);
   await page.screenshot({ path: join(evidence, 'import-large-electron.png') });

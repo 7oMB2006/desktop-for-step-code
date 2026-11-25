@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { _electron as electron } from 'playwright';
 import { closeDesktopFixture } from './close-desktop-fixture.mjs';
+import { waitForSessionFixtureSnapshot, waitForSessionFixtureTools } from './session-fixture.mjs';
 
 const profile = await realpath(await mkdtemp(join(tmpdir(), 'desktop-background-liveness-')));
 const runtime = join(profile, 'step-runtime');
@@ -21,7 +22,10 @@ await writeFile(join(runtime, 'sessions', `${sessionId}.jsonl`), [
     message: { role: 'user', content: 'Inspect this project', timestamp: Date.now() } },
   { type: 'message', id: 'call', parentId: 'user', timestamp,
     message: { role: 'assistant', content: [{ type: 'toolCall', id: 'subagent-call', name: 'subagent',
-      arguments: { agent: 'general', task: 'Historical task', run_in_background: true } }], stopReason: 'toolUse', timestamp: Date.now() } },
+      arguments: { agent: 'general', task: 'Historical task', run_in_background: true } }], stopReason: 'toolUse',
+      api: 'openai-completions', provider: 'fixture', model: 'fixture',
+      usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0,
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } }, timestamp: Date.now() } },
   { type: 'message', id: 'result', parentId: 'call', timestamp,
     message: { role: 'toolResult', toolName: 'subagent', toolCallId: 'subagent-call', content: 'Started',
       details: { agentId: 'lane_deadbeef', status: 'running', results: [] }, timestamp: Date.now() } },
@@ -44,12 +48,13 @@ const server = createServer(async (request, response) => {
       .map(messageText).find(text => /LIVENESS-PARENT|LIVENESS-CHILD/.test(text)) ?? '';
     response.writeHead(200, { 'content-type': 'text/event-stream' });
     const send = (delta, reason = null) => response.write(`data: ${JSON.stringify({ id: 'liveness', object: 'chat.completion.chunk',
-      model: body.model, choices: [{ index: 0, delta, finish_reason: reason }] })}\n\n`);
+      model: body.model, created: 1, choices: [{ index: 0, delta, finish_reason: reason }] })}\n\n`);
     send({ role: 'assistant', content: '' });
     if (task === 'LIVENESS-CHILD') { heldChild = response; send({ content: 'Held child output.' }); return; }
     if (task === 'LIVENESS-PARENT' && !body.messages.some(message => message.role === 'tool' && message.tool_call_id === 'live-call')) {
       send({ tool_calls: [{ index: 0, id: 'live-call', type: 'function', function: { name: 'subagent',
-        arguments: JSON.stringify({ agent: 'general', task: 'LIVENESS-CHILD', run_in_background: true }) } }] }, 'tool_calls');
+        arguments: JSON.stringify({ agent: 'general', task: 'LIVENESS-CHILD', run_in_background: true }) } }] });
+      send({}, 'tool_calls');
     } else send({ content: 'Parent idle.' }, 'stop');
     response.end('data: [DONE]\n\n');
   } catch (error) { failures.push(error.message); if (!response.headersSent) response.writeHead(500); response.end(); }
@@ -74,7 +79,7 @@ try {
   const native = await page.evaluate(({ runtimeId, sessionId }) => window.desktop.backgroundAgents(runtimeId, sessionId),
     { runtimeId: before.runtimeId, sessionId });
   assert.deepEqual(native.lanes, []);
-  const current = await page.evaluate(() => window.desktop.snapshot());
+  const current = await waitForSessionFixtureTools(page, before.runtimeId);
   assert.equal(current.state?.sessionId, sessionId);
   const moved = await page.evaluate(({ sessionId, destination }) => window.desktop.moveSessionToProject(sessionId, destination),
     { sessionId, destination });
@@ -85,7 +90,7 @@ try {
   const history = await readFile(join(runtime, 'sessions', `${sessionId}.jsonl`), 'utf8');
   assert.match(history, /"status":"running"/, 'Movement does not rewrite the unresolved historical record');
   await page.reload();
-  await page.waitForFunction(id => window.desktop.snapshot().then(value => value.state?.sessionId === id), sessionId);
+  await waitForSessionFixtureSnapshot(page, value => value.state?.sessionId === sessionId, 'the moved session to reload');
   const record = page.getByRole('button', { name: /Open subagent record: Outcome unknown, Historical task/ });
   await record.waitFor();
   await record.click();
@@ -95,20 +100,21 @@ try {
   await page.locator('.right-tool-rail').getByRole('button', { name: 'Summary', exact: true }).click();
   await page.locator('.sb-agent-row[data-agent-status="unknown"]').waitFor();
   await page.getByRole('button', { name: 'Close panel', exact: true }).click();
-  await page.evaluate(() => window.desktop.command('prompt', { message: '/permissions approve-for-me' }));
-  await page.evaluate(() => window.desktop.command('prompt', { message: 'LIVENESS-PARENT' }));
+  await waitForSessionFixtureTools(page, moved.runtimeId);
+  await page.evaluate(runtimeId => window.desktop.command('set_permission_preset', { preset: 'approve-for-me' }, runtimeId), moved.runtimeId);
+  await page.evaluate(runtimeId => window.desktop.command('prompt', { message: 'LIVENESS-PARENT' }, runtimeId), moved.runtimeId);
   const deadline = Date.now() + 30000;
   while (!heldChild) {
     assert.deepEqual(failures, []);
     const snapshot = await page.evaluate(() => window.desktop.snapshot());
     for (const pending of snapshot.requests ?? []) await page.evaluate(request => window.desktop.command('extension_ui_response',
       { id: request.id, confirmed: true }, request.runtimeId), pending);
-    assert.ok(Date.now() < deadline, 'The real background child reaches its held provider request');
+    assert.ok(Date.now() < deadline, `The real background child reaches its held provider request (${modelRequests} requests)`);
     await new Promise(resolve => setTimeout(resolve, 20));
   }
-  await page.waitForFunction(() => window.desktop.snapshot().then(value => !value.state.isStreaming
-    && value.runtimes.some(runtime => runtime.backgroundCount === 1)));
-  const running = await page.evaluate(() => window.desktop.snapshot());
+  const running = await waitForSessionFixtureSnapshot(page, value => value.state?.isStreaming === false
+    && value.runtimes.some(runtime => runtime.runtimeId === value.runtimeId && runtime.backgroundCount === 1),
+  'the parent turn to finish with its real child still running');
   const redirects = running.preferences.workspaceSessionRedirects;
   await assert.rejects(page.evaluate(({ sessionId, origin }) => window.desktop.moveSessionToProject(sessionId, origin),
     { sessionId, origin }), /background agents/);

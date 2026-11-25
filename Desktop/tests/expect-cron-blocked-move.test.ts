@@ -45,6 +45,16 @@ test('an immediate Cron rejection passes without waiting', async () => {
   assert.deepEqual(page.waits, []);
 });
 
+test('an exact ownership check does not accept an unavailable store or a different job', async () => {
+  const expected = /MOVE_CRON_ASSOCIATED: owned$/;
+  const page = mockPage([busy(), cronBlocked('MOVE_CRON_ASSOCIATED: owned')]);
+  await expectCronBlockedMove(page, 'move-one', '/destination', expected);
+  for (const reason of ['MOVE_CRON_UNAVAILABLE', 'MOVE_CRON_ASSOCIATED: other']) {
+    const error = cronBlocked(reason);
+    await assert.rejects(expectCronBlockedMove(mockPage([error]), 'move-one', '/destination', expected), cause => cause === error);
+  }
+});
+
 test('an unexpectedly successful move is rejected after a single call', async () => {
   const page = mockPage(['resolved']);
   await assert.rejects(expectCronBlockedMove(page, 'move-one', '/destination'), (error: any) => {

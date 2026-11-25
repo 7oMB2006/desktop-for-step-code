@@ -1,9 +1,9 @@
 # Desktop Command Inventory
 
-Audited against the staged Windows runtime pin
-`b5dbed938d9ae589397cf522dcf2ff89ecf4c494` on 2026-10-23.
-The macOS preview still stages `3ba89e0cbfe6be78cccdafb5aeafd2592177cbb8`,
-which has no native Usage extension; the Desktop Usage mapping is shared.
+The v1.0.0 Windows and macOS releases share the [Step Code v018 pin](UPSTREAM_V018.md).
+The 2026-10-23 Windows command audit at `b5dbed938d9ae589397cf522dcf2ff89ecf4c494`
+and the older Mac preview at `3ba89e0cbfe6be78cccdafb5aeafd2592177cbb8`
+are historical; do not infer current command availability from those inventories.
 `get_commands` remains the authority for runtime extensions, skills and prompt
 templates. Desktop adds its own Status, trust, compact and task-plan entries and the two
 core CLM commands absent from that reply.

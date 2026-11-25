@@ -1,10 +1,19 @@
 # GitHub 版本检查
 
-已随 Windows x64 社区预览版 [v0.2.0](https://github.com/7oMB2006/desktop-for-step-code/releases/tag/v0.2.0) 发布。`v0.1.0` 安装包不包含本功能，需手动下载安装包升级。下方各预览结果保留为历史验收记录，不代表当前发布状态。
+## 当前使用方式
 
-## 使用与边界
+[v1.0.0](https://github.com/7oMB2006/desktop-for-step-code/releases/tag/v1.0.0) 同时发布 Windows x64 NSIS 和 macOS Apple Silicon 安装包，两端均提供更新元数据。入口为「设置 → 关于」：查看 Desktop 版本及 Step Code 源码基线、手动检查更新、修改通道或关闭自动检查。
 
-### macOS 0.6.0 候选（本分支，待人工验收）
+- 默认通道包含正式版和预览版，也可选择仅正式版。更新按平台筛选，不会把 Windows 安装包提示给 Mac，也不会用旧附件冒充新版。
+- 符合条件的安装版可在应用内主动下载、查看进度、取消或重试；下载完成后由用户确认「重启并安装」。不静默下载、安装或重启；忙碌状态需要先处理。
+- Windows 使用相应 Release 的 `latest.yml` 和 EXE；Mac 使用 `mac-update.json` 和 ARM64 ZIP。元数据及下载内容须通过完整性校验，但校验和不是签名。Windows 安装器未签名，Mac 应用未使用 Developer ID 签名或公证。
+- 未带更新器的老版本、不符合应用内安装条件的构建或缺少对应更新元数据时，使用[发布页](https://github.com/7oMB2006/desktop-for-step-code/releases/latest)手动升级。Mac 原位更新要求可写的应用位置；磁盘映像、App Translocation 等情形改用手动覆盖。不要先卸载或删除应用资料。
+
+## 实现与历史验收
+
+以下保留各阶段的实现与验收记录；其中的版本、候选状态和旧界面入口只适用于当时构建。
+
+### macOS 0.6.0 候选记录
 
 macOS Apple Silicon 新增应用内检查、自动检查开关、通道、下载进度、取消/重试和确认重启安装。
 采用独立 ARM64 ZIP 与 `mac-update.json`，固定 Release 路径并校验大小、SHA-512、bundle ID、
@@ -18,7 +27,7 @@ macOS Apple Silicon 新增应用内检查、自动检查开关、通道、下载
 静态清单保留 Windows `channels`，增加 `platforms.darwin`，互不提示其他平台的专属发布。
 详见 [macOS 构建、发布与限制](MACOS.md)。以下 Windows 开发说明及历史验收继续保留。
 
-### 应用内更新（开发中，尚未发布）
+### Windows 应用内更新开发记录
 
 安装版新增应用内全量下载、下载进度、取消与重试，以及显式确认后的重启安装。
 当前已发布的 v0.4.0 仍使用浏览器下载，不会自行获得这段新增逻辑。
@@ -70,7 +79,7 @@ Release，不能在生成元数据后改名或替换安装包。校验 `latest.y
 安装包与 `latest.yml` 的版本、文件名、大小和 SHA-512。
 既有 `verify-app-updates.mjs` 继续验收更新检查和旧版本手动下载。
 
-以下为已发布版本的使用说明：
+以下为早期 Windows 发布版的使用说明（含后续补记的「关于」页入口）；浏览器下载描述不适用于当前支持应用内更新的安装版：
 
 - 设置 → 关于：上方显示 Desktop 版本和随包提供的 Step Code 源码基线，下方保留手动检查更新、版本说明和发布页，不挤占通用设置。
 - Windows x64 打包版默认在启动后 10 秒检查，此后每 6 小时检查；可以关闭自动检查。开发模式和隔离验收不会自动访问网络。

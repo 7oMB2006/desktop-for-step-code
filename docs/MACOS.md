@@ -1,6 +1,15 @@
-# macOS Apple Silicon preview
+# macOS Apple Silicon
 
-This branch prepares **Desktop for Step Code 0.6.0** on Apple Silicon. The
+[Desktop for Step Code v1.0.0](https://github.com/7oMB2006/desktop-for-step-code/releases/tag/v1.0.0)
+ships an Apple Silicon ZIP for macOS 13.5 and newer, alongside Windows x64.
+Both use the same Desktop commit and Step Code `v018` source baseline. The Mac
+app is not Developer ID signed or notarized, and there is no Intel Mac build.
+For installation and updates, see the [README](../README.md#download-and-run)
+and [update guide](UPDATES.md).
+
+## Historical 0.6.0 port
+
+The original Apple Silicon branch prepared **Desktop for Step Code 0.6.0**. The
 owner authorized the Windows feature freeze at PR #163 merge
 `324e71d1800de020c035cdce598374a6037ba4ca` on 2026-10-24. Existing macOS native
 behavior is retained; later Windows main and Linux changes are outside scope.
@@ -10,9 +19,9 @@ cleanup patch. Old preview tags and packages are unchanged.
 
 See [0.6.0 candidate, audit and handoff](releases/v0.6.0-macos-preparation.zh-CN.md)
 for feature coverage, the shared Release draft sequence and user acceptance.
-This is local candidate preparation, not a published or real-account-accepted release.
+Those notes cover the historical local candidate, not the v1.0.0 release.
 
-## v0.5.1 account features
+## Historical v0.5.1 account integration
 
 Account settings show Step Plan subscription/allowance or official API balance
 according to the authenticated profile and region. Model discovery and runtime
@@ -118,12 +127,13 @@ acceptance tasks; local fixtures do not establish those outcomes.
 
 ## Prepare a macOS Release
 
-Package with `DESKTOP_MACOS_RELEASE_VERSION=0.6.0` for the shared Release (the default is the
-Desktop version). Mac-only previews can explicitly use `0.6.0-macos.1`. Subsequent previews of the same base version
-must increment that suffix, otherwise installed clients cannot detect an update.
-A shared stable release can use `DESKTOP_MACOS_RELEASE_VERSION=0.6.0` when its
-Desktop base version is 0.6.0. Packaging embeds the exact source commit and dirty
-state; release preparation refuses an uncommitted or mismatched package.
+For a shared release, run `corepack pnpm package:mac` from `Desktop/` with
+`DESKTOP_MACOS_RELEASE_VERSION` unset. It defaults to the version in
+`Desktop/package.json`; if explicitly set, it must match that version for the
+shared release. A Mac-only preview can append `-macos.N` to the same base
+version and must increment `N` for subsequent previews. Packaging embeds the
+exact source commit and dirty state; release preparation refuses an uncommitted
+or mismatched package. See the [joint release checklist](RELEASE.md).
 
 After all required verification passes on the clean release commit, run
 `node scripts/prepare-macos-release.mjs`. It writes an immutable candidate folder
@@ -134,6 +144,8 @@ and add release notes/BUILD-INFO before uploading. Publish `mac-update.json`
 update to that archive. The update-feed publishing workflow retains schema 1's
 Windows channels and adds `platforms.darwin` for macOS. Mac-only preview tags are
 excluded from Windows discovery. A newer Windows-only release is not a Mac update.
+
+## Historical platform inventory
 
 Within the frozen Windows 0.6.0 scope, the remaining intentional differences are
 native shell (zsh), shortcuts/menu/window behavior, bundle/ZIP packaging, ARM64

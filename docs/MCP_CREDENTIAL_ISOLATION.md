@@ -1,8 +1,8 @@
 # MCP 账户凭据默认隔离
 
-本轮是插件宿主能力计划 [Ⅰ] 的隔离候选，不是通用授权桥的交付或发行公告。
-固定 runtime pin 仍为 `29eb460780489801ce8afc8bffc1a2efae7cbded`；
-不修改独立维护的 Step-Code 工作区，也不改变原版 Step Code CLI 的行为。
+Desktop v1.0.0 的 Windows 和 macOS 包均带此隔离策略，由 `v018` 运行时能力清单声明。
+该策略最初在 v017 开发阶段验证；它不改变原版 Step Code CLI，也不会授予任何
+[宿主模型能力](PLUGIN_HOST_CONTRACT.md)。
 
 ## 本轮策略
 
@@ -20,7 +20,8 @@ Desktop 的 MCP stdio 环境只包含：
 但不作为本轮隔离的实现依据。不会清空用户明确保存的独立 Key，
 也不会更改账户、插件设置或计费渠道。
 
-补丁、原始源文件、修改后源文件均在 `patches/v017/manifest.json` 锁定。
+当前正式包由 `patches/v018/manifest.json` 锁定补丁及原始、修改后的文件；
+旧 v017 候选见 `patches/v017/manifest.json`。
 staging 验证全部后像后重新构建，并声明
 `desktop-mcp-credential-isolation`；仅有源码修改或旧 runtime 不算生效。
 

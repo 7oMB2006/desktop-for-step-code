@@ -2,10 +2,10 @@
 
 ## Project Boundary
 
-- This repository contains the desktop client in `Desktop/`. The macOS Apple Silicon 0.6.0 preparation follows the frozen Windows PR #163 merge, preserving the existing macOS port. See `docs/MACOS.md` and `docs/PLATFORM_HANDOFF.md`.
+- This repository contains the desktop client in `Desktop/`. Windows x64 and macOS Apple Silicon share the Desktop source and runtime pin for joint releases. Build and verify each platform natively; see `docs/MACOS.md` and `docs/RELEASE.md`.
 - `Step-Code/` is a separate upstream checkout and is intentionally excluded from this repository.
-- The owner explicitly authorized the 0.6.0 migration on 2026-10-24. Freeze shared Windows features at PR #163 merge `324e71d1800de020c035cdce598374a6037ba4ca`; do not import later Windows main/PR work or the separately maintained Linux branch without an explicit request. Mac parity fixes and release preparation build on this commit. Preserve Windows behavior and renderer isolation. WSL is not a dependency.
-- Separate post-0.6.0 feature work: on 2026-10-26, the owner explicitly authorized Workflow [III], the read-only `/workflows` drawer, from main `e50ff1d7824209e8fe90ef949100c677bf90d8c9`. This is not part of the frozen macOS 0.6.0 migration. The authorization does not expand that release's scope, permit unrelated feature imports, or authorize a runtime pin upgrade.
+- Preserve platform behavior and renderer isolation. Do not import work from the separately maintained Linux branch or change the runtime pin as an incidental edit. WSL is not a dependency.
+- The macOS 0.6.0 port's PR #163 freeze and the separate Workflow [III] authorization were specific to those historical scopes; see `docs/PLATFORM_HANDOFF.md`. They do not freeze current `main`.
 - Preserve changes already present in the Step Code checkout. Do not edit it unless an integration need requires a narrowly scoped change.
 
 ## Runtime Boundary

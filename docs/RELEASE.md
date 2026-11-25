@@ -1,10 +1,24 @@
-# 首版发布准备
+# 发布与验收
 
-1.0.0 的开发、CI 与正式构建统一使用审查过的 v0.1.8 源码基线
-`5309624e5deff3d8fee031f0853fe7e07bc68801` 与 `patches/v018/`。
-官方版本清单未提供源码 SHA，不宣称该提交是官方发布标签或与二进制逐字节对应。
-下方 0.6.0 及更早版本的冻结记录不随开发升级改写；新版本仍需分别完成
-Windows／macOS 原生构建、云端 CI、包内和真实账户验收。
+## v1.0.0 已发布
+
+正式 [v1.0.0 Release](https://github.com/7oMB2006/desktop-for-step-code/releases/tag/v1.0.0)
+于 2026-11-25 提供 Windows x64 EXE 和 macOS Apple Silicon ZIP（13.5+）。
+两端 Desktop 提交均为 `007dce6d571b8ddba39dab7cad6b842c0bdba533`，使用审查过的
+Step Code 源码 `5309624e5deff3d8fee031f0853fe7e07bc68801` 与 `patches/v018/`。
+`v018` 是 Desktop 的集成钉点，不是已核实的上游发布标签或二进制证明。
+各端的安装包、更新元数据、校验值及构建来源均见同一 Release 的附件。
+
+## 双平台发布流程
+
+1. 按[版本规则](VERSIONING.md)冻结干净的目标提交，让两端使用相同的 Desktop 版本、源码提交和运行时钉点。
+2. Windows 和 Mac 分别原生构建、验包；核对目标提交上的 CI、包内测试和人工验收。记录未测项，不用旧 RC、夹具或另一平台的结果代替。
+3. 上传到同一份草稿。Windows 使用 EXE、`latest.yml` 和 `SHA256SUMS.txt`；Mac 使用 ARM64 ZIP、`mac-update.json` 和 `SHA256SUMS-macos-arm64.txt`。保留各端独立的构建来源和运行时清单。
+4. 对照正式候选复算哈希、核对附件大小以及更新元数据的文件名、大小和 SHA-512；维护者确认后才发布。公开后检查双平台[更新清单](UPDATES.md)，不替换已公开的二进制。
+
+构建与验证见 [Windows](../README.zh-CN.md#从源码构建)、[macOS](MACOS.md) 和 [CI](CI.md)。
+
+## 首版发布准备（历史记录）
 
 > 本页保留首版发布前的历史记录，不表示当前尚未发布。截至 2026-10-24，当前公开 Windows 社区预览版为 v0.5.1，macOS 独立实验版为 v0.5.1-macos.1。下一版见 [v0.6.0 发布准备与验收](releases/v0.6.0-draft.zh-CN.md)；历史记录见 [v0.5.1](releases/v0.5.1-draft.zh-CN.md)、[v0.5.0](releases/v0.5.0-draft.zh-CN.md)、[v0.4.0](releases/v0.4.0-draft.zh-CN.md)、[v0.3.0](releases/v0.3.0-draft.zh-CN.md) 与 [v0.2.0](releases/v0.2.0-draft.zh-CN.md)，版本规则见 [VERSIONING.md](VERSIONING.md)。
 

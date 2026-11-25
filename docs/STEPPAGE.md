@@ -1,6 +1,14 @@
 # StepPage And MCP Compatibility
 
-## macOS 0.6.0 current preparation
+## Setup in Desktop v1.0.0
+
+On Windows or macOS, open **Settings → Plugins → Installed → StepPage** and
+choose the explicit setup action. The MCP page also exposes the built-in setup.
+Desktop verifies the official artifact and runs it with bundled Node in a
+dedicated profile. It does not silently provision it, copy a personal StepPage
+sign-in, or treat a successful MCP handshake as proof of publishing.
+
+## Historical macOS 0.6.0 preparation
 
 The Mac candidate now includes the Desktop preparation UI and the same pinned
 artifact verification, with bundle and HOME under Desktop userData. Fresh startup
@@ -17,10 +25,9 @@ See [Mac candidate and manual checks](releases/v0.6.0-macos-preparation.zh-CN.md
 Desktop uses its own Step Code configuration and credentials under Electron
 `userData`. It can launch an existing StepPage JavaScript bundle using its
 packaged Node executable, without a shell wrapper or a system Node installation.
-Windows preparation is an explicit action under Settings > Resources > Built-in
-plugins > StepPage. MCP settings link to this entry; installation is not part of
-the raw transport editor and never runs silently at startup. The pinned upstream
-Shell installer still does not support Windows; Desktop downloads its single-file
+Preparation is not part of the raw transport editor and never runs silently
+at startup. The pinned upstream shell installer still does not support Windows;
+Desktop downloads its single-file
 artifact directly and launches it with packaged Node.
 
 New installations use `userData/step-runtime/steppage/bin/steppage-mcp.mjs`.

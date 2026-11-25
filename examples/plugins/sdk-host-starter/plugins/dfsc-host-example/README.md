@@ -1,6 +1,6 @@
 # DFSC SDK Host Example
 
-宿主维护的协议候选示例，不是正式上架的第三方作品。
+宿主维护的 v1 协议示例，不是正式上架的第三方作品。
 本插件使用官方 MCP SDK，发布入口已打包，不需要在安装目录运行 npm/pip。
 第三方代码与许可证见 `dist/THIRD_PARTY_LICENSES.txt`。
 
@@ -9,10 +9,10 @@
 - `host_context`：查询宿主能力，不调用模型。
 - `summarize_text`：通过宿主模型接口请求摘要；必须先获用户授权。
 
-**当前正式客户端尚未实现本候选通用接口**，工具会明确提示
-`dfsc-host:HOST_UNAVAILABLE`。离线测试中的摘要来自 fixture，不是真实模型。
-不会拿已登录 Step 的 Key，不会自动读独立 Key，不会切换 Plan/API 计费。
-若将来接入真实宿主，摘要文本会发给所确认的模型，并可能消耗额度。
+需要 Desktop v1.0.0 或具备对应运行时能力的构建。配置宿主来源和模型后需重启会话；
+未接入宿主时工具返回 `dfsc-host:HOST_UNAVAILABLE`。离线测试中的摘要来自 fixture，
+不是真实模型。经确认接入真实宿主后，摘要文本会发给所选模型，并可能消耗额度。
+插件不会获得已登录 Step 的 Key，不读独立 Key，也不会自动切换 Plan/API 计费。
 
 ## 运行条件
 

@@ -4,10 +4,16 @@
 
 [v1.0.0](https://github.com/7oMB2006/desktop-for-step-code/releases/tag/v1.0.0) 同时发布 Windows x64 NSIS 和 macOS Apple Silicon 安装包，两端均提供更新元数据。入口为「设置 → 关于」：查看 Desktop 版本及 Step Code 源码基线、手动检查更新、修改通道或关闭自动检查。
 
-- 默认通道包含正式版和预览版，也可选择仅正式版。更新按平台筛选，不会把 Windows 安装包提示给 Mac，也不会用旧附件冒充新版。
+- 默认通道包含正式版和预览版，也可选择仅正式版。两端使用各自的更新清单条目和安装包格式，不会下载另一个平台的安装包。目前单平台正式版的筛选存在下文所述的限制。
 - 符合条件的安装版可在应用内主动下载、查看进度、取消或重试；下载完成后由用户确认「重启并安装」。不静默下载、安装或重启；忙碌状态需要先处理。
 - Windows 使用相应 Release 的 `latest.yml` 和 EXE；Mac 使用 `mac-update.json` 和 ARM64 ZIP。元数据及下载内容须通过完整性校验，但校验和不是签名。Windows 安装器未签名，Mac 应用未使用 Developer ID 签名或公证。
-- 未带更新器的老版本、不符合应用内安装条件的构建或缺少对应更新元数据时，使用[发布页](https://github.com/7oMB2006/desktop-for-step-code/releases/latest)手动升级。Mac 原位更新要求可写的应用位置；磁盘映像、App Translocation 等情形改用手动覆盖。不要先卸载或删除应用资料。
+- 未带更新器的老版本、不符合应用内安装条件的构建或缺少对应更新元数据时，从 [Releases 列表](https://github.com/7oMB2006/desktop-for-step-code/releases)选择带本平台安装包的最新正式版并手动升级。Mac 原位更新要求可写的应用位置；磁盘映像、App Translocation 等情形改用手动覆盖。不要先卸载或删除应用资料。
+
+## 平台错峰与更新清单
+
+- 正常使用静态清单时，Windows 先发而未附 Mac ZIP，Mac 继续使用最近一个提供本平台安装包的合格版本；同版 Mac 附件补齐并刷新清单后，该版本才会进入 Mac 的更新选择。
+- **待实现**：普通 macOS 单平台正式版目前可能被 Windows 选为「有新版，但无安装包」。后续应在比较版本前识别发布目标，区分「不面向此平台」与「面向此平台但漏传附件」，而不是一律略过所有缺包版本。GitHub 的 `Latest` 和目前 README 的下载入口均为仓库级，分平台下载入口也需另行补齐。
+- 错峰补包后，核对新增的安装包和更新元数据，手动运行 **Publish Update Manifest**。在公开的 `update-feed/latest.json` 中分别核对 Windows `channels` 与 Mac `platforms.darwin`：正式及预览通道各自应指向预期的 tag，安装包地址和应用内下载能力应与附件一致。检查未补包的平台未被错误推进。仅追加附件不保证工作流自动运行。
 
 ## 实现与历史验收
 

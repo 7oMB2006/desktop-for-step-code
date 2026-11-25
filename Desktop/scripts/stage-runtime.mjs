@@ -6,7 +6,7 @@ import { createHash } from 'node:crypto';
 import { build } from 'esbuild';
 import { assertStagingNodeVersion } from './staging-node-version.mjs';
 import { buildRemoteAdapter } from './build-remote-adapter.mjs';
-import { readRuntimeBaseline } from './runtime-baseline.mjs';
+import { defaultRuntimeBaseline, readRuntimeBaseline } from './runtime-baseline.mjs';
 
 const upstream = resolve(process.argv[2] ?? process.env.DESKTOP_STEP_CODE_SOURCE ?? '../Step-Code');
 const runtime = resolve(process.argv[3] ?? 'runtime');
@@ -16,26 +16,27 @@ const { name: baseline, manifest: integrationManifest } = await readRuntimeBasel
 const platformManifest = integrationManifest.platforms?.[process.platform];
 const PINNED_COMMIT = integrationManifest.commit;
 const patchFile = `patches/${baseline}/step-code-desktop.patch`;
-if (baseline !== 'v017') {
+const isolatedBaseline = baseline !== defaultRuntimeBaseline;
+if (isolatedBaseline) {
   const localRuntime = resolve('runtime');
   const beneath = (root, path) => {
     const suffix = relative(root, path);
     return !isAbsolute(suffix) && suffix !== '..' && !suffix.startsWith(`..${sep}`);
   };
   if (!process.argv[3] || beneath(localRuntime, runtime)) {
-    throw new Error('Pass a new, explicit runtime output directory for a candidate baseline');
+    throw new Error('Pass a new, explicit runtime output directory for a non-default baseline');
   }
   const actualLocalRuntime = await realpath(localRuntime).catch(error => {
     if (error.code !== 'ENOENT') throw error;
     return localRuntime;
   });
   const actualOutput = join(await realpath(dirname(runtime)), basename(runtime));
-  if (beneath(actualLocalRuntime, actualOutput)) throw new Error('Candidate staging must not modify the default runtime');
+  if (beneath(actualLocalRuntime, actualOutput)) throw new Error('Non-default staging must not modify the default runtime');
   const exists = await lstat(runtime).then(() => true, error => {
     if (error.code !== 'ENOENT') throw error;
     return false;
   });
-  if (exists) throw new Error('Candidate staging cannot replace an existing runtime output directory');
+  if (exists) throw new Error('Non-default staging cannot replace an existing runtime output directory');
 }
 const commit = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: upstream, encoding: 'utf8' }).trim();
 if (commit !== PINNED_COMMIT) {
@@ -61,7 +62,27 @@ for (const [name, relative, expected] of patchedFiles) {
   }
   patchedSourceHashes[name] = hash;
 }
-if (baseline !== 'v017') await mkdir(runtime);
+if (isolatedBaseline) await mkdir(runtime);
+else {
+  const existing = await lstat(runtime).catch(error => {
+    if (error.code !== 'ENOENT') throw error;
+  });
+  if (existing) {
+    if (await realpath(runtime) !== runtime) throw new Error('Refusing to stage over a redirected runtime');
+    const previous = await readFile(join(runtime, 'manifest.json'), 'utf8').catch(error => {
+      if (error.code !== 'ENOENT') throw error;
+    });
+    if (!previous || JSON.parse(previous).commit !== PINNED_COMMIT) {
+      throw new Error('Runtime directory belongs to a different or unknown baseline; stage into a new directory or use a fresh checkout');
+    }
+    for (const target of [join(runtime, 'step'), join(runtime, 'step/dist')]) {
+      const actual = await realpath(target).catch(error => {
+        if (error.code !== 'ENOENT') throw error;
+      });
+      if (actual && actual !== target) throw new Error('Refusing to stage over a redirected Step Code directory');
+    }
+  }
+}
 
 const source = join(upstream, 'packages/coding-agent');
 // Source hashes alone do not prove that dist/bundle contains those sources.

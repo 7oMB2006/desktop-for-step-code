@@ -3,11 +3,12 @@ import { spawnSync } from 'node:child_process';
 import { cp, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { mkdtemp, removeTestProfile } from './test-profile.mjs';
 import { join, resolve } from 'node:path';
+import { readRuntimeBaseline } from './runtime-baseline.mjs';
 
 assert.ok(['win32', 'darwin'].includes(process.platform), 'This check covers the pinned runtime');
 const runtime = process.env.DESKTOP_MACOS_RESOURCES ? join(process.env.DESKTOP_MACOS_RESOURCES, 'runtime') : resolve('runtime');
 const manifest = JSON.parse(await readFile(join(runtime, 'manifest.json'), 'utf8'));
-const baseline = JSON.parse(await readFile('../patches/v017/manifest.json', 'utf8'));
+const { manifest: baseline } = await readRuntimeBaseline();
 assert.equal(manifest.commit, baseline.commit);
 for (const worker of ['activity-worker.js', 'session-index-worker.js', 'image-resize-worker.js']) {
   await readFile(join(runtime, 'step/dist/bundle/chunks', worker)).catch(error => {

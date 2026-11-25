@@ -1,15 +1,15 @@
 # Step Code v0.1.8 集成
 
-状态：三条线已合入同一个候选。常规构建、CI 与正式安装仍使用 v0.1.7。
-下方 Windows 成品包验收使用 Desktop 基线 `f1c6892`，不代表已切换默认运行时。
+状态：v018 已设为 Desktop 1.0.0 默认构建及 Win/Mac CI 基线。
+下方 Windows 成品包验收是 Desktop 基线 `f1c6892` 的历史记录，不等于 1.0.0 正式包验收。
 
 ## 源码与补丁
 
-当前 Desktop 钉点仍为 `29eb460780489801ce8afc8bffc1a2efae7cbded`。
-候选 `5309624e5deff3d8fee031f0853fe7e07bc68801` 包含 v0.1.8 更新说明中的主要改动。
+Desktop 钉点由 `29eb460780489801ce8afc8bffc1a2efae7cbded` 切至
+`5309624e5deff3d8fee031f0853fe7e07bc68801`，包含 v0.1.8 更新说明中的主要改动。
 它是本轮审查的源码候选，不是已核实的发布标签或 CLI 二进制来源证明。
 
-共用基线选项 `DESKTOP_RUNTIME_BASELINE=v018` 让 staging、Remote adapter 与
+共用运行时选择器默认使用 v018，让 CI、staging、Remote adapter 与
 包校验引用同一份 `patches/v018/manifest.json`。Windows 已在全新 detached
 检出重放该清单的 70 个前像、88 个后像；补丁 blob 为
 `815d252274220fe549064fe25e9618af2f46f746`。原 v017 清单和补丁未改。
@@ -76,10 +76,10 @@ A/B 会话。切换、回收和 fork 保留原来的 Git Bash 进程树，fork �
   没有运行安装器，未触及正式安装或用户数据。
 
 复跑时先用 `scripts/apply-step-code-desktop-patch.mjs <干净源码> patches/v018/step-code-desktop.patch`
-重放，再按上游锁文件安装及离线编译。从 `Desktop/` 向 `scripts/stage-runtime.mjs` 传入
-干净源码和新的独立输出路径（推荐 `…/runtime`），并设置 `DESKTOP_RUNTIME_BASELINE=v018`。
-打 Windows 验收包另设 `DESKTOP_VERIFY_RUNTIME` 指向该 runtime；对成品测试设置
-`DESKTOP_VERIFY_EXE` 指向解包 exe，不能默默回落到默认 v017。
+重放，再按上游锁文件安装及离线编译。在新的 Desktop 检出中运行 `pnpm stage:runtime`，
+或向 `scripts/stage-runtime.mjs` 传入干净源码和新的独立输出路径（推荐 `…/runtime`）。
+若使用独立输出路径，打 Windows 验收包时设置 `DESKTOP_VERIFY_RUNTIME`；
+对成品测试设置 `DESKTOP_VERIFY_EXE` 指向解包 exe。历史 v017 仅可显式独立 staging。
 
 | 验收入口（`Desktop/`） | 候选参数 |
 | --- | --- |
@@ -91,7 +91,5 @@ A/B 会话。切换、回收和 fork 保留原来的 Git Bash 进程树，fork �
 | `scripts/verify-background-agent-controls.mjs` / `scripts/verify-subagent-role-models.mjs` | `DESKTOP_VERIFY_EXE` |
 | `scripts/verify-clm-cancellation.mjs` / `scripts/verify-settings-dialog.mjs` | `DESKTOP_VERIFY_EXE` |
 
-**换钉前**：用 Mac mini 验证 Darwin 原生进程树、退出及包内组合路径；对同一候选
-完成真实账户／模型、既有数据升级与安装生命周期验收。v018 的两项专用 Electron
-脚本目前登记为显式候选本地验收；切换默认钉点时要把 CI 的旧项目级 Cron 验收
-迁移到会话归属契约。常规 CI 通过并不等于已用 v0.1.8 候选通过 CI。
+CI 验收 Cron 会话归属及旧任务保留，不再按 v017 的项目级恢复行为验收。Windows
+后台进程树验收仍需要显式的解包安装器。真实账户与原生安装生命周期需独立验收。

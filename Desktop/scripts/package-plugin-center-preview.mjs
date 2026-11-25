@@ -5,6 +5,7 @@ import { cp, mkdir, readFile, readdir, realpath, symlink, writeFile } from 'node
 import { createRequire } from 'node:module';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { readRuntimeBaseline } from './runtime-baseline.mjs';
 
 const source = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const options = {};
@@ -32,7 +33,7 @@ for (const target of [root, output]) {
 const json = async path => JSON.parse(await readFile(path, 'utf8'));
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
 const git = (cwd, ...args) => execFileSync('git', args, { cwd, encoding: 'utf8' });
-const pin = await json(join(source, 'patches/v017/manifest.json'));
+const { name: baseline, manifest: pin } = await readRuntimeBaseline();
 const sharedRuntime = await realpath(join(source, 'Desktop/runtime'));
 const sharedManifest = await json(join(sharedRuntime, 'manifest.json'));
 const patchedSources = { ...pin.patchedSources, ...pin.platforms?.win32?.patchedSources };
@@ -61,8 +62,8 @@ for (const file of [...new Set(files)]) {
   sourceHashes[file] = hash(bytes);
 }
 await cp(join(source, 'LICENSE'), join(root, 'LICENSE'));
-await mkdir(join(root, 'patches/v017'), { recursive: true });
-await cp(join(source, 'patches/v017/manifest.json'), join(root, 'patches/v017/manifest.json'));
+await mkdir(join(root, 'patches', baseline), { recursive: true });
+await cp(join(source, 'patches', baseline, 'manifest.json'), join(root, 'patches', baseline, 'manifest.json'));
 await symlink(await realpath(join(source, 'Desktop/node_modules')), join(desktop, 'node_modules'), 'junction');
 // Never build or restage into the shared runtime junction.
 await cp(sharedRuntime, join(desktop, 'runtime'), { recursive: true, dereference: true });

@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { dirname, isAbsolute, join, relative } from 'node:path';
 import test from 'node:test';
 import { mkdtemp, removeTestProfile } from '../scripts/test-profile.mjs';
+import { defaultRuntimeBaseline } from '../scripts/runtime-baseline.mjs';
 
 const copiedHelpers = ['admin.mjs', 'windows-runtime-job.ps1', 'capability-admin.mjs', 'capability-failure.mjs',
   'marketplace-refresh.mjs', 'capability-settings.mjs', 'plugin-files.mjs', 'plugin-read-scope.mjs', 'plugin-release.mjs',
@@ -43,7 +44,7 @@ async function fixture(action: (value: Fixture) => Promise<void>, missing?: stri
     await file(join(runtime, 'node/node.exe'), node);
     const patchedSources = { 'fixture/source.ts': 'fixture-source-hash' };
     const commit = 'fixture-pinned-commit';
-    await file(join(repository, 'patches/v017/manifest.json'), JSON.stringify({ commit, patchedSources }));
+    await file(join(repository, 'patches', defaultRuntimeBaseline, 'manifest.json'), JSON.stringify({ commit, patchedSources }));
     await file(join(runtime, 'manifest.json'), JSON.stringify({
       commit, patchedSourceHashes: patchedSources, platform: 'win32', arch: 'x64',
       nodeSha256: createHash('sha256').update(node).digest('hex'),
@@ -65,7 +66,7 @@ async function rejectedBeforeOutput(value: Fixture, output: string, expected: Re
     'The fixture must never pass real package input paths to the CLI');
   const result = spawnSync(process.execPath, [value.script, output], {
     encoding: 'utf8', timeout: 15000, windowsHide: true,
-    env: { ...process.env, DESKTOP_RUNTIME_BASELINE: 'v017' },
+    env: { ...process.env, DESKTOP_RUNTIME_BASELINE: defaultRuntimeBaseline },
   });
   assert.ifError(result.error);
   assert.notEqual(result.status, 0, result.stdout);

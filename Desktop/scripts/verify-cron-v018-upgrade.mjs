@@ -14,14 +14,14 @@ import { mkdtemp, removeTestProfile } from './test-profile.mjs';
 const appPath = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const executable = process.env.DESKTOP_VERIFY_EXE;
 const staged = process.env.DESKTOP_VERIFY_RUNTIME;
-assert.ok(Boolean(executable) !== Boolean(staged), 'Set exactly one of DESKTOP_VERIFY_EXE or DESKTOP_VERIFY_RUNTIME');
+assert.ok(!(executable && staged), 'Set at most one of DESKTOP_VERIFY_EXE or DESKTOP_VERIFY_RUNTIME');
 const executablePath = executable ? await realpath(resolve(executable)) : undefined;
 const runtime = executablePath ? join(dirname(executablePath), process.platform === 'darwin' ? '../Resources/runtime' : 'resources/runtime')
-  : await realpath(resolve(staged));
+  : await realpath(resolve(staged ?? 'runtime'));
 assert.equal(basename(runtime), 'runtime', 'Stage the candidate in an isolated directory named runtime');
 const manifest = JSON.parse(await readFile(join(runtime, 'manifest.json'), 'utf8'));
 const { manifest: baseline } = await readRuntimeBaseline('v018');
-assert.equal(manifest.commit, baseline.commit, 'Use the staged v0.1.8 runtime, not the default runtime');
+assert.equal(manifest.commit, baseline.commit, 'Use the staged v0.1.8 runtime');
 assert.ok(manifest.patches?.includes('desktop-cron-session-ownership-v1'), 'The candidate must attest native Cron session ownership');
 
 const profile = await realpath(await mkdtemp(join(tmpdir(), 'desktop-cron-v018-')));

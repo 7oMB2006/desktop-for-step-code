@@ -4,15 +4,19 @@ Repository: https://github.com/stepfun-ai/Step-Code
 
 ## Current Development Baseline
 
-Development pinned commit: `29eb460780489801ce8afc8bffc1a2efae7cbded`
-(v0.1.7 announcement source baseline, not an official release tag or verified
-binary/source identity). Use the complete ordered `patches/v017/` set:
+Development and 1.0.0 pinned commit: `5309624e5deff3d8fee031f0853fe7e07bc68801`
+(reviewed v0.1.8 source baseline, not a claim about an official tag or binary).
+Use the complete ordered `patches/v018/` set:
 
 ```powershell
-node scripts/apply-step-code-desktop-patch.mjs Step-Code patches/v017/step-code-desktop.patch
+node scripts/apply-step-code-desktop-patch.mjs Step-Code patches/v018/step-code-desktop.patch
 ```
 
-This pin already contains the two v016 upstream overlays, so v017 applies
+See [v0.1.8 integration](../docs/UPSTREAM_V018.md) for the runtime changes.
+
+## Historical v0.1.7 Baseline
+
+The previous pin `29eb460780489801ce8afc8bffc1a2efae7cbded` already contains the two v016 upstream overlays, so v017 applies
 neither again. It retains the 19 Desktop integration patches, a v017 compatibility
 test/formatting delta and the Darwin
 additions with reviewed pre/postimage hashes, including every added source.

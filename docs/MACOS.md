@@ -28,8 +28,8 @@ These checks do not establish real-account balances or official billing outcomes
 
 ## Build natively
 
-The commands below target the development v0.1.7 announcement source baseline
-`29eb460780489801ce8afc8bffc1a2efae7cbded` and `patches/v017/`. The 0.6.0
+The commands below target the 1.0.0 v0.1.8 source baseline
+`5309624e5deff3d8fee031f0853fe7e07bc68801` and `patches/v018/`. The 0.6.0
 freeze and acceptance records above remain historical. Darwin patch replay on
 Windows is not a native macOS build or package acceptance.
 
@@ -41,8 +41,8 @@ From the repository root:
 
 ```sh
 git clone https://github.com/stepfun-ai/Step-Code.git Step-Code
-git -C Step-Code checkout 29eb460780489801ce8afc8bffc1a2efae7cbded
-node scripts/apply-step-code-desktop-patch.mjs Step-Code patches/v017/step-code-desktop.patch
+git -C Step-Code checkout --detach 5309624e5deff3d8fee031f0853fe7e07bc68801
+node scripts/apply-step-code-desktop-patch.mjs Step-Code patches/v018/step-code-desktop.patch
 (cd Step-Code && corepack pnpm install --frozen-lockfile && corepack pnpm build:offline)
 cd Desktop
 corepack pnpm install --frozen-lockfile
@@ -53,7 +53,7 @@ corepack pnpm typecheck
 corepack pnpm exec tsx --test --test-concurrency=1 tests/*.test.ts
 corepack pnpm build
 node ../scripts/ci-macos.mjs
-DESKTOP_MACOS_RELEASE_VERSION=0.6.0 corepack pnpm package:mac
+corepack pnpm package:mac
 node scripts/verify-macos-package.mjs
 DESKTOP_VERIFY_EXE="$PWD/release/mac-arm64/Desktop for Step Code.app/Contents/MacOS/Desktop for Step Code" DESKTOP_MACOS_RESOURCES="$PWD/release/mac-arm64/Desktop for Step Code.app/Contents/Resources" node ../scripts/ci-macos.mjs
 ```

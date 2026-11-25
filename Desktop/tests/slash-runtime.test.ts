@@ -5,6 +5,7 @@ import { mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { RpcProcess, isolatedEnvironment } from '../electron/runtime';
+import { readRuntimeBaseline } from '../scripts/runtime-baseline.mjs';
 
 test('pinned slash handlers support read-only commands, cancellable dialogs and normal init delivery', { timeout: 60000 }, async () => {
   const requests: { url?: string; body: any }[] = [];
@@ -42,7 +43,8 @@ test('pinned slash handlers support read-only commands, cancellable dialogs and 
       ['--include-live-events']);
     const { commands } = await rpc.request('get_commands');
     const manifest = JSON.parse(await readFile(resolve('runtime/manifest.json'), 'utf8'));
-    assert.equal(manifest.commit, '29eb460780489801ce8afc8bffc1a2efae7cbded');
+    const { name, manifest: baseline } = await readRuntimeBaseline();
+    assert.equal(manifest.commit, baseline.commit);
     assert.equal(commands.some((command: { name: string }) => command.name === 'usage'), true,
       'Native Usage registration matches the staged baseline; Desktop provides its own Usage mapping');
     for (const name of ['todos', 'workflows', 'cron', 'feedback', 'plugin', 'plan', 'goal', 'ultracode', 'init']) {
@@ -56,7 +58,7 @@ test('pinned slash handlers support read-only commands, cancellable dialogs and 
     const notifications = (events: any[]) => events.filter(event => event.method === 'notify').map(event => event.message).join('\n');
     assert.match(notifications(await prompt('/todos')), /No tasks tracked/);
     assert.match(notifications(await prompt('/workflows')), /Saved workflows: none/);
-    assert.match(notifications(await prompt('/clm')), /CLM revision/);
+    assert.match(notifications(await prompt('/clm')), name === 'v018' ? /CLM is off/ : /CLM revision/);
     assert.match(notifications(await prompt('/cron list')), /No cron jobs/);
     assert.match(notifications(await prompt('/goal status')), /No goal is currently set/);
     assert.match(notifications(await prompt('/ultracode status')), /Ultracode|Ultraloop|Ultra/);

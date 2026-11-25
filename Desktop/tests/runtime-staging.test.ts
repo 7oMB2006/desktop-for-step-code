@@ -147,7 +147,8 @@ test('staging rejects the wrong upstream before touching runtime through every s
       '-c', 'commit.gpgsign=false', 'commit', '--quiet', '--allow-empty', '-m', 'Fixture']);
     for (const selector of ['default', 'environment', 'argument']) {
       const env = { ...process.env };
-      delete env.DESKTOP_STEP_CODE_SOURCE;
+    delete env.DESKTOP_STEP_CODE_SOURCE;
+    delete env.DESKTOP_RUNTIME_BASELINE;
       if (selector === 'environment') env.DESKTOP_STEP_CODE_SOURCE = upstream;
       if (selector === 'argument') env.DESKTOP_STEP_CODE_SOURCE = join(root, 'missing-source');
       const result = spawnSync(process.execPath, [resolve('scripts/stage-runtime.mjs'), ...(selector === 'argument' ? [upstream] : [])],
@@ -175,9 +176,10 @@ test('staging and both package verifiers share the runtime baseline selector', a
     assert.match(text, /from '\.\/runtime-baseline\.mjs'/, helper);
     assert.doesNotMatch(text, /patches\/v\d{3}\/manifest\.json/, helper);
   }
-  const { readRuntimeBaseline } = await import('../scripts/runtime-baseline.mjs');
-  const stable = await readRuntimeBaseline('v017');
-  assert.equal(stable.manifest.commit, '29eb460780489801ce8afc8bffc1a2efae7cbded');
+  const { defaultRuntimeBaseline, readRuntimeBaseline } = await import('../scripts/runtime-baseline.mjs');
+  const stable = await readRuntimeBaseline(defaultRuntimeBaseline);
+  assert.equal(stable.manifest.commit, '5309624e5deff3d8fee031f0853fe7e07bc68801');
+  assert.equal((await readRuntimeBaseline('v017')).manifest.commit, '29eb460780489801ce8afc8bffc1a2efae7cbded');
   await assert.rejects(() => readRuntimeBaseline('../v018'), /Unknown Desktop runtime baseline/);
 });
 
@@ -188,10 +190,8 @@ test('standalone worker helpers for the default runtime use the stable integrati
     'verify-plugin-center-package.mjs',
   ]) {
     const text = await readFile(resolve('scripts', helper), 'utf8');
-    const selectors = text.match(/patches\/v\d{3}(?:\/manifest\.json)?/g) ?? [];
-    assert.ok(selectors.length > 0, `${helper} must select a reviewed integration manifest`);
-    assert.ok(selectors.every(selector => selector.startsWith('patches/v017')),
-      `${helper} still selects an older integration manifest`);
+    assert.match(text, /readRuntimeBaseline\(\)/, `${helper} must select a reviewed integration manifest`);
+    assert.doesNotMatch(text, /patches\/v\d{3}/, `${helper} bypasses the shared selector`);
   }
 });
 

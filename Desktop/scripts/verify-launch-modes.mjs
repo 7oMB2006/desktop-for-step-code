@@ -10,7 +10,7 @@ import assert from 'node:assert/strict';
 import { assertPersistentTurnStatus } from './turn-status-assertions.mjs';
 import { observeGoalClear, launchFailureDiagnostics, restoreGoalClearObservation } from './launch-failure-diagnostics.mjs';
 import { waitForLaunchProviderRequest } from './launch-provider-fixture.mjs';
-import { submitColdSessionFixture } from './session-fixture.mjs';
+import { submitColdSessionFixture, waitForSessionFixtureSnapshot } from './session-fixture.mjs';
 
 const requests = [];
 const streams = new Set();
@@ -154,7 +154,7 @@ try {
   for (const enabled of [true, false]) {
     await permissions.click();
     await mode('Ultracode').click();
-    await page.waitForFunction(async enabled => (await window.desktop.snapshot()).launch.ultracodeArmed === enabled, enabled);
+    await waitForSessionFixtureSnapshot(page, current => current.launch.ultracodeArmed === enabled, `Ultracode armed=${enabled}`);
     assert.equal((await page.evaluate(() => window.desktop.snapshot())).launch.ultracode, false);
     assert.equal(await page.locator('.error-banner, .app-error-banner, .modal-error').count(), 0, 'Actual Ultracode switch must not report a false failure');
     assert.equal(await page.getByText('Ultracode is on for the session.', { exact: false }).count(), 0, 'Inline status replaces redundant runtime info toast');
@@ -165,13 +165,13 @@ try {
   await page.getByRole('button', { name: '保存目标', exact: true }).click();
   await page.getByLabel('Token 预算', { exact: true }).fill('100000');
   await page.getByRole('button', { name: '保存预算', exact: true }).click();
-  await page.waitForFunction(async () => (await window.desktop.snapshot()).launch.goal.tokenBudget === 100000);
+  await waitForSessionFixtureSnapshot(page, current => current.launch.goal?.tokenBudget === 100000, 'the saved Goal budget');
   await page.getByRole('button', { name: '关闭', exact: true }).click();
   await page.evaluate(async id => {
     await window.desktop.command('set_launch_mode', { mode: 'plan', enabled: true }, id);
   }, runtimeId);
   await page.reload();
-  await page.waitForFunction(async () => (await window.desktop.snapshot()).launch.planArmed === true);
+  await waitForSessionFixtureSnapshot(page, current => current.launch.planArmed === true, 'Plan arming after reload');
   assert.equal((await page.evaluate(() => window.desktop.snapshot())).launch.goal.status, 'paused');
   await page.locator('.launch-status-pulse').click();
   await page.waitForTimeout(250);
@@ -268,25 +268,28 @@ try {
   assert.ok(bounds.x >= 0 && bounds.y >= 54 && bounds.x + bounds.width <= viewport.width + 1 && bounds.y + bounds.height <= viewport.height + 1);
   await page.getByRole('button', { name: 'Close', exact: true }).click();
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1440, 960));
-  await page.locator('.composer > .composer-input').fill('目标完成后的新一轮普通任务。');
+  const nextTurn = '目标完成后的新一轮普通任务。';
+  const nextRequestIndex = requests.length;
+  await page.locator('.composer > .composer-input').fill(nextTurn);
   await page.locator('.composer > .composer-input').press('Enter');
-  await page.waitForFunction(async () => (await window.desktop.snapshot()).state.isStreaming);
+  await waitForLaunchProviderRequest(requests, nextRequestIndex);
+  snapshot = await waitForSessionFixtureSnapshot(page, current => current.state?.isStreaming, 'the ordinary post-Goal turn to stream');
+  await page.locator('.message.user').getByText(nextTurn, { exact: true }).waitFor();
   assert.equal(await page.locator('.working:not(.assistant-footer-row) .launch-status-pulse').count(), 0,
     'Completed Goal and its Ultracode intent never appear in the next task pulse');
-  snapshot = await page.evaluate(() => window.desktop.snapshot());
   assert.equal(snapshot.launch.goal.status, 'complete', 'A fresh prompt does not resume the completed Goal');
   assert.equal(Boolean(snapshot.launch.ultracodeTurn), false, 'Completed Goal opt-in does not authorize the next task');
   const completedAnchor = page.locator('.assistant-footer-row .launch-status-pulse[data-goal-state="complete"]');
   assert.equal(await completedAnchor.count(), 1, 'Original completed response keeps its marker');
-  assert.ok(await completedAnchor.evaluate(element => {
+  assert.ok(await completedAnchor.evaluate((element, text) => {
     const owner = element.closest('.message.assistant');
-    const nextUser = [...document.querySelectorAll('.message.user')].at(-1);
-    return Boolean(owner.compareDocumentPosition(nextUser) & Node.DOCUMENT_POSITION_FOLLOWING);
-  }), 'Completed marker remains before the new user turn');
+    const nextUser = [...document.querySelectorAll('.message.user')].find(message => message.textContent.includes(text));
+    return Boolean(owner && nextUser && (owner.compareDocumentPosition(nextUser) & Node.DOCUMENT_POSITION_FOLLOWING));
+  }, nextTurn), 'Completed marker remains before the new user turn');
   await page.waitForTimeout(350);
   await page.screenshot({ path: 'test-results/launch-goal-next-turn-isolated.png' });
   await page.evaluate(() => window.desktop.command('abort'));
-  await page.waitForFunction(async () => !(await window.desktop.snapshot()).state.isStreaming);
+  await waitForSessionFixtureSnapshot(page, current => current.state?.isStreaming === false, 'the post-Goal turn to stop');
   await page.reload();
   await completedAnchor.waitFor();
   assert.equal(await page.locator('.message.assistant').last().locator('.launch-status-pulse').count(), 0,
@@ -305,7 +308,8 @@ try {
   await input.fill('检查本次任务，不要继承到下一条。');
   await input.press('Enter');
   await page.waitForFunction(() => document.querySelector('.working .launch-status-pulse'));
-  await page.waitForFunction(async () => (await window.desktop.snapshot()).messages.some(message => message.customType === 'ultraloop-opt-in' && JSON.stringify(message.content).includes('opting this turn')));
+  await waitForSessionFixtureSnapshot(page, current => current.messages.some(message =>
+    message.customType === 'ultraloop-opt-in' && JSON.stringify(message.content).includes('opting this turn')), 'the turn-scoped Ultracode reminder');
   assert.equal(await page.locator('.composer .launch-status-trigger').count(), 0);
   assert.equal(await page.locator('.message.user').getByText('检查本次任务，不要继承到下一条。', { exact: true }).count(), 1);
   await page.screenshot({ path: 'test-results/launch-ultracode-pulse-dark.png' });
@@ -316,10 +320,9 @@ try {
   plainNext = true;
   await input.fill('下一条普通任务。');
   await input.press('Enter');
-  await page.waitForFunction(async () => {
-    const state = await window.desktop.snapshot();
-    return !state.state.isStreaming && state.messages.some(message => message.role === 'user' && JSON.stringify(message.content).includes('下一条普通任务。'));
-  });
+  await waitForSessionFixtureSnapshot(page, current => current.state?.isStreaming === false
+    && current.messages.some(message => message.role === 'user' && JSON.stringify(message.content).includes('下一条普通任务。')),
+  'the following ordinary turn to finish');
   snapshot = await page.evaluate(() => window.desktop.snapshot());
   assert.equal(snapshot.launch.ultracode, false);
   assert.equal(snapshot.launch.ultracodeArmed, false);
@@ -327,11 +330,11 @@ try {
     remindersBeforeOrdinary, 'Ordinary next turn neither repeats discovery guidance nor adds orchestration consent');
   await input.fill('先执行普通任务，等待插队。');
   await input.press('Enter');
-  await page.waitForFunction(async () => (await window.desktop.snapshot()).state.isStreaming);
+  await waitForSessionFixtureSnapshot(page, current => current.state?.isStreaming, 'the turn awaiting steering to stream');
   await page.evaluate(() => window.desktop.command('set_launch_mode', { mode: 'ultracode', enabled: true }));
   await input.fill('这一条用编排补充检查。');
   await input.press('Enter');
-  await page.waitForFunction(async () => (await window.desktop.snapshot()).pendingMessages?.length === 1);
+  await waitForSessionFixtureSnapshot(page, current => current.pendingMessages?.length === 1, 'the queued Ultracode turn');
   snapshot = await page.evaluate(() => window.desktop.snapshot());
   assert.equal(snapshot.pendingMessages[0].message, '这一条用编排补充检查。');
   assert.equal(snapshot.launch.ultracodeArmed, false);
@@ -341,7 +344,7 @@ try {
   assert.equal(await page.locator('.working .launch-status-pulse').count(), 0, 'Queued opt-in has not yet entered the active task');
   await page.evaluate(() => window.desktop.command('queue_steer_first'));
   for (const stream of streams) stream.end(chunk({}, 'stop') + 'data: [DONE]\n\n');
-  await page.waitForFunction(async () => (await window.desktop.snapshot()).pendingMessages?.length === 0);
+  await waitForSessionFixtureSnapshot(page, current => current.pendingMessages?.length === 0, 'the queued turn to be consumed');
   await page.waitForFunction(() => document.querySelector('.working .launch-status-pulse'));
   assert.equal(await page.locator('.message.user').getByText('这一条用编排补充检查。', { exact: true }).count(), 1);
   await page.evaluate(() => window.desktop.command('abort'));
@@ -350,10 +353,8 @@ try {
   plainNext = true;
   await input.fill('规划下一步。');
   await input.press('Enter');
-  await page.waitForFunction(async () => {
-    const state = await window.desktop.snapshot();
-    return !state.state.isStreaming && state.launch.plan && !state.launch.planArmed;
-  });
+  await waitForSessionFixtureSnapshot(page, current => current.state?.isStreaming === false
+    && current.launch.plan && !current.launch.planArmed, 'the Plan turn to finish');
   await page.waitForFunction(() => !document.querySelector('.composer .launch-status-trigger')
     && document.querySelector('.working-idle .launch-status-pulse'));
   assert.equal(await page.locator('.composer .launch-status-trigger').count(), 0);

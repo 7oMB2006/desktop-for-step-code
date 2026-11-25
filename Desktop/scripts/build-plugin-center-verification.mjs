@@ -33,8 +33,8 @@ await mkdir(join(output, 'build'));
 for (const name of ['icon.ico', 'icon.png', 'tray.png'])
   await copyFile(resolve('build', name), join(output, 'build', name));
 const define = { DESKTOP_USAGE_OVERVIEW_PREVIEW: 'false' };
-await build({ entryPoints: ['electron/main.ts', 'electron/preload.ts', 'electron/tray-preload.ts', 'electron/keyless-fetch.ts'],
+await build({ entryPoints: ['electron/main.ts', 'electron/preload.ts', 'electron/tray-preload.ts', 'electron/startup-preload.ts', 'electron/keyless-fetch.ts'],
   outdir: output, outExtension: { '.js': '.cjs' }, bundle: true, platform: 'node', format: 'cjs', external: ['electron'], define });
 await viteBuild({ base: './', define, build: { outDir: join(output, 'renderer'), emptyOutDir: false,
-  rolldownOptions: { input: ['index.html', 'tray-menu.html'] } } });
+  rolldownOptions: { input: ['index.html', 'tray-menu.html', 'startup-logo.html'] } } });
 console.log(output);

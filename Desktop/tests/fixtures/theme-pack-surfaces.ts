@@ -5,7 +5,7 @@ import { resolveTheme } from '../../src/theme';
 import { resolveThemeMaterial } from '../../src/theme-material';
 import { defaultCompactionConfiguration, validateCompactionUpdate, type CompactionSettings } from '../../src/compaction-settings';
 
-const themeRoot = new URL('../../../theme-marketplace/plugins/stellar-cruise/', import.meta.url);
+const cover = new URL('../../../theme-marketplace/plugins/stellar-cruise/cover.png', import.meta.url).href;
 const guide = '# 星辰工作簿\n\n本页为离线组件样例，使用真实的插件工作区组件。\n\n'
   + '## 航行记录\n\n| 项目 | 状态 |\n| --- | --- |\n| 阅读材质 | 石墨 |\n| 分隔线 | 铅笔细线 |\n\n'
   + '```ts\nconst theme = "stellar-cruise";\n```\n\n[校对记录](NOTES.md)';
@@ -44,8 +44,8 @@ export function themePackSurfaces(pack: ThemePack, preferences: () => Preference
         material: resolveThemeMaterial([pack], preferences().theme) } }),
     pluginDocument: async (input): Promise<PluginDocument> => {
       if (input.ref === theme.package!.ref && ['README.md', 'CHANGELOG.md'].includes(input.path)) {
-        const text = await fetch(new URL(input.path, themeRoot)).then(response => response.text());
-        const cover = new URL('cover.png', themeRoot).href;
+        const text = input.path === 'README.md' ? '# 星辰巡航\n\n![星辰巡航](cover.png)\n\n双龙星海与石墨阅读面。'
+          : `# 更新记录\n\n## ${pack.version}\n\n离线插件文档样例。`;
         return { path: input.path, text, images: { 'cover.png': cover }, links: {} };
       }
       if (!workbooks.some(plugin => plugin.package!.ref === input.ref)

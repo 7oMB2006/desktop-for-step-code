@@ -1,41 +1,15 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, cp, readFile, writeFile, rm, mkdir, realpath, symlink } from 'node:fs/promises';
+import { mkdtemp, cp, writeFile, rm, mkdir, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { ThemePacks, validateScene } from '../electron/theme-packs';
 import { registerPluginThemes, normalizeTheme, resolveTheme, themePreferencePatch } from '../src/theme';
 import { themeBrightnessPatch } from '../src/theme-packs';
 import { resolveThemeMaterial } from '../src/theme-material';
-import { dataOnlyThemeFingerprint, packageFingerprint } from '../electron/plugin-files.mjs';
-import { PluginLibrary, parsePresentation } from '../electron/plugin-library.mjs';
-import type { CapabilityCatalog } from '../src/capabilities';
 import { removeLinkEntry } from './fixtures/artifact-cleanup';
 
 const source = resolve('../theme-marketplace/plugins/stellar-cruise');
-test('source theme metadata and documents remain a complete data-only package', async () => {
-  const root = await realpath(source);
-  const fingerprint = await dataOnlyThemeFingerprint(root, 'stellar-cruise');
-  assert.match(fingerprint!, /^[a-f0-9]{64}$/);
-  assert.equal(fingerprint, await packageFingerprint(root));
-  const manifest = JSON.parse(await readFile(join(root, 'step.plugin.json'), 'utf8'));
-  assert.equal(manifest.version, '0.2.0');
-  const presentation = parsePresentation(JSON.parse(await readFile(join(root, 'dfsc.plugin.json'), 'utf8')));
-  assert.equal(presentation.author, '7oMB2006');
-  assert.deepEqual(presentation.requirements, { dfsc: '^1.0.0', external: [] });
-  assert.deepEqual(presentation.documentation, { readme: 'README.md', changelog: 'CHANGELOG.md' });
-  const library = new PluginLibrary(await realpath(resolve(root, '../..')));
-  const catalog = { plugins: [{ id: manifest.id, name: manifest.name, version: manifest.version, mcpServers: [], warnings: [],
-    packageDescriptor: { root, fingerprint, id: manifest.id, kind: 'installed', provenance: 'recorded', name: manifest.name } }],
-    available: [], marketplaces: [], mcp: [], skills: [], warnings: [] } as unknown as CapabilityCatalog;
-  const pack = (await library.project(catalog)).plugins[0].package!;
-  assert.deepEqual(pack.warnings, []);
-  const readme = await library.document({ ref: pack.ref, path: 'README.md' });
-  assert.match(readme.images['cover.png'], /^data:image\/png;base64,/);
-  assert.match(readme.text, /0\.2\.0/);
-  assert.match((await library.document({ ref: pack.ref, path: 'CHANGELOG.md' })).text, /0\.2\.0/);
-  await assert.rejects(library.document({ ref: pack.ref, path: 'scene.json' }), /invalid-path/);
-});
 async function fixture(run: (root: string, service: ThemePacks) => Promise<void>) {
   const root = await mkdtemp(join(tmpdir(), 'dfsc-theme-test-'));
   try {

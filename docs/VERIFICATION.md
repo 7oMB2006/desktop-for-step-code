@@ -1,11 +1,11 @@
 # Verification
 
-## 星辰巡航 0.2.0 对齐 DFSC 1.0.0（2026-11-25，Windows x64）
+## 星辰巡航客户端增强对齐 DFSC 1.0.0（2026-11-25，Windows x64）
 
 基线为 [v1.0.0 正式 Release](https://github.com/7oMB2006/desktop-for-step-code/releases/tag/v1.0.0)
 的 `007dce6d571b8ddba39dab7cad6b842c0bdba533`，运行时为 v018 `5309624e5deff3d8fee031f0853fe7e07bc68801`。
-相对 #270 保留 #271、#272 的浏览器、构建和运行时改动。主题包声明 `^1.0.0`，没有额外运行依赖；
-这个范围用于主题数据，不代表公开的 1.0.0 已包含配套的宿主增强。
+相对 #270 保留 #271、#272 的浏览器、构建和运行时改动。本分支不改主题资源或版本。
+下面的公开版安装与升级是拆分前的兼容性证据；0.2.0 的交付和社区市场收录独立于本宿主改动。
 
 - **公开版**：比对 GitHub Windows 安装器 SHA-256 `609e2cc76ef50e21f6e37c9b0e90500bda7a9e6eeb5366cfda8eb4b3ffee12dc`，
   并核对解包收据中的应用、asar、运行时和 Playwright helper。用匹配的解包程序和隔离档案实际安装 0.2.0，
@@ -17,8 +17,14 @@
   星图默认开启，关闭不影响任务清单和进度；切换主题、刷新与重启保留选择。Chrome 在桌面与 390px 窄屏验证场景及正文渐隐。
   定向测试 266 项通过，2 项因本机不支持文件符号链接而跳过；未以此替代全量 CI 或 macOS 验收。
 
+- **拆分后复验**：本分支生产构建安装未改的 0.1.0，默认开星图、关闭、重启保留、卸载回退均通过；正式版 1.0.0
+  分别安装[独立来源包](https://github.com/7oMB2006/desktop-for-step-code/pull/274)和社区生成的 0.2.0 副本，
+  均没有星图开关，两篇安装文档可读。主题与启动定向测试 130 通过、1 个 Windows 符号链接用例跳过；
+  开发及插件验收两个构建入口均可生成独立的启动 preload。
+
 复验原版：在 `Desktop/` 设置 `DESKTOP_VERIFY_EXE` 指向正式版解包程序，运行
 `node scripts/verify-theme-pack-electron.mjs test-results/stock-v100 --stock-v1.0.0`。
+默认安装本分支 `theme-marketplace` 自带的版本；验独立数据包时设置 `DESKTOP_THEME_MARKETPLACE` 为包含 `.step-plugin/marketplace.json` 的本地目录。
 复验配套宿主：使用 v018 运行时、构建当前源码后，取消 `DESKTOP_VERIFY_EXE`，运行同一脚本并去掉 `--stock-v1.0.0`。
 
 ## 星辰巡航对齐 #270 冻结线（2026-11-24，本地）

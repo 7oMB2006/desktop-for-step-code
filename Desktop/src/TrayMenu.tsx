@@ -1,7 +1,9 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import type { TrayMenuBridge } from './tray-menu-contract';
-import { applyTheme } from './theme';
+import { applyResolvedTheme, applyTheme } from './theme';
+import { applyThemeMaterial } from './theme-material';
+import { TrayStars } from './TrayStars';
 import './style.css';
 import './theme.css';
 import './app-menu.css';
@@ -10,7 +12,12 @@ import './tray-menu.css';
 declare global { interface Window { desktopTray: TrayMenuBridge } }
 const bridge = window.desktopTray;
 const initial = bridge.state();
-applyTheme(initial.colors?.id ?? initial.theme, initial.theme === 'dark', initial.colors?.accent);
+function applyState(state: typeof initial) {
+  if (state.colors) applyResolvedTheme(state.colors);
+  else applyTheme(state.theme, state.theme === 'dark');
+  applyThemeMaterial(state.material);
+}
+applyState(initial);
 
 function TrayMenu() {
   const [state, setState] = useState(initial);
@@ -18,7 +25,7 @@ function TrayMenu() {
   const menu = useRef<HTMLDivElement>(null);
   useEffect(() => bridge.onState(setState), []);
   useLayoutEffect(() => {
-    applyTheme(state.colors?.id ?? state.theme, state.theme === 'dark', state.colors?.accent);
+    applyState(state);
     document.documentElement.lang = state.language === 'zh' ? 'zh-CN' : 'en';
     if (!state.visible) { setVisible(false); return; }
     const frame = requestAnimationFrame(() => {
@@ -32,7 +39,7 @@ function TrayMenu() {
     if (event.target === event.currentTarget) bridge.action('dismiss');
   }}>
     <div ref={menu} className="app-menu tray-menu" role="menu" aria-label={zh ? '托盘菜单' : 'Tray menu'}
-      data-visible={visible} inert={!state.visible} style={{ transformOrigin: state.origin }}
+      data-visible={visible} data-motion={state.motion !== false} inert={!state.visible} style={{ transformOrigin: state.origin }}
       onKeyDown={event => {
         const items = [...event.currentTarget.querySelectorAll<HTMLButtonElement>('button')];
         const index = items.indexOf(document.activeElement as HTMLButtonElement);
@@ -44,6 +51,7 @@ function TrayMenu() {
           event.preventDefault(); bridge.action('dismiss');
         }
       }}>
+      {state.material === 'stellar' && <TrayStars/>}
       <button type="button" role="menuitem" onClick={() => bridge.action('open')}>
         <span className="app-menu-label">{zh ? '打开 Desktop for Step Code' : 'Open Desktop for Step Code'}</span>
       </button>

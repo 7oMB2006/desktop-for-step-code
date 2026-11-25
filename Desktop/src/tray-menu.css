@@ -5,3 +5,35 @@ html, body, #root { width: 100%; height: 100%; overflow: hidden; background: tra
 .tray-menu > button { justify-content: flex-start; }
 .tray-menu .app-menu-label { white-space: nowrap; }
 .tray-menu-separator { height: 1px; margin: 4px 8px; background: var(--border); }
+
+:root[data-theme-material=stellar] .tray-menu {
+  isolation: isolate; background: #18191b; border-color: #65615a; color: var(--ink);
+  box-shadow: 0 3px 8px #0006;
+}
+.tray-stars {
+  position: absolute; inset: 0; width: 100%; height: 100%;
+  pointer-events: none; z-index: -1;
+}
+.tray-stars-light {
+  opacity: .8; filter: drop-shadow(0 0 1.2px #b8ded95c);
+  animation: tray-starlight 5.6s ease-in-out infinite; animation-play-state: paused;
+}
+.tray-menu[data-visible=true][data-motion=true] .tray-stars-light { animation-play-state: running; }
+.tray-menu[data-motion=false] .tray-stars-light { animation: none; }
+@keyframes tray-starlight { 0%, 100% { opacity: .5; } 50% { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .tray-stars-light { animation: none; } }
+:root[data-theme-material=stellar] .tray-menu > button:hover,
+:root[data-theme-material=stellar] .tray-menu > button:focus-visible {
+  background: rgb(38 39 41 / .88); color: var(--ink);
+}
+:root[data-theme-material=stellar] .tray-menu > button:focus-visible {
+  outline: 1px solid var(--primary); outline-offset: -2px;
+}
+:root[data-theme-material=stellar] .tray-menu-separator {
+  position: relative;
+  background: linear-gradient(90deg, #bca98715, #bca98780 25%, #bca98750 75%, #bca98715);
+}
+:root[data-theme-material=stellar] .tray-menu-separator::after {
+  content: ""; position: absolute; left: 72%; top: -2px; width: 5px; height: 5px;
+  background: #e8c482; clip-path: polygon(50% 0, 61% 39%, 100% 50%, 61% 61%, 50% 100%, 39% 61%, 0 50%, 39% 39%);
+}

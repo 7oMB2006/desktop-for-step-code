@@ -6,6 +6,7 @@ import { join, resolve } from 'node:path';
 import { ThemePacks, validateScene } from '../electron/theme-packs';
 import { registerPluginThemes, normalizeTheme, resolveTheme, themePreferencePatch } from '../src/theme';
 import { themeBrightnessPatch } from '../src/theme-packs';
+import { resolveThemeMaterial } from '../src/theme-material';
 import { removeLinkEntry } from './fixtures/artifact-cleanup';
 
 const source = resolve('../theme-marketplace/plugins/stellar-cruise');
@@ -21,6 +22,15 @@ test('installed pack registers without changing default; original artwork remain
   assert.equal(service.packs.length, 1);
   assert.equal(service.packs[0].author, '7oMB2006');
   assert.equal(service.packs[0].hasCover, true);
+  assert.equal(resolveThemeMaterial(service.packs, 'plugin:stellar-cruise'), 'stellar');
+  assert.equal(resolveThemeMaterial([{ ...service.packs[0], renderer: 'image-v1',
+    composition: { ui: 'stellar-v1', background: { renderer: 'image-v1' }, accepts: [] },
+  }], 'plugin:stellar-cruise'), 'stellar', 'material follows the UI, not the background renderer');
+  assert.equal(resolveThemeMaterial([{ ...service.packs[0],
+    composition: { ui: 'standard-v1', background: { renderer: 'stellar-v1' }, accepts: [] },
+  }], 'plugin:stellar-cruise'), undefined, 'a stellar background alone does not select stellar chrome');
+  assert.equal(resolveThemeMaterial(service.packs, 'dark'), undefined);
+  assert.equal(resolveThemeMaterial([], 'plugin:stellar-cruise'), undefined);
   assert.match(service.poster('plugin:stellar-cruise')!, /^data:image\/png;base64,/);
   assert.throws(() => service.poster('../../credentials'));
   registerPluginThemes(service.packs);
@@ -39,6 +49,7 @@ test('removing a pack unregisters it and releases scene data', async () => fixtu
   await service.refresh();
   registerPluginThemes(service.packs);
   assert.equal(normalizeTheme('plugin:stellar-cruise'), 'system');
+  assert.equal(resolveThemeMaterial(service.packs, 'plugin:stellar-cruise'), undefined);
   assert.throws(() => themePreferencePatch({ theme: 'plugin:stellar-cruise' }));
   assert.throws(() => service.scene('plugin:stellar-cruise'));
   assert.throws(() => service.poster('plugin:stellar-cruise'));

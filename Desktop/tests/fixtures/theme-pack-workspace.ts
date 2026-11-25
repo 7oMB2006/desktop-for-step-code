@@ -8,10 +8,14 @@ import { openThemePreviewFile, themePreviewFile } from './theme-pack-files';
 import { themeQueueSamples, updateThemeQueue } from './theme-pack-queue';
 import { themeNavigationMessages, themeAgentMessages } from './theme-pack-navigation';
 import { themeControlModels, themeControlCommands, selectThemeControlModel } from './theme-pack-controls';
+import { themePackSurfaces } from './theme-pack-surfaces';
+import { changeFavoriteModel, normalizeFavoriteModels } from '../../src/model-favorites';
+import { createThemePreviewComposer } from './theme-pack-composer';
 
 const manifest = await fetch(new URL('../../../theme-marketplace/plugins/stellar-cruise/dfsc.theme.json', import.meta.url)).then(r => r.json());
+const pluginManifest = await fetch(new URL('../../../theme-marketplace/plugins/stellar-cruise/step.plugin.json', import.meta.url)).then(r => r.json());
 const pack: ThemePack = {
-  id: 'plugin:stellar-cruise', name: manifest.name, author: manifest.author, version: '0.1.0',
+  id: 'plugin:stellar-cruise', name: manifest.name, author: manifest.author, version: pluginManifest.version,
   renderer: 'stellar-v1', hasCover: true,
   palette: { ...manifest.colors, id: 'plugin:stellar-cruise', group: 'plugin', scheme: manifest.scheme,
     name: [manifest.name, manifest.name], title: [manifest.name, manifest.name], mood: ['', ''] },
@@ -37,11 +41,14 @@ const preferences: Preferences = {
   theme: saved.theme ? normalizeTheme(saved.theme) : pack.id, language: 'zh',
   themeMotion: saved.themeMotion !== false,
   themeBrightness: Number.isInteger(saved.themeBrightness) && saved.themeBrightness! >= 40 && saved.themeBrightness! <= 120 ? saved.themeBrightness : 90,
+  stellarTaskMap: saved.stellarTaskMap,
   accentColor: saved.accentColor,
+  favoriteModels: normalizeFavoriteModels(saved.favoriteModels),
   workspaces: [project, website], workspace: project,
   workspaceNames: { 'd:/preview/stellar': '星辰巡航', 'd:/preview/release': '发布页' },
 };
 let serial = 0;
+const composers = createThemePreviewComposer();
 const sessions: Session[] = [
   ['theme-preview', '主题包 · 会话预览', project],
   ['components', '组件与样式校对', project],
@@ -121,11 +128,13 @@ async function welcome(workspace?: string) {
     modelSelection: { model, thinkingLevel: 'medium' } };
   return clone();
 }
-async function create() {
+async function create(draftId?: string) {
   const id = `local-${++serial}`;
   sessions.unshift({ id, path: `${id}.jsonl`, name: '新的离线会话', firstMessage: '',
     cwd: snapshot.preferences.workspace ?? project, modified: new Date().toISOString(), messageCount: 0 });
   histories.set(id, []);
+  const source = draftId ?? snapshot.draftId;
+  if (source) composers.promote(source, id);
   return open(id);
 }
 function finish(id: string, aborted = false) {
@@ -140,9 +149,13 @@ function finish(id: string, aborted = false) {
   emit({ type: 'desktop_history', messages: structuredClone(messages) }, id);
   emit({ type: 'agent_end' }, id);
 }
+const view = new URLSearchParams(location.search).get('view');
 const bridge: Partial<DesktopBridge> = {
+  surface: view === 'mini' || new URLSearchParams(location.search).get('surface') === 'mini'
+    ? 'mini' : view === 'plugin' ? 'plugin' : 'main',
   platform: 'win32', snapshot: async () => clone(), navigateSession: open, switchSession: open,
-  pluginDesktopCatalog: async () => ({ plugins: [], available: [], marketplaces: [], mcp: [], skills: [], warnings: [] }),
+  ...composers.bridge,
+  ...themePackSurfaces(pack, () => snapshot.preferences, emit),
   sessions: async () => structuredClone(sessions),
   sessionReading: async id => ({ sessionId: id, messages: structuredClone(histories.get(id) ?? []) }),
   beginSession: welcome, newIndependentSession: () => welcome(), createDraftSession: create,
@@ -153,9 +166,12 @@ const bridge: Partial<DesktopBridge> = {
   },
   themePoster: async id => id === pack.id ? new URL('../../../theme-marketplace/plugins/stellar-cruise/cover.png', import.meta.url).href : undefined,
   preferences: async patch => {
-    snapshot.preferences = { ...snapshot.preferences, ...patch };
-    const { theme, themeMotion, themeBrightness, accentColor } = snapshot.preferences;
-    try { localStorage.setItem(savedKey, JSON.stringify({ theme, themeMotion, themeBrightness, accentColor })); } catch { /* Optional. */ }
+    const { modelFavorite, ...changes } = patch;
+    snapshot.preferences = { ...snapshot.preferences, ...changes,
+      ...(modelFavorite ? { favoriteModels: changeFavoriteModel(snapshot.preferences.favoriteModels, modelFavorite) } : {}) };
+    const { theme, themeMotion, themeBrightness, stellarTaskMap, accentColor, favoriteModels } = snapshot.preferences;
+    try { localStorage.setItem(savedKey, JSON.stringify({ theme, themeMotion, themeBrightness, stellarTaskMap, accentColor, favoriteModels })); } catch { /* Optional. */ }
+    emit({ type: 'desktop_plugin_preferences_changed' });
     return structuredClone(snapshot.preferences);
   },
   command: async (type, args, runtimeId) => {
@@ -248,15 +264,17 @@ const bridge: Partial<DesktopBridge> = {
       return {};
     }
     if (type === 'prompt' && id) {
-      if (running.has(id)) throw new Error('请等待这条离线回复完成');
-      const messages = histories.get(id)!;
-      messages.push({ role: 'user', entryId: `user-${++serial}`, content: String(args?.message ?? '') });
-      if (snapshot.state?.sessionId === id) { snapshot.messages = messages; snapshot.state.isStreaming = true; }
-      running.set(id, setTimeout(() => finish(id), 2400));
-      syncRuntimes();
-      emit({ type: 'desktop_history', messages: structuredClone(messages) }, id);
-      emit({ type: 'agent_start' }, id);
-      return {};
+      return composers.submit(args?.composerReceipt as string | undefined, { sessionId: id }, () => {
+        if (running.has(id)) throw new Error('请等待这条离线回复完成');
+        const messages = histories.get(id)!;
+        messages.push({ role: 'user', entryId: `user-${++serial}`, content: String(args?.message ?? '') });
+        if (snapshot.state?.sessionId === id) { snapshot.messages = messages; snapshot.state.isStreaming = true; }
+        running.set(id, setTimeout(() => finish(id), 2400));
+        syncRuntimes();
+        emit({ type: 'desktop_history', messages: structuredClone(messages) }, id);
+        emit({ type: 'agent_start' }, id);
+        return {};
+      });
     }
     throw new Error('离线样例不会执行此命令');
   },
@@ -317,10 +335,11 @@ window.desktopTheme = {
     palette: document.documentElement.dataset.palette, readyState: document.readyState }),
 };
 syncRuntimes();
-const view = new URLSearchParams(location.search).get('view');
-if (view === 'chat') await open('theme-preview');
+if (view === 'chat' || view === 'mini' || view === 'fade') await open('theme-preview');
 else if (view === 'queue') await open('sample-queue');
 else if (view === 'navigation' || view === 'agents') await open(`sample-${view}`);
 else if (view === 'controls') await open('sample-controls');
 else if (view && ['permission', 'plan', 'question'].includes(view)) await open(`sample-${view}`);
+// Hold the existing edit sample in flight without starting a model or a timer.
+if (view === 'fade' && snapshot.state) snapshot.state.isStreaming = true;
 await import('../../src/main');

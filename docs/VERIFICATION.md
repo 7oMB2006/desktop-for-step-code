@@ -1,5 +1,62 @@
 # Verification
 
+## 星辰巡航客户端增强对齐 DFSC 1.0.0（2026-11-25，Windows x64）
+
+基线为 [v1.0.0 正式 Release](https://github.com/7oMB2006/desktop-for-step-code/releases/tag/v1.0.0)
+的 `007dce6d571b8ddba39dab7cad6b842c0bdba533`，运行时为 v018 `5309624e5deff3d8fee031f0853fe7e07bc68801`。
+相对 #270 保留 #271、#272 的浏览器、构建和运行时改动。本分支不改主题资源或版本。
+下面的公开版安装与升级是拆分前的兼容性证据；0.2.0 的交付和社区市场收录独立于本宿主改动。
+
+- **公开版**：比对 GitHub Windows 安装器 SHA-256 `609e2cc76ef50e21f6e37c9b0e90500bda7a9e6eeb5366cfda8eb4b3ffee12dc`，
+  并核对解包收据中的应用、asar、运行时和 Playwright helper。用匹配的解包程序和隔离档案实际安装 0.2.0，
+  验证默认外观不变、双龙场景、亮度和动效、内置浏览器资料页、重启首帧与卸载回退；原版没有星图开关。
+- **已有安装**：以公开社区市场的 0.1.0 资源树 `a0ab1aa56728969f67659157cc2fd511c25a6e8a` 建立隔离 Git 市场，
+  向同一来源提供 0.2.0；正式客户端检查更新、预检并应用成功。此前启用的星辰外观、关闭的动效及 75% 亮度保持不变。
+  证据：`Desktop/test-results/stock-upgrade-v100/result.json`。这不是一次线上市场发布。
+- **配套宿主**：生产构建、类型检查、启动窗口交接与隔离、托盘、插件独立窗口、模型强度推子与浏览器资料页通过。
+  星图默认开启，关闭不影响任务清单和进度；切换主题、刷新与重启保留选择。Chrome 在桌面与 390px 窄屏验证场景及正文渐隐。
+  定向测试 266 项通过，2 项因本机不支持文件符号链接而跳过；未以此替代全量 CI 或 macOS 验收。
+
+- **拆分后复验**：本分支生产构建安装未改的 0.1.0，默认开星图、关闭、重启保留、卸载回退均通过；正式版 1.0.0
+  分别安装[独立来源包](https://github.com/7oMB2006/desktop-for-step-code/pull/274)和社区生成的 0.2.0 副本，
+  均没有星图开关，两篇安装文档可读。主题与启动定向测试 130 通过、1 个 Windows 符号链接用例跳过；
+  开发及插件验收两个构建入口均可生成独立的启动 preload。
+
+复验原版：在 `Desktop/` 设置 `DESKTOP_VERIFY_EXE` 指向正式版解包程序，运行
+`node scripts/verify-theme-pack-electron.mjs test-results/stock-v100 --stock-v1.0.0`。
+默认安装本分支 `theme-marketplace` 自带的版本；验独立数据包时设置 `DESKTOP_THEME_MARKETPLACE` 为包含 `.step-plugin/marketplace.json` 的本地目录。
+复验配套宿主：使用 v018 运行时、构建当前源码后，取消 `DESKTOP_VERIFY_EXE`，运行同一脚本并去掉 `--stock-v1.0.0`。
+
+## 星辰巡航对齐 #270 冻结线（2026-11-24，本地）
+
+宿主基线为 #270 的合并提交 `6bb5801852dfbe3503fd856aacb01a4ffc8535dd`。
+以 11 月 12 日保留的源码快照 `1e8394d` 为恢复来源，保留 #270 的 Skills、
+Broker、表单焦点及新版模型列表，以及基线里的账户迁移、网络配置和 Ultra。
+
+- 冷启动的非线性徽标不闪回普通版；慢启动可继续等待，失败或超时可关闭或重试。
+  Windows 实际主窗交接、独立 preload 隔离通过；注入慢启动的原生夹具覆盖诊断、
+  固定锚点、重试和关闭，浏览器另测 WebGL 回退及减少动态。
+- 托盘、MiniChat 和插件独立窗口使用主题材质，不创建第二个星海场景。
+  Chrome/Electron 比较正反翻面像素，检查宽窄屏焦点、收藏、原色推子、星轨和减少动态；
+  另跑宿主原版主题、Ultra、键盘和模型列表回归。
+- 主窗和 MiniChat 正文底部渐隐检查逐像素通过，引用、变更、排队和回底操作区
+  不受遮罩影响。背景组合保留个人图片设置；星辰包不开放个人图片覆盖。
+  损坏的包背景回退，不会重复请求；后续修订仍可加载。
+- 本地市场安装、启用、重启保留动效与亮度设置、卸载回到内置主题通过。
+  `0.2.0` 是数据主题包候选版本，不是宿主版号；最低宿主版本待正式版号确定。
+
+类型检查、生产构建和 diff 检查通过。协议库存 3310 项：用匹配冻结线补丁哈希
+的 v0.1.7 运行时运行全量，首次有 4 项能力测试因旧宿主桥接脚本失败；
+同步 #270 的三个桥接脚本后复跑 `capabilities.test.ts`，21 项通过。
+按两段汇总为 3286 通过、24 跳过、0 失败。保留首次与复验日志，
+不将此结果记作一次全绿运行，也不把 v0.1.8 候选当成冻结线默认 pin。
+
+证据在工作树的 `Desktop/test-results/`：`startup/`、`startup-choreography/`、
+`startup-scenarios-desktop/`、`stellar-auxiliary/`、`stellar-effort/`、
+`stellar-freeze-workspace/`、`stellar-freeze-composition/`、
+`stellar-freeze-background/` 和 `stellar-freeze-install/`。
+本轮只做本地 Windows 源码与构建验收，未做安装器、macOS、真实账户、云端 CI 或市场发布。
+
 ## MCP 插件原地重载（2026-11-18，独立功能分支）
 
 `feat/plugin-reload` 是 #250 合入后的独立功能，未升级 runtime pin。

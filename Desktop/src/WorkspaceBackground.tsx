@@ -6,11 +6,10 @@ import { ThemeWelcome } from './ThemeWelcome';
 import './workspace-background.css';
 
 export function StaticThemeImage({ image, brightness = 90 }: { image: ThemeImage; brightness?: number }) {
-  const [failed, setFailed] = useState(false);
-  useEffect(() => setFailed(false), [image.dataUrl]);
-  if (failed) return null;
+  const [failedSource, setFailedSource] = useState<string>();
+  if (failedSource === image.dataUrl) return null;
   return <img className="theme-workspace-image" src={image.dataUrl} alt="" draggable={false}
-    style={{ filter: `brightness(${brightness / 100})` }} onError={() => setFailed(true)}/>;
+    style={{ filter: `brightness(${brightness / 100})` }} onError={() => setFailedSource(image.dataUrl)}/>;
 }
 
 function PackImage({ id, load, brightness }: {

@@ -8,6 +8,7 @@ import { capabilityFailureCode, capabilityFailureDetails } from '../electron/cap
 import { CapabilityService } from '../electron/capability-service';
 import { RpcManagementStopError, type RpcProcess } from '../electron/runtime';
 import { pluginWindowMethodAllowed } from '../electron/plugin-window-policy';
+import { resolveTheme } from '../src/theme';
 
 const file = ts.createSourceFile('main.ts', readFileSync(new URL('../electron/main.ts', import.meta.url), 'utf8'),
   ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
@@ -482,7 +483,7 @@ test('actual main IPC rewrap retains only allowlisted Git failure metadata for c
 test('actual plugin-window IPC is scoped, revalidates stale refs and never dispatches conversation operations', async () => {
   const sender = { mainFrame: {} };
   const state = { stale: false, busy: false, reads: 0, minimized: false, closed: false, shown: false, events: [] as unknown[] };
-  const create = new Function('sender', 'state', 'pluginWindowMethodAllowed', javascript(`
+  const create = new Function('sender', 'state', 'pluginWindowMethodAllowed', 'resolveTheme', javascript(`
     const quitting = false, miniChat = undefined;
     let settingsMutation = false;
     const owner = { ref: 'own-package', window: {
@@ -500,16 +501,19 @@ test('actual plugin-window IPC is scoped, revalidates stale refs and never dispa
     };
     const preferences = { language: 'en', theme: 'light', accentColor: 'green', appearance: { density: 'compact' },
       workspaces: ['private-path'], privateField: 'never-project' };
+    const resolvedColors = () => resolveTheme(preferences.theme, false, preferences.accentColor);
+    const themeMaterial = () => undefined;
     const window = { webContents: { id: 100, mainFrame: {}, send(_channel, event) { state.events.push(event); } } };
     const showMainWindow = () => { state.shown = true; };
     const handle = () => { throw new Error('Must not dispatch to the main conversation'); };
     const handler = ${ipcSource};
     return (...args) => { settingsMutation = state.busy; return handler(...args); };
   `));
-  const invoke = create(sender, state, pluginWindowMethodAllowed);
+  const invoke = create(sender, state, pluginWindowMethodAllowed, resolveTheme);
   const read = (method: string, ...args: unknown[]) => invoke({ sender, senderFrame: sender.mainFrame }, method, ...args);
   const snapshot = await read('pluginWindowState');
   assert.deepEqual(snapshot.preferences, { language: 'en', theme: 'light', accentColor: 'green', appearance: { density: 'compact' } });
+  assert.deepEqual(snapshot.themeAppearance, { colors: resolveTheme('light', false, 'green'), material: undefined });
   assert.doesNotMatch(JSON.stringify(snapshot), /private-path|never-project/);
   assert.deepEqual(await read('pluginDocument', { ref: 'own-package', path: 'start.md' }), { text: 'start.md' });
   for (const method of ['snapshot', 'command', 'preferences', 'pluginDesktopCatalog', 'pluginWindowOpen', 'capabilityMutate',
@@ -612,7 +616,8 @@ for (const exitConfirmed of [true, false]) {
     let settle!: () => void;
     const settled = new Promise<void>(resolve => { settle = resolve; });
     const create = new Function('capabilityService', 'settle', javascript(`
-      let quitting = false, quitPending = false;
+      let quitting = false, quitPending = false, restartAfterStartupQuit = false;
+      const startupCancelled = false;
       const sessionEnding = false, transition = false, window = undefined;
       const speech = { cancel() {} };
       const state = { quits: 0, errors: 0, prevented: 0, diagnostics: [], messages: [], externalShutdowns: 0, externalFlushes: 0 };
@@ -652,15 +657,15 @@ for (const exitConfirmed of [true, false]) {
   });
 }
 
-for (const failExternalShutdown of [false, true]) {
-  test(`actual before-quit waits for the capability writer before ${failExternalShutdown ? 'reporting external shutdown failure' : 'stopping services'}`, { timeout: 10000 }, async () => {
+for (const duringStartup of [false, true]) for (const failExternalShutdown of [false, true]) {
+  test(`actual before-quit ${duringStartup ? 'during startup' : 'in workspace'} waits for the capability writer before ${failExternalShutdown ? 'reporting external shutdown failure' : 'stopping services'}`, { timeout: 10000 }, async () => {
     const gate = new CapabilityGate(), events: string[] = [];
     let release!: () => void, finished!: () => void;
     const writing = new Promise<void>(resolve => { release = resolve; });
     const settled = new Promise<void>(resolve => { finished = resolve; });
     const operation = gate.run(async () => { await writing; events.push('write-finished'); });
-    const create = new Function('capabilityGate', 'events', 'finished', 'failExternalShutdown', javascript(`
-      let quitting = false, quitPending = false;
+    const create = new Function('capabilityGate', 'events', 'finished', 'failExternalShutdown', 'startupCancelled', javascript(`
+      let quitting = false, quitPending = false, restartAfterStartupQuit = true;
       const sessionEnding = false, transition = false, window = undefined;
       const speech = { cancel() {} };
       const stop = { async stopAll() {}, async stop() {}, async close() {}, async shutdown() {}, async flush() {}, resume() {} };
@@ -677,13 +682,15 @@ for (const failExternalShutdown of [false, true]) {
       const externalTasks = { async flush() { events.push('external-flushed'); } };
       const quitReasons = () => ({}), needsQuitReview = () => false, showMainWindow = () => {};
       const preferences = { language: 'zh' }, quitReview = { reset() {} };
+      const startupWindow = { fail(code) { events.push('startup-failed:' + code); } };
       const crashLog = { async record(kind, error, details) { events.push(kind + ':' + details.stage); } };
       const emit = () => { events.push('error'); finished(); };
       const app = { quit() { events.push('quit'); finished(); } };
       const handler = ${beforeQuit.arguments[1].getText(file)};
-      return { start: () => handler({ preventDefault() {} }), pending: () => quitPending, quitting: () => quitting };
+      return { start: () => handler({ preventDefault() {} }), pending: () => quitPending, quitting: () => quitting,
+        restarting: () => restartAfterStartupQuit };
     `));
-    const f = create(gate, events, finished, failExternalShutdown);
+    const f = create(gate, events, finished, failExternalShutdown, duringStartup);
     f.start();
     assert.equal(f.pending(), true);
     await Promise.resolve();
@@ -691,9 +698,11 @@ for (const failExternalShutdown of [false, true]) {
     release();
     await Promise.all([operation, settled]);
     assert.deepEqual(events, failExternalShutdown
-      ? ['write-finished', 'external-stopped', 'quit-failure:external-connectors', 'error']
+      ? ['write-finished', 'external-stopped', ...(duringStartup ? ['startup-failed:STOP_FAILED'] : []),
+        'quit-failure:external-connectors', 'error']
       : ['write-finished', 'external-stopped', 'service-stopped', 'network-stopped', 'external-flushed', 'btw-usage-flushed', 'quit']);
     assert.equal(f.pending(), !failExternalShutdown);
     assert.equal(f.quitting(), !failExternalShutdown);
+    assert.equal(f.restarting(), !failExternalShutdown, 'Failed shutdown never schedules a startup relaunch');
   });
 }

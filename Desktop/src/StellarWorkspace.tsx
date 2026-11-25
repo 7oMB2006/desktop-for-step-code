@@ -4,13 +4,7 @@ import type { ThemePack } from './theme-packs';
 import { hasStellarUi, type ThemeImage } from './theme-packs';
 import { WorkspaceBackground } from './WorkspaceBackground';
 import type { CustomBackgroundState } from './custom-background';
-import './stellar-workspace.css';
-import './stellar-chrome.css';
-import './stellar-records.css';
-import './stellar-decisions.css';
-import './stellar-navigation.css';
-import './stellar-controls.css';
-import './stellar-settings.css';
+import { useStellarMaterial } from './StellarMaterial';
 
 export function StellarWorkspace({ pack, preferences, bridge, reading, paused = false, activity = 'idle', override, customBackground }: {
   pack?: ThemePack; preferences: Preferences; bridge?: DesktopBridge; reading: boolean; paused?: boolean;
@@ -19,11 +13,7 @@ export function StellarWorkspace({ pack, preferences, bridge, reading, paused = 
   customBackground?: CustomBackgroundState;
 }) {
   const active = hasStellarUi(pack) && Boolean(bridge);
-  useLayoutEffect(() => {
-    if (!active) return;
-    document.documentElement.dataset.themeMaterial = 'stellar';
-    return () => { delete document.documentElement.dataset.themeMaterial; };
-  }, [active]);
+  useStellarMaterial(active ? 'stellar' : undefined);
   useLayoutEffect(() => {
     if (!active) return;
     const root = document.documentElement;

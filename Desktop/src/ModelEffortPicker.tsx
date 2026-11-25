@@ -104,6 +104,7 @@ export function ModelEffortPicker({ model, models, favoriteModels, onFavorite, l
   const [previewIndex, setPreviewIndex] = useState(0);
   const [pressure, setPressure] = useState(0);
   const root = useRef<HTMLDivElement>(null);
+  const popover = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
   const fader = useRef<HTMLDivElement>(null);
   const faderColumn = useRef<HTMLDivElement>(null);
@@ -122,6 +123,22 @@ export function ModelEffortPicker({ model, models, favoriteModels, onFavorite, l
   const capacityLabel = capacity ? capacity >= 1000000 ? `${Number((capacity / 1000000).toFixed(2))}M` : capacity >= 1000 ? `${Number((capacity / 1000).toFixed(1))}K` : String(capacity) : '?';
   const activeLevel = level && levels.includes(level) ? level : levels[0];
   const currentIndex = Math.max(0, levels.indexOf(activeLevel ?? ''));
+  useLayoutEffect(() => {
+    const anchor = root.current, panel = popover.current;
+    if (!open || !anchor || !panel) return;
+    const position = () => {
+      const alignedLeft = anchor.getBoundingClientRect().right - panel.offsetWidth;
+      const left = Math.max(12, Math.min(alignedLeft, document.documentElement.clientWidth - panel.offsetWidth - 12));
+      panel.style.setProperty('--effort-popover-shift', `${left - alignedLeft}px`);
+    };
+    position();
+    const observer = new ResizeObserver(position);
+    observer.observe(anchor);
+    observer.observe(panel);
+    if (anchor.parentElement) observer.observe(anchor.parentElement);
+    window.addEventListener('resize', position);
+    return () => { observer.disconnect(); window.removeEventListener('resize', position); };
+  }, [open]);
   useEffect(() => {
     if (!drag.current) { setPreviewIndex(currentIndex); setPressure(0); }
     submitted.current = undefined;
@@ -213,7 +230,8 @@ export function ModelEffortPicker({ model, models, favoriteModels, onFavorite, l
       <span className="model-effort-name">{modelName}</span>
       {(level || model?.thinkingServiceDefault) && <span className={`model-effort-level${level === 'ultra' && !model?.thinkingServiceDefault ? ' model-effort-ultra-text' : ''}`}>{model?.thinkingServiceDefault ? zh ? '服务默认' : 'Service default' : effortLabel(level!, language)}</span>}
     </button>
-    {open && <div className={`model-effort-popover ${view}-view`} style={{ '--effort-color': effortColor } as CSSProperties} role="dialog" aria-label={zh ? '模型与思考强度' : 'Model and thinking level'}>
+    {open && <div ref={popover} className={`model-effort-popover ${view}-view`} style={{ '--effort-color': effortColor } as CSSProperties} role="dialog" aria-label={zh ? '模型与思考强度' : 'Model and thinking level'}>
+      <div className="model-effort-flip">
       <div className="model-effort-panel model-effort-effort-panel" inert={view !== 'effort'} aria-hidden={view !== 'effort'}>
         <div className="model-effort-info">
           <button type="button" className="model-effort-heading" onClick={() => setView('models')} aria-label={zh ? '选择模型' : 'Select model'}>
@@ -252,14 +270,6 @@ export function ModelEffortPicker({ model, models, favoriteModels, onFavorite, l
           </div> : <span className="model-effort-single">{model?.thinkingServiceDefault ? zh ? '服务默认' : 'Service default' : activeLevel ? effortLabel(activeLevel, language) : zh ? '暂无可用档位' : 'No levels available'}</span>}
         </div>
       </div>
-      <div className="model-effort-panel model-effort-models-panel" inert={view !== 'models'} aria-hidden={view !== 'models'}>
-        <ModelPickerList key={view === 'models' ? 'open' : 'closed'} models={models} favoriteModels={favoriteModels}
-          selected={model} language={language} onSelect={chooseModel} onFavorite={onFavorite}
-          onBack={() => {
-            setView('effort');
-            requestAnimationFrame(() => root.current?.querySelector<HTMLButtonElement>('.model-effort-heading')?.focus());
-          }}/>
-      </div>
       <div className="model-effort-panel model-effort-parameters-panel" inert={view !== 'parameters'} aria-hidden={view !== 'parameters'}>
         <button type="button" className="model-effort-back" onClick={() => setView('effort')}><ChevronLeft size={16}/>{zh ? '模型参数' : 'Model parameters'}</button>
         <div className="model-parameters-body">
@@ -278,6 +288,15 @@ export function ModelEffortPicker({ model, models, favoriteModels, onFavorite, l
           {parameters?.declaredOutput && <div className="model-parameters-output">{zh ? '上游输出' : 'Declared output'} · {parameters.declaredOutput.map(v => modalities[v]?.label ?? v).join(' / ')}{parameters.declaredOutput.some(v => v !== 'text') && <small>{zh ? '当前客户端仅接入文本输出' : 'Only text output is supported'}</small>}</div>}
           <div className="model-parameters-footer"><span>{Object.values(parameters?.capabilitySources ?? {}).includes('catalog') ? (zh ? '包含 models.dev 资料 · 未实测' : 'Includes models.dev metadata · Untested') : Object.values(parameters?.capabilitySources ?? {}).includes('official') ? (zh ? '包含官方资料 · 未实测' : 'Includes official documentation · Untested') : parameters?.metadataSource === 'upstream' ? (zh ? '包含上游声明 · 未实测' : 'Upstream declarations · Untested') : parameters?.provider.startsWith('desktop-custom-') ? (zh ? '手动配置 · 未实测' : 'Manual configuration · Untested') : (zh ? '运行时配置' : 'Runtime configuration')}</span>{onConfigure && parameters?.provider.startsWith('desktop-custom-') && <button type="button" onClick={() => { setOpen(false); onConfigure(); }}><SlidersHorizontal size={13}/>{zh ? '配置' : 'Configure'}</button>}</div>
         </div>
+      </div>
+      </div>
+      <div className="model-effort-panel model-effort-models-panel" inert={view !== 'models'} aria-hidden={view !== 'models'}>
+        <ModelPickerList key={view === 'models' ? 'open' : 'closed'} models={models} favoriteModels={favoriteModels}
+          selected={model} language={language} onSelect={chooseModel} onFavorite={onFavorite}
+          onBack={() => {
+            setView('effort');
+            requestAnimationFrame(() => root.current?.querySelector<HTMLButtonElement>('.model-effort-heading')?.focus());
+          }}/>
       </div>
     </div>}
   </div>;

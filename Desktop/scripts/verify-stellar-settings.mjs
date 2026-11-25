@@ -58,7 +58,7 @@ try {
         state[name] = {};
         for (const selector of selectors) state[name][selector] = await metrics(selector);
       };
-      await page.locator('.sidebar-bottom > button').click();
+      await page.locator('.sidebar-settings').click();
       const settings = page.getByRole('dialog', { name: '设置', exact: true });
       const nav = settings.getByRole('navigation', { name: '设置分类', exact: true });
       await nav.getByRole('button', { name: '通用', exact: true }).click();
@@ -68,6 +68,19 @@ try {
         '.settings-layout > nav .selected', '.settings-content > h3', '.settings-content > label > select']);
       assert.equal(await focus(page.getByRole('combobox', { name: '会话排序', exact: true }), undefined, 1), 1);
       await shot('general');
+      const notifications = page.getByRole('region', { name: '通知与声音', exact: true });
+      for (const name of ['审批请求通知', '任务完成通知', '完成提示音']) {
+        const input = notifications.getByRole('checkbox', { name, exact: true });
+        const checked = await input.isChecked();
+        await focus(input);
+        await input.press('Space');
+        await page.waitForFunction(() => !document.querySelector('section[aria-label="通知与声音"] input:disabled'));
+        assert.equal(await input.isChecked(), !checked);
+        await input.press('Space');
+        await page.waitForFunction(() => !document.querySelector('section[aria-label="通知与声音"] input:disabled'));
+        assert.equal(await input.isChecked(), checked);
+      }
+      await shot('notifications');
       await nav.getByRole('button', { name: '外观', exact: true }).click();
       await page.locator('.appearance-settings').scrollIntoViewIfNeeded();
       await read('appearance', ['.appearance-heading', '.appearance-row', '.appearance-number input', '.appearance-preview']);
@@ -115,13 +128,13 @@ try {
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
       if (width === 1440) {
         await page.emulateMedia({ reducedMotion: 'no-preference' });
-        await page.locator('.sidebar-bottom > button').click();
+        await page.locator('.sidebar-settings').click();
         assert.equal(await settings.evaluate(e => getComputedStyle(e).animationName), 'settings-dialog-enter');
         assert.equal(await settings.evaluate(e => getComputedStyle(e).animationDuration), '0.22s');
         await settings.getByRole('button', { name: /^(?:Close|\u5173\u95ed)$/u }).click();
         await settings.waitFor({ state: 'detached' });
         await page.emulateMedia({ reducedMotion: 'reduce' });
-        await page.locator('.sidebar-bottom > button').click();
+        await page.locator('.sidebar-settings').click();
         assert.equal(await settings.evaluate(e => getComputedStyle(e).animationName), 'none');
         await settings.getByRole('button', { name: /^(?:Close|\u5173\u95ed)$/u }).click();
         await settings.waitFor({ state: 'detached' });

@@ -118,7 +118,11 @@ export function resolveTheme(preference: unknown, systemDark: boolean, accentCol
 }
 
 export function applyTheme(preference: unknown, systemDark: boolean, accentColor?: unknown) {
-  const resolved = resolveTheme(preference, systemDark, accentColor);
+  applyResolvedTheme(resolveTheme(preference, systemDark, accentColor));
+}
+
+// Auxiliary windows receive the host's palette without a local plugin registry.
+export function applyResolvedTheme(resolved: ReturnType<typeof resolveTheme>) {
   const root = document.documentElement;
   for (const [name, value] of Object.entries(resolved.tokens)) {
     for (const scheme of ['light', 'dark']) root.style.removeProperty(`--theme-${scheme}-${name.slice(2)}`);

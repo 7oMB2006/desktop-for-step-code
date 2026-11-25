@@ -1,0 +1,94 @@
+/* New auxiliary surfaces share the reading material, never the full scene. */
+:root[data-theme-material=stellar] :is(.plugin-window-shell, .mini-chat-frame) {
+  background: #161719;
+}
+:root[data-theme-material=stellar] .mini-chat-header {
+  background: var(--stellar-control); border-color: var(--stellar-rule);
+}
+:root[data-theme-material=stellar] .mini-chat-session-copy strong { color: var(--stellar-record-ink); }
+:root[data-theme-material=stellar] .mini-chat-project { color: var(--stellar-record-muted); }
+:root[data-theme-material=stellar] .mini-chat-project svg { color: var(--stellar-metal); }
+:root[data-theme-material=stellar] .mini-chat-window-actions [aria-pressed=true] {
+  background: var(--stellar-raised); color: var(--stellar-gold);
+}
+:root[data-theme-material=stellar] :is(.mini-session-picker, .pc-requirements-popover) {
+  background: var(--stellar-control); border-color: var(--stellar-frame);
+  box-shadow: 0 4px 8px #0005;
+}
+:root[data-theme-material=stellar] .mini-session-search {
+  background: var(--stellar-record-paper); border-color: var(--stellar-frame);
+}
+:root[data-theme-material=stellar] .mini-session-search > svg { color: var(--stellar-metal); }
+:root[data-theme-material=stellar] .mini-session-search input::placeholder { color: var(--stellar-record-muted); }
+:root[data-theme-material=stellar] .mini-session-group + .mini-session-group { border-color: var(--stellar-rule); }
+:root[data-theme-material=stellar] .mini-session-option[aria-selected=true] {
+  background: var(--stellar-raised); box-shadow: inset 0 0 0 1px var(--stellar-selection-line);
+}
+:root[data-theme-material=stellar] .mini-session-selected { color: var(--stellar-gold); }
+
+:root[data-theme-material=stellar] :is(.plugin-workspace, .plugin-side-surface) {
+  background: #18191b;
+}
+:root[data-theme-material=stellar] .plugin-workspace-header {
+  background: transparent;
+}
+:root[data-theme-material=stellar] .plugin-workspace-identity h1 { color: var(--stellar-record-ink); }
+:root[data-theme-material=stellar] .plugin-workspace-tabs > button[aria-selected=true] { color: var(--stellar-gold); }
+:root[data-theme-material=stellar] .plugin-workspace-tabs > button[aria-selected=true]::after {
+  height: 1px; background: var(--stellar-metal);
+}
+:root[data-theme-material=stellar] :is(.plugin-workspace-pages, .plugin-side-surface) {
+  border-color: var(--stellar-rule);
+}
+:root[data-theme-material=stellar] .plugin-action-button:is(:hover, [aria-pressed=true], [aria-expanded=true], [data-active]) {
+  background: var(--stellar-raised); color: var(--stellar-gold);
+}
+:root[data-theme-material=stellar] .plugin-workspace-document .pc-document-markdown {
+  color: var(--stellar-record-ink);
+}
+:root[data-theme-material=stellar] .plugin-workspace-document :is(pre, :not(pre) > code) {
+  background: var(--stellar-control);
+}
+:root[data-theme-material=stellar] .plugin-window-loading > span { background: var(--stellar-raised); }
+
+/* Keep version mismatch, failed updates and successful states semantic. */
+:root[data-theme-material=stellar] .pc-requirement-chip:not([data-version-status=mismatch], [data-version-status=invalid]) {
+  background: var(--stellar-raised); border-color: var(--stellar-rule); color: var(--stellar-record-muted);
+}
+:root[data-theme-material=stellar] .pc-extra-requirement:is(:hover, [aria-expanded=true]) {
+  border-color: var(--stellar-metal); color: var(--stellar-record-ink);
+}
+:root[data-theme-material=stellar] :is(.pc-install-requirements, .pc-update-row) { border-color: var(--stellar-rule); }
+:root[data-theme-material=stellar] .pc-update-button {
+  background: var(--stellar-control); border-color: var(--stellar-frame); color: var(--primary);
+}
+:root[data-theme-material=stellar] .pc-update-button:hover:not(:disabled) {
+  background: var(--stellar-raised); border-color: var(--primary);
+}
+:root[data-theme-material=stellar] .pc-requirements-popover > header { color: var(--stellar-record-ink); }
+
+:root[data-theme-material=stellar] :is(.remote-live > header, .remote-tabs,
+  .remote-setup-steps, .remote-setup-footer, .remote-command-list > div) {
+  border-color: var(--stellar-rule);
+}
+:root[data-theme-material=stellar] .remote-page .remote-channel-option {
+  background: var(--stellar-control); border-color: var(--stellar-frame);
+}
+:root[data-theme-material=stellar] .remote-page .remote-channel-option:hover:not(:disabled) {
+  border-color: var(--primary);
+}
+:root[data-theme-material=stellar] :is(.remote-tabs > button > span, .remote-binding-symbol) {
+  background: var(--stellar-raised);
+}
+:root[data-theme-material=stellar] .remote-binding-symbol { border-color: var(--stellar-rule); color: var(--stellar-metal); }
+:root[data-theme-material=stellar] .remote-setup-steps button > span {
+  border-color: var(--stellar-frame);
+}
+:root[data-theme-material=stellar] .remote-setup-steps button[aria-current] > span { border-color: var(--primary); }
+:root[data-theme-material=stellar] .instructions-editor textarea {
+  color: var(--stellar-record-ink); background: var(--stellar-control); border-color: var(--stellar-frame);
+}
+:root[data-theme-material=stellar] .instructions-editor textarea:focus-visible {
+  outline: 2px solid var(--primary); outline-offset: 2px;
+}
+:root[data-theme-material=stellar] .instructions-scope code { color: var(--stellar-metal); }

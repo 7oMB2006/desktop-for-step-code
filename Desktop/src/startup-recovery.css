@@ -1,0 +1,36 @@
+@font-face { font-family: Orbitron; src: url("/fonts/Orbitron-Variable.ttf") format("truetype"); font-weight: 400 900; font-style: normal; font-display: swap; }
+.native-startup { color-scheme: dark; font: 14px "Segoe UI", "Microsoft YaHei", sans-serif; color: #e3e3e6; letter-spacing: 0; }
+.native-startup body { display: block; }
+.native-startup .logo { position: absolute; top: 84px; left: calc(50% - 44px); z-index: 1; pointer-events: none; }
+.startup-surface, .startup-surface * { box-sizing: border-box; }
+/* The native bounds and emblem anchor never change when the local surface appears. */
+.startup-surface { position: absolute; top: 26px; left: 0; width: 100%; max-height: calc(100% - 52px); display: flex; flex-direction: column; padding: 12px 20px; background: transparent; border-radius: 8px; pointer-events: none; transition: background-color 360ms cubic-bezier(.22,1,.36,1), box-shadow 360ms cubic-bezier(.22,1,.36,1); }
+.startup-surface[data-surface=notice], .startup-surface[data-surface=recovery] { background: #252629; box-shadow: 0 4px 8px #0005; }
+.startup-surface[data-surface=recovery] { pointer-events: auto; }
+.startup-logo-slot { height: 128px; flex: 0 0 128px; }
+.startup-caption, .startup-message { opacity: 1; visibility: visible; transition: opacity 260ms cubic-bezier(.22,1,.36,1) 80ms, visibility 0s; }
+.startup-surface[data-surface=transparent] .startup-caption, .startup-surface[data-surface=transparent] .startup-message { opacity: 0; visibility: hidden; transition-delay: 0s, 260ms; }
+.startup-caption { min-height: 26px; flex: 0 0 26px; display: flex; align-items: center; justify-content: space-between; gap: 12px; color: #b8bac1; }
+.startup-caption > span { font: 400 11px Orbitron, "Segoe UI", sans-serif; font-synthesis: none; white-space: nowrap; }
+.startup-surface button, .startup-surface summary { font: inherit; cursor: pointer; }
+.startup-close { width: 26px; height: 26px; flex: 0 0 26px; display: grid; place-items: center; border: 0; border-radius: 4px; background: transparent; color: #b8bac1; }
+.startup-close:hover { background: #3b3c40; color: #fff; }
+.startup-message { width: 100%; min-height: 0; padding: 4px; overflow-y: auto; scrollbar-width: thin; scrollbar-color: #65666b transparent; scroll-padding: 8px; text-align: center; }
+.startup-message h1 { display: flex; justify-content: center; align-items: center; gap: 8px; margin: 0; font-size: 15px; line-height: 1.7; font-weight: 500; }
+.startup-message p { margin: 8px 0 0; color: #b8bac1; font-size: 12px; line-height: 1.8; overflow-wrap: anywhere; }
+.startup-surface[data-surface=recovery] h1 { color: #e7bb87; }
+.startup-actions { display: flex; justify-content: center; flex-wrap: wrap; gap: 8px; margin-top: 14px; padding: 4px; }
+.startup-actions button { min-height: 34px; display: inline-flex; align-items: center; justify-content: center; gap: 7px; padding: 7px 13px; border: 1px solid #505155; border-radius: 4px; background: transparent; color: #d3d4d8; font-size: 12px; }
+.startup-actions button:hover { background: #2d2e32; }
+.startup-actions .startup-primary { background: #d8d5ce; border-color: transparent; color: #242424; }
+.startup-actions .startup-primary:hover { background: #efede7; }
+.startup-surface button:disabled { opacity: .55; cursor: wait; }
+.startup-surface button:focus-visible, .startup-surface summary:focus-visible { outline: 2px solid #dbb870; outline-offset: 3px; }
+.startup-diagnostic { margin-top: 8px; padding: 4px; text-align: left; }
+.startup-diagnostic summary { width: fit-content; display: flex; align-items: center; gap: 7px; margin: 0 auto; padding: 6px; color: #b8bac1; list-style: none; border-radius: 3px; font-size: 12px; }
+.startup-diagnostic summary::-webkit-details-marker { display: none; }
+.startup-diagnostic summary svg:last-child { transition: transform 180ms cubic-bezier(.22,1,.36,1); }
+.startup-diagnostic[open] summary svg:last-child { transform: rotate(180deg); }
+.startup-diagnostic pre { margin: 10px 0 0; padding: 12px 0 0; border-top: 1px solid #494a50; color: #c5c6cc; font: 11px/1.9 Consolas, "Microsoft YaHei", monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
+@media (prefers-reduced-motion: reduce) { .startup-surface, .startup-surface * { animation: none !important; transition: none !important; } }
+html[data-motion=off] .startup-surface, html[data-motion=off] .startup-surface * { animation: none !important; transition: none !important; }

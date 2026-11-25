@@ -1,9 +1,11 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { CircleAlert, RotateCcw } from 'lucide-react';
 import { AppTooltip } from './AppTooltip';
 import { WindowBar } from './WindowBar';
 import { PluginWorkspace } from './PluginWorkspace';
-import { applyTheme } from './theme';
+import { applyResolvedTheme, applyTheme } from './theme';
+import { resolveThemeMaterial } from './theme-material';
+import { useStellarMaterial } from './StellarMaterial';
 import { applyAppearance } from './appearance';
 import { getPluginDesktopEntries, type PluginDesktopEntry } from './plugin-desktop';
 import type { DesktopBridge, PluginWindowSnapshot } from './contracts';
@@ -17,6 +19,9 @@ export function PluginWindowApp({ bridge = window.desktop }: { bridge?: PluginWi
     language: 'zh', theme: window.desktopTheme?.preference ?? window.desktopTheme?.resolved ?? 'system',
   });
   const [systemDark, setSystemDark] = useState(window.desktopTheme?.systemDark ?? false);
+  const [themeAppearance, setThemeAppearance] = useState<PluginWindowSnapshot['themeAppearance']>();
+  useStellarMaterial(themeAppearance ? themeAppearance.material
+    : resolveThemeMaterial(window.desktopTheme?.themePacks ?? [], preferences.theme));
   const [loading, setLoading] = useState(true);
   const [failed, setFailed] = useState(false);
   const [actionError, setActionError] = useState(false);
@@ -36,6 +41,7 @@ export function PluginWindowApp({ bridge = window.desktop }: { bridge?: PluginWi
       })[0];
       if (!available || available.desktop.surface !== 'window') throw new Error('Unavailable');
       setPreferences(snapshot.preferences);
+      setThemeAppearance(snapshot.themeAppearance);
       setEntry(available);
     } catch {
       if (mounted.current && request === sequence.current) { setEntry(undefined); setFailed(true); }
@@ -67,11 +73,12 @@ export function PluginWindowApp({ bridge = window.desktop }: { bridge?: PluginWi
     void refresh();
     return () => { mounted.current = false; sequence.current++; unsubscribe?.(); };
   }, [bridge, refresh]);
-  useEffect(() => {
-    applyTheme(preferences.theme, systemDark, preferences.accentColor);
+  useLayoutEffect(() => {
+    if (themeAppearance) applyResolvedTheme(themeAppearance.colors);
+    else applyTheme(preferences.theme, systemDark, preferences.accentColor);
     applyAppearance(preferences.appearance);
     document.documentElement.lang = zh ? 'zh-CN' : 'en';
-  }, [preferences, systemDark, zh]);
+  }, [preferences, systemDark, zh, themeAppearance]);
   useEffect(() => {
     if (entry) document.title = entry.desktop.title;
     if (!loading) window.dispatchEvent(new Event('desktop-shell-ready'));

@@ -66,7 +66,7 @@ export interface Preferences { interfaceSettings?: import('./interface-presets')
 export type BackgroundLaneSummary = { id: string; status: 'running' | 'settling' };
 export type BackgroundLaneActivity = { status: 'known'; lanes: BackgroundLaneSummary[] } | { status: 'unavailable' };
 export interface RuntimeSummary { runtimeId: string; sessionId: string; cwd: string; name?: string; automaticTitle?: string; firstMessage?: string; backgroundCount?: number; background?: BackgroundLaneActivity; status: 'idle' | 'running' | 'waiting' | 'failed' | 'completed' | 'interrupted' }
-export interface Preferences { themeMotion?: boolean; themeBrightness?: number }
+export interface Preferences { themeMotion?: boolean; themeBrightness?: number; stellarTaskMap?: boolean }
 export interface Snapshot { themePacks?: import('./theme-packs').ThemePack[] }
 export interface Snapshot { customBackground?: import('./custom-background').CustomBackgroundState }
 export interface Snapshot { preferences: Preferences; status: string; providerSettingsPending?: boolean; draftId?: string; runtimeId?: string; runtimeRevision?: number; runtimes?: RuntimeSummary[]; unreadSessionIds?: string[]; requests?: UIRequest[]; state?: RuntimeState; modelSelection?: ModelSelection; modelChanges?: ModelChange[]; permissionPreset?: PermissionPreset; launch?: LaunchState; messages: Message[]; models: Model[]; sessions: Session[]; independent?: boolean; stats?: SessionStats; pendingMessages?: PendingMessage[] }
@@ -147,6 +147,10 @@ export interface CronUpdateInput {
 export interface PluginWindowSnapshot {
   plugin: import('./capabilities').CapabilityPlugin;
   preferences: Pick<Preferences, 'language' | 'theme' | 'accentColor' | 'appearance'>;
+  themeAppearance?: {
+    colors: ReturnType<typeof import('./theme').resolveTheme>;
+    material?: import('./theme-material').ThemeMaterial;
+  };
 }
 export interface DesktopBridge extends SessionImportBridge, BtwBridge, BackgroundAgentClient, WindowConversationBridge, RemoteBridge, ExternalConnectorBridge, SpeechBridge, WebSearchBridge, PluginUpdateBridge, PluginRemovalBridge, PluginReloadBridge {
   pluginWindowOpen(input: { ref: string }): Promise<void>;

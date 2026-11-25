@@ -201,10 +201,18 @@ test('the Desktop-only compile-cache extension is staged and launched without ch
   const main = await readFile(resolve('electron/main.ts'), 'utf8');
   assert.ok(stage.includes("cp('electron/runtime-compile-cache.mjs', join(runtime, 'runtime-compile-cache.mjs'))"));
   assert.ok(verification.includes("'runtime-compile-cache.mjs'"));
-  assert.ok(verification.includes("input: ['index.html', 'tray-menu.html']"));
   assert.ok(main.includes("NODE_COMPILE_CACHE: join(dataRoot, 'compile-cache')"));
   assert.ok(main.includes("'--extension', join(runtimeRoot, 'runtime-compile-cache.mjs')"));
   assert.ok(stage.includes("entry: 'step/dist/bundle/step.js'"));
+});
+
+test('the plugin verification build retains the host pages and dedicated startup preload', async () => {
+  const verification = await readFile(resolve('scripts/build-plugin-center-verification.mjs'), 'utf8');
+  const rendererInputs = /\brolldownOptions:\s*\{\s*input:\s*\[([^\]]*)\]/u.exec(verification)?.[1] ?? '';
+  for (const entry of ['index.html', 'tray-menu.html', 'startup-logo.html']) {
+    assert.ok(rendererInputs.includes(`'${entry}'`), `missing verification renderer entry: ${entry}`);
+  }
+  assert.match(verification, /\bentryPoints:\s*\[[^\]]*'electron\/startup-preload\.ts'/u);
 });
 
 test('staging includes the capability admin failure classifier', async () => {

@@ -123,6 +123,7 @@ import { DesktopTray } from './desktop-tray';
 import { DesktopNotifications } from './desktop-notifications';
 import { TaskbarBadge, completionBadgeText } from './taskbar-badge';
 import { notificationPreferences, notificationPreferencePatch } from '../src/notification-preferences';
+import { resolveThemeMaterial } from '../src/theme-material';
 import { QuitReview, quitReasons, needsQuitReview } from './quit-review';
 import { quitConfirmation } from '../src/quit-confirmation';
 import { StartupWindow } from './startup-window';
@@ -219,10 +220,24 @@ const capabilityGate = new CapabilityGate();
 let deletingArchived = false;
 let quitting = false;
 let quitPending = false;
+let startupCancelled = false;
+let restartAfterStartupQuit = false;
+function stopStartup(restart: boolean) {
+  if (quitting || quitPending) return;
+  startupCancelled = true;
+  restartAfterStartupQuit = restart;
+  app.quit();
+}
+function startupCheckpoint(stage: string) {
+  if (startupCancelled || quitting || quitPending) throw new Error('Startup cancelled');
+  startupWindow?.setStage(stage);
+}
 let tray: DesktopTray | undefined;
 let sessionEnding = false;
 let restoreRequested = false;
 function showMainWindow() {
+  if (startupCancelled) return;
+  if (startupWindow?.active && !quitPending) { restoreRequested = true; return; }
   if (!window || window.isDestroyed()) { restoreRequested = true; return; }
   startupWindow?.destroy();
   if (window.isMinimized()) window.restore();
@@ -3785,6 +3800,7 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
         : changeFavoriteModel(preferences.favoriteModels, patch.modelFavorite);
       const themeBrightness = themeBrightnessPatch(patch.themeBrightness);
       if (patch.themeMotion !== undefined && typeof patch.themeMotion !== 'boolean') throw new Error('Invalid theme motion');
+      if (patch.stellarTaskMap !== undefined && typeof patch.stellarTaskMap !== 'boolean') throw new Error('Invalid task map preference');
       if (patch.appearance !== undefined) {
         if (!patch.appearance || typeof patch.appearance !== 'object' || Array.isArray(patch.appearance)) throw new Error('Invalid appearance settings');
         preferences.appearance = normalizeAppearance({ ...preferences.appearance, ...patch.appearance });
@@ -3797,6 +3813,8 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
       const sidebarPatch = validateSidebarPreferences(patch, cachedSessions(), preferences.workspaces, pathKey);
       Object.assign(preferences, colorPatch);
       if (patch.themeMotion !== undefined) preferences.themeMotion = patch.themeMotion;
+      const previousTaskMap = preferences.stellarTaskMap;
+      if (patch.stellarTaskMap !== undefined) preferences.stellarTaskMap = patch.stellarTaskMap;
       if (themeBrightness !== undefined) preferences.themeBrightness = themeBrightness;
       if (['zh', 'en'].includes(patch.language)) preferences.language = patch.language;
       if (patch.workspaceNames !== undefined) {
@@ -3832,6 +3850,8 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
       if (favoriteModels) preferences.favoriteModels = favoriteModels;
       try { await savePreferences(); } catch (error) {
         if (favoriteModels && preferences.favoriteModels === favoriteModels) preferences.favoriteModels = previousFavorites;
+        if (patch.stellarTaskMap !== undefined && preferences.stellarTaskMap === patch.stellarTaskMap)
+          preferences.stellarTaskMap = previousTaskMap;
         if (patch.autoGenerateSessionTitles !== undefined && preferences.autoGenerateSessionTitles === patch.autoGenerateSessionTitles)
           preferences.autoGenerateSessionTitles = previousAutoTitles;
         if (titleModel !== undefined && preferences.sessionTitleModel === titleModel) preferences.sessionTitleModel = previousTitleModel;
@@ -3914,7 +3934,11 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
     default: throw new Error('Unknown desktop operation');
   }
 }
-app.on('will-quit', () => { notifications.dispose(); startupWindow?.destroy(); tray?.dispose(); tray = undefined; localPages.dispose(); updates.dispose(); installer.dispose(); });
+app.on('will-quit', () => {
+  // Schedule a relaunch only after the existing shutdown flow has succeeded.
+  if (restartAfterStartupQuit) { restartAfterStartupQuit = false; app.relaunch(); }
+  notifications.dispose(); startupWindow?.destroy(); tray?.dispose(); tray = undefined; localPages.dispose(); updates.dispose(); installer.dispose();
+});
 app.on('before-quit', event => {
   speech.cancel();
   if (quitting) return;
@@ -3927,16 +3951,21 @@ app.on('before-quit', event => {
       const reasons = quitReasons(runtimes, transition);
       if (!sessionEnding && needsQuitReview(reasons) && window && !window.isDestroyed()) {
         showMainWindow();
-        if (window.webContents.isCrashed()) {
+        if (window.webContents.isCrashed() || startupCancelled) {
           const presentation = quitConfirmation(reasons, preferences.language);
-          const result = await dialog.showMessageBox(window, {
-            type: 'warning', message: presentation.title,
+          const options = {
+            type: 'warning' as const, message: presentation.title,
             detail: [...presentation.items.map(item => `${item.title}\n${item.description}`), ...presentation.notes].join('\n\n'),
             buttons: [preferences.language === 'zh' ? '取消退出' : 'Cancel quit', presentation.confirm],
             defaultId: 0, cancelId: 0, noLink: true,
-          });
-          if (result.response !== 1) { quitPending = false; return; }
-        } else if (!await quitReview.ask(reasons)) { quitPending = false; return; }
+          };
+          const result = startupCancelled ? await dialog.showMessageBox(options) : await dialog.showMessageBox(window, options);
+          if (result.response !== 1) {
+            quitPending = false; restartAfterStartupQuit = false;
+            if (startupCancelled) startupWindow?.fail('STOP_FAILED');
+            return;
+          }
+        } else if (!await quitReview.ask(reasons)) { quitPending = false; restartAfterStartupQuit = false; return; }
       }
       quitStage = 'capability-writer';
       await capabilityGate.whenIdle();
@@ -3969,8 +3998,10 @@ app.on('before-quit', event => {
     } catch (error) {
       quitPending = false;
       pluginReloads.resume();
+      restartAfterStartupQuit = false;
       quitReview.reset();
-      if (!sessionEnding) showMainWindow();
+      if (startupCancelled) startupWindow?.fail('STOP_FAILED');
+      else if (!sessionEnding) showMainWindow();
       void crashLog.record('quit-failure', error, { stage: quitStage });
       emit({ type: 'desktop_error', message: quitStage === 'terminals'
         ? preferences.language === 'zh' ? '无法结束终端，请关闭终端后重试退出。' : 'Could not stop terminals. Close them and try exiting again.'
@@ -3985,33 +4016,50 @@ app.on('activate', showMainWindow);
 if (!app.requestSingleInstanceLock()) { quitting = true; app.quit(); }
 else app.whenReady().then(async () => {
   if (!backgroundAcceptance || process.env.DESKTOP_TEST_STARTUP_WINDOW === '1')
-    startupWindow = new StartupWindow(backgroundAcceptance, !app.isPackaged ? process.env.DESKTOP_DEV_URL : undefined);
+    startupWindow = new StartupWindow(backgroundAcceptance, !app.isPackaged ? process.env.DESKTOP_DEV_URL : undefined,
+      { pending: true }, { retry: () => stopStartup(true), close: () => stopStartup(false) });
   // Detect older profiles before startup creates runtime configuration or preferences.
+  startupCheckpoint('profile');
   await firstRun.initialize();
+  startupCheckpoint('storage');
   await mkdir(dataRoot, { recursive: true });
+  startupCheckpoint('storage');
   await mkdir(join(dataRoot, 'sessions'), { recursive: true });
+  startupCheckpoint('capability-recovery');
   await capabilityService.recover();
+  startupCheckpoint('capabilities');
   await capabilityService.initialize();
+  startupCheckpoint('custom-background');
   await syncCustomBackground();
+  startupCheckpoint('collaboration');
   await collaboration.start();
+  startupCheckpoint('desktop-bridge');
   await bvrBridge.start();
+  startupCheckpoint('plugin-hosts');
   if (runtimeManifest.patches?.includes('desktop-plugin-host-launch')) await pluginHosts.start();
   // Load credentials before admin/rpc start so the migrated vault content reaches both;
   // vault.load() also migrates and removes a legacy plaintext auth.json. safeStorage
   // requires the ready state, which whenReady provides.
+  startupCheckpoint('credentials');
   authData = await vault.load();
+  startupCheckpoint('credentials');
   if (authData.step && authData[PLUGIN_HOST_ACCOUNT_FIELD] === undefined) {
     authData = withPluginHostAccount(authData);
     await vault.save(authData);
   }
+  startupCheckpoint('usage');
   appliedAuthData = authData;
   await usageEstimates.initialize();
+  startupCheckpoint('providers');
   await projectProviders(dataRoot, authData);
+  startupCheckpoint('preferences');
   crashLog.setPhase('vault loaded');
   try { preferences = { ...preferences, ...JSON.parse(await readFile(preferencesFile, 'utf8')) }; } catch {}
+  startupCheckpoint('network');
   preferences.autoGenerateSessionTitles = preferences.autoGenerateSessionTitles !== false;
   preferences.sessionTitleModel = titleModelIdentity(preferences.sessionTitleModel) ?? null;
   await network.start(preferences.network ?? { mode: 'system', proxyUrl: '' });
+  startupCheckpoint('appearance');
   preferences = migrateWorkspaceIdentity(preferences);
   Object.assign(preferences, normalizePanelPreferences(preferences));
   Object.assign(preferences, notificationPreferences(preferences));
@@ -4020,15 +4068,21 @@ else app.whenReady().then(async () => {
   delete (preferences as Preferences & { recentModels?: unknown }).recentModels;
   preferences.interfaceSettings = normalizeInterfaceSettings(preferences.interfaceSettings);
   await refreshThemePacks();
+  startupCheckpoint('appearance');
   preferences.theme = normalizeTheme(preferences.theme);
   try { preferences.themeBrightness = themeBrightnessPatch(preferences.themeBrightness) ?? 90; }
   catch { preferences.themeBrightness = 90; }
   preferences.accentColor = normalizeAccent(preferences.accentColor) ?? null;
+  // Keep the early window transparent until the installed appearance is known.
+  const themeMaterial = () => resolveThemeMaterial(themePacks.packs, preferences.theme);
+  startupWindow?.setAppearance({ material: themeMaterial(), motion: preferences.themeMotion !== false });
   preferences.updateChannel = preferences.updateChannel === 'stable' ? 'stable' : 'preview';
   preferences.autoCheckUpdates = preferences.autoCheckUpdates !== false;
   updates.setChannel(preferences.updateChannel);
   try { await writeFile(join(dataRoot, 'config.toml'), 'permissionPreset = "ask"\n[telemetry]\nenabled = false\n', { flag: 'wx' }); } catch (e: any) { if (e.code !== 'EEXIST') throw e; }
+  startupCheckpoint('admin');
   admin.start(nodePath, join(runtimeRoot, 'admin.mjs'), dataRoot, authEnvironment());
+  startupCheckpoint('external-connectors');
   try {
     await externalTasks.initialize();
   } catch {
@@ -4048,6 +4102,7 @@ else app.whenReady().then(async () => {
   } catch {
     // Registration failure must not prevent launching the rest of Desktop.
   }
+  startupCheckpoint('workspace-shell');
   session.defaultSession.setPermissionCheckHandler((contents, permission, _origin, details) =>
     Boolean(window && contents === window.webContents && permission === 'media' && details.mediaType === 'audio' && speech.allowMicrophone()));
   session.defaultSession.setPermissionRequestHandler((contents, permission, callback, details) =>
@@ -4096,22 +4151,33 @@ else app.whenReady().then(async () => {
   });
   let shellShown = false;
   const revealShell = () => {
-    if (shellShown || quitting || window.isDestroyed()) return;
+    if (shellShown || startupCancelled || quitting || quitPending || window.isDestroyed()) return;
     shellShown = true;
     clearTimeout(shellFallback);
-    const show = () => { if (!quitting && !window.isDestroyed() && !backgroundAcceptance) window.show(); };
+    const show = () => {
+      restoreRequested = false;
+      if (!startupCancelled && !quitting && !quitPending && !window.isDestroyed() && !backgroundAcceptance) window.show();
+    };
     if (startupWindow) startupWindow.finish(show);
     else show();
   };
-  const shellFallback = setTimeout(revealShell, 10000);
+  // Without a splash (headless acceptance), retain the prior bounded handoff.
+  // A visible startup instead offers recovery, never a timed reveal of a blank shell.
+  const shellFallback = startupWindow ? undefined : setTimeout(revealShell, 10000);
   window.once('closed', () => { clearTimeout(shellFallback); startupWindow?.destroy(); });
   ipcMain.on('desktop:shell-ready', event => {
     if (event.sender === window.webContents && event.senderFrame === window.webContents.mainFrame) revealShell();
   });
   window.webContents.on('did-fail-load', (_event, code, _description, _url, isMainFrame) => {
-    if (isMainFrame && code !== -3) revealShell();
+    if (isMainFrame && code !== -3) {
+      if (startupWindow?.active) startupWindow.fail('SHELL_LOAD_FAILED');
+      else revealShell();
+    }
   });
-  window.webContents.on('render-process-gone', revealShell);
+  window.webContents.on('render-process-gone', () => {
+    if (startupWindow?.active) startupWindow.fail('SHELL_RENDERER_GONE');
+    else revealShell();
+  });
   window.webContents.on('render-process-gone', () => quitReview.reset());
   nativeTheme.on('updated', () => {
     tray?.relabel();
@@ -4142,7 +4208,8 @@ else app.whenReady().then(async () => {
   try {
     tray = new DesktopTray(app.isPackaged ? join(process.resourcesPath, process.platform === 'darwin' ? 'tray.png' : 'icon.ico') : resolve(process.platform === 'darwin' ? 'build/tray.png' : 'build/icon.ico'),
       () => preferences.language, showMainWindow, () => app.quit(), {
-        theme: resolvedTheme, colors: resolvedColors, quitting: () => quitting, noFocus: backgroundAcceptance,
+        theme: resolvedTheme, colors: resolvedColors, material: themeMaterial, motion: () => preferences.themeMotion !== false,
+        quitting: () => quitting, noFocus: backgroundAcceptance,
         devUrl: !app.isPackaged ? process.env.DESKTOP_DEV_URL : undefined,
         onError: error => { void crashLog.record('tray-menu', error); },
       });
@@ -4177,7 +4244,7 @@ else app.whenReady().then(async () => {
       if (method === 'pluginWindowState') return { plugin, preferences: {
         language: preferences.language, theme: preferences.theme, accentColor: preferences.accentColor,
         appearance: preferences.appearance,
-      } };
+      }, themeAppearance: { colors: resolvedColors(), material: themeMaterial() } };
       if (method === 'pluginWindowConfigure') {
         showMainWindow();
         window.webContents.send('runtime-event', { type: 'desktop_main_action', action: 'plugins',
@@ -4312,8 +4379,9 @@ else app.whenReady().then(async () => {
     setInterval(check, 6 * 60 * 60 * 1000).unref();
   }
 }).catch(async error => {
-  startupWindow?.destroy();
+  if (startupCancelled || quitting || quitPending) return;
   await crashLog.record('startup-failure', error, (error as { details?: Record<string, unknown> }).details ?? {});
+  if (startupWindow?.active) { startupWindow.fail('INIT_FAILED'); return; }
   if (!backgroundAcceptance) dialog.showErrorBox('Desktop for Step Code', String(error));
   quitting = true; void pluginReloads.close().then(() => Promise.all([historyReaders.close(), remote.shutdown(), externalConnectors.shutdown(), sessionImports.close(), runtimes.stopAll(), admin.stop(), capabilityService.stop(), collaboration.stop(), terminals.stopAll(), pluginHosts.close()])).finally(() => app.quit());
 });

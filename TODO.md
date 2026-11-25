@@ -9,13 +9,18 @@
 ## P0
 
 - [ ] Windows 通知改用系统应用图标
-- [ ] 当前 main 发布候选验收：唯一跟踪已合并功能在选定 main 提交上的组合包、真实账户／模型、飞书真实授权／卡片回调／重连及安装升级验收，不代表这些功能仍待开发。覆盖 v0.1.7 启停与 Plan、命令结果／失败恢复、CLM／自动压缩、空回复结算，以及 #245 飞书恢复期间导航、#247 插件启动与 StepAudio 发布卫生、Workflow、旁问、完成自查、首次启动引导、MiniChat、#248 长会话右栏性能和安全输出等；专项边界见 [验收记录](docs/VERIFICATION.md)、[Remote](docs/REMOTE.md)、[v0.1.6 集成边界](docs/UPSTREAM_V016.md)、[v0.1.7 集成边界](docs/UPSTREAM_V017.md)。历史 macOS 启动超时根因尚未确认，不因重跑通过而视为根治。
 
 ## P1
 
 - [ ] ComputerUse
+- [ ] git
+- [ ] Github插件
+- [ ] 分组标签
+- [ ] 天工开物开放 · webui
 
 ## P2
+
+- [ ] Superagent
 
 Remote／浏览器访问：局域网 Beta，默认关闭、DFSC 运行时可用，不阻塞 1.0.0。按下列阶段逐步验收，Beta 不降低授权、隔离与防重复执行要求。
 
@@ -35,6 +40,7 @@ Remote／浏览器访问：局域网 Beta，默认关闭、DFSC 运行时可用�
 
 ## 已完成
 
+- [x] main 发布候选验收：唯一跟踪已合并功能在选定 main 提交上的组合包、真实账户／模型、飞书真实授权／卡片回调／重连及安装升级验收，不代表这些功能仍待开发。覆盖 v0.1.7 启停与 Plan、命令结果／失败恢复、CLM／自动压缩、空回复结算，以及 #245 飞书恢复期间导航、#247 插件启动与 StepAudio 发布卫生、Workflow、旁问、完成自查、首次启动引导、MiniChat、#248 长会话右栏性能和安全输出等；专项边界见 [验收记录](docs/VERIFICATION.md)、[Remote](docs/REMOTE.md)、[v0.1.6 集成边界](docs/UPSTREAM_V016.md)、[v0.1.7 集成边界](docs/UPSTREAM_V017.md)。历史 macOS 启动超时根因尚未确认，不因重跑通过而视为根治。
 - [x] 报错优化
 - [x] 搜索工具
 - [x] 部分加载动画

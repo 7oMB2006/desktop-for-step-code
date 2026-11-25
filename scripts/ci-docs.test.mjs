@@ -13,7 +13,8 @@ test('lightweight checks reject stale pins, patch instructions and native build 
   for (const path of ['README.md', 'README.zh-CN.md', 'patches/README.md', 'docs/RELEASE.md', 'docs/MACOS.md',
     '.github/workflows/windows-integration.yml', '.github/actions/setup-macos/action.yml',
     '.github/workflows/macos-integration.yml', '.github/workflows/macos-acceptance.yml',
-    'Desktop/scripts/stage-runtime.mjs', 'patches/v017/manifest.json']) {
+    'Desktop/scripts/stage-runtime.mjs', 'Desktop/scripts/runtime-baseline.mjs', 'scripts/ci-step-code.mjs',
+    'patches/v018/manifest.json']) {
     assert.throws(() => validateDocumentation(name => name === path ? '' : load(name)), path);
   }
   for (const path of ['README.md', 'README.zh-CN.md', 'docs/MACOS.md']) {

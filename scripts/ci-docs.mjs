@@ -10,20 +10,27 @@ const read = path => readFileSync(join(root, path), 'utf8');
 // These contracts also run in runtime-staging.test.ts; docs-only changes must
 // not bypass the instructions that keep the runtime pin and patch chain aligned.
 export function validateDocumentation(load = read) {
-  const manifest = JSON.parse(load('patches/v017/manifest.json'));
+  const selector = load('Desktop/scripts/runtime-baseline.mjs');
+  const baseline = selector.match(/export const defaultRuntimeBaseline = '(v\d{3})';/)?.[1];
+  assert.ok(baseline, 'Missing reviewed default runtime baseline');
+  const manifest = JSON.parse(load(`patches/${baseline}/manifest.json`));
   const pin = manifest.commit;
   assert.match(pin ?? '', /^[0-9a-f]{40}$/, 'Invalid documented runtime pin');
   assert.match(load('Desktop/scripts/stage-runtime.mjs'), /const PINNED_COMMIT = integrationManifest.commit/);
   for (const doc of ['README.md', 'README.zh-CN.md', 'patches/README.md', 'docs/RELEASE.md', 'docs/MACOS.md'])
     assert.ok(load(doc).includes(pin), `${doc} documents a different runtime pin`);
   for (const doc of ['README.md', 'README.zh-CN.md'])
-    assert.match(load(doc), /apply-step-code-desktop-patch\.mjs Step-Code patches\\v017\\step-code-desktop\.patch/,
+    assert.ok(load(doc).includes(`apply-step-code-desktop-patch.mjs Step-Code patches\\${baseline}\\step-code-desktop.patch`),
       `${doc} must apply the documented patch chain`);
-  assert.match(load('docs/MACOS.md'), /apply-step-code-desktop-patch\.mjs Step-Code patches\/v017\/step-code-desktop\.patch/);
-  for (const path of ['.github/workflows/windows-integration.yml', '.github/actions/setup-macos/action.yml']) {
-    assert.ok(load(path).includes(pin), `${path} uses a different runtime pin`);
-    assert.match(load(path), /patches\/v017\/step-code-desktop\.patch/);
-  }
+  assert.ok(load('docs/MACOS.md').includes(`apply-step-code-desktop-patch.mjs Step-Code patches/${baseline}/step-code-desktop.patch`));
+  const fetcher = load('scripts/ci-step-code.mjs');
+  assert.match(fetcher, /readRuntimeBaseline\(defaultRuntimeBaseline\)/);
+  assert.match(fetcher, /patches\/\$\{name\}\/step-code-desktop\.patch/);
+  const windows = load('.github/workflows/windows-integration.yml');
+  for (const operation of ['fetch', 'patch']) assert.ok(windows.includes(`node scripts/ci-step-code.mjs ${operation}`));
+  const macos = load('.github/actions/setup-macos/action.yml');
+  assert.match(macos, /run: node scripts\/ci-step-code\.mjs/);
+  for (const build of [windows, macos]) assert.match(build, /corepack pnpm build:offline\b/);
   for (const path of ['.github/workflows/macos-integration.yml', '.github/workflows/macos-acceptance.yml'])
     assert.match(load(path), /uses: \.\/\.github\/actions\/setup-macos/, `${path} must use the native build action`);
 }

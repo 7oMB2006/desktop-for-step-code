@@ -11,6 +11,7 @@ await build({ entryPoints: ['electron/main.ts', 'electron/preload.ts', 'electron
 await viteBuild({ base: './', define, build: { outDir: 'dist/renderer', emptyOutDir: true, rolldownOptions: { input: ['index.html', 'tray-menu.html', ...(usagePreview ? ['tests/fixtures/usage-overview.html'] : [])] } } });
 await mkdir('dist/licenses', { recursive: true });
 await cp('src/assets/providers/NOTICE.txt', 'dist/licenses/provider-marks.txt');
+await cp('src/assets/icons/NOTICE.txt', 'dist/licenses/tabler-icons.txt');
 await mkdir('dist/file-opening', { recursive: true });
 await cp('dist/macos-update-helper.cjs', 'dist/file-opening/macos-update-helper.cjs');
 if (process.platform === 'darwin') {

@@ -8,14 +8,14 @@ const transientOperation = /(?:^|Error: )Session operation in progress$/;
 // The page is an explicit parameter so the assertion stays importable and testable:
 // the Electron fixture declares its page inside a try block, which a module-level
 // helper cannot close over.
-export const expectCronBlockedMove = async (page, sessionId, destination) => {
+export const expectCronBlockedMove = async (page, sessionId, destination, expected = cronRejection) => {
   for (let attempt = 0; ; attempt++) {
     try {
       await page.evaluate(({ id, destination }) => window.desktop.moveSessionToProject(id, destination),
         { id: sessionId, destination });
     } catch (error) {
       const failure = String(error instanceof Error ? error.message : error);
-      if (cronRejection.test(failure)) return;
+      if (expected.test(failure)) return;
       if (attempt >= 5 || !transientOperation.test(failure)) throw error;
       await page.waitForTimeout(500);
       continue;

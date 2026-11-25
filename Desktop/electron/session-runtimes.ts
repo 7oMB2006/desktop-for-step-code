@@ -112,6 +112,7 @@ function workspaceKey(cwd: string) {
 interface RuntimeIdleOptions {
   stopHost?: boolean;
   allowStoppingBackgroundCommands?: boolean;
+  recheckChangedCommandState?: boolean;
   allowRemote?: boolean;
   resources?: boolean;
   allowWaitingCron?: boolean;
@@ -297,13 +298,14 @@ export class SessionRuntimes {
     }).catch(() => {});
     return read;
   }
-  async assertBackgroundIdle(worker: SessionRuntime, options: { allowDisconnected?: boolean } = {}) {
-    await this.assertIdle(worker, { stopHost: true });
+  async assertBackgroundIdle(worker: SessionRuntime, options: { allowDisconnected?: boolean; recheckChangedCommandState?: boolean } = {}) {
+    const idle = { stopHost: true, recheckChangedCommandState: options.recheckChangedCommandState };
+    await this.assertIdle(worker, idle);
     if (options.allowDisconnected && worker.status === 'disconnected') return;
     const snapshot = await this.readBackground(worker);
     if (snapshot.lanes.some(lane => lane.status === 'running' || lane.status === 'queued' || lane.settling))
       throw new Error('Stop background agents before changing this session runtime');
-    await this.assertIdle(worker, { stopHost: true });
+    await this.assertIdle(worker, idle);
   }
   summaries() {
     return [...this.workers.values()].filter(worker => worker.state?.sessionId && !worker.cronGated).map(worker => ({
@@ -870,7 +872,7 @@ export class SessionRuntimes {
     return read;
   }
   async assertIdle(worker: SessionRuntime, options: RuntimeIdleOptions = {}) {
-    const rpc = worker.rpc, sessionId = worker.state?.sessionId, revision = worker.revision;
+    const rpc = worker.rpc, sessionId = worker.state?.sessionId;
     const protectCommands = options.stopHost && !options.allowStoppingBackgroundCommands && this.hooks.backgroundCommandsAvailable?.();
     const requireConnected = options.allowRemote && worker.remoteAttached;
     const assertHost = () => {
@@ -892,18 +894,21 @@ export class SessionRuntimes {
     assertHost();
     if (protectCommands && worker.status === 'connecting')
       throw new BackgroundCommandStateError('Cannot verify background commands for this session; try again once the session is connected');
-    if (worker.status === 'connected') {
+    for (let attempt = 0; worker.status === 'connected'; attempt++) {
+      const revision = worker.revision;
       const state = await worker.rpc.request('get_state');
       assertHost();
       if ((requireConnected || worker.remoteAttached && options.allowRemote)
         && (state?.sessionId !== sessionId || typeof state?.isStreaming !== 'boolean'))
         throw new Error('Runtime is not connected');
       if (state.isStreaming || state.isCompacting || state.pendingMessageCount) throw new Error('Stop this session task first');
-      if (protectCommands) {
-        if (worker.status !== 'connected' || worker.revision !== revision)
-          throw new BackgroundCommandStateError('Cannot verify background commands for this session; try again once the session is connected');
-        this.assertNoBackgroundCommands(state, sessionId);
-      }
+      if (!protectCommands) return;
+      if (worker.status !== 'connected')
+        throw new BackgroundCommandStateError('Cannot verify background commands for this session; try again once the session is connected');
+      this.assertNoBackgroundCommands(state, sessionId);
+      if (worker.revision === revision) return;
+      if (attempt || !options.recheckChangedCommandState)
+        throw new BackgroundCommandStateError('Cannot verify background commands for this session; try again once the session is connected');
     }
   }
   async assertBackgroundCommandsMayStop(worker: SessionRuntime) {

@@ -1,0 +1,11 @@
+diff --git a/packages/coding-agent/test/step-subagent-events.test.ts b/packages/coding-agent/test/step-subagent-events.test.ts
+--- a/packages/coding-agent/test/step-subagent-events.test.ts
++++ b/packages/coding-agent/test/step-subagent-events.test.ts
+@@ -997,6 +997,7 @@
+ 		let workflowQueued = false;
+ 		createStepSubagentExtension({
+ 			agentDir: join(cwd, "agents"),
++			maxConcurrency: 2,
+ 			runner: async (input) => {
+ 				expect(input.awaitExit).toBe(true);
+ 				await occupy("subagent", input.signal);

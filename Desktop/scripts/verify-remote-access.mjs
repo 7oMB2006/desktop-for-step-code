@@ -226,11 +226,21 @@ try {
   const inject = (kind, fields = {}) => app.evaluate((_, value) =>
     globalThis.remoteHarness.child.stdin.write(JSON.stringify({ type: 'fixture-event', ...value }) + '\n'), { kind, fields });
   const cards = () => app.evaluate(() => globalThis.remoteHarness.cards);
-  const waitCard = async predicate => {
+  const waitReaction = async (messageId, active) => {
+    const deadline = Date.now() + 10000;
+    do {
+      const found = await app.evaluate((_, { messageId, active }) => globalThis.remoteHarness.reactions
+        .some(value => value.messageId === messageId && value.active === active), { messageId, active });
+      if (found) return;
+      await new Promise(resolve => setTimeout(resolve, 30));
+    } while (Date.now() < deadline);
+    assert.fail(`Missing ${active ? 'active' : 'cleared'} reaction for ${messageId}`);
+  };
+  const waitCard = async (predicate, after = 0) => {
     const deadline = Date.now() + 45000;
     while (Date.now() < deadline) {
       assert.deepEqual(failures, []);
-      const found = (await cards()).findLast(predicate);
+      const found = (await cards()).slice(after).findLast(predicate);
       if (found) return found;
       await new Promise(resolve => setTimeout(resolve, 30));
     }
@@ -475,11 +485,15 @@ try {
     await new Promise(resolve => setTimeout(resolve, 20));
   }
   await inject('input', { id: 'recall-queued', text: 'MUST-NOT-RUN-RECALLED' });
+  await waitReaction('recall-queued', true);
+  const beforeTasks = (await cards()).length;
   await inject('input', { id: 'tasks-overview', text: '/tasks' });
-  await waitCard(card => card.overview?.rows.some(row => row.queue === 1));
+  await waitCard(card => card.overview?.rows.some(row => row.queue === 1), beforeTasks);
   await inject('recalled', { id: 'recall-queued' });
+  await waitReaction('recall-queued', false);
+  const beforeRecallStatus = (await cards()).length;
   await inject('input', { id: 'recall-status', text: '/status s1' });
-  await waitCard(card => card.text?.includes('Queue: 0') && card.text.includes('Remote:'));
+  await waitCard(card => card.text?.includes('Queue: 0') && card.text.includes('Remote:'), beforeRecallStatus);
   assert.ok(!received.includes('MUST-NOT-RUN-RECALLED'));
   await inject('input', { id: 'switch-while-running', text: `/session ${remoteNew.sessionId}` });
   await waitState(current => current.binding?.sessionId === remoteNew.sessionId);

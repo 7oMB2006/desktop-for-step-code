@@ -3,11 +3,12 @@ import { mkdir, readdir, readFile, copyFile, symlink, access, realpath, stat } f
 import { resolve, join, isAbsolute } from 'node:path';
 import { build } from 'esbuild';
 import { build as viteBuild } from 'vite';
+import { readRuntimeBaseline } from './runtime-baseline.mjs';
 
 const output = process.argv[2];
 if (!output || !isAbsolute(output)) throw new Error('Pass a new absolute verification output directory');
 const runtime = resolve(process.env.DESKTOP_TEST_RUNTIME ?? 'runtime');
-const integration = JSON.parse(await readFile('../patches/v017/manifest.json', 'utf8'));
+const { manifest: integration } = await readRuntimeBaseline();
 const staged = JSON.parse(await readFile(join(runtime, 'manifest.json'), 'utf8'));
 assert.equal(staged.commit, integration.commit, 'Verification runtime must use the current pin');
 assert.deepEqual(staged.patchedSourceHashes, {

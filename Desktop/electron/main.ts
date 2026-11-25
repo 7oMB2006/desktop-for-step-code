@@ -2773,7 +2773,8 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
         prepared.mutating = true;
         if (prepared.state?.sessionId !== id || prepared.permissionPreset !== 'ask')
           throw new Error('Could not verify the destination conversation and approval policy');
-        await runtimes.assertBackgroundIdle(prepared);
+        // A startup notification can race the first read of this unpublished host.
+        await runtimes.assertBackgroundIdle(prepared, { recheckChangedCommandState: true });
         pluginHosts.invalidate(prepared);
         await restoreSelectedModel(prepared, source?.state?.model, preferences.language);
         if (source?.state?.thinkingLevel) {

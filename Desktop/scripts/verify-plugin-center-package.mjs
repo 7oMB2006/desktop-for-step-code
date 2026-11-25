@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import { mkdir, readFile, readdir, stat, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { isAbsolute, join } from 'node:path';
+import { readRuntimeBaseline } from './runtime-baseline.mjs';
 
 const options = {};
 for (let index = 2; index < process.argv.length; index += 2) {
@@ -21,7 +22,8 @@ const { extractFile, listPackage } = require('@electron/asar');
 const archive = join(resources, 'app.asar');
 const receipt = await json(join(output, 'source-receipt.json'));
 const manifest = await json(join(desktop, 'package.json'));
-const pin = await json(join(root, 'patches/v017/manifest.json'));
+const { name: baseline } = await readRuntimeBaseline();
+const pin = await json(join(root, 'patches', baseline, 'manifest.json'));
 const shipped = JSON.parse(extractFile(archive, 'package.json'));
 assert.equal(shipped.version, manifest.version);
 assert.equal(shipped.dependencies, undefined);

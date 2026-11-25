@@ -1,3 +1,5 @@
+export const defaultRuntimeBaseline: 'v018';
+
 export function readRuntimeBaseline(name?: string): Promise<{
   name: 'v017' | 'v018';
   manifest: {

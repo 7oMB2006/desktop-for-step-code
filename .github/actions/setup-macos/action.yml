@@ -15,13 +15,7 @@ runs:
         node -p 'process.platform + "/" + process.arch'
     - name: Fetch and patch frozen Step Code runtime
       shell: bash
-      run: |
-        git init Step-Code
-        git -C Step-Code remote add origin https://github.com/stepfun-ai/Step-Code.git
-        git -C Step-Code fetch --depth 1 --no-tags origin 29eb460780489801ce8afc8bffc1a2efae7cbded
-        git -C Step-Code checkout --detach FETCH_HEAD
-        test "$(git -C Step-Code rev-parse HEAD)" = 29eb460780489801ce8afc8bffc1a2efae7cbded
-        node scripts/apply-step-code-desktop-patch.mjs Step-Code patches/v017/step-code-desktop.patch
+      run: node scripts/ci-step-code.mjs
     - name: Prepare verified official canvas prebuild
       shell: bash
       run: node scripts/ci-canvas-prebuild.mjs "$RUNNER_TEMP/dfsc-canvas-prebuilds"

@@ -3,12 +3,12 @@ import { createHash } from 'node:crypto';
 import { createServer } from 'node:http';
 import { mkdir, writeFile, readFile } from 'node:fs/promises';
 import { mkdtemp } from './test-profile.mjs';
-import { submitColdSessionFixture } from './session-fixture.mjs';
+import { submitColdSessionFixture, waitForSessionFixtureSnapshot } from './session-fixture.mjs';
 import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
 import assert from 'node:assert/strict';
 import { assertPersistentTurnStatus } from './turn-status-assertions.mjs';
-import { closeDesktopFixture } from './close-desktop-fixture.mjs';
+import { closeDesktopFixture, closeDesktopFixtureAndWait } from './close-desktop-fixture.mjs';
 import { settleLayout } from './settle-layout.mjs';
 import { assertFocusVisible } from './assert-focus-visible.mjs';
 import { planContext, planPath as planFilePath } from './plan-context.mjs';
@@ -75,6 +75,10 @@ const launchOptions = { ...(process.env.DESKTOP_VERIFY_EXE ? { executablePath: p
     '--disable-renderer-backgrounding'], env, timeout: 60000 };
 let app = await electron.launch(launchOptions);
 const errors = [];
+const waitForIdle = (page, label, match = () => true) => waitForSessionFixtureSnapshot(page, snapshot =>
+  snapshot.state?.isStreaming === false && !snapshot.requests?.length
+  && snapshot.runtimes.some(runtime => runtime.runtimeId === snapshot.runtimeId && !['running', 'waiting'].includes(runtime.status))
+  && match(snapshot), label);
 try {
   const page = await app.firstWindow(); page.setDefaultTimeout(30000); page.on('pageerror', e => errors.push(e.message));
   const setTheme = async theme => {
@@ -100,7 +104,7 @@ try {
     const risk = page.getByRole('dialog', { name: '启用完全访问？', exact: true });
     await risk.waitFor({ timeout: 60000 });
     await risk.getByRole('button', { name: '仅本会话启用', exact: true }).click();
-    await page.waitForFunction(async () => (await window.desktop.snapshot()).permissionPreset === 'full-access');
+    await waitForSessionFixtureSnapshot(page, snapshot => snapshot.permissionPreset === 'full-access', 'the scoped access grant');
   }
   const dialog = page.getByRole('dialog', { name: '审阅计划', exact: true });
   await dialog.waitFor({ timeout: 60000 });
@@ -308,7 +312,7 @@ try {
   await page.waitForFunction(() => document.querySelector('.plan-approval-note'));
   while (!finishExecution) await new Promise(resolve => setTimeout(resolve, 10));
   finishExecution();
-  await page.waitForFunction(async () => !(await window.desktop.snapshot()).state.isStreaming);
+  await waitForIdle(page, 'approved execution to settle');
   assert.equal(await readFile(output, 'utf8'), 'Approved execution');
   assert.equal((await page.evaluate(() => window.desktop.snapshot())).launch.plan, false);
   assert.equal(await runningPlan.count(), 0);
@@ -338,7 +342,8 @@ try {
   stage = 0;
   await page.getByRole('button', { name: '访问权限', exact: true }).click();
   await page.getByRole('menuitemcheckbox', { name: '计划模式', exact: true }).click();
-  await page.waitForFunction(async () => (await window.desktop.snapshot()).launch.plan === true);
+  await waitForSessionFixtureSnapshot(page, snapshot => snapshot.launch.plan === true || snapshot.launch.planArmed === true,
+    'Plan to be enabled for the next submission');
   await page.getByRole('textbox', { name: '消息', exact: true }).fill('Plan again, but wait for my decision.');
   await page.getByRole('textbox', { name: '消息', exact: true }).press('Enter');
   await dialog.waitFor({ timeout: 60000 });
@@ -382,19 +387,21 @@ try {
   await dialog.getByText('Revised proposal', { exact: false }).waitFor();
   const beforeCancel = requests.length;
   await dialog.getByRole('button', { name: '取消', exact: true }).click();
-  await page.waitForFunction(async () => !(await window.desktop.snapshot()).state.isStreaming);
+  await waitForIdle(page, 'the cancelled review to settle');
   assert.equal(requests.length, beforeCancel, 'Cancellation terminates without another provider call');
   assert.equal((await page.evaluate(() => window.desktop.snapshot())).launch.plan, true);
   const expired = await page.evaluate(() => window.desktop.command('extension_ui_response', { id: 'expired-review', value: 'Approve plan' }).then(() => false, () => true));
   assert.equal(expired, true, 'Unknown or duplicate review responses cannot grant approval');
   await page.reload();
-  await page.waitForFunction(async () => (await window.desktop.snapshot()).launch.plan === true);
+  await waitForSessionFixtureSnapshot(page, snapshot => snapshot.launch.plan === true, 'Plan to survive the renderer reload');
   assert.equal(await dialog.count(), 0, 'Renderer reload does not recreate cancelled review');
   await page.getByRole('button', { name: '重新批阅计划', exact: true }).waitFor();
   stage = 3;
-  await page.getByRole('textbox', { name: '消息', exact: true }).fill('An ordinary follow-up, not approval.');
+  const followUp = 'An ordinary follow-up, not approval.';
+  await page.getByRole('textbox', { name: '消息', exact: true }).fill(followUp);
   await page.getByRole('textbox', { name: '消息', exact: true }).press('Enter');
-  await page.waitForFunction(async () => !(await window.desktop.snapshot()).state.isStreaming);
+  await waitForIdle(page, 'the ordinary follow-up to be recorded and settle',
+    snapshot => snapshot.messages.some(message => message.role === 'user' && text(message.content) === followUp));
   await page.getByRole('button', { name: '重新批阅计划', exact: true }).waitFor();
   stage = 0;
   await page.getByRole('button', { name: '重新批阅计划', exact: true }).click();
@@ -402,12 +409,12 @@ try {
   await writeFile(planPath, 'Externally changed proposal');
   const staleCalls = requests.length;
   await dialog.getByRole('button', { name: '批准并执行', exact: true }).click();
-  await page.waitForFunction(async () => !(await window.desktop.snapshot()).state.isStreaming);
+  await waitForIdle(page, 'the rejected stale approval to settle');
   assert.equal(requests.length, staleCalls, 'Changed proposal approval does not resume execution');
   assert.equal((await page.evaluate(() => window.desktop.snapshot())).launch.plan, true);
   assert.deepEqual(errors, []);
   const sessionId = (await page.evaluate(() => window.desktop.snapshot())).state.sessionId;
-  await app.close();
+  await closeDesktopFixtureAndWait(app);
   app = await electron.launch(launchOptions);
   const restored = await app.firstWindow();
   restored.setDefaultTimeout(30000);
@@ -415,9 +422,8 @@ try {
   await restored.evaluate(id => window.desktop.switchSession(id), sessionId);
   await restored.reload();
   await restored.waitForFunction(() => !document.querySelector('.composer-wrap[aria-busy="true"]') && !document.querySelector('.composer > .composer-input')?.disabled, undefined, { timeout: 60000 });
-  await restored.waitForFunction(async id => {
-    const s = await window.desktop.snapshot(); return s.state?.sessionId === id && s.launch.plan === true;
-  }, sessionId, { timeout: 60000 });
+  await waitForSessionFixtureSnapshot(restored, snapshot => snapshot.state?.sessionId === sessionId && snapshot.launch.plan === true,
+    'the original Plan session to be restored', 60000);
   assert.equal((await restored.evaluate(() => window.desktop.snapshot())).requests.length, 0, 'Restart does not restore a grant or pending approval');
   await restored.getByRole('button', { name: '重新批阅计划', exact: true }).waitFor();
   stage = 0;
@@ -429,7 +435,7 @@ try {
   const restoredDialog = restored.getByRole('dialog', { name: '审阅计划', exact: true });
   await restoredDialog.waitFor({ timeout: 60000 });
   const expiryCalls = requests.length;
-  await restored.waitForFunction(async () => !(await window.desktop.snapshot()).state.isStreaming);
+  await waitForIdle(restored, 'the expired review to settle');
   await app.evaluate(() => { globalThis.setTimeout = globalThis.planOriginalTimeout; });
   await restoredDialog.waitFor({ state: 'hidden' });
   await restored.getByRole('button', { name: '重新批阅计划', exact: true }).waitFor();
@@ -444,7 +450,7 @@ try {
   await restoredDialog.waitFor({ timeout: 60000 });
   await restored.screenshot({ path: 'test-results/plan-review-fresh-resubmission.png' });
   await restoredDialog.getByRole('button', { name: '取消', exact: true }).click();
-  await restored.waitForFunction(async () => !(await window.desktop.snapshot()).state.isStreaming);
+  await waitForIdle(restored, 'the reopened review cancellation to settle');
   console.log('Plan context, approval, stale-snapshot protection, expiry and durable fresh-review reentry passed');
 } catch (error) {
   console.error('Plan acceptance error:', error.stack ?? String(error));

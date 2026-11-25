@@ -7,6 +7,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { RpcProcess, isolatedEnvironment } from '../electron/runtime';
 import { defaultCompactionConfiguration } from '../src/compaction-settings';
+import { readRuntimeBaseline } from '../scripts/runtime-baseline.mjs';
 
 const runtime = resolve(process.env.DESKTOP_COMPACTION_RUNTIME ?? 'runtime');
 
@@ -38,7 +39,8 @@ test('pinned admin saves isolated TOML consumed by native settings, without rese
     other.start(node, join(runtime, 'admin.mjs'), workspace, env);
     const initial = await admin.request('compaction_settings');
     const stale = await other.request('compaction_settings');
-    const expected = Number(process.env.DESKTOP_COMPACTION_EXPECTED_DEFAULT ?? .9);
+    const { name } = await readRuntimeBaseline();
+    const expected = Number(process.env.DESKTOP_COMPACTION_EXPECTED_DEFAULT ?? (name === 'v018' ? .85 : .9));
     const defaultNative = await nativeSettings();
     assert.equal(initial.defaultTriggerRatio, expected);
     assert.equal(initial.triggerRatio, expected);

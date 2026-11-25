@@ -11,6 +11,7 @@ import { createRoot } from 'react-dom/client';
 import { flushSync } from 'react-dom';
 import { Plus, Folder, FolderOpen, MessageSquare, CircleHelp, Settings as SettingsIcon, PanelLeft, X, Search, ChevronDown, ChevronRight, Terminal, Copy, Check, RotateCcw, Trash2, Pencil, Cpu, AlertCircle, TriangleAlert, ShieldAlert, Info, Download, ArrowRightLeft, BookOpen, LogOut, SunMoon, ExternalLink, FileCode2, Archive, GitBranch, MoreHorizontal, ListTree, Layers3, FileText, ZoomIn, ZoomOut, Pin, PinOff, ScanLine, FileDiff, Globe, Bot } from 'lucide-react';
 import { McpIcon } from './McpIcon';
+import { WorldSearchIcon } from './WorldSearchIcon';
 import type { Snapshot, Settings, Message, Content, UIRequest, McpServer, Session, ComposerAttachment, RuntimeSummary, RuntimeEvent, Model, DraftModelUpdate } from './contracts';
 import { fullAccessRiskPresentation } from './full-access-risk';
 import { pendingPlanReview, planReview } from './plan-review';
@@ -1618,7 +1619,7 @@ function App() {
   };
   const settingsCategories = [
     ['account', StepPlatformIcon, '账户', 'Account'], ['providers', ProviderIcon, '供应商', 'Providers'],
-    ['web-search', Globe, '联网搜索', 'Web search'],
+    ['web-search', WorldSearchIcon, '联网搜索', 'Web search'],
     ...(!isMini ? [['browser', Globe, '内置浏览器', 'Built-in browser'] as const] : []),
     ['plugins', Plug, '插件', 'Plugins'], ['mcp', McpIcon, 'MCP', 'MCP'], ['skills', BookOpen, 'Skills', 'Skills'],
     ['instructions', FileText, '全局指令', 'Global instructions'], ['general', SunMoon, '通用', 'General'],

@@ -374,8 +374,8 @@ try {
     await main.getByRole('button', { name: 'MiniChat', exact: true }).click();
     await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().find(window => window.getTitle() === 'MiniChat').showInactive());
   };
-  // A repeated handoff may leave identical content mounted in main. Its old
-  // content cannot acknowledge the new action; observe the native hide first.
+  // The native hide precedes the renderer action. Verify both the hide and a
+  // newly opened panel; identical content from the previous action is not proof.
   const waitForHandoff = async () => {
     const hidden = await app.evaluate(async ({ BrowserWindow }, id) => {
       const window = BrowserWindow.fromId(id), deadline = Date.now() + 5000;
@@ -396,9 +396,9 @@ try {
     assert.equal((await main.evaluate(() => window.desktop.snapshot())).state.sessionId, 'one');
     assert.equal(await main.locator('#workflow-catalog-panel[aria-hidden="false"]').count(), 0);
     if (terminal) await verifyTerminalRestored(terminal);
+    await main.locator('#subagent-panel').getByRole('button', { name: '关闭面板', exact: true }).click();
+    await main.locator('#subagent-panel').waitFor({ state: 'detached' });
   }
-  await main.locator('#subagent-panel').getByRole('button', { name: '关闭面板', exact: true }).click();
-  await main.locator('#subagent-panel').waitFor({ state: 'detached' });
   await reopenMini();
   const subagentArticle = mini.locator('article.message.assistant').filter({ hasText: 'Answer 6' });
   await subagentArticle.locator('.historical-agents > summary').click();
@@ -409,9 +409,9 @@ try {
     const description = main.locator('#subagent-panel[aria-hidden="false"] .subagent-task');
     await description.waitFor();
     assert.equal(await description.textContent(), subagentTask.task);
+    await main.locator('#subagent-panel').getByRole('button', { name: '关闭面板', exact: true }).click();
+    await main.locator('#subagent-panel').waitFor({ state: 'detached' });
   }
-  await main.locator('#subagent-panel').getByRole('button', { name: '关闭面板', exact: true }).click();
-  await main.locator('#subagent-panel').waitFor({ state: 'detached' });
   await reopenMini();
   await editor.fill('/workflows'); await editor.press('Escape'); await editor.press('Enter');
   await waitForHandoff();

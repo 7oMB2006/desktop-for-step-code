@@ -61,3 +61,40 @@ test('an unavailable background registry blocks movement and keeps history intac
     assert.deepEqual(host.messages, before);
   } finally { await pool.stopAll(); }
 });
+
+test('a prepared destination can recheck once but requires a fresh, idle command state', async () => {
+  let receive!: (event: any) => void;
+  let getState = () => ({ sessionId: 'session-a', isStreaming: false, desktopBackgroundCommands: { version: 1, count: 0 } });
+  const transport: WorkerTransport = { start() {}, respond() {}, async stop() {}, async request(type) {
+    if (type === 'get_state') return getState();
+    if (type === 'get_messages') return { messages: [] };
+    if (type === 'get_available_models') return { models: [] };
+    if (type === 'desktop_subagents') return { sessionId: 'session-a', lanes: [] };
+    return {};
+  } };
+  const pool = new SessionRuntimes(() => {}, handler => { receive = handler; return transport; },
+    { backgroundCommandsAvailable: () => true });
+  try {
+    const host = await pool.prepare('node', 'step', 'destination', {}, 'session-a.jsonl');
+    const zero = getState();
+    const changed = () => receive({ type: 'extension_ui_request', method: 'setStatus', statusKey: 'fixture-startup' });
+    const destination = { recheckChangedCommandState: true };
+    let reads = 0;
+    getState = () => { if (++reads === 1) changed(); return zero; };
+    await pool.assertBackgroundIdle(host, destination);
+    assert.equal(reads, 3, 'recheck the first snapshot and still verify again after the lane read');
+
+    reads = 0;
+    getState = () => { changed(); reads++; return zero; };
+    await assert.rejects(pool.assertBackgroundIdle(host, destination), /Cannot verify background commands/);
+    assert.equal(reads, 2, 'continued state changes fail closed');
+
+    reads = 0;
+    getState = () => {
+      if (++reads === 1) { changed(); return zero; }
+      return { ...zero, desktopBackgroundCommands: { version: 1, count: 1 } };
+    };
+    await assert.rejects(pool.assertBackgroundIdle(host, destination), /Stop background commands/);
+    assert.equal(reads, 2, 'never accept a fresh snapshot with a live command');
+  } finally { await pool.stopAll(); }
+});

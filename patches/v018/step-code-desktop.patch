@@ -7002,10 +7002,21 @@ index e6680b2d687c0b99daa1633e15ae97b62c0953d1..f353bb9d7b0639a0006b5b07ada835e7
  	};
  }
 diff --git a/packages/coding-agent/src/step/plugins.ts b/packages/coding-agent/src/step/plugins.ts
-index c4f5242cc8ad259d7d3b462eedb94efc2c02159a..23d2d63ab6a30698371b2b4dd756079a766154b1 100644
+index c4f5242cc8ad259d7d3b462eedb94efc2c02159a..4e6201b691982799d69b8c0131b2c7f80c0aa274 100644
 --- a/packages/coding-agent/src/step/plugins.ts
 +++ b/packages/coding-agent/src/step/plugins.ts
-@@ -648,7 +648,7 @@ export async function diagnoseStepPlugin(
+@@ -603,7 +603,9 @@ export async function uninstallPlugin(pluginsDir: string, name: string): Promise<
+ 		throw new Error(`'${name}' is not an installed plugin name.`);
+ 	const stat = await fs.lstat(target).catch(() => undefined);
+ 	if (!stat?.isDirectory()) throw new Error(`Plugin '${name}' is not installed in ${root}.`);
+-	await fs.rm(target, { recursive: true, force: true });
++	// Retry transient Windows file locks within the original deletion.
++	await fs.rm(target, { recursive: true, force: true, maxRetries: process.platform === "win32" ? 3 : 0,
++		retryDelay: 100 });
+ 	return { removedPath: target };
+ }
+ 
+@@ -648,7 +650,7 @@ export async function diagnoseStepPlugin(
  		warnings.push("Executable plugin entries are recorded but not loaded by the Step marketplace facade.");
  	// Judged against the environment the matching servers are actually spawned
  	// with: `connectStepMcpServer` layers the SDK's safe inherited environment,
@@ -7014,7 +7025,7 @@ index c4f5242cc8ad259d7d3b462eedb94efc2c02159a..23d2d63ab6a30698371b2b4dd756079a
  	// inline `mcpServers` record can start a server — discovery skips a string
  	// declaration path — so that is the only shape whose declared `env` can
  	// satisfy a requirement.
-@@ -682,7 +682,7 @@ export async function diagnoseStepPlugin(
+@@ -682,7 +684,7 @@ export async function diagnoseStepPlugin(
   * The declared environments of the servers a manifest's provisioning installs,
   * matched on the provisioned command. Returns a single `undefined` when no
   * server matches, so the caller still judges the requirement against the

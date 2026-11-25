@@ -5,7 +5,7 @@ import { cp, lstat, mkdir, readFile, readdir, realpath, symlink, writeFile } fro
 import { createRequire } from 'node:module';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { readRuntimeBaseline } from './runtime-baseline.mjs';
+import { defaultRuntimeBaseline, readRuntimeBaseline } from './runtime-baseline.mjs';
 
 const desktop = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const repository = dirname(desktop);
@@ -23,7 +23,7 @@ const json = async path => JSON.parse(await readFile(path, 'utf8'));
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
 const { name: baseline, manifest: pin } = await readRuntimeBaseline();
 const requestedRuntime = process.env.DESKTOP_VERIFY_RUNTIME;
-if (baseline !== 'v017') assert.ok(requestedRuntime, 'Pass DESKTOP_VERIFY_RUNTIME for the staged runtime candidate');
+if (baseline !== defaultRuntimeBaseline) assert.ok(requestedRuntime, 'Pass DESKTOP_VERIFY_RUNTIME for the non-default staged runtime');
 if (requestedRuntime) assert.ok(isAbsolute(requestedRuntime), 'Pass an absolute DESKTOP_VERIFY_RUNTIME directory');
 const runtime = await realpath(requestedRuntime ?? join(desktop, 'runtime'));
 const terminalRuntime = await realpath(join(desktop, 'terminal-runtime'));

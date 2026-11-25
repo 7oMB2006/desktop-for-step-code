@@ -103,8 +103,7 @@ export const acceptanceGroups = {
     'verify-profile-lifecycle.mjs',
     'verify-plugin-update-electron.mjs',
     'verify-plugin-reload-electron.mjs',
-    'verify-cron-runtime.mjs',
-    'verify-cron-management.mjs',
+    'verify-cron-v018-upgrade.mjs',
     'verify-cron-transcript-electron.mjs',
     'verify-quit-confirmation-electron.mjs',
     'verify-project-trust.mjs',
@@ -147,8 +146,11 @@ export const acceptanceGroups = {
 export const localOnly = [
   // Menu state/copy preview; native creation/read-only enforcement also has runtime tests.
   'verify-project-instructions-preview.mjs',
-  // These checks require an explicitly staged or packaged v018 candidate; CI still pins v017.
-  'verify-cron-v018-upgrade.mjs',
+  // Project-level scheduling is a historical v017 contract. CI exercises v018
+  // session ownership and verifies the old records are preserved but not run.
+  'verify-cron-runtime.mjs',
+  'verify-cron-management.mjs',
+  // Requires an unpacked Windows installer build, not the Windows source runner.
   'verify-v018-process-electron.mjs',
   // Cross-repository/native fixtures require explicit isolated paths and/or a prepared BVR checkout.
   // Native plugin protocol and consumer coverage also run in plugin-skeleton-native.test.ts.
@@ -280,8 +282,7 @@ export const defaultAcceptanceTimeout = 300_000;
 
 // Keep explicit per-script limits independently adjustable.
 export const acceptanceTimeouts = {
-  'verify-cron-runtime.mjs': 300_000,
-  'verify-cron-management.mjs': 300_000,
+  'verify-cron-v018-upgrade.mjs': 300_000,
   'verify-project-trust.mjs': 300_000,
   'verify-question-review.mjs': 300_000,
   'verify-windows-commands.mjs': 300_000,

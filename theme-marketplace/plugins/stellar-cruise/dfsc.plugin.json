@@ -1,5 +1,9 @@
 {
   "schemaVersion": 1,
+  "authors": [{ "name": "7oMB2006" }],
   "categories": ["themes"],
-  "keywords": ["星辰巡航", "动态主题", "星海", "石墨", "铅笔细线"]
+  "keywords": ["星辰巡航", "动态主题", "星海", "石墨", "铅笔细线"],
+  "requirements": { "dfsc": "^1.0.0", "external": [] },
+  "documentation": { "readme": "README.md", "changelog": "CHANGELOG.md" },
+  "links": [{ "title": "星辰巡航 · v0.6.0 展示页", "url": "https://calm-cedar-6704.page.stepcloud.com/" }]
 }

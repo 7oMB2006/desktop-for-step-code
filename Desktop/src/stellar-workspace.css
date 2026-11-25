@@ -22,6 +22,14 @@
 }
 .stellar-workspace-scene[data-reading=true]::after { opacity: 1; }
 :root[data-theme-material=stellar] :is(main, .main-content, .conversation-shell, .conversation) { background: transparent; }
+/* Fade the transcript into the artwork, not the composer's context actions. */
+:root[data-theme-material=stellar] .conversation {
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 72px), transparent);
+}
+/* A transcript control or the scroll viewport must retain its full focus ring. */
+:root[data-theme-material=stellar] .conversation:is(:focus-visible, :has(:focus-visible)) {
+  mask-image: none;
+}
 :root[data-theme-material=stellar] .window-bar {
   background: #111214f5;
   border-bottom: 1px solid var(--stellar-line); backdrop-filter: blur(16px);

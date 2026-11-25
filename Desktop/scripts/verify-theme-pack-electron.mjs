@@ -5,6 +5,8 @@ import { mkdtemp } from './test-profile.mjs';
 import { resolve, join } from 'node:path';
 const output = resolve(process.argv[2] || '');
 const executablePath = process.env.DESKTOP_VERIFY_EXE || resolve('node_modules/electron/dist/electron.exe');
+const stock = process.argv.includes('--stock-v1.0.0');
+if (stock && !process.env.DESKTOP_VERIFY_EXE) throw new Error('Pass the released Windows executable in DESKTOP_VERIFY_EXE');
 if (!process.argv[2]) throw new Error('Pass evidence directory');
 await mkdir(output, { recursive: true });
 const profile = await mkdtemp(join(output, 'electron-profile-'));
@@ -19,15 +21,16 @@ const env = { ...process.env, DESKTOP_TEST_USER_DATA: profile, DESKTOP_TEST_NO_F
 delete env.DESKTOP_DEV_URL;
 delete env.ELECTRON_RUN_AS_NODE;
 delete env.STEP_API_KEY;
-const launch = () => electron.launch({ executablePath, args: [resolve('dist/main.cjs')],
+const launch = () => electron.launch({ executablePath, args: stock ? [] : [resolve('.')],
   cwd: resolve(process.env.DESKTOP_TEST_APP_CWD || '.'), env, timeout: 60000 });
 let app, page;
 try {
   app = await launch();
+  if (stock) assert.deepEqual(await app.evaluate(({ app }) => [app.isPackaged, app.getVersion()]), [true, '1.0.0']);
   page = await app.firstWindow();
   page.on('pageerror', error => console.error('renderer:', error.message));
   await page.waitForURL('**/renderer/index.html');
-  await page.locator('.sidebar-bottom > button').waitFor({ timeout: 60000 });
+  await page.locator('.sidebar-settings').waitFor({ timeout: 60000 });
   await page.waitForFunction(() => Boolean(window.desktop), { timeout: 60000 });
   const market = resolve('../theme-marketplace');
   await page.evaluate(async source => {
@@ -37,10 +40,20 @@ try {
   const snapshot = await page.evaluate(() => window.desktop.snapshot());
   assert.equal(snapshot.preferences.theme, 'original-dark');
   assert.equal(snapshot.themePacks[0].id, 'plugin:stellar-cruise');
-  await page.locator('.sidebar-bottom > button').click();
+  assert.equal(snapshot.themePacks[0].version, '0.2.0');
+  await page.locator('.sidebar-settings').click();
   await page.getByRole('button', { name: '外观', exact: true }).click();
   await page.getByRole('button', { name: '星辰巡航', exact: true }).click();
   await page.waitForFunction(() => document.documentElement.dataset.palette === 'plugin:stellar-cruise');
+  const taskMap = page.getByRole('checkbox', { name: '推进清单星图', exact: true });
+  if (stock) assert.equal(await taskMap.count(), 0);
+  else {
+    assert.equal(await taskMap.isChecked(), true);
+    await assert.rejects(page.evaluate(() => window.desktop.preferences({ stellarTaskMap: 'false' })), /Invalid task map preference/);
+    await taskMap.click();
+    await page.waitForFunction(async () => (await window.desktop.snapshot()).preferences.stellarTaskMap === false);
+  }
+  assert.equal(await page.getByLabel('星海动态背景').isChecked(), true);
   await page.getByLabel('星海动态背景').click();
   await page.waitForFunction(() => document.querySelector('.theme-pack-toggle input')?.checked === false);
   await page.getByLabel('背景亮度').fill('65');
@@ -49,7 +62,13 @@ try {
   const active = await page.evaluate(() => window.desktop.snapshot());
   assert.equal(active.preferences.themeMotion, false);
   assert.equal(active.preferences.themeBrightness, 65);
+  assert.equal(active.preferences.stellarTaskMap, stock ? undefined : false);
   assert.ok((await page.evaluate(() => window.desktop.themeScene('plugin:stellar-cruise'))).dragons.groups.length === 2);
+  await page.getByRole('button', { name: '内置浏览器', exact: true }).click();
+  const profiles = page.locator('.bs-profile');
+  await profiles.first().locator('summary').click();
+  await profiles.first().getByRole('textbox', { name: '要打开的域名', exact: true }).waitFor();
+  assert.equal(await profiles.count(), 2);
   await page.locator('.settings-dialog > header').getByRole('button', { name: /^(?:Close|\u5173\u95ed)$/u }).click();
   await page.waitForTimeout(1000);
   await page.waitForFunction(() => (document.querySelector('.terminal-heading-output')?.textContent?.trim().length ?? 0) > 3);
@@ -58,12 +77,13 @@ try {
   app = await launch();
   page = await app.firstWindow();
   await page.waitForURL('**/renderer/index.html');
-  await page.locator('.sidebar-bottom > button').waitFor({ timeout: 60000 });
+  await page.locator('.sidebar-settings').waitFor({ timeout: 60000 });
   await page.waitForFunction(() => Boolean(window.desktop));
   const restored = await page.evaluate(() => window.desktop.snapshot());
   assert.equal(restored.preferences.theme, 'plugin:stellar-cruise');
   assert.equal(restored.preferences.themeMotion, false);
   assert.equal(restored.preferences.themeBrightness, 65);
+  assert.equal(restored.preferences.stellarTaskMap, stock ? undefined : false);
   const bootstrap = await page.evaluate(() => window.desktopTheme.firstFrame());
   assert.equal(bootstrap.palette, 'plugin:stellar-cruise');
   await page.evaluate(() => window.desktop.capabilityMutate({ action: 'plugin-remove', id: 'stellar-cruise' }));
@@ -71,7 +91,7 @@ try {
   assert.equal(await page.locator('.theme-stellar-stage').count(), 0);
   const saved = JSON.parse(await readFile(join(profile, 'preferences.json'), 'utf8'));
   assert.equal(saved.theme, 'original-dark');
-  console.log(JSON.stringify({ passed: true, profile, firstFrame: bootstrap }));
+  console.log(JSON.stringify({ passed: true, stock, themeVersion: snapshot.themePacks[0].version, profile, firstFrame: bootstrap }));
 } catch (error) {
   if (page) {
     await page.screenshot({ path: join(output, 'electron-failure.png') }).catch(() => {});

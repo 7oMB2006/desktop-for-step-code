@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="zh-CN" data-startup-material="pending">
+<head>
+  <meta charset="UTF-8"/>
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; img-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>Step Code Startup</title>
+  <style>
+    html, body { margin: 0; width: 100%; height: 100%; background: transparent; overflow: hidden; }
+    body { display: grid; place-items: center; }
+    html[data-native-startup=true] body { display: block; }
+    html[data-native-startup=true] .logo { position: absolute; top: 84px; left: calc(50% - 44px); }
+    .logo { position: relative; width: 88px; height: 88px; }
+    img { display: block; width: 88px; height: 88px; }
+    canvas { position: absolute; inset: -64.308px; width: 216.615px; height: 216.615px; visibility: hidden; }
+    html[data-startup-material=pending] .logo,
+    html[data-startup-material=stellar] img { visibility: hidden; }
+    html[data-startup-material=default] .logo { animation: arrive 650ms cubic-bezier(.22,1,.36,1) both; }
+    .logo[data-ready=true] img { visibility: hidden; }
+    .logo[data-ready=true] canvas { visibility: visible; }
+    html[data-startup-material=stellar] .logo[data-fallback=true] img { visibility: visible; }
+    html[data-motion=off] .logo { animation: none; }
+    @keyframes arrive {
+      from { opacity: 0; transform: translateY(10px) scale(.88); }
+      to { opacity: 1; transform: translateY(0) scale(1); }
+    }
+    @media (prefers-reduced-motion: reduce) { html[data-startup-material] .logo { animation: none; } }
+  </style>
+</head>
+<body>
+  <div class="logo"><img src="/StepCode.svg" alt="Desktop for Step Code"/><canvas aria-hidden="true"></canvas></div>
+  <script type="module" src="/src/startup-logo.ts"></script>
+</body>
+</html>

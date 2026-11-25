@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { readFileSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
-import { contrastRatio, normalizeAccent, normalizeTheme, resolveTheme, themePreferencePatch, themes } from '../src/theme';
+import { applyResolvedTheme, applyTheme, contrastRatio, normalizeAccent, normalizeTheme, resolveTheme, themePreferencePatch, themes } from '../src/theme';
+import { applyThemeMaterial } from '../src/theme-material';
 
 test('six named themes plus original monochrome, system compatibility and safe preference validation', () => {
   assert.deepEqual(themes.map(theme => theme.id), ['light', 'paper', 'dark', 'blue', 'wine', 'jade', 'original-light', 'original-dark']);
@@ -64,5 +65,40 @@ test('bootstrap installs palette and accent before its first theme attribute wri
       document: { documentElement: { dataset, style: { setProperty: (key: string, value: string) => properties.set(key, value) } } },
     });
     assert.deepEqual(observed, { palette: theme.id, bg: theme.bg, primary: colors.tokens['--primary'] });
+  }
+});
+
+test('auxiliary windows apply trusted plugin tokens without registering a plugin, and fully reset on switch', () => {
+  const originalDocument = Object.getOwnPropertyDescriptor(globalThis, 'document');
+  const originalFrame = Object.getOwnPropertyDescriptor(globalThis, 'requestAnimationFrame');
+  const properties = new Map<string, string>();
+  const root = { dataset: {} as Record<string, string>, style: {
+    setProperty: (key: string, value: string) => properties.set(key, value),
+    removeProperty: (key: string) => properties.delete(key),
+  } };
+  Object.defineProperty(globalThis, 'document', { configurable: true, value: { documentElement: root } });
+  Object.defineProperty(globalThis, 'requestAnimationFrame', { configurable: true,
+    value: (callback: () => void) => { callback(); return 1; } });
+  try {
+    assert.equal(normalizeTheme('plugin:stellar-cruise'), 'system', 'this window has no plugin registry');
+    const colors = { ...resolveTheme('dark', false), id: 'plugin:stellar-cruise' as const,
+      tokens: { ...resolveTheme('dark', false).tokens, '--bg': '#080d12', '--primary': '#9de5dd' } };
+    applyResolvedTheme(colors);
+    applyThemeMaterial('stellar');
+    assert.equal(root.dataset.palette, 'plugin:stellar-cruise');
+    assert.equal(root.dataset.themeMaterial, 'stellar');
+    assert.equal(properties.get('--theme-dark-bg'), '#080d12');
+    assert.equal(properties.get('--theme-dark-primary'), '#9de5dd');
+    applyTheme('original-light', true);
+    applyThemeMaterial();
+    assert.equal(root.dataset.themeMaterial, undefined);
+    assert.equal(root.dataset.palette, 'original-light');
+    assert.equal(properties.get('--theme-light-bg'), '#ffffff');
+    assert.equal(properties.has('--theme-dark-bg'), false);
+  } finally {
+    if (originalDocument) Object.defineProperty(globalThis, 'document', originalDocument);
+    else Reflect.deleteProperty(globalThis, 'document');
+    if (originalFrame) Object.defineProperty(globalThis, 'requestAnimationFrame', originalFrame);
+    else Reflect.deleteProperty(globalThis, 'requestAnimationFrame');
   }
 });

@@ -65,14 +65,14 @@ function TaskHistory({ plans, partial, language }: { plans: SummaryPlan[]; parti
   </div>;
 }
 
-export function SummaryBoard({ runtimeId, sessionId, language, onOpenChanges, messages = [], backgroundActivity, busy = false, stellar = false, onOpenSubagent, onOpenWorkflow, onClose,
+export function SummaryBoard({ runtimeId, sessionId, language, onOpenChanges, messages = [], backgroundActivity, busy = false, showTaskMap = false, onOpenSubagent, onOpenWorkflow, onClose,
   mcpBusy = busy, capabilityRevision, onMcpChanged, onRestart, onManageMcp, onManageSkills, tasksRequest, onTasksRequestHandled }: {
   runtimeId?: string; sessionId?: string; language: 'zh' | 'en'; onOpenChanges: () => void;
   tasksRequest?: number; onTasksRequestHandled?: (sequence: number) => void;
   messages?: Message[]; backgroundActivity?: import('./contracts').BackgroundLaneActivity; busy?: boolean; onOpenSubagent?: (task: SubagentDisplayTask) => void; onOpenWorkflow?: (id: string) => void; onClose?: () => void;
   mcpBusy?: boolean; capabilityRevision?: number; onMcpChanged?: () => Promise<void>; onRestart?: () => Promise<void>; onManageMcp?: () => void;
   onManageSkills?: () => void;
-  stellar?: boolean;
+  showTaskMap?: boolean;
 }) {
   const [model, setModel] = useState<SessionSummary>();
   const [repository, setRepository] = useState<RepositoryDiff>();
@@ -144,6 +144,7 @@ export function SummaryBoard({ runtimeId, sessionId, language, onOpenChanges, me
     if (newlyCompleted.length) setRecent(ids => [...new Set([...ids, ...newlyCompleted])]);
   }, [model, tasks]);
   useLayoutEffect(() => { setCompletedOpen(false); setRecent([]); setRouteTarget(undefined); }, [taskView.turnKey]);
+  useLayoutEffect(() => { if (!showTaskMap) setRouteTarget(undefined); }, [showTaskMap]);
   useEffect(() => {
     if (!recent.length) return;
     const timer = setTimeout(() => setRecent([]), 1100);
@@ -174,7 +175,7 @@ export function SummaryBoard({ runtimeId, sessionId, language, onOpenChanges, me
     </section>}
     <section className="sb-steps" aria-label={t('推进清单', 'Task plan')}>
       <div className="sb-section-heading"><h4 ref={taskHeading} tabIndex={-1}>{t('推进清单', 'Task plan')}</h4>{(!model || !!tasks.length) && <span className="sb-step-count">{model ? <><strong>{done.length}</strong> / {tasks.length}</> : '--'}</span>}</div>
-      {stellar && model && <StellarTaskRoute tasks={tasks} language={language} onReveal={task => {
+      {showTaskMap && model && <StellarTaskRoute tasks={tasks} language={language} onReveal={task => {
         if (task.status === 'completed') setCompletedOpen(true);
         setRouteTarget({ id: `${model.plan?.id ?? ''}:${task.id}` });
       }}/>}
@@ -188,7 +189,7 @@ export function SummaryBoard({ runtimeId, sessionId, language, onOpenChanges, me
       </button>}
       <ol>{tasks.map(task =>
         <TaskRow key={`${model?.plan?.id ?? ''}:${task.id}`} task={task} language={language}
-          reveal={stellar && routeTarget?.id === `${model?.plan?.id ?? ''}:${task.id}` ? routeTarget : undefined}
+          reveal={showTaskMap && routeTarget?.id === `${model?.plan?.id ?? ''}:${task.id}` ? routeTarget : undefined}
           animateEntrance={hasSnapshot.current && !previous.current.has(`${model?.plan?.id ?? ''}:${task.id}`)}
           visible={task.status !== 'completed' || completedOpen || recent.includes(`${model?.plan?.id ?? ''}:${task.id}`)}/>)}</ol>
       {!!tasks.length && <TaskProgress key={JSON.stringify([model?.plan?.id, tasks.map(task => task.id)])}

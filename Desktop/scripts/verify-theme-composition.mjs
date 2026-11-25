@@ -1,7 +1,7 @@
 import { chromium } from 'playwright';
 import { createServer } from 'vite';
 import assert from 'node:assert/strict';
-import { mkdir } from 'node:fs/promises';
+import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -22,8 +22,19 @@ try {
   const base = `http://127.0.0.1:${server.httpServer.address().port}/tests/fixtures/theme-pack.html`;
   const errors = [];
   page.on('pageerror', e => errors.push(e.message));
-  await page.addInitScript(() => localStorage.setItem('dfsc-stellar-preview-preferences-v1',
-    JSON.stringify({ themeMotion: false })));
+  await page.addInitScript(() => {
+    localStorage.setItem('dfsc-stellar-preview-preferences-v1', JSON.stringify({ themeMotion: false }));
+    window.stellarDraws = new WeakMap();
+    for (const Type of [WebGLRenderingContext, WebGL2RenderingContext]) {
+      for (const name of ['drawArrays', 'drawElements']) {
+        const original = Type.prototype[name];
+        Type.prototype[name] = function (...args) {
+          window.stellarDraws.set(this.canvas, (window.stellarDraws.get(this.canvas) || 0) + 1);
+          return original.apply(this, args);
+        };
+      }
+    }
+  });
   await page.goto(base);
   await page.locator('.stellar-emblem[data-ready=true]').waitFor();
   const asset = `/@fs/${join(root, '../theme-marketplace/plugins/stellar-cruise/scene.json').replaceAll('\\', '/')}`;
@@ -83,8 +94,8 @@ try {
   await page.goto(`${base}?view=welcome`);
   await page.locator('.stellar-workspace-scene canvas[data-ready=true]').waitFor();
   const originalCanvas = await page.locator('.stellar-workspace-scene canvas').elementHandle();
-  const canvasPixels = async canvas => {
-    const png = await canvas.screenshot();
+  const canvasPixels = async (canvas, name) => {
+    const png = await canvas.screenshot(name ? { path: join(output, `${name}.png`) } : {});
     return Buffer.from(await page.evaluate(async bytes => {
       const bitmap = await createImageBitmap(new Blob([new Uint8Array(bytes)], { type: 'image/png' }));
       const surface = document.createElement('canvas');
@@ -95,9 +106,11 @@ try {
       return [...new Uint8Array(await crypto.subtle.digest('SHA-256', pixels))];
     }, [...png]));
   };
-  const sceneImage = async () => {
-    const hide = await page.addStyleTag({ content: '.app > :not(.stellar-workspace-scene) { visibility: hidden !important; }' });
-    try { return await canvasPixels(page.locator('.stellar-workspace-scene canvas')); }
+  // Lettering canvases explicitly restore visibility after fonts finish loading.
+  const hideForeground = '.app > :not(.stellar-workspace-scene), .app > :not(.stellar-workspace-scene) * { visibility: hidden !important; }';
+  const sceneImage = async name => {
+    const hide = await page.addStyleTag({ content: hideForeground });
+    try { return await canvasPixels(page.locator('.stellar-workspace-scene canvas'), name); }
     finally { await hide.evaluate(e => e.remove()); }
   };
   const docked = await sceneImage();
@@ -112,7 +125,7 @@ try {
   await page.goto(`${base}?view=welcome`);
   await page.locator('.stellar-workspace-scene canvas[data-ready=true]').waitFor();
   const canvas = page.locator('.stellar-workspace-scene canvas');
-  const foreground = await page.addStyleTag({ content: '.app > :not(.stellar-workspace-scene) { visibility: hidden !important; }' });
+  const foreground = await page.addStyleTag({ content: hideForeground });
   await page.waitForTimeout(700);
   const still = await canvasPixels(canvas);
   await page.waitForTimeout(450);
@@ -128,9 +141,24 @@ try {
   assert.ok(!moving.equals(await sceneImage()), 'Narrow scene must retain live particle motion');
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await page.waitForTimeout(250);
-  const reduced = await sceneImage();
+  const drawCount = await canvas.evaluate(element => window.stellarDraws.get(element) || 0);
+  const reduced = await sceneImage('reduced-start');
   await page.waitForTimeout(450);
-  assert.ok(reduced.equals(await sceneImage()), 'Reduced motion must freeze the narrow scene');
+  const reducedEnd = await sceneImage('reduced-end');
+  if (!reduced.equals(reducedEnd)) {
+    await writeFile(join(output, 'reduced-diagnostic.json'), JSON.stringify(await page.evaluate(() => ({
+      reduced: matchMedia('(prefers-reduced-motion: reduce)').matches,
+      canvases: document.querySelectorAll('.stellar-workspace-scene canvas').length,
+      overlays: [...document.querySelectorAll(':popover-open, dialog[open], .app-tooltip')].map(element => ({
+        class: element.className, text: element.textContent,
+        visibility: getComputedStyle(element).visibility, opacity: getComputedStyle(element).opacity,
+        bounds: element.getBoundingClientRect().toJSON(),
+      })),
+    })), null, 2));
+  }
+  assert.ok(reduced.equals(reducedEnd), 'Reduced motion must freeze the narrow scene');
+  assert.equal(await canvas.evaluate(element => window.stellarDraws.get(element) || 0), drawCount,
+    'Reduced motion must stop drawing the narrow scene');
   assert.deepEqual(errors, []);
   console.log(JSON.stringify({ passed: true, probes, errors }));
 } finally {

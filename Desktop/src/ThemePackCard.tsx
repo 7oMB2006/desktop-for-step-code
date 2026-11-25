@@ -5,7 +5,7 @@ import { hasStellarUi, type StellarScene, type ThemePack } from './theme-packs';
 import { ThemeWelcome } from './ThemeWelcome';
 import './theme-pack-card.css';
 
-export type PackPreferences = Pick<Preferences, 'theme' | 'accentColor' | 'themeMotion' | 'themeBrightness'>;
+export type PackPreferences = Pick<Preferences, 'theme' | 'accentColor' | 'themeMotion' | 'themeBrightness' | 'stellarTaskMap'>;
 export function ThemePackCard({ pack, preferences, zh, onSelect, onChange, loadScene, loadPoster }: {
   pack: ThemePack; preferences: PackPreferences; zh: boolean; onSelect(): void;
   onChange(patch: Partial<PackPreferences>): void;
@@ -14,7 +14,8 @@ export function ThemePackCard({ pack, preferences, zh, onSelect, onChange, loadS
 }) {
   const selected = preferences.theme === pack.id;
   const animated = pack.renderer === 'stellar-v1';
-  const hasMotion = animated || hasStellarUi(pack);
+  const stellarUi = hasStellarUi(pack);
+  const hasMotion = animated || stellarUi;
   const hasControls = hasMotion || pack.renderer === 'image-v1';
   const [poster, setPoster] = useState<string>();
   const [hovered, setHovered] = useState(false);
@@ -86,6 +87,11 @@ export function ThemePackCard({ pack, preferences, zh, onSelect, onChange, loadS
           <input type="range" aria-label={zh ? '背景亮度' : 'Background brightness'} min={40} max={120} step={5}
             value={preferences.themeBrightness ?? 90} onChange={e => onChange({ themeBrightness: Number(e.target.value) })}/>
           <output>{preferences.themeBrightness ?? 90}%</output>
+        </label>}
+        {stellarUi && <label className="theme-pack-toggle">
+          <span>{zh ? '推进清单星图' : 'Task plan star map'}</span>
+          <input type="checkbox" checked={preferences.stellarTaskMap !== false}
+            onChange={e => onChange({ stellarTaskMap: e.target.checked })}/>
         </label>}
       </div></div>
     </div>}

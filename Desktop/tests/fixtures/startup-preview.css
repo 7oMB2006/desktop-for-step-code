@@ -1,0 +1,28 @@
+* { box-sizing: border-box; }
+:root { font-family: "Segoe UI", sans-serif; color-scheme: dark; font-size: 14px; letter-spacing: 0; }
+body { margin: 0; }
+button { font: inherit; }
+.startup-preview { --ink: #c6c7cc; --line: #3e4044; min-height: 100svh; display: grid; grid-template-rows: 64px 1fr 88px; background: #191a1c; color: var(--ink); }
+.startup-preview[data-backdrop=black] { background: #000; }
+.startup-preview[data-backdrop=light] { --ink: #45474b; --line: #bfc2c7; background: #eceef1; color-scheme: light; }
+header { display: flex; align-items: center; gap: 10px; padding: 0 28px; }
+header img { width: 20px; height: 20px; }
+header span { font-size: 13px; }
+.preview-scenarios-link { margin-left: auto; display: inline-flex; align-items: center; gap: 7px; color: inherit; font-size: 13px; text-decoration: none; padding: 8px; border-radius: 4px; }
+.preview-scenarios-link:hover { background: color-mix(in srgb, var(--ink) 8%, transparent); }
+.preview-scenarios-link:focus-visible { outline: 2px solid #dbb870; outline-offset: 3px; }
+.startup-preview-stage { display: grid; place-items: center; min-height: 340px; overflow: hidden; }
+iframe { width: 256px; height: 256px; border: 0; background: transparent; color-scheme: normal; pointer-events: none; }
+.startup-preview-stage[data-zoom=true] iframe { transform: scale(2); }
+footer { display: flex; justify-content: center; align-items: center; gap: 28px; padding: 12px 16px; flex-wrap: wrap; }
+.preview-tools, .preview-swatches { display: flex; align-items: center; gap: 8px; }
+.preview-tools button { display: grid; place-items: center; width: 38px; height: 38px; padding: 0; border: 1px solid transparent; border-radius: 6px; background: transparent; color: var(--ink); cursor: pointer; }
+.preview-tools button:hover { background: color-mix(in srgb, var(--ink) 10%, transparent); }
+.preview-tools button[aria-pressed=true] { border-color: var(--line); background: color-mix(in srgb, var(--ink) 7%, transparent); }
+button:focus-visible { outline: 2px solid #dbb870; outline-offset: 3px; }
+.swatch { width: 22px; height: 22px; border: 1px solid #71747a; border-radius: 50%; cursor: pointer; }
+.swatch[aria-pressed=true] { outline: 1px solid var(--ink); outline-offset: 3px; }
+.swatch-graphite { background: #191a1c; }
+.swatch-black { background: #000; }
+.swatch-light { background: #eceef1; }
+@media (max-width: 600px) { .startup-preview-stage[data-zoom=true] iframe { transform: scale(1.4); } }

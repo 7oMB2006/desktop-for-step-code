@@ -7,11 +7,12 @@ import './build-terminal.mjs';
 import './build-playwright-preview.mjs';
 const usagePreview = process.env.DESKTOP_USAGE_OVERVIEW_PREVIEW === '1';
 const define = { DESKTOP_USAGE_OVERVIEW_PREVIEW: JSON.stringify(usagePreview) };
-await build({ entryPoints: ['electron/main.ts', 'electron/preload.ts', 'electron/tray-preload.ts', 'electron/keyless-fetch.ts', 'electron/macos-update-helper.ts'], outdir: 'dist', outExtension: { '.js': '.cjs' }, bundle: true, platform: 'node', format: 'cjs', external: ['electron'], sourcemap: true, define });
-await viteBuild({ base: './', define, build: { outDir: 'dist/renderer', emptyOutDir: true, rolldownOptions: { input: ['index.html', 'tray-menu.html', ...(usagePreview ? ['tests/fixtures/usage-overview.html'] : [])] } } });
+await build({ entryPoints: ['electron/main.ts', 'electron/preload.ts', 'electron/tray-preload.ts', 'electron/startup-preload.ts', 'electron/keyless-fetch.ts', 'electron/macos-update-helper.ts'], outdir: 'dist', outExtension: { '.js': '.cjs' }, bundle: true, platform: 'node', format: 'cjs', external: ['electron'], sourcemap: true, define });
+await viteBuild({ base: './', define, build: { outDir: 'dist/renderer', emptyOutDir: true, rolldownOptions: { input: ['index.html', 'tray-menu.html', 'startup-logo.html', ...(usagePreview ? ['tests/fixtures/usage-overview.html'] : [])] } } });
 await mkdir('dist/licenses', { recursive: true });
 await cp('src/assets/providers/NOTICE.txt', 'dist/licenses/provider-marks.txt');
 await cp('src/assets/icons/NOTICE.txt', 'dist/licenses/tabler-icons.txt');
+await cp('public/fonts/Orbitron-OFL.txt', 'dist/licenses/Orbitron-OFL.txt');
 await mkdir('dist/file-opening', { recursive: true });
 await cp('dist/macos-update-helper.cjs', 'dist/file-opening/macos-update-helper.cjs');
 if (process.platform === 'darwin') {

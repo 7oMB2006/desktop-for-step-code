@@ -2946,7 +2946,8 @@ function App() {
             tasksRequest={tasksRequest?.runtimeId === data.runtimeId && tasksRequest?.sessionId === data.state?.sessionId
               && tasksRequest?.draftId === data.draftId ? tasksRequest?.sequence : undefined}
             onTasksRequestHandled={sequence => setTasksRequest(value => value?.sequence === sequence ? undefined : value)}
-            stellar={hasStellarUi(data.themePacks?.find(pack => pack.id === data.preferences.theme))}
+            showTaskMap={data.preferences.stellarTaskMap !== false
+              && hasStellarUi(data.themePacks?.find(pack => pack.id === data.preferences.theme))}
             messages={data.messages} backgroundActivity={backgroundActivity} busy={busy} onOpenSubagent={openSubagent} onOpenWorkflow={openWorkflow} onClose={closeRightPanel}
             mcpBusy={anyBusy || busy || loading || !connected} capabilityRevision={capabilityRevision}
             onMcpChanged={async () => { setSettings(await bridge!.settings()); setCapabilityRevision(value => value + 1); }}

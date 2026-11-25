@@ -11,7 +11,7 @@
 <p align="center"><a href="README.md">English</a> · <a href="README.zh-CN.md">简体中文</a></p>
 <p align="center"><a href="https://github.com/7oMB2006/desktop-for-step-code/releases/latest"><strong>Download for Windows or macOS</strong></a> · <a href="https://calm-falcon-0dc2.page.stepcloud.com/">Product showcase (Chinese)</a></p>
 <p align="center">
-  <img src="assets/readme/home-workspace-v0.6.0.png" width="960" alt="Desktop for Step Code v0.6.0 workspace and new conversation screen in Chinese">
+  <img src="assets/readme/home-workspace-v1.0.0.png" width="960" alt="Desktop for Step Code v1.0.0 workspace and new conversation screen in Chinese">
 </p>
 
 A community-built client for [Step Code](https://github.com/stepfun-ai/Step-Code), not a StepFun product. Desktop brings projects, conversations and tools into one workspace; Step Code runs the Agent and owns its execution permission policies.

@@ -11,7 +11,7 @@
 <p align="center"><a href="README.md">English</a> · <a href="README.zh-CN.md">简体中文</a></p>
 <p align="center"><a href="https://github.com/7oMB2006/desktop-for-step-code/releases/latest"><strong>下载 Windows 或 macOS 版</strong></a> · <a href="https://calm-falcon-0dc2.page.stepcloud.com/">产品展示站</a></p>
 <p align="center">
-  <img src="assets/readme/home-workspace-v0.6.0.png" width="960" alt="Desktop for Step Code v0.6.0 简体中文工作区与新建会话页面">
+  <img src="assets/readme/home-workspace-v1.0.0.png" width="960" alt="Desktop for Step Code v1.0.0 简体中文工作区与新建会话页面">
 </p>
 
 这是社区开发的 [Step Code](https://github.com/stepfun-ai/Step-Code) 桌面客户端，不是阶跃星辰官方产品。Desktop 把项目、会话和工具集中在一个工作区，Agent 执行及其权限策略由 Step Code 提供。

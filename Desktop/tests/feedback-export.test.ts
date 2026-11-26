@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { gunzipSync } from 'node:zlib';
 import { mkdtemp, removeTestProfile } from '../scripts/test-profile.mjs';
+import { feedbackRequestOnBranch } from '../electron/session-branching';
 import { FeedbackPreview, feedbackReport } from '../electron/feedback-export';
 import type { Message } from '../src/contracts';
 
@@ -66,4 +67,50 @@ test('secrets echoed in another field and terminal escapes are removed before tr
   assert.doesNotMatch(content, /echoedSyntheticValue|hiddenTerminalTitle/);
   assert.equal(JSON.parse(content).diagnostics.errorAtSource, 'user');
   assert.throws(() => feedbackReport({ ...options, errorAt: 'invalid' }, [], context));
+});
+
+test('request ID follows the runtime leaf even when another branch occupies the file tail', () => {
+  const request = (id: string, parentId: string | null, purpose?: string) => ({ type: 'custom', id, parentId,
+    customType: 'step.usage_provenance', data: { requestId: id, purpose } });
+  const entries = [request('selected', null), request('summary', 'selected', 'compaction'), request('abandoned', 'selected')];
+  assert.equal(feedbackRequestOnBranch(entries, 'summary'), 'selected');
+  assert.equal(feedbackRequestOnBranch(entries, null), undefined);
+});
+
+test('excerpts redact Windows network paths and echoes of credentials from omitted blocks and messages', () => {
+  const content = feedbackReport({ ...options, conversation: true }, [
+    { role: 'user', content: [{ type: 'text', text: 'Steps' }, { type: 'text', text: 'password=omittedSyntheticValue' }] },
+    ...Array.from({ length: 3 }, () => ({ role: 'assistant', content: 'Fixture reply' })),
+    { role: 'assistant', stopReason: 'error', content: String.raw`Path \\fixture-machine\private-share\example.txt
+Echo: omittedSyntheticValue
+End of report` },
+  ], context);
+  assert.doesNotMatch(content, /omittedSyntheticValue|fixture-machine|private-share|example\.txt/);
+  assert.match(content, /<redacted:path>/);
+  assert.match(content, /End of report/);
+  assert.equal(JSON.parse(content).omittedEligibleMessages, 1);
+});
+
+test('an oversized opted-in redaction context suppresses excerpts without affecting diagnostics-only', () => {
+  const longTurn: Message[] = [
+    { role: 'user', content: 'x'.repeat(32 * 1024 + 1) },
+    { role: 'assistant', content: 'Unverified excerpt' },
+  ];
+  const expanded = JSON.parse(feedbackReport({ ...options, conversation: true }, longTurn, context));
+  assert.doesNotMatch(JSON.stringify(expanded), /Unverified excerpt/);
+  assert.ok(expanded.excerpts.every((excerpt: { truncated: boolean }) => excerpt.truncated));
+  const diagnostics = JSON.parse(feedbackReport(options, longTurn, context, 'req-fixture'));
+  assert.equal(diagnostics.request.requestId, 'req-fixture');
+  assert.equal(diagnostics.expected.text, options.expected);
+  assert.deepEqual(diagnostics.excerpts, []);
+});
+
+test('a desktop goal starts a separate excerpt scope', () => {
+  const content = feedbackReport({ ...options, conversation: true }, [
+    { role: 'user', content: 'Unrelated earlier prompt' },
+    { role: 'custom', customType: 'desktop-goal-input', content: 'Synthetic goal' },
+    { role: 'assistant', stopReason: 'error', content: 'Related error' },
+  ], context);
+  assert.match(content, /Related error/);
+  assert.doesNotMatch(content, /Unrelated earlier prompt/);
 });

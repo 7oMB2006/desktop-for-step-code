@@ -73,6 +73,7 @@ try {
   assert.equal(JSON.parse(minimal).diagnostics.errorAt, new Date(stamp).toISOString());
   await saveAs(true);
   await dialog.getByRole('button', { name: '另存为…' }).click();
+  await dialog.getByRole('button', { name: '另存为…' }).and(page.locator(':enabled')).waitFor();
   assert.deepEqual(await readdir(output), []);
   await saveAs(false);
   await dialog.getByRole('button', { name: '另存为…' }).click();

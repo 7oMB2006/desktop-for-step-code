@@ -10,7 +10,7 @@ import { isUserMessage } from '../src/user-message';
 import { projectInstructionsMessage } from './project-instructions';
 import { desktopSystemPolicy } from './workspace-policy';
 import { applyMessageEvent } from '../src/message-events';
-import { activeHistory, messagesWithEntryIds, type BranchOperation } from './session-branching';
+import { activeHistory, feedbackRequestOnBranch, messagesWithEntryIds, type BranchOperation } from './session-branching';
 import { importedHistoryMessages } from './imported-history';
 import type { BackgroundLaneActivity, Message, Model, ModelSelection, PermissionPreset, RuntimeEvent, RuntimeState, RuntimeStartupTiming, SessionStats, UIRequest } from '../src/contracts';
 import { backgroundAgentsSnapshot } from './background-agents';
@@ -760,6 +760,12 @@ export class SessionRuntimes {
     reads.add(reading);
     return reading;
   }
+  // Request metadata is valid only for the transcript captured with the same active leaf.
+  private readonly feedbackRequests = new WeakMap<Message[], { sessionId: string; requestId: string }>();
+  feedbackRequest(worker: SessionRuntime): string | undefined {
+    const metadata = this.feedbackRequests.get(worker.messages);
+    if (metadata && metadata.sessionId === worker.state?.sessionId) return metadata.requestId;
+  }
   private transcriptRevision(worker: SessionRuntime) {
     return worker.revision - (this.transcriptMetadataRevisions.get(worker) ?? 0);
   }
@@ -794,6 +800,8 @@ export class SessionRuntimes {
     if (transcriptRevision === this.transcriptRevision(worker) && !state.isStreaming && !worker.runActive) {
       worker.messages = decorated;
       worker.leafId = history.leafId ?? undefined;
+      const requestId = feedbackRequestOnBranch(history.entries ?? [], history.leafId ?? null);
+      if (requestId && state.sessionId) this.feedbackRequests.set(decorated, { sessionId: state.sessionId, requestId });
     }
     worker.models = models;
     if (this.statsVersions.get(worker) === statsVersion) worker.stats = stats;

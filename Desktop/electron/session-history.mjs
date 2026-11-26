@@ -85,21 +85,3 @@ export async function readSessionHistory(upstream, root, file, sessionId, maxByt
     throw error;
   }
 }
-
-
-// Return only provenance on the named session's live branch to the desktop process.
-export async function readFeedbackRequestId(upstream, root, file, sessionId) {
-  try {
-    const history = await readHistorySource(upstream, root, file, sessionId);
-    const entries = new Map(history.entries.map(entry => [entry.id, entry]));
-    for (let entry = entries.get(history.leafId); entry; entry = entries.get(entry.parentId)) {
-      if (entry.type === 'custom' && entry.customType === 'step.usage_provenance'
-        && entry.data?.purpose === undefined && typeof entry.data?.requestId === 'string' && entry.data.requestId)
-        return entry.data.requestId;
-    }
-    return null;
-  } catch (error) {
-    if (error.code === 'ENOENT' || error instanceof HistoryReadError) return null;
-    throw new Error('Could not verify feedback session history');
-  }
-}

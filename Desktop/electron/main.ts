@@ -3957,9 +3957,7 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
       const options = { errorAt: input.errorAt ? text(input.errorAt, 30) : undefined,
         expected: text(input.expected, 1000), actual: text(input.actual, 1000),
         conversation: input.conversation, tools: input.tools };
-      const sessionPath = worker.state?.sessionFile;
-      const requestId = sessionPath ? await admin.request('feedback_request_id', { sessionPath, sessionId }) : undefined;
-      selected();
+      const requestId = runtimes.feedbackRequest(worker);
       const content = feedbackReport(options, worker.messages, { desktop: app.getVersion(),
         stepCode: bundledStepCode(runtimeManifest), platform: process.platform, arch: process.arch }, requestId);
       feedbackPreview = new FeedbackPreview(owner, sessionId, content);

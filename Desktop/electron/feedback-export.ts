@@ -4,16 +4,30 @@ import { dirname, join } from 'node:path';
 import { gzipSync } from 'node:zlib';
 import type { AppBuildInfo, FeedbackOptions, Message } from '../src/contracts';
 import { attachmentPresentation } from '../src/attachment-references';
+import { isUserMessage } from '../src/user-message';
 import { sanitizeTerminalText } from './feedback-upstream/sanitize-terminal.ts';
 import { createBoundedSecretRedactor, redactSecretString, type BoundedSecretRedactor } from './feedback-upstream/secret-redaction.ts';
 import { redactDiagnosticPii } from './feedback-upstream/redact-diagnostics.ts';
 
 // Pure redactors copied from Step Code 5309624e. Never invoke feedback submission or bundle collection.
+const WINDOWS_NETWORK_PATH = /\\[^\s\\/"<>|]+\\[^\r\n"'<>|]+/gu;
+const MAX_REDACTION_FIELD = 32 * 1024;
+const MAX_REDACTION_CONTEXT = 128 * 1024;
+const MAX_REDACTION_FIELDS = 64;
+
+function* textBlocks(message: Message) {
+  if (typeof message.content === 'string') yield message.content;
+  else if (Array.isArray(message.content)) {
+    for (const block of message.content) {
+      if (block?.type === 'text' && typeof block.text === 'string') yield block.text;
+    }
+  }
+}
 function excerpt(redactor: BoundedSecretRedactor, value: string, limit: number, partial = false) {
-  if (value.length > 32768) return { text: '', truncated: true };
+  if (value.length > MAX_REDACTION_FIELD) return { text: '', truncated: true };
   const result = redactor.redact(sanitizeTerminalText(value));
   if (result.status !== 'ready') return { text: '[redacted]', truncated: true };
-  const safe = redactDiagnosticPii(result.value)
+  const safe = redactDiagnosticPii(result.value.replace(WINDOWS_NETWORK_PATH, '<redacted:path>'))
     .replace(/^.*\b[A-Z_][A-Z_0-9]*\s*=.*$/gm, '[redacted]')
     .replace(/^.*(?:cookie|authorization)\s*[:=].*$/gim, '[redacted]');
   const end = partial ? Math.min(limit, Math.floor(safe.length / 2)) : limit;
@@ -33,21 +47,31 @@ export function feedbackReport(options: FeedbackOptions, messages: Message[], co
   // A later unrelated turn must not displace the evidence or enter the report.
   const anchor = lastError ? messages.lastIndexOf(lastError) : messages.length - 1;
   let start = anchor;
-  while (start > 0 && messages[start].role !== 'user') start--;
+  while (start > 0 && !isUserMessage(messages[start])) start--;
   const turn = options.conversation || options.tools ? messages.slice(Math.max(0, start), anchor + 1) : [];
   const candidates = turn.filter(m => m.display !== false && ((options.conversation && ['user', 'assistant'].includes(m.role))
     || (options.tools && m.role === 'toolResult' && m.isError)));
-  const fields = candidates.slice(-4).map(m => {
-    const block = Array.isArray(m.content) ? m.content.find(b => b?.type === 'text' && typeof b.text === 'string') : undefined;
-    const text = typeof m.content === 'string' ? m.content : block?.text ?? '';
-    return { role: m.role, value: m.role === 'user' && text.length <= 32768
+  const fields = candidates.slice(-4).map(message => {
+    const text = textBlocks(message).next().value ?? '';
+    return { role: message.role, value: message.role === 'user' && text.length <= MAX_REDACTION_FIELD
       ? attachmentPresentation(text)?.draft ?? text : text };
   });
-  // Discover labelled secrets across the chosen fields before redacting echoes in any one field.
+  // Discover labelled secrets in the bounded related turn before exporting any excerpt.
+  // The additional blocks are scanned locally because a selected excerpt may echo a value from them.
   const redactor = createBoundedSecretRedactor();
-  for (const field of [options.expected, options.actual, ...fields.map(f => f.value)]) {
-    if (field.length <= 32768) redactor.redact(sanitizeTerminalText(field));
-    else redactor.invalidate();
+  function* redactionFields() {
+    yield options.expected;
+    yield options.actual;
+    for (const message of turn) yield* textBlocks(message);
+  }
+  let characters = 0, count = 0;
+  for (const field of redactionFields()) {
+    characters += field.length;
+    if (++count > MAX_REDACTION_FIELDS || field.length > MAX_REDACTION_FIELD || characters > MAX_REDACTION_CONTEXT) {
+      redactor.invalidate();
+      break;
+    }
+    redactor.redact(sanitizeTerminalText(field));
   }
   const excerpts = fields.map(({ role, value }) => ({
     role, ...excerpt(redactor, value, role === 'toolResult' ? 160 : 320, role === 'toolResult'),

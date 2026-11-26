@@ -23,6 +23,16 @@ export function activeHistory(entries: HistoryEntry[], leafId: string | null) {
   return path.reverse();
 }
 
+export function feedbackRequestOnBranch(entries: HistoryEntry[], leafId: string | null): string | undefined {
+  const branch = activeHistory(entries, leafId);
+  for (let index = branch.length - 1; index >= 0; index--) {
+    const entry = branch[index] as HistoryEntry & { customType?: string; data?: { requestId?: unknown; purpose?: unknown } };
+    if (entry.type === 'custom' && entry.customType === 'step.usage_provenance'
+      && entry.data?.purpose === undefined && typeof entry.data?.requestId === 'string' && entry.data.requestId)
+      return entry.data.requestId;
+  }
+}
+
 // Match full user/assistant identity on the active path, never text or array position alone.
 export function messagesWithEntryIds(messages: Message[], entries: HistoryEntry[], leafId: string | null): Message[] {
   const key = (message: Message) => {

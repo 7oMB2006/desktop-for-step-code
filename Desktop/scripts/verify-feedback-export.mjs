@@ -60,6 +60,7 @@ try {
   const minimal = await dialog.locator('pre').innerText();
   assert.deepEqual(JSON.parse(minimal).excerpts, []);
   await dialog.getByRole('button', { name: '另存为…' }).click();
+  await dialog.waitFor({ state: 'hidden' });
   assert.equal(gunzipSync(await readFile(target)).toString(), minimal);
   await open();
   await dialog.getByLabel('包含相关会话片段').check();
@@ -67,10 +68,10 @@ try {
   await dialog.getByRole('button', { name: '预览' }).click();
   const shown = await dialog.locator('pre').innerText();
   assert.match(shown, /MARKER_A/);
-  messages.push({ role: 'user', content: 'LATE_A' });
+  messages.push({ role: 'user', content: 'LATE_A' }, { role: 'assistant', stopReason: 'error', content: 'New synthetic failure' });
   canceled = true;
   await dialog.getByRole('button', { name: '另存为…' }).click();
-  await dialog.getByRole('button', { name: '取消' }).waitFor();
+  await dialog.getByRole('button', { name: '另存为…' }).and(page.locator(':enabled')).waitFor();
   assert.equal(gunzipSync(await readFile(target)).toString(), minimal);
   canceled = false;
   await dialog.getByRole('button', { name: '另存为…' }).click();
@@ -79,8 +80,9 @@ try {
   assert.equal(saved, shown);
   assert.doesNotMatch(saved, /LATE_A|MARKER_B|secret tail/);
   await open();
+  await dialog.getByLabel('包含相关会话片段').check();
   await dialog.getByRole('button', { name: '预览' }).click();
-  await dialog.locator('pre').waitFor();
+  assert.match(await dialog.locator('pre').innerText(), /LATE_A/);
   // A different selected session invalidates this preview during native Save As.
   current = 'sample-controls';
   await dialog.getByRole('button', { name: '另存为…' }).click();

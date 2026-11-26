@@ -55,7 +55,7 @@ import { AutoResumeMessage } from './AutoResumeMessage';
 import { searchTextMatch, type SearchTextTarget } from './fulltext-search';
 import './auto-resume-message.css';
 import { incompleteResponse } from './incomplete-response';
-import type { PreparedMarkdown } from './markdown-parser';
+import { plainMarkdownParagraph, type PreparedMarkdown } from './markdown-parser';
 import { useConversationDisclosure } from './ConversationDisclosureState';
 import { attachmentPresentation } from './attachment-references';
 
@@ -187,9 +187,11 @@ function RevealedText({ text, streaming = false, commands, ...props }: { text: s
     : messageContentRehypePlugins, [reveal.batches]);
   const readBlocks = useMemo(createMarkdownBlockReader, []);
   const blocks = useMemo(() => segmented ? readBlocks(text) : undefined, [segmented, text, readBlocks]);
+  const paragraph = useMemo(() => streaming || segmented ? undefined : plainMarkdownParagraph(text), [streaming, segmented, text]);
   if (blocks) return <>{blocks.map(block => <MarkdownBlockText key={block.key} block={block}
     batches={blockRevealBatches(block, reveal.batches)} language={props.language}
     openImage={props.openImage} onError={props.onError} commands={commands}/>)}</>;
+  if (paragraph !== undefined) return <p>{paragraph}</p>;
   return <MarkdownText text={text} language={props.language} openImage={props.openImage} onError={props.onError} plugins={plugins} commands={commands}/>;
 }
 type BlockTextProps = { block: MarkdownBlock; batches: RevealState['batches']; commands?: ComposerCommand[] }

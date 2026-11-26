@@ -61,11 +61,11 @@ test('image formats are previewable without adding new external open permissions
   assert.equal(vector.text, svg);
   assert.equal(vector.language, 'xml');
   for (const [ext, mime, bytes] of [
-    ['png', 'image/png', Buffer.from('89504e470d0a1a0a', 'hex')],
-    ['jpg', 'image/jpeg', Buffer.from('ffd8ff', 'hex')],
-    ['jpeg', 'image/jpeg', Buffer.from('ffd8ff', 'hex')],
-    ['webp', 'image/webp', Buffer.from('RIFF0000WEBP')],
-    ['gif', 'image/gif', Buffer.from('GIF89a')],
+    ['png', 'image/png', Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACAQAAAABazTCJAAAADElEQVQI12M4wHAAAAMEAYHFO6KpAAAAAElFTkSuQmCC', 'base64')],
+    ['jpg', 'image/jpeg', Buffer.from('/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAMCAgICAgMCAgIDAwMDBAYEBAQEBAgGBgUGCQgKCgkICQkKDA8MCgsOCwkJDRENDg8QEBEQCgwSExIQEw8QEBD/wAALCAACAAIBAREA/8QAFAABAAAAAAAAAAAAAAAAAAAACf/EABQQAQAAAAAAAAAAAAAAAAAAAAD/2gAIAQEAAD8AVN//2Q==', 'base64')],
+    ['jpeg', 'image/jpeg', Buffer.from('/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAMCAgICAgMCAgIDAwMDBAYEBAQEBAgGBgUGCQgKCgkICQkKDA8MCgsOCwkJDRENDg8QEBEQCgwSExIQEw8QEBD/wAALCAACAAIBAREA/8QAFAABAAAAAAAAAAAAAAAAAAAACf/EABQQAQAAAAAAAAAAAAAAAAAAAAD/2gAIAQEAAD8AVN//2Q==', 'base64')],
+    ['webp', 'image/webp', Buffer.from('UklGRiQAAABXRUJQVlA4IBgAAAAwAQCdASoCAAIAAgA0JaQAA3AA/vuUAAA=', 'base64')],
+    ['gif', 'image/gif', Buffer.from('R0lGODlhAgACAPAAAP///wAAACH5BAAAAAAALAAAAAACAAIAAAIChFEAOw==', 'base64')],
   ] as const) {
     const path = join(root, `image.${ext}`);
     await writeFile(path, bytes);
@@ -74,6 +74,12 @@ test('image formats are previewable without adding new external open permissions
     assert.equal(raster.image, `data:${mime};base64,${bytes.toString('base64')}`);
     assert.equal(raster.text, undefined);
   }
+  const incomplete = join(root, 'incomplete.png');
+  await writeFile(incomplete, Buffer.from('89504e470d0a1a0a', 'hex'));
+  await assert.rejects(readPreview(incomplete), /valid static image/);
+  const animated = join(root, 'animated.gif');
+  await writeFile(animated, Buffer.from('R0lGODlhAgACAPAAAP///wAAACH/C05FVFNDQVBFMi4wAwEAAAAh+QQACgAAACwAAAAAAgACAAACAoRRACH5BAAKAAAALAAAAAACAAIAgAAAAAAAAAIChFEAOw==', 'base64'));
+  await assert.rejects(readPreview(animated), /valid static image/);
   const wrong = join(root, 'wrong.png');
   await writeFile(wrong, svg);
   await assert.rejects(readPreview(wrong), /do not match the image format/);

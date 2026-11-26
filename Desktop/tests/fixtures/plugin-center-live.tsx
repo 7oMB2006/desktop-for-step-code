@@ -26,6 +26,8 @@ const metadataPreview = new URLSearchParams(location.search).get('metadata') ===
 const hostPreview = !metadataPreview && new URLSearchParams(location.search).get('host') === '1';
 const updatePreview = !metadataPreview && new URLSearchParams(location.search).get('updates') === '1';
 const nativeUpdates = !metadataPreview && new URLSearchParams(location.search).get('updates') === 'native';
+const communityPreview = new URLSearchParams(location.search).get('community');
+let communityAttempts = 0;
 const presentations: Record<string, PluginPresentation & Pick<PluginPackage, 'categories' | 'keywords'>> = {
   'bilibili-video-research': {
     author: 'BVR contributors', maintainer: 'DFSC 社区', license: 'MIT',
@@ -128,12 +130,18 @@ let catalog: CapabilityCatalog = {
       installed: true, installedId: 'dfsc-config-example',
       package: { ref: 'fixture-market-config', provenance: 'recorded', documentation: {}, configurationAvailable: false,
         tutorials: [], links: [], warnings: [], categories: ['text-documents'], keywords: ['notes', 'formatting'] } }],
-  marketplaces: [{ name: 'fixture-community', kind: 'git', origin: 'https://github.com/7oMB2006/dfsc-community-plugins' }],
+  marketplaces: [{ name: 'fixture-community', kind: 'git', origin: 'https://github.com/example/fixture-community' }],
   mcp: [{ name: 'bilibili-video-research__bvr', source: 'plugin', pluginId: 'bilibili-video-research', transport: 'stdio', enabled: true, configurable: true },
     { name: 'playwright__browser', source: 'plugin', pluginId: 'playwright', transport: 'stdio', enabled: true, configurable: true },
     { name: 'dfsc-config-example__notes', source: 'plugin', pluginId: 'dfsc-config-example', transport: 'stdio', enabled: true, configurable: true }],
   skills: [], warnings: [],
 };
+if (communityPreview === 'existing') {
+  catalog.marketplaces.push({ name: 'dfsc-community', kind: 'git', origin: 'git@github.com:7OMB2006/dfsc-community-plugins.git' });
+}
+if (communityPreview === 'lookalike') {
+  catalog.marketplaces.push({ name: 'dfsc-community', kind: 'git', origin: 'https://github.com/example/dfsc-community-plugins' });
+}
 for (const plugin of catalog.plugins) {
   const content = presentations[plugin.id];
   if (!content) continue;
@@ -469,7 +477,19 @@ const bridge: PluginCenterBridge = {
       if (input.id === 'dfsc-host-example') hostConfiguration.runtime = { status: input.enabled ? 'restart-required' : 'disabled' };
     }
     if (input.action === 'plugin-remove') catalog.plugins = catalog.plugins.filter(plugin => plugin.id !== input.id);
-    if (input.action === 'marketplace-add') catalog.marketplaces.push({ name: 'new-market', kind: 'git', origin: input.source });
+    if (input.action === 'marketplace-add') {
+      if (communityPreview) {
+        if (input.source !== 'https://github.com/7oMB2006/dfsc-community-plugins.git') throw new Error('Unexpected marketplace source');
+        if (communityPreview === 'retry' && ++communityAttempts === 1) throw new Error('capability:marketplace-failed');
+        if (catalog.marketplaces.some(market => market.name === 'dfsc-community')) throw new Error('Duplicate marketplace');
+        catalog.marketplaces.push({ name: 'dfsc-community', kind: 'git', origin: input.source });
+        catalog.available.push({ name: 'community-example', marketplace: 'dfsc-community', displayName: 'Community Example', installed: false });
+      } else catalog.marketplaces.push({ name: 'new-market', kind: 'git', origin: input.source });
+    }
+    if (communityPreview && input.action === 'marketplace-remove') {
+      catalog.marketplaces = catalog.marketplaces.filter(market => market.name !== input.name);
+      catalog.available = catalog.available.filter(plugin => plugin.marketplace !== input.name);
+    }
     if (input.action === 'plugin-install') {
       installs++;
       const available = catalog.available[0]; available.installed = true; available.installedId = 'fixture';

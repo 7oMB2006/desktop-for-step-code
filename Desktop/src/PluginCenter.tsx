@@ -28,6 +28,12 @@ import './capability-settings.css';
 import './plugin-center.css';
 import './text-tabs.css';
 
+const communityMarketplaceSource = 'https://github.com/7oMB2006/dfsc-community-plugins.git';
+const communityMarketplaceMark = new URL('../public/StepCode.svg', import.meta.url).href;
+function isCommunityMarketplace(market: CapabilityCatalog['marketplaces'][number]) {
+  return market.kind === 'git' && /^(?:(?:git\+)?https:\/\/github\.com\/|ssh:\/\/git@github\.com\/|git@github\.com:)?7omb2006\/dfsc-community-plugins(?:\.git)?\/?$/iu.test(market.origin ?? '');
+}
+
 export type PluginCenterBridge = CapabilityBridge & BvrSettingsBridge & Pick<import('./contracts').DesktopBridge,
   'pluginDocument' | 'pluginRepositoryInfo' | 'pluginConfiguration' | 'pluginSaveConfiguration' | 'pluginChoosePath'
   | 'pluginHostSettings' | 'pluginSaveHostSettings'> & Partial<PluginUpdateBridge & PluginRemovalBridge & PluginReloadBridge>;
@@ -680,6 +686,11 @@ export function PluginCenter({ bridge, language, busy, active, runtimeId, curren
       .finally(() => { updateOperation.current = false; if (alive.current) setUpdateBusy(false); });
   });
   const tabs: [PluginTab, string][] = [['installed', t('已安装', 'Installed')], ['discover', t('发现', 'Discover')], ['sources', t('市场来源', 'Marketplaces')]];
+  const communityMarketplace = catalog?.marketplaces.find(isCommunityMarketplace);
+  const marketplaceRows = [{ market: communityMarketplace, community: true },
+    ...(catalog?.marketplaces ?? [])
+      .filter(market => market !== communityMarketplace && `${market.name} ${market.origin ?? ''}`.toLocaleLowerCase().includes(query.toLocaleLowerCase()))
+      .map(market => ({ market, community: false }))];
   const detailTabs = [['about', t('使用说明', 'Guide')], ['config', t('配置', 'Configuration')],
     ...(!isCustomBackground ? [['capabilities', t('能力', 'Capabilities')]] : []),
     ...(entry?.package?.documentation.changelog ? [['updates', t('更新记录', 'Changelog')]] : [])];
@@ -728,15 +739,24 @@ export function PluginCenter({ bridge, language, busy, active, runtimeId, curren
             {adding && <form className="pc-source-form" onSubmit={event => { event.preventDefault(); void perform({ action: 'marketplace-add', source }); }}>
               <label>{t('市场来源', 'Marketplace source')}<input autoFocus required value={source} disabled={operationLocked} placeholder="owner/repo" onChange={event => setSource(event.target.value)}/></label>
               <button type="button" disabled={pending} onClick={() => setAdding(false)}>{t('取消', 'Cancel')}</button><button className="primary" disabled={operationLocked || !source.trim()}><Plus size={14}/>{t('添加', 'Add')}</button></form>}
-            {catalog.marketplaces.filter(market => `${market.name} ${market.origin ?? ''}`.toLocaleLowerCase().includes(query.toLocaleLowerCase())).map(market =>
-              <div className="pc-source-row" key={market.name}><Globe size={20}/><div><strong>{market.name}</strong><small>{market.origin ?? t('随运行时提供', 'Provided by runtime')}</small></div>
-                {market.kind === 'builtin' ? <span className="pc-status">{t('内置', 'Built-in')}</span> : <>
-                  <button className="icon-button" disabled={operationLocked} aria-label={t(`更新市场 ${market.name}`, `Update marketplace ${market.name}`)}
-                    onClick={() => void perform({ action: 'marketplace-update', name: market.name })}><RefreshCw size={15}/></button>
-                  <button className="icon-button pc-danger-button" disabled={operationLocked} aria-label={t(`移除市场 ${market.name}`, `Remove marketplace ${market.name}`)}
-                    onClick={() => setConfirmation({ title: t(`移除市场 ${market.name}？已安装插件将保留。`, `Remove marketplace ${market.name}? Installed plugins are kept.`),
-                      action: () => void perform({ action: 'marketplace-remove', name: market.name }) })}><Trash2 size={15}/></button></>}
-              </div>)}
+            {marketplaceRows.map(({ market, community }) => {
+              const title = community ? t('DFSC 社区市场', 'DFSC Community Marketplace') : market?.name;
+              return <div className={`pc-source-row${community ? ' pc-community-source' : ''}`} key={community ? 'community' : `market:${market?.name}`}>
+                {community ? <img className="pc-community-mark" src={communityMarketplaceMark} alt="" width="20" height="20"/> : <Globe size={20}/>}
+                <div><strong>{title}</strong><small>{community ? communityMarketplaceSource.slice('https://'.length, -'.git'.length)
+                  : market?.origin ?? t('随运行时提供', 'Provided by runtime')}</small></div>
+                {!market ? <button type="button" className="primary pc-community-add" disabled={operationLocked}
+                  onClick={() => void perform({ action: 'marketplace-add', source: communityMarketplaceSource })}>
+                  <Plus size={14}/>{t('添加社区市场', 'Add community marketplace')}</button>
+                  : market.kind === 'builtin' ? <span className="pc-status">{t('内置', 'Built-in')}</span> : <>
+                    {community && <span className="pc-community-added" role="status"><Check size={14}/>{t('已添加', 'Added')}</span>}
+                    <button className="icon-button" disabled={operationLocked} aria-label={t(`更新市场 ${title}`, `Update marketplace ${title}`)}
+                      onClick={() => void perform({ action: 'marketplace-update', name: market.name })}><RefreshCw size={15}/></button>
+                    <button className="icon-button pc-danger-button" disabled={operationLocked} aria-label={t(`移除市场 ${title}`, `Remove marketplace ${title}`)}
+                      onClick={() => setConfirmation({ title: t(`移除市场 ${title}？已安装插件将保留。`, `Remove marketplace ${title}? Installed plugins are kept.`),
+                        action: () => void perform({ action: 'marketplace-remove', name: market.name }) })}><Trash2 size={15}/></button></>}
+              </div>;
+            })}
           </div> : <div className="pc-plugin-list">
             <div className="pc-plugin-grid">{shown.map(item => <article className="pc-plugin-row" key={item.key}>
               <button className="pc-card-open" aria-label={t(`查看 ${item.name} 使用说明`, `Read ${item.name} guide`)} onClick={event => choose(item, event.currentTarget, 'about')}>

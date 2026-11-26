@@ -3,6 +3,7 @@ import { realpath, stat, open } from 'node:fs/promises';
 import { basename, extname } from 'node:path';
 import { artifactFile } from './artifact-files';
 import { imageMime } from './attachment-utils';
+import { rasterPreviewWithinBudget } from './raster-preview-budget';
 import { sensitiveDiffPath } from '../src/review-source';
 import type { FilePreviewContent, FileTarget } from '../src/contracts';
 
@@ -83,6 +84,7 @@ export async function readPreview(path: string): Promise<FilePreviewContent> {
       if (raster) {
         const gif = ['GIF87a', 'GIF89a'].includes(bytes.toString('latin1', 0, 6));
         if ((gif ? 'image/gif' : imageMime(bytes)) !== mime) throw new Error('File contents do not match the image format');
+        if (!rasterPreviewWithinBudget(bytes, mime)) throw new Error('Inline image preview requires a valid static image within the size limit');
       }
       const image = `data:${mime};base64,${bytes.toString('base64')}`;
       if (ext === '.svg') return { ...identity, mode, image, format: 'SVG', text: decodePreviewText(bytes), language: 'xml' };

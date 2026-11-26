@@ -21,13 +21,22 @@ const app = await electron.launch({
   ...(process.env.DESKTOP_VERIFY_EXE ? { executablePath: process.env.DESKTOP_VERIFY_EXE } : { args: [resolve('.')] }),
   env, timeout: 60000,
 });
+let release;
+const gate = new Promise(resolve => { release = resolve; });
 try {
-  // Hold the app module while inspecting the short-lived native splash.
-  let release;
-  const gate = new Promise(resolve => { release = resolve; });
-  const timeout = setTimeout(() => release(), 5000);
-  await app.context().route('**/assets/*.js', async route => { await gate; await route.continue(); });
-  const splash = await app.firstWindow();
+  // Only hold assets requested by the main renderer. The splash also has a
+  // bundled module under assets/ and must finish loading before we inspect it.
+  let interceptedMainScript = false;
+  await app.context().route('**/assets/*.js', async route => {
+    const request = route.request();
+    if (request.resourceType() === 'script' && new URL(request.frame().url()).pathname.endsWith('/index.html')) {
+      interceptedMainScript = true;
+      await gate;
+    }
+    await route.continue();
+  });
+  const splash = await app.firstWindow({ timeout: 10000 });
+  splash.setDefaultTimeout(10000);
   assert.equal(await app.evaluate(({ app }) => app.getPath('userData')), await realpath(profile),
     'Canonicalize the trusted test profile before plugin update recovery');
   await splash.waitForURL(url => url.pathname.endsWith('/startup-logo.html'), { timeout: 10000 });
@@ -66,16 +75,17 @@ try {
   assert.equal(await splash.evaluate(() => typeof window.desktop), 'undefined');
   assert.equal(await splash.evaluate(() => typeof window.require), 'undefined');
   release();
-  clearTimeout(timeout);
   const main = app.windows().find(page => page !== splash)
     ?? await app.waitForEvent('window', { predicate: page => page !== splash, timeout: 30000 });
   await main.waitForSelector('.app', { timeout: 60000 });
+  assert.equal(interceptedMainScript, true, 'The startup test must intercept a main renderer script');
   await main.waitForTimeout(1000);
   assert.equal(await app.evaluate(({ BrowserWindow }) =>
     BrowserWindow.getAllWindows().some(win => win.webContents.getURL().includes('startup-logo.html'))), false);
   assert.equal(await main.locator('#startup').count(), 0, 'no full-window overlay remains');
   console.log('Separate splash: bridge isolation, geometry, shell handoff and disposal passed');
 } finally {
+  release();
   await app.evaluate(({ dialog }) => { dialog.showMessageBox = async () => ({ response: 1, checkboxChecked: false }); });
   await app.close();
 }

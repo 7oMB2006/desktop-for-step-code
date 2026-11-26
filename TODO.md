@@ -11,6 +11,7 @@
 - [ ] Windows 通知改用系统应用图标
 - [ ] 配置模型的时候不要求 Runtime 限制
 - [ ] 飞书选会话不要求必须先加载 Runtime
+- [ ] 上文爆炸对话丢失
 - [ ] 导出诊断反馈包
 - [ ] context engineering
 

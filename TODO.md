@@ -19,6 +19,8 @@
 ## P1
 
 - [ ] ComputerUse
+- [ ] 重构会话导入A · 支持导入来自更多Harness
+- [ ] 重构会话导入B · 支持导入skill等等
 - [ ] 选择器拉长和分组
 - [ ] git
 - [ ] Github插件

@@ -2,6 +2,7 @@ import type { Message, RuntimeEvent, UIRequest } from '../src/contracts';
 import { remoteCommands, remoteWorkspaceLimit, type RemoteAction, type RemoteImage, type RemoteProject, type RemoteSession, type RemoteSnapshot } from '../src/remote';
 import { remoteSessionList, type RemoteListProject, type RemoteListSession } from '../src/remote-session-list';
 import type { SessionRuntime, WorkerTransport } from './session-runtimes';
+import { uniquePendingApprovalCall } from './approval-call-identity';
 import { taskOutcome } from './task-outcome';
 import { permissionApprovalPresentation, redactApprovalText } from '../src/approval-presentation';
 import { parseRemoteCommand, type RemoteCommand } from './remote-commands';
@@ -105,13 +106,6 @@ function assistantText(message?: Message) {
   return redactApprovalText(typeof message.content === 'string' ? message.content
     : message.content.filter(block => block.type === 'text').map(block => block.text ?? '').join('\n'));
 }
-function liveCall(worker: SessionRuntime, name: string, id?: string) {
-  const finished = new Set(worker.messages.filter(message => message.role === 'toolResult').map(message => message.toolCallId));
-  const calls = worker.messages.flatMap(message => message.role === 'assistant' && Array.isArray(message.content)
-    ? message.content.filter(block => block.type === 'toolCall' && block.name === name && block.id
-      && !finished.has(block.id) && (id === undefined || block.id === id)) : []);
-  return calls.length === 1 ? calls[0] : undefined;
-}
 export function remoteDecision(request: UIRequest, worker: SessionRuntime): {
   title: string; text: string; options: string[]; signature: string; form?: RemoteFormField[];
 } | undefined {
@@ -119,7 +113,7 @@ export function remoteDecision(request: UIRequest, worker: SessionRuntime): {
   const question = questionnaire(request), plan = planReview(request);
   const refinements = request.method === 'input' && request.title === 'Desktop Plan refinements';
   if (question || plan || refinements) {
-    const call = liveCall(worker, question ? 'clarify_user' : 'exit_plan_mode', question?.callId);
+    const call = uniquePendingApprovalCall(worker.messages, question ? 'clarify_user' : 'exit_plan_mode', question?.callId);
     if (!call) return;
     const signature = JSON.stringify({ request, call });
     if (plan) {
@@ -141,7 +135,7 @@ export function remoteDecision(request: UIRequest, worker: SessionRuntime): {
   }
   const parsed = permissionApprovalPresentation(request, worker.messages, 'en', worker.id);
   if (!parsed) return;
-  const call = liveCall(worker, parsed.toolName, parsed.callId);
+  const call = uniquePendingApprovalCall(worker.messages, parsed.toolName, parsed.callId);
   if (!call || parsed.inputKind === 'summary') return;
   const asking = parsed.operation === 'question';
   const text = asking ? [

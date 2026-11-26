@@ -119,9 +119,13 @@ try {
     return result;
   };
   const confirm = async (path, choice = 'Confirm') => {
-    const request = page.locator('.permission-approval').filter({ hasText: 'Allow this local preview?' });
-    await request.getByText(base + path, { exact: false }).waitFor();
-    await request.getByRole('button', { name: choice, exact: true }).click();
+    const url = base + path;
+    console.log(`Waiting for preview approval: ${choice} ${path}`);
+    const request = page.getByRole('dialog', { name: 'Allow this local preview?', exact: true });
+    await request.locator('.request-message').filter({ hasText: new RegExp(`^Open this exact address in an isolated tab:\\s+${RegExp.escape(url)}$`) })
+      .waitFor({ state: 'visible', timeout: 15000 });
+    await request.getByRole('button', { name: choice, exact: true }).click({ timeout: 15000 });
+    console.log(`Answered preview approval: ${choice} ${path}`);
   };
   const loaded = path => waitForBrowserFixtureSnapshot(page, value =>
     value.tabs.some(tab => tab.id === value.activeId && tab.url === base + path && !tab.loading && tab.title === 'Agent preview fixture'),

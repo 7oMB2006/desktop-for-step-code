@@ -593,7 +593,7 @@ try {
   ] }));
   for (const [provider, brand, shape] of [
     ['step', 'step', 'svg rect'], ['desktop-custom-other', 'custom', 'svg.lucide-sparkles'],
-    ['desktop-custom-step-api', 'stepfun', 'svg path[fill-rule="evenodd"]'],
+    ['desktop-custom-step-api', 'stepfun', 'svg rect'],
   ]) {
     await dialog.getByRole('button', { name: '选择模型', exact: true }).click();
     await search.fill('阶跃 shared');
@@ -602,10 +602,11 @@ try {
     const group = dialog.locator(`[data-model-provider="${provider}"]`);
     const mark = group.locator('.model-picker-provider-mark');
     assert.equal(await mark.getAttribute('data-provider-brand'), brand);
-    assert.equal(await mark.locator(shape).count(), brand === 'step' ? 5 : 1);
+    assert.equal(await mark.locator(shape).count(), brand === 'custom' ? 1 : 5);
     await group.locator('.model-picker-select').click();
     await settleLayout(dialog);
     assert.equal(await cardMark.getAttribute('data-provider-brand'), brand);
+    assert.equal(await cardMark.locator(shape).count(), brand === 'custom' ? 1 : 5);
     assert.equal(await page.evaluate(() => window.modelCalls.at(-1)), `${provider}/shared`);
     assert.equal(await dialog.getByRole('button', { name: '选择模型', exact: true }).evaluate(button => button === document.activeElement), true);
   }

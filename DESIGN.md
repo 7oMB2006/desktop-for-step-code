@@ -719,8 +719,8 @@ connection label and billing when known and stay visible while scrolling.
 An independent star adds or removes a favorite without selecting a model or
 closing the picker; the selected checkmark remains separate.
 Monochrome marks follow the actual connection, never the model name or catalog
-binding. The built-in Step account keeps its bare five-square mark; recognized
-Step API connections use the round mark. Unrecognized providers keep a neutral
+binding. The built-in Step account and recognized Step API connections use
+the bare five-square mark. Unrecognized providers keep a neutral
 mark. Marks do not replace connection labels or billing text. Keep the existing
 mark fade on the model card.
 Favorites retain their saved order and provider/model identities in Desktop

@@ -1291,7 +1291,13 @@ function App() {
         });
         return;
       }
-      if (event.type === 'desktop_sessions_changed') { void run(refresh); return; }
+      if (event.type === 'desktop_sessions_changed') {
+        void run(async () => {
+          await refresh();
+          setStatusRevision(value => value + 1);
+        });
+        return;
+      }
       if (event.sessionId && ['desktop_model_selection', 'desktop_history', 'message_start', 'message_update', 'message_end', 'tool_execution_update', 'tool_execution_end'].includes(event.type)) {
         readingCache.current.delete(event.sessionId);
       }
@@ -1344,7 +1350,7 @@ function App() {
         setRequests(previous => previous.filter(request => request.id !== event.id));
       }
       if (event.type === 'agent_start') setBusy(true);
-      if (['live_context', 'compaction_end', 'auto_compaction_end', 'auto_clm_end', 'agent_end', 'agent_settled', 'desktop_history', 'desktop_sessions_changed'].includes(event.type)) setStatusRevision(value => value + 1);
+      if (['live_context', 'compaction_end', 'auto_compaction_end', 'auto_clm_end', 'agent_end', 'agent_settled', 'desktop_history'].includes(event.type)) setStatusRevision(value => value + 1);
       if (['compaction_start', 'compaction_end', 'auto_compaction_start', 'auto_clm_start', 'auto_compaction_end', 'auto_clm_end'].includes(event.type))
         setData(d => ({ ...d, state: d.state ? { ...d.state, isCompacting: event.type.endsWith('_start') } : d.state }));
       if ((event.type === 'agent_end' && !event.desktopRecoveryPending || event.desktopRecoverySettled) && !event.desktopReviewPending

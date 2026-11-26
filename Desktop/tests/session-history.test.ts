@@ -5,8 +5,8 @@ import { mkdtemp, mkdir, open, readFile, rename, rm, stat, symlink, writeFile } 
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { importedHistoryMessages } from '../electron/imported-history';
-import { messagesWithEntryIds } from '../electron/session-branching';
+import type { Message } from '../src/contracts';
+import { sessionTranscript } from '../electron/session-transcript';
 // @ts-expect-error Node ESM adapter is staged verbatim beside admin.mjs.
 import { readSessionHistory, readHistorySource, assertHistoryUnchanged, MAX_HISTORY_PREVIEW_BYTES } from '../electron/session-history.mjs';
 
@@ -131,8 +131,10 @@ test('native preview follows the active branch including custom and compacted co
   assert.equal(history.leafId, manager.getLeafId());
   assert.ok(JSON.stringify(history.messages).includes('earlier work'));
   assert.ok(!JSON.stringify(history.messages).includes('hidden branch'));
-  const projected = messagesWithEntryIds(history.messages, history.entries, history.leafId);
-  assert.equal(projected.find(value => value.content === 'kept')?.entryId, 'b');
+  assert.ok(!(history.messages as Message[]).some(value => value.content === 'original'));
+  const projected = sessionTranscript(history.entries, history.leafId);
+  assert.deepEqual(projected.map(value => value.entryId), ['a', 'b', 'custom']);
+  assert.deepEqual(projected.map(value => value.content), ['original', 'kept', 'visible custom']);
 });
 test('native legacy migration stays in memory and imported tool display retains original identities', { skip: !native }, async t => {
   const { sessions, file } = await fixture(t, [{ ...header, version: 1 },
@@ -150,7 +152,7 @@ test('native legacy migration stays in memory and imported tool display retains 
       content: [{ type: 'text', text: 'original tool output' }], timestamp: 1 },
   }].map(value => JSON.stringify(value)).join('\n'));
   const history = await readSessionHistory(native, sessions, file, 'history');
-  const display = importedHistoryMessages(history.messages, history.entries, history.leafId);
+  const display = sessionTranscript(history.entries, history.leafId);
   assert.equal(display[0].role, 'toolResult');
   assert.equal(display[0].entryId, 'imported');
   assert.deepEqual(display[0].content, [{ type: 'text', text: 'original tool output' }]);

@@ -21,7 +21,7 @@ export async function assertHistoryUnchanged(root, file, source) {
 
 // The upstream open/load helpers may migrate or repair files. Preview only reads
 // bytes and uses the upstream in-memory migration and context projection.
-export async function readHistorySource(upstream, root, file, sessionId, maxBytes = MAX_HISTORY_SOURCE_BYTES) {
+export async function readHistorySource(upstream, root, file, sessionId, maxBytes = MAX_HISTORY_SOURCE_BYTES, includeContext = true) {
   if (!root || typeof file !== 'string' || typeof sessionId !== 'string') throw new Error('Invalid history request');
   const [directory, canonical] = await Promise.all([realpath(root), realpath(file)]);
   const rel = relative(directory, canonical);
@@ -66,7 +66,7 @@ export async function readHistorySource(upstream, root, file, sessionId, maxByte
     const result = {
       sessionId, cwd: header.cwd, entries, leafId, source,
       version: createHash('sha256').update(bytes).digest('hex'),
-      messages: upstream.buildSessionContext(entries, leafId, byId).messages,
+      ...(includeContext ? { messages: upstream.buildSessionContext(entries, leafId, byId).messages } : {}),
     };
     return result;
   } finally { await handle.close(); }

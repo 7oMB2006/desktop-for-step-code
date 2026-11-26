@@ -34,8 +34,7 @@ import { PluginConnections } from './plugin-connection';
 import { pluginWindowMethodAllowed } from './plugin-window-policy';
 import { parseWindowPresentation } from './window-presentation';
 import { composerKey, type ComposerOwner, type WindowPresentation } from '../src/window-conversation';
-import { importedHistoryMessages } from './imported-history';
-import { messagesWithEntryIds } from './session-branching';
+import { sessionTranscript } from './session-transcript';
 import { SessionCollaboration } from './session-collaboration';
 import { saveWebSearch, webSearchSettings } from './web-search-config';
 import { createWebSearch, nativeStepSearch } from './web-search-service';
@@ -1720,9 +1719,7 @@ async function sessionReading(id: string, owner: string, revision?: number): Pro
   const history = await admin.request('session_history', { sessionId: id, sessionPath: target.path });
   if (historyReadingOwners.get(owner) !== token) return null;
   if (!history || history.sessionId !== id) return null;
-  const projected = importedHistoryMessages(history.messages, history.entries, history.leafId);
-  const messages = projected === history.messages
-    ? messagesWithEntryIds(projected, history.entries, history.leafId) : projected;
+  const messages = sessionTranscript(history.entries, history.leafId);
   const [decorated, record] = await Promise.all([
     decorateSessionMessages(id, target.cwd, messages), modelSelections.load(id),
   ]);
@@ -2531,6 +2528,19 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
       const worker = runtimes.require(text(args[0]?.runtimeId, 80));
       if (externallyOwned(worker)) throw new Error('Stop the external task before sending a local reply');
       return runtimes.withBackgroundAction(worker, () => backgroundAgents.reply(args[0]));
+    }
+    case 'contextMessages': {
+      const runtimeId = text(args[0], 80);
+      const sessionId = text(args[1], 300);
+      const worker = runtimes.require(runtimeId);
+      const rpc = worker.rpc;
+      const isCurrent = () => runtimeId === selectedRuntime(surface) && !selectedDraft(surface)
+        && runtimes.workers.get(runtimeId) === worker && worker.status === 'connected'
+        && worker.rpc === rpc && worker.state?.sessionId === sessionId;
+      if (!isCurrent()) throw new Error('Session changed');
+      const { messages } = await rpc.request('get_messages');
+      if (!isCurrent()) throw new Error('Session changed');
+      return messages;
     }
     case 'summary': {
       const worker = runtimes.require(text(args[0], 80));

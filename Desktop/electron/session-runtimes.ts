@@ -10,8 +10,8 @@ import { isUserMessage } from '../src/user-message';
 import { projectInstructionsMessage } from './project-instructions';
 import { desktopSystemPolicy } from './workspace-policy';
 import { applyMessageEvent } from '../src/message-events';
-import { activeHistory, messagesWithEntryIds, type BranchOperation } from './session-branching';
-import { importedHistoryMessages } from './imported-history';
+import { activeHistory, type BranchOperation } from './session-branching';
+import { sessionTranscript } from './session-transcript';
 import type { BackgroundLaneActivity, Message, Model, ModelSelection, PermissionPreset, RuntimeEvent, RuntimeState, RuntimeStartupTiming, SessionStats, UIRequest } from '../src/contracts';
 import { backgroundAgentsSnapshot } from './background-agents';
 import type { BackgroundAgentSnapshot } from '../src/background-agents';
@@ -769,16 +769,14 @@ export class SessionRuntimes {
     const epoch = this.snapshotEpochs.get(worker);
     const rpc = worker.rpc;
     const statsVersion = this.nextStatsVersion(worker);
-    const [state, { messages }, { models }, stats, history] = await Promise.all([
-      worker.rpc.request('get_state'), worker.rpc.request('get_messages'),
+    const [state, { models }, stats, history] = await Promise.all([
+      worker.rpc.request('get_state'),
       worker.rpc.request('get_available_models'), worker.rpc.request('get_session_stats'),
       worker.rpc.request('get_entries'),
     ]);
     if (worker.rpc !== rpc || worker.status !== 'connected' || this.workers.get(worker.id) !== worker
       || this.snapshotEpochs.get(worker) !== epoch) return;
-    const projected = importedHistoryMessages(messages, history.entries ?? [], history.leafId ?? null);
-    const savedMessages = projected === messages
-      ? messagesWithEntryIds(messages, history.entries ?? [], history.leafId ?? null) : projected;
+    const savedMessages = sessionTranscript(history.entries ?? [], history.leafId ?? null);
     if (revision === worker.revision && state.sessionId)
       worker.launch = projectLaunch(history.entries ?? [], history.leafId ?? null, state.sessionId, worker.launch);
     const decorated = this.hooks.messages ? await this.hooks.messages(worker, savedMessages) : savedMessages;
@@ -790,7 +788,7 @@ export class SessionRuntimes {
       worker.busy = worker.runActive || Boolean(state.isStreaming) || reviewActive(worker.launch?.review);
     }
     // Startup/status metadata can advance state without invalidating saved history.
-    // get_messages contains committed history, never the in-flight assistant.
+    // Saved entries do not contain the in-flight assistant.
     if (transcriptRevision === this.transcriptRevision(worker) && !state.isStreaming && !worker.runActive) {
       worker.messages = decorated;
       worker.leafId = history.leafId ?? undefined;

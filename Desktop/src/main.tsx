@@ -1342,7 +1342,7 @@ function App() {
         setRequests(previous => previous.filter(request => request.id !== event.id));
       }
       if (event.type === 'agent_start') setBusy(true);
-      if (['live_context', 'auto_clm_end', 'agent_end', 'desktop_history'].includes(event.type)) setStatusRevision(value => value + 1);
+      if (['live_context', 'compaction_end', 'auto_compaction_end', 'auto_clm_end', 'agent_end', 'agent_settled', 'desktop_history'].includes(event.type)) setStatusRevision(value => value + 1);
       if (['compaction_start', 'compaction_end', 'auto_compaction_start', 'auto_clm_start', 'auto_compaction_end', 'auto_clm_end'].includes(event.type))
         setData(d => ({ ...d, state: d.state ? { ...d.state, isCompacting: event.type.endsWith('_start') } : d.state }));
       if ((event.type === 'agent_end' && !event.desktopRecoveryPending || event.desktopRecoverySettled) && !event.desktopReviewPending
@@ -2961,7 +2961,7 @@ function App() {
         </aside>
       </div>}
       {visibleRightPanel === 'context' && !details && <div className={`summary-region context-region right-inspector-surface${inspectorExpanded ? ' is-expanded' : ''}`}>
-        <ContextPanel key={data.state?.sessionId ?? data.runtimeId ?? 'empty'} messages={data.messages} stats={data.stats} state={data.state} estimate={data.estimate}
+        <ContextPanel key={data.state?.sessionId ?? data.runtimeId ?? 'empty'} stats={data.stats} state={data.state} estimate={data.estimate}
           snapshot={{ ...data, requests }} runtimeRevision={statusRevision} view={contextView} onView={setRightPanel}
           title={activeTitle} language={data.preferences.language} busy={busy} connected={connected} onClose={closeRightPanel}
           expanded={inspectorExpanded} onToggleExpanded={() => setExpandedRightPanel(inspectorExpanded ? null : 'context')}

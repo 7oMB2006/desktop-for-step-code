@@ -52,7 +52,7 @@ function App() {
       <button onClick={() => setBusy(value => !value)}>{busy ? '停止模拟任务' : '模拟任务运行'}</button>
       <button onClick={() => setRevision(value => value + 1)}>刷新验收</button><output aria-label="操作次数">{calls}</output>
     </div><ContextPanel snapshot={snapshot} view={view} onView={setView} runtimeRevision={revision}
-      messages={[]} title="CLM" language={language} busy={busy} connected expanded={width === 'fullscreen'} onToggleExpanded={() => setWidth(width === 'fullscreen' ? 'standard' : 'fullscreen')} onClose={() => {}}
+      title="CLM" language={language} busy={busy} connected expanded={width === 'fullscreen'} onToggleExpanded={() => setWidth(width === 'fullscreen' ? 'standard' : 'fullscreen')} onClose={() => {}}
       width={width === 'fullscreen' ? 'standard' : width} onWidthChange={setWidth}
       onRefresh={async () => setRevision(value => value + 1)} onError={() => {}}/>
   </div>;

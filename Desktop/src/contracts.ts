@@ -250,6 +250,7 @@ export interface DesktopBridge extends SessionImportBridge, BtwBridge, Backgroun
   quitRespond(id: string, confirmed: boolean): Promise<void>;
   systemTheme(): Promise<{ systemDark: boolean }>;
   snapshot(): Promise<Snapshot>;
+  contextMessages(runtimeId: string, sessionId: string): Promise<Message[]>;
   beginSession(workspace?: string, resume?: boolean): Promise<Snapshot>;
   chooseSessionProject(): Promise<Snapshot | null>;
   createDraftSession(draftId: string): Promise<Snapshot>;

@@ -34,7 +34,8 @@ for (let index = 0; index < 6; index++) {
   const timestamp = new Date(Date.now() - 10000 - index * 1000).toISOString();
   const entries = [{ type: 'session', version: 3, id: `navigation-${index}`, cwd: index === 5 ? failureProject : project, timestamp }];
   let parentId = null;
-  for (let turn = 0; turn < 22; turn++) {
+  const turnCount = index === 3 ? 100 : 22;
+  for (let turn = 0; turn < turnCount; turn++) {
     const userId = `user-${turn}`;
     entries.push({ type: 'message', id: userId, parentId, timestamp,
       message: { role: 'user', content: [{ type: 'text', text: `Conversation ${index}, question ${turn}` }], timestamp: Date.parse(timestamp) } });
@@ -51,7 +52,7 @@ for (let index = 0; index < 6; index++) {
     entries.push({ type: 'message', id: 'abandoned', parentId, timestamp,
       message: { role: 'user', content: 'ABANDONED_BRANCH_MUST_NOT_PAINT', timestamp: Date.parse(timestamp) } });
     entries.push({ type: 'compaction', id: 'compact', parentId, timestamp,
-      summary: 'COMPACTED_CONTEXT_PREVIEW', firstKeptEntryId: 'user-18', tokensBefore: 100 });
+      summary: 'COMPACTED_CONTEXT_PREVIEW', firstKeptEntryId: 'user-48', tokensBefore: 100 });
     entries.push({ type: 'custom_message', id: 'preview-custom', parentId: 'compact', timestamp,
       customType: 'fixture', content: [{ type: 'text', text: 'Visible custom history' }], display: true });
     parentId = 'preview-custom';
@@ -385,7 +386,10 @@ try {
       'Account changes remain locked while either startup uses the active credentials');
     await app.evaluate(() => globalThis.navigationReleaseStartup(0));
     const coldReading = await page.evaluate(() => window.desktop.sessionReading('navigation-3'));
-    assert.ok(JSON.stringify(coldReading.messages).includes('COMPACTED_CONTEXT_PREVIEW'));
+    const turnIds = messages => messages.filter(message => message.role === 'user').map(message => message.entryId);
+    const originalTurnIds = Array.from({ length: 100 }, (_, index) => `user-${index}`);
+    assert.deepEqual(turnIds(coldReading.messages), originalTurnIds);
+    assert.ok(!JSON.stringify(coldReading.messages).includes('COMPACTED_CONTEXT_PREVIEW'));
     assert.ok(!JSON.stringify(coldReading.messages).includes('ABANDONED_BRANCH_MUST_NOT_PAINT'));
     await row(3).click();
     await opened(3);
@@ -393,6 +397,39 @@ try {
     const transcript = messages => messages.map(({ role, content, entryId, customType }) => ({ role, content, entryId, customType }));
     assert.deepEqual(transcript(coldReading.messages), transcript(authoritative.messages),
       'Read-only compaction, custom messages and branch IDs match the actual runtime transcript');
+    phase = 'compacted transcript navigation and model context stay independent';
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1706, 900));
+    const navTool = page.locator('.right-tool-rail').getByRole('button', { name: '会话导航', exact: true });
+    await navTool.click();
+    const navigation = page.locator('#conversation-navigation-panel nav');
+    await page.locator('.conversation-nav-track.is-open:not(.is-overlay)').waitFor();
+    await navigation.getByRole('button').first().waitFor();
+    assert.deepEqual(await navigation.locator('.nav-turn-number').allTextContents(),
+      Array.from({ length: 100 }, (_, index) => String(100 - index)));
+    assert.match(await navigation.getByRole('button').first().innerText(), /question 99/);
+    await page.screenshot({ path: join(output, 'session-navigation-compacted-100.png') });
+    await navigation.getByRole('button').last().click();
+    await page.waitForFunction(() => document.querySelector('#conversation-navigation-panel [aria-current="location"] .nav-turn-number')?.textContent === '1');
+    await page.waitForFunction(() => {
+      const view = document.querySelector('#conversation-scroll')?.getBoundingClientRect();
+      const message = document.querySelector('article[data-message-index="0"] .message-body');
+      const first = message?.getBoundingClientRect();
+      return view && first && first.top >= view.top - 1 && first.bottom <= view.bottom
+        && message.contains(document.elementFromPoint(first.left + first.width / 2, first.top + first.height / 2));
+    });
+    await page.screenshot({ path: join(output, 'session-navigation-compacted-first-turn.png') });
+    await page.locator('.right-tool-rail').getByRole('button', { name: '上下文', exact: true }).click();
+    await page.waitForFunction(() => document.querySelector('#context-tab-user small')?.textContent === '52');
+    const context = await page.evaluate(async () => {
+      const snapshot = await window.desktop.snapshot();
+      return window.desktop.contextMessages(snapshot.runtimeId, snapshot.state.sessionId);
+    });
+    assert.equal(context.filter(message => message.role === 'user').length, 52);
+    assert.ok(JSON.stringify(context).includes('COMPACTED_CONTEXT_PREVIEW'));
+    await assert.rejects(page.evaluate(() => window.desktop.snapshot().then(snapshot =>
+      window.desktop.contextMessages(snapshot.runtimeId, 'navigation-0'))), /Session changed/);
+    await page.locator('#context-panel').getByRole('button', { name: '关闭上下文', exact: true }).click();
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1400, 900));
     phase = 'idle recycling continues while an obsolete startup is held';
     for (const index of [4, 1, 2, 3]) {
       await row(index).click();
@@ -401,6 +438,8 @@ try {
         'Draft for overtaken one', 'Overtaken startup retains only its own draft');
       await waitForTrimmedResidents(page);
     }
+    const reopened = await page.evaluate(() => window.desktop.snapshot());
+    assert.deepEqual(turnIds(reopened.messages), originalTurnIds);
     await assert.rejects(page.evaluate(() => window.desktop.logout()), /operation in progress/i,
       'Recycling cannot release the shared account/settings lock');
     await page.evaluate(() => {
@@ -755,7 +794,7 @@ try {
   await writeFile(join(output, 'session-navigation-results.json'), JSON.stringify({
     modelChecks, modelObservations, staleModels: stale, errors,
     bidirectionalModelRestoration: true, heldRapidSwitches: true, failurePlaceholder: true,
-    lightDarkNarrowReducedMotion: true,
+    lightDarkNarrowReducedMotion: true, compactedTurns: { transcript: 100, modelContext: 52 },
   }, null, 2));
 } catch (error) {
   console.error('Navigation acceptance failed during:', phase);

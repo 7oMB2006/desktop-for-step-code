@@ -6,8 +6,7 @@ import { tmpdir, cpus, totalmem } from 'node:os';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { historyProcessRunner } from '../electron/session-history-readers';
-import { importedHistoryMessages } from '../electron/imported-history';
-import { messagesWithEntryIds } from '../electron/session-branching';
+import { sessionTranscript } from '../electron/session-transcript';
 // @ts-expect-error Native adapter is staged without TypeScript.
 import { readHistorySource } from '../electron/session-history.mjs';
 // @ts-expect-error Shared synthetic history for Node and Electron acceptance.
@@ -37,8 +36,7 @@ test('isolated native reader projects a case-sized history completely, without s
   const count = Number(process.env.DESKTOP_READING_SAMPLES ?? 1);
   const native = await import(pathToFileURL(bundle).href);
   const history = await readHistorySource(native, root, file, 'reading-large');
-  const imported = importedHistoryMessages(history.messages, history.entries, history.leafId);
-  const expected = imported === history.messages ? messagesWithEntryIds(imported, history.entries, history.leafId) : imported;
+  const expected = sessionTranscript(history.entries, history.leafId);
   for (let index = 0; index < count; index++) {
     const start = performance.now();
     const result = await run({ root, profile, file, sessionId: 'reading-large', cwd: profile }, new AbortController().signal);

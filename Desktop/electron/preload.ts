@@ -224,6 +224,9 @@ const bridge: DesktopBridge = {
   cancelProviderTest: () => invoke('cancelProviderTest'),
   deleteProvider: id => invoke('deleteProvider', id),
   saveMcp: (name, config, secrets) => invoke('saveMcp', name, config, secrets), preferences: patch => invoke('preferences', patch),
+  previewFeedback: (runtimeId, sessionId, options) => invoke('previewFeedback', runtimeId, sessionId, options),
+  saveFeedback: (runtimeId, sessionId, token, destination) => invoke('saveFeedback', runtimeId, sessionId, token, destination),
+  openFeedbackFolder: () => invoke('openFeedbackFolder'),
   images: () => invoke('images'), diagnostics: () => invoke('diagnostics'),
   chooseAttachments: () => invoke('chooseAttachments'),
   importFile: file => {

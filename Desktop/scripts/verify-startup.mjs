@@ -24,9 +24,17 @@ const app = await electron.launch({
 let release;
 const gate = new Promise(resolve => { release = resolve; });
 try {
-  // Hold the app module until the splash assertions finish. A wall-clock
-  // release can close the splash midway through those checks on a slow runner.
-  await app.context().route('**/assets/*.js', async route => { await gate; await route.continue(); });
+  // Only hold assets requested by the main renderer. The splash also has a
+  // bundled module under assets/ and must finish loading before we inspect it.
+  let interceptedMainScript = false;
+  await app.context().route('**/assets/*.js', async route => {
+    const request = route.request();
+    if (request.resourceType() === 'script' && new URL(request.frame().url()).pathname.endsWith('/index.html')) {
+      interceptedMainScript = true;
+      await gate;
+    }
+    await route.continue();
+  });
   const splash = await app.firstWindow({ timeout: 10000 });
   splash.setDefaultTimeout(10000);
   assert.equal(await app.evaluate(({ app }) => app.getPath('userData')), await realpath(profile),
@@ -70,6 +78,7 @@ try {
   const main = app.windows().find(page => page !== splash)
     ?? await app.waitForEvent('window', { predicate: page => page !== splash, timeout: 30000 });
   await main.waitForSelector('.app', { timeout: 60000 });
+  assert.equal(interceptedMainScript, true, 'The startup test must intercept a main renderer script');
   await main.waitForTimeout(1000);
   assert.equal(await app.evaluate(({ BrowserWindow }) =>
     BrowserWindow.getAllWindows().some(win => win.webContents.getURL().includes('startup-logo.html'))), false);

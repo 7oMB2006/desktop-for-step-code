@@ -134,8 +134,10 @@ export class BrowserTabs {
     this.sync();
     if (this.disposed || this.window.isDestroyed()) throw new Error('Browser is closed');
     const url = browserPreviewUrl(address);
-    const existing = [...this.tabs.values()].find(tab => tab.owner === owner && !tab.info.localFile && tab.info.url === url);
-    const tab = existing ?? this.createTab(owner, url, { previewOrigin: new URL(url).origin });
+    const origin = new URL(url).origin;
+    const existing = [...this.tabs.values()].find(tab => tab.owner === owner && tab.automationScope?.kind === 'local'
+      && tab.automationScope.origin === origin && tab.info.url === url);
+    const tab = existing ?? this.createTab(owner, url, { previewOrigin: origin, automationScope: { kind: 'local', origin } });
     if (existing) {
       this.conversations.set(owner, { activeId: tab.info.id });
       this.render();

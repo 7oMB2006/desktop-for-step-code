@@ -3,6 +3,8 @@ import { createServer, type Server } from 'node:http';
 import type { Message } from '../src/contracts';
 import { firstUserText, type SessionRuntime, type SessionRuntimes } from './session-runtimes';
 import { sessionReference, sessionIdFromReference } from '../src/session-reference';
+import { browserPreviewUrl } from './browser-policy';
+import { hasScheduledCron } from './cron-state';
 import type { SessionAttachmentExports } from './session-attachment-exports';
 
 const MAX_TEXT = 4000;
@@ -121,11 +123,30 @@ export class SessionCollaboration {
       return this.playwrightPreview(source, data, signal);
     }
     if (data.action === 'open-preview') {
-      if (!this.openPreview || !source.state?.sessionId || source.status !== 'connected' || source.mutating)
-        throw new Error('Desktop preview is unavailable for this session');
+      const sessionId = source.state?.sessionId;
+      const transport = source.rpc;
+      const requireInteractiveSource = () => {
+        requireSource();
+        if (!sessionId || source.state?.sessionId !== sessionId || source.rpc !== transport
+          || source.status !== 'connected' || !source.runActive || source.mutating || source.stopping
+          || source.remoteAttached || source.cronGated || hasScheduledCron(source.cron))
+          throw new Error('Desktop preview requires an active interactive session');
+      };
+      if (!this.openPreview) throw new Error('Desktop preview is unavailable for this session');
+      requireInteractiveSource();
       if (Object.keys(data).length !== 2 || typeof data.url !== 'string' || data.url.length > 4096)
         throw new Error('Expected only a local preview URL');
-      return this.openPreview(source, data.url);
+      const url = browserPreviewUrl(data.url);
+      const zh = this.language() === 'zh';
+      if (!await this.pool.confirm(source, zh ? '允许打开这个本地预览？' : 'Allow this local preview?',
+        zh ? `将在隔离标签页访问以下地址：
+
+${url}` : `Open this exact address in an isolated tab:
+
+${url}`, signal))
+        throw new Error('Desktop preview was not approved');
+      requireInteractiveSource();
+      return this.openPreview(source, url);
     }
     if (this.webSearch && data.action === 'web-search-status') return { ready: this.webSearch.ready() };
     if (this.webSearch && data.action === 'web-search')

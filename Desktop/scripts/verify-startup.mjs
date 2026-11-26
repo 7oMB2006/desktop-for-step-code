@@ -21,13 +21,14 @@ const app = await electron.launch({
   ...(process.env.DESKTOP_VERIFY_EXE ? { executablePath: process.env.DESKTOP_VERIFY_EXE } : { args: [resolve('.')] }),
   env, timeout: 60000,
 });
+let release;
+const gate = new Promise(resolve => { release = resolve; });
 try {
-  // Hold the app module while inspecting the short-lived native splash.
-  let release;
-  const gate = new Promise(resolve => { release = resolve; });
-  const timeout = setTimeout(() => release(), 5000);
+  // Hold the app module until the splash assertions finish. A wall-clock
+  // release can close the splash midway through those checks on a slow runner.
   await app.context().route('**/assets/*.js', async route => { await gate; await route.continue(); });
-  const splash = await app.firstWindow();
+  const splash = await app.firstWindow({ timeout: 10000 });
+  splash.setDefaultTimeout(10000);
   assert.equal(await app.evaluate(({ app }) => app.getPath('userData')), await realpath(profile),
     'Canonicalize the trusted test profile before plugin update recovery');
   await splash.waitForURL(url => url.pathname.endsWith('/startup-logo.html'), { timeout: 10000 });
@@ -66,7 +67,6 @@ try {
   assert.equal(await splash.evaluate(() => typeof window.desktop), 'undefined');
   assert.equal(await splash.evaluate(() => typeof window.require), 'undefined');
   release();
-  clearTimeout(timeout);
   const main = app.windows().find(page => page !== splash)
     ?? await app.waitForEvent('window', { predicate: page => page !== splash, timeout: 30000 });
   await main.waitForSelector('.app', { timeout: 60000 });
@@ -76,6 +76,7 @@ try {
   assert.equal(await main.locator('#startup').count(), 0, 'no full-window overlay remains');
   console.log('Separate splash: bridge isolation, geometry, shell handoff and disposal passed');
 } finally {
+  release();
   await app.evaluate(({ dialog }) => { dialog.showMessageBox = async () => ({ response: 1, checkboxChecked: false }); });
   await app.close();
 }

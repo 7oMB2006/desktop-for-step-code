@@ -8,7 +8,7 @@ import { pathToFileURL } from 'node:url';
 import { importedHistoryMessages } from '../electron/imported-history';
 import { messagesWithEntryIds } from '../electron/session-branching';
 // @ts-expect-error Node ESM adapter is staged verbatim beside admin.mjs.
-import { readSessionHistory, readHistorySource, assertHistoryUnchanged, MAX_HISTORY_PREVIEW_BYTES } from '../electron/session-history.mjs';
+import { readFeedbackRequestId, readSessionHistory, readHistorySource, assertHistoryUnchanged, MAX_HISTORY_PREVIEW_BYTES } from '../electron/session-history.mjs';
 
 const bundle = resolve('runtime/step/dist/bundle/index.js');
 const native = existsSync(bundle) ? await import(pathToFileURL(bundle).href) : undefined;
@@ -155,4 +155,13 @@ test('native legacy migration stays in memory and imported tool display retains 
   assert.equal(display[0].entryId, 'imported');
   assert.deepEqual(display[0].content, [{ type: 'text', text: 'original tool output' }]);
   assert.match(display[0].toolCallId!, /^desktop-import:/);
+});
+
+test('feedback metadata follows only the named active branch and excludes summary request IDs', async t => {
+  const request = (id: string, parentId: string, purpose?: string) => ({ type: 'custom', id, parentId,
+    customType: 'step.usage_provenance', data: { requestId: id, purpose } });
+  const { sessions, file } = await fixture(t, [header, message('u', null, 'text'),
+    request('reply', 'u'), request('abandoned', 'reply'), request('summary', 'reply', 'compaction')]);
+  assert.equal(await readFeedbackRequestId(upstream, sessions, file, 'history'), 'reply');
+  await assert.rejects(readFeedbackRequestId(upstream, sessions, file, 'other'));
 });

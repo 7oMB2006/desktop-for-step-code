@@ -1,0 +1,9 @@
+.feedback-trigger, .feedback-dialog { -webkit-app-region: no-drag; }
+.feedback-dialog { width: min(36rem, 88vw); max-height: 84vh; overflow: auto; padding: 1.25rem; border: 1px solid var(--border); border-radius: 12px; color: var(--ink); background: var(--bg); text-align: left; white-space: normal; }
+.feedback-dialog::backdrop { background: #0006; }
+.feedback-dialog label { display: block; margin: .6rem 0; }
+.feedback-dialog textarea { display: block; width: 100%; min-height: 3em; margin-top: .3rem; }
+.feedback-dialog pre { max-height: 48vh; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
+.feedback-dialog footer { display: flex; justify-content: flex-end; gap: .6rem; }
+.feedback-dialog fieldset label { display: flex; align-items: center; gap: .5rem; }
+.feedback-dialog input[type=checkbox] { width: 1rem; height: 1rem; }

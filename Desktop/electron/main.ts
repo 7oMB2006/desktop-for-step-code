@@ -2,6 +2,7 @@ import { normalizedWorkspaceKey } from '../src/workspace-key';
 import { WorkspaceDirectoryError } from '../src/workspace-directory-error';
 import { statusAccount } from './status-account';
 import { statusBuild } from './session-status';
+import { FeedbackPreview, feedbackReport } from './feedback-export';
 import { bundledStepCode } from './app-build-info';
 import { app, BrowserWindow, dialog, ipcMain, shell, session, net, clipboard, ClipboardItem, nativeImage, nativeTheme, Menu, Notification } from 'electron';
 import { join, resolve, extname, basename } from 'node:path';
@@ -1868,6 +1869,7 @@ async function beginSession(workspace?: string, surface: Surface = 'main', resum
   } finally { transition = false; }
 }
 const text = (value: unknown, max = 100000): string => { if (typeof value !== 'string' || value.length > max) throw new Error('Invalid text'); return value; };
+let feedbackPreview: FeedbackPreview | undefined;
 async function handle(method: string, args: any[], surface: Surface = 'main', markCapabilityPhase?: CapabilityPhaseMarker) {
   const originWindow = () => surface === 'mini' ? miniChat!.window! : window;
   const readingOwner = () => {
@@ -3925,6 +3927,44 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
       }
       return true;
     }
+    case 'previewFeedback':
+    case 'saveFeedback': {
+      const runtimeId = text(args[0], 80), sessionId = text(args[1], 128);
+      const owner = readingOwner();
+      const selected = () => {
+        const worker = runtimes.workers.get(runtimeId);
+        if (!worker || !sessionId || worker.state?.sessionId !== sessionId || selectedRuntime(surface) !== runtimeId
+          || selectedDraft(surface) || readingSelections.has(owner) || readingOwner() !== owner)
+          throw new Error('Preview the selected conversation again');
+        return worker;
+      };
+      const worker = selected();
+      if (method === 'saveFeedback') {
+        const preview = feedbackPreview;
+        if (!preview) throw new Error('Preview the conversation first');
+        const saved = await preview.save(owner, sessionId, text(args[2], 80), async () => {
+          const result = await dialog.showSaveDialog(originWindow(), { defaultPath: 'dfsc-feedback.json.gz' });
+          return result.canceled ? undefined : result.filePath;
+        }, () => {
+          selected();
+          if (feedbackPreview !== preview) throw new Error('Preview the conversation again');
+        });
+        if (saved && feedbackPreview === preview) feedbackPreview = undefined;
+        return saved;
+      }
+      const input = args[2];
+      if (typeof input?.conversation !== 'boolean' || typeof input.tools !== 'boolean') throw new Error('Invalid feedback scope');
+      const options = { errorAt: input.errorAt ? text(input.errorAt, 30) : undefined,
+        expected: text(input.expected, 1000), actual: text(input.actual, 1000),
+        conversation: input.conversation, tools: input.tools };
+      const sessionPath = worker.state?.sessionFile;
+      const requestId = sessionPath ? await admin.request('feedback_request_id', { sessionPath, sessionId }) : undefined;
+      selected();
+      const content = feedbackReport(options, worker.messages, { desktop: app.getVersion(),
+        stepCode: bundledStepCode(runtimeManifest), platform: process.platform, arch: process.arch }, requestId);
+      feedbackPreview = new FeedbackPreview(owner, sessionId, content);
+      return { token: feedbackPreview.token, content };
+    }
     case 'diagnostics': {
       const result = await dialog.showSaveDialog(window, { defaultPath: 'step-desktop-diagnostics.json' });
       if (result.canceled || !result.filePath) return false;
@@ -4258,7 +4298,7 @@ else app.whenReady().then(async () => {
     if (surface === 'mini' && !miniMethods.has(method)) throw new Error('Return to the main window for this operation');
     const senderId = event.sender.id, generation = rendererGenerations.get(senderId);
     const execute = () => diagnoseCapabilityMutation(method, args[0], async markCapabilityPhase => {
-      if (method === 'quitRespond' || method === 'windowControl' || method === 'appBuildInfo') return handle(method, args, surface);
+      if (method === 'quitRespond' || method === 'windowControl' || method === 'appBuildInfo' || method === 'previewFeedback' || method === 'saveFeedback') return handle(method, args, surface);
       if (method === 'navigateSession') {
         // Remote recovery prepares under the workspace lock without selecting a local view.
         await startup;

@@ -6,7 +6,7 @@ import { scanDesktopUsage } from './usage-overview.mjs';
 import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { reconcileStepPageServers, prepareStepPageServers } from './steppage-config.mjs';
-import { assertHistoryUnchanged, readHistorySource, readSessionHistory } from './session-history.mjs';
+import { assertHistoryUnchanged, readFeedbackRequestId, readHistorySource, readSessionHistory } from './session-history.mjs';
 import { createDesktopSessionSearch } from './session-search.mjs';
 import { projectInstructionsInput, projectInstructionsSnippetCandidate } from './project-instructions.mjs';
 import { createCompactionConfiguration } from './compaction-configuration.mjs';
@@ -144,6 +144,7 @@ async function dispatch(message) {
       return lists.flat().sort((a, b) => new Date(b.modified) - new Date(a.modified))
         .map(({ allMessagesText, ...s }) => s);
     }
+    case 'feedback_request_id': return readFeedbackRequestId(upstream, sessions, message.sessionPath, message.sessionId);
     case 'session_history': return readSessionHistory(upstream, sessions, message.sessionPath, message.sessionId);
     case 'rename_session': {
       const { sessionPath, sessionId, name } = message;

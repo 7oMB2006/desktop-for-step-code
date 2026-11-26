@@ -1,3 +1,4 @@
+import { FeedbackExport } from './FeedbackExport';
 import { normalizedWorkspaceKey } from './workspace-key';
 import { UsageOverviewPanel } from './UsageOverviewPanel';
 import { searchSettings } from './settings-search';
@@ -2368,10 +2369,13 @@ function App() {
       : <WindowBar language={data.preferences.language} sidebarVisible={sidebarVisible} toggleSidebar={toggleSidebar} menus={menus}
         sessionTitle={activeTitle} sessionId={navigationTarget ? undefined : current?.id}
         automaticTitle={navigationTarget ? undefined : current?.automaticTitle} onMenuOpenChange={setWindowMenuOpen} inert={settingsOpen || Boolean(removeProject)}
-        pluginActions={<PluginActionGroup entries={pluginEntries} language={data.preferences.language}
+        pluginActions={<>{bridge && data.runtimeId && data.state?.sessionId && !navigationTarget && !loading
+          && !usageOpen && !pluginsOpen && !scheduledOpen && !remoteOpen && !fulltextOpen && <FeedbackExport
+            key={data.runtimeId + ':' + data.state.sessionId} bridge={bridge} runtimeId={data.runtimeId}
+            sessionId={data.state.sessionId} sessionTitle={activeTitle} zh={zh}/>}<PluginActionGroup entries={pluginEntries} language={data.preferences.language}
           activeId={pluginsOpen ? desktopMainId : desktopSideOpen ? desktopSideId : undefined}
           bridge={bridge ?? undefined} disabled={settingsOpen || Boolean(removeProject)}
-          onOpen={openPluginDesktop} onMenuOpenChange={setPluginMenuOpen}/>}
+          onOpen={openPluginDesktop} onMenuOpenChange={setPluginMenuOpen}/></>}
         miniChat={{ open: miniState.open, disabled: loading || Boolean(navigationTarget), onOpen: () => void run(async () => {
           if (navigationPending.current || switching.current) return;
           await composer.client.flush(); saveWindowPresentation();

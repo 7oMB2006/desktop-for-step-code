@@ -301,6 +301,8 @@ export interface DesktopBridge extends SessionImportBridge, BtwBridge, Backgroun
   importClipboardImage(data: string, mimeType: string, name: string): Promise<ComposerAttachment>;
   imageAction(action: 'copy' | 'save' | 'reveal', src: string, name: string): Promise<boolean>;
   copyText(text: string): Promise<void>;
+  previewFeedback(runtimeId: string, sessionId: string, options: FeedbackOptions): Promise<{ token: string; content: string }>;
+  saveFeedback(runtimeId: string, sessionId: string, token: string): Promise<boolean>;
   diagnostics(): Promise<boolean>;
   onEvent(callback: (event: RuntimeEvent) => void): () => void;
 }
@@ -411,3 +413,5 @@ export interface SessionStatusDetails {
   provider?: string; model?: string; commit?: string; node?: string;
 }
 declare global { interface Window { desktop?: DesktopBridge; desktopTheme?: DesktopTheme } }
+
+export interface FeedbackOptions { errorAt?: string; expected: string; actual: string; conversation: boolean; tools: boolean }

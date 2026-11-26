@@ -67,7 +67,7 @@ export default function registerDesktopSessions(pi) {
   });
   if (process.env.DESKTOP_BROWSER_PREVIEW === '1') pi.registerTool({
     name: 'desktop_open_preview', label: 'Open Desktop preview',
-    description: 'Show a running local frontend in the built-in browser for this conversation without testing it. Start the dev server first, then pass its explicit loopback HTTP URL. This acknowledges opening a tab, not successful rendering or verification. For local frontend testing, use desktop_playwright instead. Do not retry automatically on failure.',
+    description: 'Show a running local frontend in the built-in browser for this conversation without testing it. Start the dev server first, then pass its explicit loopback HTTP URL. Wait for the user to approve the exact address. This acknowledges opening a tab, not successful rendering or verification. For local frontend testing, use desktop_playwright instead. Do not retry automatically on failure.',
     parameters: { ...object({ url: { type: 'string', minLength: 1, maxLength: 4096,
       description: 'Explicit HTTP URL on localhost, 127.0.0.1, or [::1], including the dev server port if needed.' } }), required: ['url'] },
     execute: (_id, args, signal) => call('open-preview', args, signal),

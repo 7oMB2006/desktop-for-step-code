@@ -118,11 +118,21 @@ try {
     await page.getByText(`Fixture complete: ${scenario}`, { exact: true }).waitFor();
     return result;
   };
+  const confirm = async (path, choice = 'Confirm') => {
+    const url = base + path;
+    console.log(`Waiting for preview approval: ${choice} ${path}`);
+    const request = page.getByRole('dialog', { name: 'Allow this local preview?', exact: true });
+    await request.locator('.request-message').filter({ hasText: new RegExp(`^Open this exact address in an isolated tab:\\s+${RegExp.escape(url)}$`) })
+      .waitFor({ state: 'visible', timeout: 15000 });
+    await request.getByRole('button', { name: choice, exact: true }).click({ timeout: 15000 });
+    console.log(`Answered preview approval: ${choice} ${path}`);
+  };
   const loaded = path => waitForBrowserFixtureSnapshot(page, value =>
     value.tabs.some(tab => tab.id === value.activeId && tab.url === base + path && !tab.loading && tab.title === 'Agent preview fixture'),
     `loaded ${path}`);
   await select('preview-a');
   await send('foreground');
+  await confirm('/foreground');
   const first = JSON.parse(await finish('foreground'));
   assert.equal(first.opened, true);
   assert.equal(first.reused, false);
@@ -133,12 +143,18 @@ try {
   assert.deepEqual(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().map(window =>
     window.contentView.children.some(view => view.getVisible() && view.webContents?.getURL().endsWith('/foreground')))), [true]);
   await send('duplicate');
+  await confirm('/foreground');
   assert.deepEqual(JSON.parse(await finish('duplicate')), { opened: true, tabId: first.tabId, reused: true, load: 'loaded' });
+  assert.equal((await list()).tabs.length, 1);
+  await send('denied');
+  await confirm('/foreground', 'Cancel');
+  assert.match(await finish('denied'), /not approved/);
   assert.equal((await list()).tabs.length, 1);
   await send('external');
   assert.match(await finish('external'), /explicit local HTTP URL/);
   assert.equal((await list()).tabs.length, 1);
   await send('redirect');
+  await confirm('/redirect');
   const redirected = JSON.parse(await finish('redirect'));
   await waitForBrowserFixtureSnapshot(page, value => value.tabs.some(tab => tab.id === redirected.tabId && tab.error),
     'blocked preview redirect');
@@ -152,10 +168,12 @@ try {
   assert.ok(releaseBackground, 'the background request reached the model before switching');
   await select('preview-b');
   releaseBackground();
-  const background = JSON.parse(await settled('background'));
   assert.equal(await rail.getAttribute('aria-pressed'), 'false');
   assert.deepEqual((await list()).tabs, []);
+  assert.equal(replies.has('background'), false, 'a background request cannot open without approval');
   await select('preview-a');
+  await confirm('/background');
+  const background = JSON.parse(await settled('background'));
   assert.equal((await loaded('/background')).activeId, background.tabId);
   await panel.locator('.browser-page').waitFor({ state: 'visible' });
   assert.equal(await rail.getAttribute('aria-pressed'), 'true');

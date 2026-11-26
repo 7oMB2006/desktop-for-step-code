@@ -99,6 +99,11 @@ try {
     ipcMain.handle('desktop', (_event, method, ...args) => {
       globalThis.virtualizationCalls.push(method);
       if (method === 'snapshot') return globalThis.virtualizationFixture;
+      if (method === 'contextMessages') {
+        const current = globalThis.virtualizationFixture;
+        if (args[0] !== current.runtimeId || args[1] !== current.state.sessionId) throw new Error('Unexpected context owner');
+        return current.messages;
+      }
       if (method === 'preferences') {
         Object.assign(globalThis.virtualizationFixture.preferences, args[0]);
         return globalThis.virtualizationFixture.preferences;

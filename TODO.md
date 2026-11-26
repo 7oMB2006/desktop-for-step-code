@@ -11,12 +11,16 @@
 - [ ] Windows 通知改用系统应用图标
 - [ ] 配置模型的时候不要求 Runtime 限制
 - [ ] 飞书选会话不要求必须先加载 Runtime
+- [ ] 上文爆炸对话丢失
+- [ ] 子代理支持自定义，开放子代理配置修改
 - [ ] 导出诊断反馈包
 - [ ] context engineering
 
 ## P1
 
 - [ ] ComputerUse
+- [ ] 重构会话导入A · 支持导入来自更多Harness
+- [ ] 重构会话导入B · 支持导入skill等等
 - [ ] 选择器拉长和分组
 - [ ] git
 - [ ] Github插件

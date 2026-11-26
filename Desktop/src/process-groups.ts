@@ -22,14 +22,17 @@ export function settledTurnProcess(items: IndexedMessage[], content: ResponseIte
     && !message.incomplete && message.desktopTiming?.run.startedAt === run.startedAt
     && message.desktopTiming.run.endedAt === run.endedAt).map(item => [item.index, item.message]));
   const keys = new Set<string>();
+  let failures = 0;
   for (const item of content) {
     if (!sameRun.has(item.index)) continue;
-    if (item.type === 'thinking' || groupableTool(item, false, awaiting) || ordinaryToolFailure(item, awaiting)
+    const failed = ordinaryToolFailure(item, awaiting);
+    if (failed) failures++;
+    if (item.type === 'thinking' || groupableTool(item, false, awaiting) || failed
       || (item.type === 'text' && item.block.text?.trim() && item.index !== final.index && sameRun.get(item.index)?.stopReason === 'toolUse')) {
       keys.add(item.key);
     }
   }
-  if (keys.size) return { keys, duration: run.endedAt - run.startedAt };
+  if (keys.size) return { keys, failures, duration: run.endedAt - run.startedAt };
 }
 
 export type ProcessItem = Extract<ResponseItem, { type: 'tool' }> | (ResponseItem & { type: 'thinking' });
@@ -87,19 +90,26 @@ export function groupProcesses(content: ResponseItem[], active: boolean, awaitin
   return result;
 }
 
+export function processFailureLabel(count: number, language: 'zh' | 'en'): string {
+  return language === 'zh' ? `${count} 项工具操作失败` : `${count} tool ${count === 1 ? 'operation' : 'operations'} failed`;
+}
+
 export function processGroupSummary(group: ProcessGroup, language: 'zh' | 'en'): { label: string; detail: string } {
   const zh = language === 'zh';
+  const failures = group.failedToolKeys.size;
+  const failureLabel = failures ? processFailureLabel(failures, language) : '';
+  const withFailures = (label: string) => failures ? `${failureLabel} · ${label}` : label;
   const tools = group.items.filter(item => item.type === 'tool');
   const current = group.running ? [...tools].reverse().find(item => !item.result || item.result.desktopToolPending) : undefined;
   if (current) {
     const name = current.call?.name ?? current.result?.toolName ?? '';
-    return { label: toolPresentation(name, current.result, true, language).label, detail: toolSubject(current.call) };
+    return { label: withFailures(toolPresentation(name, current.result, true, language).label), detail: toolSubject(current.call) };
   }
   if (group.running) {
     const thought = [...group.items].reverse().find(item => item.type === 'thinking');
-    return { label: zh ? '正在思考' : 'Thinking', detail: thought?.type === 'thinking' ? thinkingPreview(thought.block.thinking ?? '', true) : '' };
+    return { label: withFailures(zh ? '正在思考' : 'Thinking'), detail: thought?.type === 'thinking' ? thinkingPreview(thought.block.thinking ?? '', true) : '' };
   }
   const completed = tools.filter(item => !group.failedToolKeys.has(item.key));
-  return { label: completed.length ? toolGroupLabel(completed, language)
-    : group.failedToolKeys.size ? zh ? '工具操作' : 'Tool activity' : zh ? '已完成思考' : 'Thinking completed', detail: '' };
+  return { label: failures ? failureLabel : completed.length ? toolGroupLabel(completed, language)
+    : zh ? '已完成思考' : 'Thinking completed', detail: '' };
 }

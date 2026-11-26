@@ -21,8 +21,8 @@ try {
   page.setDefaultTimeout(12000);
   page.on('pageerror', error => console.error('Renderer:', error.message));
   await page.goto(`http://127.0.0.1:${server.httpServer.address().port}/tests/fixtures/theme-pack.html?view=chat`);
-  const more = page.getByRole('button', { name: '更多会话操作' });
-  await more.waitFor({ timeout: 120000 });
+  const help = page.locator('[data-menu="help"]');
+  await help.waitFor({ timeout: 120000 });
   const sessionA = await page.evaluate(async () => (await window.desktop.snapshot()).state.sessionId);
   const messages = [{ role: 'user', content: 'MARKER_A' }, { role: 'toolResult', isError: true, content: 'Failure: fixture secret tail' }];
   let current = sessionA, preview, canceled = false;
@@ -31,9 +31,9 @@ try {
     assert.equal(runtimeId, 'preview-' + current);
     assert.equal(sessionId, current);
     const content = feedbackReport(options, current === sessionA ? messages : [{ role: 'user', content: 'MARKER_B' }],
-      { desktop: 'fixture', stepCode: null, platform: 'linux', arch: 'x64' }, 'req-fixture');
+      { desktop: 'fixture', stepCode: null, platform: 'linux', arch: 'x64' });
     preview = new FeedbackPreview('fixture', current, content);
-    return { token: preview.token, content };
+    return { token: preview.token, content, defaultDirectory: profile };
   });
   await page.exposeFunction('fixtureSave', (runtimeId, id, token) => {
     assert.equal(runtimeId, 'preview-' + current);
@@ -47,17 +47,21 @@ try {
   const requests = [];
   await page.route('**/*', route => { requests.push(route.request().url()); return route.abort(); });
   const open = async () => {
-    await more.click();
-    await page.getByRole('menuitemradio', { name: '导出反馈包' }).click();
+    await help.click();
+    await page.getByRole('menuitem', { name: '导出当前会话反馈包' }).click();
   };
   const dialog = page.getByRole('dialog', { name: '导出反馈包' });
+  const json = async () => {
+    await dialog.getByText('查看原始 JSON', { exact: true }).click();
+    return dialog.locator('pre').innerText();
+  };
   await open();
   await dialog.getByRole('button', { name: '取消' }).click();
   assert.deepEqual(await readdir(profile), []);
   await open();
   await dialog.getByLabel('预期行为').fill('Expected synthetic result');
   await dialog.getByRole('button', { name: '预览' }).click();
-  const minimal = await dialog.locator('pre').innerText();
+  const minimal = await json();
   assert.deepEqual(JSON.parse(minimal).excerpts, []);
   await dialog.getByRole('button', { name: '另存为…' }).click();
   await dialog.waitFor({ state: 'hidden' });
@@ -66,7 +70,7 @@ try {
   await dialog.getByLabel('包含相关会话片段').check();
   await dialog.getByLabel('包含失败工具输出片段').check();
   await dialog.getByRole('button', { name: '预览' }).click();
-  const shown = await dialog.locator('pre').innerText();
+  const shown = await json();
   assert.match(shown, /MARKER_A/);
   messages.push({ role: 'user', content: 'LATE_A' }, { role: 'assistant', stopReason: 'error', content: 'New synthetic failure' });
   canceled = true;
@@ -82,14 +86,14 @@ try {
   await open();
   await dialog.getByLabel('包含相关会话片段').check();
   await dialog.getByRole('button', { name: '预览' }).click();
-  assert.match(await dialog.locator('pre').innerText(), /LATE_A/);
+  assert.match(await json(), /LATE_A/);
   // A different selected session invalidates this preview during native Save As.
   current = 'sample-controls';
   await dialog.getByRole('button', { name: '另存为…' }).click();
   await dialog.getByRole('alert').waitFor();
   assert.equal(gunzipSync(await readFile(target)).toString(), shown);
   assert.deepEqual(requests, []);
-  console.log('Conversation menu, preview, cancel, diagnostics, frozen archive and session change passed.');
+  console.log('Help menu, preview, cancel, diagnostics, frozen archive and session change passed.');
 } finally {
   await browser?.close();
   await server.close();

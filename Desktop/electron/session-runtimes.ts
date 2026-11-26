@@ -10,7 +10,8 @@ import { isUserMessage } from '../src/user-message';
 import { projectInstructionsMessage } from './project-instructions';
 import { desktopSystemPolicy } from './workspace-policy';
 import { applyMessageEvent } from '../src/message-events';
-import { activeHistory, feedbackRequestOnBranch, messagesWithEntryIds, type BranchOperation } from './session-branching';
+import { activeHistory, messagesWithEntryIds, type BranchOperation } from './session-branching';
+import { feedbackHistory, type FeedbackHistory } from './feedback-history';
 import { importedHistoryMessages } from './imported-history';
 import type { BackgroundLaneActivity, Message, Model, ModelSelection, PermissionPreset, RuntimeEvent, RuntimeState, RuntimeStartupTiming, SessionStats, UIRequest } from '../src/contracts';
 import { backgroundAgentsSnapshot } from './background-agents';
@@ -760,11 +761,11 @@ export class SessionRuntimes {
     reads.add(reading);
     return reading;
   }
-  // Request metadata is valid only for the transcript captured with the same active leaf.
-  private readonly feedbackRequests = new WeakMap<Message[], { sessionId: string; requestId: string }>();
-  feedbackRequest(worker: SessionRuntime): string | undefined {
-    const metadata = this.feedbackRequests.get(worker.messages);
-    if (metadata && metadata.sessionId === worker.state?.sessionId) return metadata.requestId;
+  // Evidence is valid only for the transcript captured with the same active leaf.
+  private readonly feedbackHistories = new WeakMap<Message[], { sessionId: string; history: FeedbackHistory }>();
+  feedbackEvidence(worker: SessionRuntime) {
+    const metadata = this.feedbackHistories.get(worker.messages);
+    if (metadata && metadata.sessionId === worker.state?.sessionId) return metadata.history;
   }
   private transcriptRevision(worker: SessionRuntime) {
     return worker.revision - (this.transcriptMetadataRevisions.get(worker) ?? 0);
@@ -800,8 +801,8 @@ export class SessionRuntimes {
     if (transcriptRevision === this.transcriptRevision(worker) && !state.isStreaming && !worker.runActive) {
       worker.messages = decorated;
       worker.leafId = history.leafId ?? undefined;
-      const requestId = feedbackRequestOnBranch(history.entries ?? [], history.leafId ?? null);
-      if (requestId && state.sessionId) this.feedbackRequests.set(decorated, { sessionId: state.sessionId, requestId });
+      if (state.sessionId) this.feedbackHistories.set(decorated, { sessionId: state.sessionId,
+        history: feedbackHistory(history.entries ?? [], history.leafId ?? null, state.sessionId, decorated) });
     }
     worker.models = models;
     if (this.statsVersions.get(worker) === statsVersion) worker.stats = stats;

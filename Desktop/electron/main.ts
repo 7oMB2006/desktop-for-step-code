@@ -2,7 +2,7 @@ import { normalizedWorkspaceKey } from '../src/workspace-key';
 import { WorkspaceDirectoryError } from '../src/workspace-directory-error';
 import { statusAccount } from './status-account';
 import { statusBuild } from './session-status';
-import { FeedbackPreview, feedbackReport } from './feedback-export';
+import { defaultFeedbackPath, feedbackDirectory, FeedbackPreview, feedbackReport, prepareFeedbackDirectory } from './feedback-export';
 import { bundledStepCode } from './app-build-info';
 import { app, BrowserWindow, dialog, ipcMain, shell, session, net, clipboard, ClipboardItem, nativeImage, nativeTheme, Menu, Notification } from 'electron';
 import { join, resolve, extname, basename } from 'node:path';
@@ -3927,6 +3927,11 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
       }
       return true;
     }
+    case 'openFeedbackFolder': {
+      const error = await shell.openPath(await prepareFeedbackDirectory(app.getPath('downloads')));
+      if (error) throw new Error(error);
+      return;
+    }
     case 'previewFeedback':
     case 'saveFeedback': {
       const runtimeId = text(args[0], 80), sessionId = text(args[1], 128);
@@ -3942,7 +3947,10 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
       if (method === 'saveFeedback') {
         const preview = feedbackPreview;
         if (!preview) throw new Error('Preview the conversation first');
+        const destination = args[3];
+        if (destination !== 'default' && destination !== 'choose') throw new Error('Invalid feedback destination');
         const saved = await preview.save(owner, sessionId, text(args[2], 80), async () => {
+          if (destination === 'default') return defaultFeedbackPath(app.getPath('downloads'));
           const result = await dialog.showSaveDialog(originWindow(), { defaultPath: 'dfsc-feedback.json.gz' });
           return result.canceled ? undefined : result.filePath;
         }, () => {
@@ -3954,14 +3962,15 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
       }
       const input = args[2];
       if (typeof input?.conversation !== 'boolean' || typeof input.tools !== 'boolean') throw new Error('Invalid feedback scope');
+      const focus = input.focus;
+      if (focus !== undefined && focus !== 'failure' && focus !== 'current') throw new Error('Invalid feedback event');
       const options = { errorAt: input.errorAt ? text(input.errorAt, 30) : undefined,
         expected: text(input.expected, 1000), actual: text(input.actual, 1000),
-        conversation: input.conversation, tools: input.tools };
-      const requestId = runtimes.feedbackRequest(worker);
+        conversation: input.conversation, tools: input.tools, focus };
       const content = feedbackReport(options, worker.messages, { desktop: app.getVersion(),
-        stepCode: bundledStepCode(runtimeManifest), platform: process.platform, arch: process.arch }, requestId);
+        stepCode: bundledStepCode(runtimeManifest), platform: process.platform, arch: process.arch }, runtimes.feedbackEvidence(worker));
       feedbackPreview = new FeedbackPreview(owner, sessionId, content);
-      return { token: feedbackPreview.token, content };
+      return { token: feedbackPreview.token, content, defaultDirectory: feedbackDirectory(app.getPath('downloads')) };
     }
     case 'diagnostics': {
       const result = await dialog.showSaveDialog(window, { defaultPath: 'step-desktop-diagnostics.json' });

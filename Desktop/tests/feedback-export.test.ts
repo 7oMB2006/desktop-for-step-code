@@ -11,9 +11,11 @@ import type { Message } from '../src/contracts';
 const context = { desktop: 'test', stepCode: { baseline: 'v0.1.8', commit: 'a'.repeat(40) }, platform: 'linux', arch: 'x64' };
 const options = { expected: 'works', actual: 'failed', conversation: false, tools: false };
 const messages: Message[] = [
-  { role: 'assistant', content: [{ type: 'thinking', thinking: 'private reasoning' }, { type: 'text', text: 'SYNTHETIC_A' }] },
+  { role: 'user', content: 'EARLY_UNRELATED' },
   { role: 'user', content: 'hello /home/fixture/private\nAPI_KEY=mock-key\nname@example.org' },
+  { role: 'assistant', content: [{ type: 'thinking', thinking: 'private reasoning' }, { type: 'text', text: 'SYNTHETIC_A' }] },
   { role: 'toolResult', isError: true, timestamp: 1000, content: 'Failed step. PRIVATE_OUTPUT_TAIL', details: { path: 'private details' } },
+  { role: 'user', content: 'LATER_UNRELATED' },
 ];
 test('diagnostics and redacted excerpts use an explicit allowlist', () => {
   const plain = feedbackReport(options, messages, context, 'req-fixture');
@@ -25,7 +27,7 @@ test('diagnostics and redacted excerpts use an explicit allowlist', () => {
   const expanded = feedbackReport({ ...options, conversation: true, tools: true }, messages, context);
   assert.match(expanded, /SYNTHETIC_A/);
   assert.match(expanded, /Failed step/);
-  assert.doesNotMatch(expanded, /PRIVATE_OUTPUT_TAIL|example.org|mock-key|private details|private reasoning|\/home\/fixture/);
+  assert.doesNotMatch(expanded, /EARLY_UNRELATED|LATER_UNRELATED|PRIVATE_OUTPUT_TAIL|example.org|mock-key|private details|private reasoning|\/home\/fixture/);
   assert.equal(JSON.parse(expanded).excerpts.at(-1).truncated, true);
 });
 
@@ -48,6 +50,12 @@ test('cancel, append after preview, window and session changes, final archive', 
     const saved = gunzipSync(await readFile(path)).toString('utf8');
     assert.equal(saved, content);
     assert.doesNotMatch(saved, /LATE_A/);
+    let validations = 0;
+    await assert.rejects(save('A', async () => path, () => {
+      if (++validations === 2) throw Error('selection changed during write');
+    }));
+    assert.deepEqual(await readdir(dir), ['report.json.gz']);
+    assert.equal(gunzipSync(await readFile(path)).toString(), content);
   } finally { await removeTestProfile(dir); }
 });
 

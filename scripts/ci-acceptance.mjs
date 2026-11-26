@@ -83,6 +83,7 @@ export const acceptanceGroups = {
     'verify-hidden-messages.mjs',
     'verify-session-concurrency.mjs',
     'verify-session-navigation.mjs',
+    'verify-feedback-electron.mjs',
     'verify-session-reading.mjs',
     'verify-session-startup.mjs',
     'verify-optional-mcp-loop.mjs',
@@ -146,6 +147,8 @@ export const acceptanceGroups = {
 export const localOnly = [
   // Menu state/copy preview; native creation/read-only enforcement also has runtime tests.
   'verify-project-instructions-preview.mjs',
+  // Chromium renderer fixture; the sessions group covers native feedback IPC and disk output.
+  'verify-feedback-export.mjs',
   // Project-level scheduling is a historical v017 contract. CI exercises v018
   // session ownership and verifies the old records are preserved but not run.
   'verify-cron-runtime.mjs',

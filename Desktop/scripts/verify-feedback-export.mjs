@@ -62,7 +62,7 @@ try {
   await dialog.getByRole('button', { name: '另存为…' }).click();
   assert.equal(gunzipSync(await readFile(target)).toString(), minimal);
   await open();
-  await dialog.getByLabel('包含近期会话片段').check();
+  await dialog.getByLabel('包含相关会话片段').check();
   await dialog.getByLabel('包含失败工具输出片段').check();
   await dialog.getByRole('button', { name: '预览' }).click();
   const shown = await dialog.locator('pre').innerText();

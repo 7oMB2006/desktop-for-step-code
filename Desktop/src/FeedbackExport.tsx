@@ -59,11 +59,11 @@ export function FeedbackExport({ bridge, runtimeId, sessionId, sessionTitle, zh 
           <button type="button" aria-pressed={!options.conversation && !options.tools}
             onClick={() => setOptions({ ...options, conversation: false, tools: false })}>{zh ? '仅导出诊断' : 'Diagnostics only'}</button>
           <label><input type="checkbox" checked={options.conversation} onChange={e => setOptions({ ...options, conversation: e.target.checked })}/>
-            {zh ? '包含近期会话片段' : 'Include recent conversation excerpts'}</label>
+            {zh ? '包含相关会话片段' : 'Include related conversation excerpts'}</label>
           <label><input type="checkbox" checked={options.tools} onChange={e => setOptions({ ...options, tools: e.target.checked })}/>
             {zh ? '包含失败工具输出片段' : 'Include failed tool output excerpts'}</label>
         </fieldset>
-        <p>{zh ? '反馈包只保存在本机。脱敏后的片段仍可能含敏感内容，请在保存前核对。' : 'Saved locally. Redacted excerpts may still contain sensitive information. Review before saving.'}</p>
+        <p>{zh ? '片段限最近一次出错的那一轮；没有错误记录时取当前轮。反馈包只保存在本机。脱敏后的片段仍可能含敏感内容，请在保存前核对。' : 'Excerpts cover the latest failed turn, or the current turn if no failure was recorded. Saved locally. Redacted excerpts may still contain sensitive information. Review before saving.'}</p>
       </>}
       {error && <p role="alert">{error}</p>}
       <footer><button disabled={busy} onClick={close}>{zh ? '取消' : 'Cancel'}</button>

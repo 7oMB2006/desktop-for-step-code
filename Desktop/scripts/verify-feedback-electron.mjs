@@ -4,6 +4,7 @@ import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { gunzipSync } from 'node:zlib';
 import { _electron as electron } from 'playwright';
+import { closeDesktopFixtureAndWait } from './close-desktop-fixture.mjs';
 import { mkdtemp, removeTestProfile } from './test-profile.mjs';
 
 const profile = await mkdtemp(join(tmpdir(), 'dfsc-feedback-electron-'));
@@ -31,7 +32,9 @@ try {
   const env = { ...process.env, DESKTOP_TEST_USER_DATA: profile, DESKTOP_TEST_NO_FOCUS: '1' };
   delete env.ELECTRON_RUN_AS_NODE;
   const args = [...(process.env.DESKTOP_ELECTRON_HEADLESS ? ['--ozone-platform=headless', '--no-sandbox', '--disable-gpu'] : []), resolve(process.env.DESKTOP_TEST_ENTRY ?? '.')];
-  app = await electron.launch({ args, executablePath: process.env.DESKTOP_TEST_ELECTRON, env, timeout: 45000 });
+  app = await electron.launch({ ...(process.env.DESKTOP_VERIFY_EXE
+    ? { executablePath: process.env.DESKTOP_VERIFY_EXE } : { args, executablePath: process.env.DESKTOP_TEST_ELECTRON }),
+    env, timeout: 60000 });
   const page = await app.firstWindow();
   await app.evaluate(({ BrowserWindow }) => {
     const win = BrowserWindow.getAllWindows().find(w => w.webContents.getURL().includes('index.html')) ?? BrowserWindow.getAllWindows()[0];
@@ -76,7 +79,7 @@ try {
   await dialog.waitFor({ state: 'hidden' });
   assert.equal(gunzipSync(await readFile(target)).toString(), minimal);
   await open();
-  await dialog.getByLabel('包含近期会话片段').check();
+  await dialog.getByLabel('包含相关会话片段').check();
   await dialog.getByLabel('包含失败工具输出片段').check();
   await dialog.getByRole('button', { name: '预览' }).click();
   const expanded = await dialog.locator('pre').innerText();
@@ -99,7 +102,7 @@ try {
   await assert.rejects(page.evaluate(args => window.desktop.saveFeedback(...args), stale));
   assert.equal(gunzipSync(await readFile(target)).toString(), expanded);
   await open();
-  await dialog.getByLabel('包含近期会话片段').check();
+  await dialog.getByLabel('包含相关会话片段').check();
   await dialog.getByRole('button', { name: '预览' }).click();
   const next = await dialog.locator('pre').innerText();
   assert.match(next, /MARKER_B/);
@@ -107,9 +110,6 @@ try {
   assert.equal(await app.evaluate(() => globalThis.feedbackNetworkRequests), 0);
   console.log('Electron conversation menu, native IPC, current session, cancellation and archive checks passed.');
 } finally {
-  if (app) {
-    await app.evaluate(({ app }) => app.exit(0)).catch(() => {});
-    await app.close().catch(() => {});
-  }
+  if (app) await closeDesktopFixtureAndWait(app);
   await removeTestProfile(profile);
 }

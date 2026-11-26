@@ -9,18 +9,23 @@
 ## P0
 
 - [ ] Windows 通知改用系统应用图标
+- [ ] 导出诊断反馈包
+- [ ] context engineering
 
 ## P1
 
 - [ ] ComputerUse
+- [ ] 选择器拉长和分组
 - [ ] git
 - [ ] Github插件
 - [ ] 分组标签
 - [ ] 天工开物开放 · webui
+- [ ] 社区市场来源常驻
 
 ## P2
 
 - [ ] Superagent
+- [ ] 自定义供应商加上阶跃自家 API 预设
 
 Remote／浏览器访问：局域网 Beta，默认关闭、DFSC 运行时可用，不阻塞 1.0.0。按下列阶段逐步验收，Beta 不降低授权、隔离与防重复执行要求。
 
@@ -37,6 +42,10 @@ Remote／浏览器访问：局域网 Beta，默认关闭、DFSC 运行时可用�
 
 - [ ] Linux 移植尝试（实验性 Linux x64 支持 PR #106 尚未合并，不计入当前 Windows 候选）。
 - [ ] Desktop for Step Code 发布展示页 [Ⅲ]
+
+## P3
+
+- [ ] 自定义模型的上下文长度支持单位
 
 ## 已完成
 

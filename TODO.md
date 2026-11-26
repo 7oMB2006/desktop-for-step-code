@@ -9,6 +9,7 @@
 ## P0
 
 - [ ] Windows 通知改用系统应用图标
+- [ ] 配置模型的时候不要求 Runtime 限制
 - [ ] 导出诊断反馈包
 - [ ] context engineering
 

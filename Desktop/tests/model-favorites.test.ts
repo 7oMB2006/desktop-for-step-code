@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { changeFavoriteModel, modelKey, modelListGroups, normalizeFavoriteModels, FAVORITE_MODEL_LIMIT } from '../src/model-favorites';
+import { changeFavoriteModel, groupModelsByConnection, modelConnectionLabel, modelKey, modelListGroups, normalizeFavoriteModels, FAVORITE_MODEL_LIMIT } from '../src/model-favorites';
 import type { Model } from '../src/contracts';
 
 const step: Model = { provider: 'step', id: 'shared', name: 'Step model' };
@@ -59,4 +59,17 @@ test('search returns a single deduplicated list and matches provider, name and I
   assert.deepEqual(modelListGroups(catalog, [custom], 'no matches'), { favorites: [], available: [] });
   assert.deepEqual(modelListGroups([], [step], ''), { favorites: [], available: [] });
   assert.deepEqual(modelListGroups([step, custom], undefined, '  '), { favorites: [], available: [step, custom] });
+});
+
+test('connection groups prioritize the signed-in account without merging identical names and model IDs', () => {
+  const sameName = { ...custom, providerName: 'Step' };
+  const preset: Model = { ...sameName, provider: 'desktop-custom-step-api', providerBrand: 'stepfun', providerBilling: 'usage' };
+  const catalog = [sameName, other, preset, step];
+  assert.deepEqual(groupModelsByConnection(catalog), [[other, step], [sameName], [preset]]);
+  assert.equal(modelConnectionLabel(step, 'zh'), '\u9636\u8dc3 \u00b7 \u5f53\u524d\u8d26\u6237');
+  assert.equal(modelConnectionLabel(sameName, 'en'), 'Step \u00b7 Custom');
+  assert.deepEqual(modelListGroups(catalog, [], 'current account shared').available, [step]);
+  assert.deepEqual(modelListGroups(catalog, [], 'step custom shared').available, [sameName, preset]);
+  const search = modelListGroups(catalog, [preset], 'step shared');
+  assert.deepEqual(groupModelsByConnection(search.available), [[step], [preset], [sameName]]);
 });

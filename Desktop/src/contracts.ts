@@ -69,6 +69,7 @@ export interface RuntimeSummary { runtimeId: string; sessionId: string; cwd: str
 export interface Preferences { themeMotion?: boolean; themeBrightness?: number; stellarTaskMap?: boolean }
 export interface Snapshot { themePacks?: import('./theme-packs').ThemePack[] }
 export interface Snapshot { customBackground?: import('./custom-background').CustomBackgroundState }
+export interface Snapshot { providerApplyFailed?: boolean }
 export interface Snapshot { preferences: Preferences; status: string; providerSettingsPending?: boolean; draftId?: string; runtimeId?: string; runtimeRevision?: number; runtimes?: RuntimeSummary[]; unreadSessionIds?: string[]; requests?: UIRequest[]; state?: RuntimeState; modelSelection?: ModelSelection; modelChanges?: ModelChange[]; permissionPreset?: PermissionPreset; launch?: LaunchState; messages: Message[]; models: Model[]; sessions: Session[]; independent?: boolean; stats?: SessionStats; pendingMessages?: PendingMessage[] }
 export interface Profile { id: string; title: string; description: string; credentialSource: string }
 export interface Account { loggedIn: boolean; validity: string; profile?: string; account?: string; userId?: string }

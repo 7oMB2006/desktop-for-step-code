@@ -23,6 +23,7 @@ export interface WebSearchSettings {
   enabled: boolean;
   fallback: boolean;
   step?: 'plan' | 'api';
+  stepRegion?: 'cn' | 'oversea';
   order: WebSearchProvider[];
   configured: WebSearchProvider[];
   instance?: string;

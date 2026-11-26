@@ -139,6 +139,7 @@
   background: #42413e; box-shadow: 0 -5px #42413e, 0 5px #42413e; opacity: 1;
 }
 :root[data-theme-material=stellar] :is(.model-effort-models-panel, .model-effort-parameters-panel) {
+  --model-list-surface: var(--stellar-control);
   background: var(--stellar-control);
 }
 :root[data-theme-material=stellar] .model-effort-back {

@@ -32,8 +32,8 @@ function capabilitySource(model: ProviderModel, field: 'contextWindow' | 'maxTok
         : source === 'default' ? zh ? '未知 · 临时值' : 'Unknown · Fallback'
           : zh ? '旧配置 · 来源未确认' : 'Legacy · Unconfirmed source';
 }
-export function ProviderSettings({ providers, language, pending, onSave, onDelete, onDiscover, onTest, onCancelTest, onCopyDiagnostic, activeModel, onBusyChange }: {
-  providers: ProviderInfo[]; language: string; pending?: boolean;
+export function ProviderSettings({ providers, language, pending, applyFailed, onSave, onDelete, onDiscover, onTest, onCancelTest, onCopyDiagnostic, activeModel, onBusyChange }: {
+  providers: ProviderInfo[]; language: string; pending?: boolean; applyFailed?: boolean;
   onSave: (provider: CustomProvider, key?: string) => Promise<ProviderInfo[]>;
   onDelete: (id: string) => Promise<ProviderInfo[]>;
   onDiscover: (provider: CustomProvider, key?: string) => Promise<DiscoveredProviderModel[]>;
@@ -254,14 +254,14 @@ export function ProviderSettings({ providers, language, pending, onSave, onDelet
       select(next.find(p => p.id === draft.id) ?? next.at(-1)!);
       setSaved(true);
     } catch {
-      setError(t('保存失败。请检查地址、密钥、模型 ID 和容量；正在运行或有排队消息的会话需先结束。', 'Could not save. Check the address, key, model IDs and limits; finish running or queued tasks first.'));
+      setError(t('未能保存。请检查地址、密钥、模型 ID 和容量后重试。', 'Could not save. Check the address, key, model IDs and limits, then try again.'));
     } finally { setSaving(false); }
   };
   const remove = async () => {
     if (!draft?.id || blocked) return;
     setSaving(true); setError('');
     try { const next = await onDelete(draft.id); select(next[0] ?? blank()); }
-    catch { setError(t('移除失败，请先结束运行中的任务和排队消息。', 'Could not remove. Finish running and queued tasks first.')); }
+    catch { setError(t('未能移除供应商，请重试。', 'Could not remove the provider. Try again.')); }
     finally { setSaving(false); }
   };
   return <section className="provider-settings">
@@ -406,7 +406,9 @@ export function ProviderSettings({ providers, language, pending, onSave, onDelet
               <small className="provider-test-cost">{t('发送短请求，可能产生少量费用；不进入会话历史', 'Sends a short request; charges may apply. Not added to chat history.')}</small>
             </section>
           </div>
-          <div className="provider-save"><span role="status">{dirty ? t('未保存', 'Unsaved') : pending ? t('已保存，待任务空闲后应用', 'Saved; applies when tasks are idle') : saved ? <><Check size={14}/>{t('已保存', 'Saved')}</> : ''}</span>
+          <div className="provider-save"><span role="status">{dirty ? t('未保存', 'Unsaved') : applyFailed
+            ? t('已保存，应用失败。请重启后重试。', 'Saved, but not applied. Restart the app to retry.')
+            : pending ? t('已保存，待任务空闲后应用', 'Saved; applies when tasks are idle') : saved ? <><Check size={14}/>{t('已保存', 'Saved')}</> : ''}</span>
             <button type="button" className="provider-test-trigger" title={t('发送短请求，可能产生少量费用', 'Sends a short request; charges may apply')} disabled={blocked || !draft.baseUrl.trim() || !modelId.trim() || needsKey || Boolean(keyError)} onClick={() => void runTest()}><Stethoscope size={14}/>{testing ? t('测试中…', 'Testing…') : t('测试连接', 'Test connection')}</button>
             <button type="submit" className="primary" disabled={blocked || !dirty || !draft.models.length || needsKey || Boolean(keyError)}><Save size={14}/>{saving ? t('保存中…', 'Saving…') : t('保存', 'Save')}</button></div>
       </form>}

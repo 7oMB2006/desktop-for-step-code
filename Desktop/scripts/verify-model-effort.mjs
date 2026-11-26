@@ -18,7 +18,7 @@ const app = await electron.launch({ args: [resolve('.')], env });
 try {
   const pagePromise = app.waitForEvent('window');
   await app.evaluate(async ({ BrowserWindow }) => {
-    const window = new BrowserWindow({ width: 640, height: 520, show: false, focusable: false, webPreferences: { nodeIntegration: false, contextIsolation: true, sandbox: true, backgroundThrottling: false } });
+    const window = new BrowserWindow({ width: 640, height: 680, show: false, focusable: false, webPreferences: { nodeIntegration: false, contextIsolation: true, sandbox: true, backgroundThrottling: false } });
     window.setOpacity(0);
     if (window.getOpacity() !== 0) throw new Error('Transparent acceptance window is unavailable');
     window.setIgnoreMouseEvents(true);
@@ -182,13 +182,21 @@ try {
   const effortBounds = await dialog.boundingBox();
   const modelReveal = await sampleMotion(page, {
     label: 'model picker panel reveal', state: { selector: '.model-effort-popover.models-view' },
-    targets: [{ name: 'models', selector: '.model-effort-models-panel', properties: ['clip-path', 'transform'] }],
-    duration: 320, easing: 'cubic-bezier(0.65, 0, 0.35, 1)',
+    targets: [
+      { name: 'popover', selector: '.model-effort-popover', properties: ['height'] },
+      { name: 'models', selector: '.model-effort-models-panel', properties: ['clip-path', 'transform'] },
+    ],
+    duration: 250, easing: 'cubic-bezier(0.22, 1, 0.36, 1)',
   }, () => dialog.getByRole('button', { name: '选择模型' }).click());
   assert.equal(await dialog.getByRole('slider').count(), 0, 'The covered effort panel must not be accessible');
   assert.equal(await dialog.getByRole('group', { name: '模型', exact: true }).count(), 1);
-  const midReveal = modelReveal.frames[2].models.clipPath;
-  assert.match(midReveal, /inset\(0px 0px [1-9]/, 'The model panel should reveal from top to bottom');
+  const [{ popover: initial }, , { popover: mid, models: midModels }, { popover: expanded }] = modelReveal.frames;
+  assert.match(midModels.clipPath, /^inset\([\d.]+% 0px 0px/, 'The model panel should reveal from bottom to top');
+  assert.ok(mid.height > initial.height && mid.height < expanded.height);
+  assert.equal(initial.height, 258);
+  assert.equal(expanded.height, 510);
+  for (const { popover } of modelReveal.frames) assert.ok(Math.abs(popover.bottom - initial.bottom) < 1, 'the bottom stays anchored throughout the reveal');
+  assert.equal(await dialog.getByRole('searchbox').evaluate(input => input === document.activeElement), true);
   await page.screenshot({ path: 'test-results/model-effort-models-transition.png' });
   await settleLayout(dialog);
   assert.equal(await dialog.locator('.model-effort-models-panel').evaluate(element => getComputedStyle(element).clipPath), 'inset(0px)');
@@ -202,8 +210,8 @@ try {
       listHeight: toolbar.nextElementSibling.clientHeight };
   });
   assert.equal(toolbarGeometry.sameRow && toolbarGeometry.separateControls, true, 'back and search share one row without overlapping');
-  assert.ok(toolbarGeometry.height <= 40 && toolbarGeometry.listHeight >= 190,
-    `the merged header returns space to the fixed-size model list: ${JSON.stringify(toolbarGeometry)}`);
+  assert.ok(toolbarGeometry.height <= 40 && toolbarGeometry.listHeight >= 410,
+    `the expanded body gives most of its space to the list: ${JSON.stringify(toolbarGeometry)}`);
   await dialog.getByRole('searchbox', { name: '搜索模型', exact: true }).focus();
   await page.keyboard.press('Shift+Tab');
   assert.equal(await modelBack.evaluate(button => button === document.activeElement), true);
@@ -224,7 +232,7 @@ try {
   assert.equal(await dialog.getByRole('button', { name: '选择模型', exact: true }).evaluate(button => button === document.activeElement), true,
     'returning from the model list restores focus to the model heading');
   assert.equal(await dialog.getByRole('group', { name: '模型', exact: true }).count(), 0, 'The hidden model panel must not be accessible');
-  assert.deepEqual(await dialog.boundingBox(), effortBounds, 'Switching views must not move or resize the popover');
+  assert.deepEqual(await dialog.boundingBox(), effortBounds, 'The effort view returns to its original bounds');
   await page.mouse.click(x, box.y + 20);
   assert.equal(await slider.getAttribute('aria-valuenow'), '2', 'Clicking the rail must not jump');
   await page.mouse.move(x, startY);
@@ -331,15 +339,15 @@ try {
   await slider.press('ArrowDown');
   assert.equal(await dialog.locator('.model-effort-heading-level-current').textContent(), '极高');
   assert.equal(await dialog.locator('.model-effort-heading-level-current').evaluate(element => getComputedStyle(element).animationName), 'none');
+  await dialog.getByRole('button', { name: '选择模型', exact: true }).click();
   const rect = await dialog.boundingBox();
   assert.ok(rect && rect.x >= 0 && rect.y >= 0 && rect.x + rect.width <= await page.evaluate(() => innerWidth));
-  await dialog.getByRole('button', { name: '选择模型', exact: true }).click();
   const favoriteGroup = dialog.getByRole('group', { name: '已收藏', exact: true });
-  const otherGroup = dialog.getByRole('group', { name: '其他模型', exact: true });
+  const providerGroups = dialog.locator('[data-model-provider]');
   const modelButtons = dialog.locator('.model-picker-select');
   const starFor = name => dialog.locator('.model-picker-row').filter({ has: page.getByText(name, { exact: true }) }).locator('.model-picker-star');
   assert.equal(await favoriteGroup.count(), 0, 'selecting a model never creates a favorite');
-  assert.equal(await dialog.locator('.model-picker-section').count(), 0, 'no empty favorite heading is reserved');
+  assert.equal(await providerGroups.count(), 2, 'only nonempty connection headings are rendered');
   assert.equal(await modelButtons.count(), 3);
   const callsBeforeFavorites = await page.evaluate(() => ({ models: window.modelCalls, efforts: window.effortCalls }));
   await starFor('step-4').hover();
@@ -349,7 +357,7 @@ try {
   assert.equal(await starFor('step-4').getAttribute('aria-pressed'), 'true');
   await page.waitForFunction(() => document.activeElement?.classList.contains('model-picker-star')
     && document.activeElement.closest('.model-picker-row')?.textContent.includes('step-4'));
-  assert.deepEqual(await dialog.boundingBox(), rect, 'favoriting must not resize the compact picker');
+  assert.deepEqual(await dialog.boundingBox(), rect, 'favoriting must not resize the picker');
   const search = dialog.getByRole('searchbox', { name: '搜索模型', exact: true });
   await search.fill('CUSTOM provider');
   assert.equal(await modelButtons.count(), 1, 'search matches provider terms without duplicates');
@@ -379,7 +387,7 @@ try {
   assert.equal(await search.inputValue(), '');
   assert.equal(await search.evaluate(element => element === document.activeElement), true);
   assert.equal(await favoriteGroup.locator('.model-picker-select').count(), 2);
-  assert.equal(await otherGroup.locator('.model-picker-select').count(), 1);
+  assert.equal(await providerGroups.locator('.model-picker-select').count(), 1);
   assert.equal(await modelButtons.count(), 3, 'favorites do not repeat in the other group');
   assert.equal(await dialog.locator('.model-picker-list').evaluate(element => element.scrollHeight <= element.clientHeight), true,
     'three compact rows and their headings must not create a redundant scrollbar');
@@ -427,10 +435,10 @@ try {
   assert.equal(await dialog.getByRole('alert').count(), 0, 'retry clears the failure');
   await starFor('step-4').click();
   await page.waitForFunction(() => document.querySelectorAll('.model-picker-star[aria-pressed=true]').length === 2);
-  assert.equal(await otherGroup.locator('.model-picker-select').count(), 1, 'unfavorite returns a model to the available list exactly once');
+  assert.equal(await providerGroups.locator('.model-picker-select').count(), 1, 'unfavorite returns a model to the available list exactly once');
   await page.evaluate(() => window.modelPickerFixture.configure({ favorites: [] }));
   await favoriteGroup.waitFor({ state: 'hidden' });
-  assert.equal(await dialog.locator('.model-picker-section').count(), 0);
+  assert.equal(await providerGroups.count(), 2);
   assert.equal(await modelButtons.count(), 3);
   await page.evaluate(() => window.modelPickerFixture.configure({
     models: Array.from({ length: 24 }, (_, index) => ({ provider: 'fixture', id: String(index), name: `Model ${index}` })),
@@ -450,7 +458,7 @@ try {
         && control.top - extent >= clip.top && control.bottom + extent <= clip.bottom };
   });
   assert.deepEqual(lastStarBounds, { focused: true, outlined: true, inside: true }, 'scrolled last-row star keeps all four focus sides visible');
-  assert.deepEqual(await dialog.boundingBox(), rect, 'a long catalog scrolls internally without growing the compact picker');
+  assert.deepEqual(await dialog.boundingBox(), rect, 'a long catalog scrolls internally without growing the picker');
   await page.evaluate(() => window.modelPickerFixture.configure({
     models: [
       { provider: 'step', id: 'shared', name: 'A long model name that must not resize its picker', providerName: 'Step' },
@@ -459,19 +467,21 @@ try {
     favorites: [{ provider: 'missing', id: 'shared' }, { provider: 'custom', id: 'shared' }],
   }));
   assert.equal(await favoriteGroup.locator('.model-picker-select').count(), 1, 'unavailable favorite is hidden');
-  assert.equal(await otherGroup.locator('.model-picker-select').count(), 1, 'same ID from another provider stays separate');
+  assert.equal(await providerGroups.locator('.model-picker-select').count(), 1, 'same ID from another provider stays separate');
   for (const theme of ['light', 'dark']) {
     await page.evaluate(value => { document.documentElement.dataset.theme = value; }, theme);
-    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().at(-1).setSize(380, 620));
+    await page.setViewportSize({ width: 380, height: 410 });
     await search.focus();
     const overflow = await dialog.evaluate(element => ({
       width: element.scrollWidth > element.clientWidth,
       rows: [...element.querySelectorAll('.model-picker-row')].some(row => row.scrollWidth > row.clientWidth),
       left: element.getBoundingClientRect().left, right: element.getBoundingClientRect().right,
+      top: element.getBoundingClientRect().top, height: element.getBoundingClientRect().height,
     }));
     assert.equal(overflow.width, false);
     assert.equal(overflow.rows, false);
     assert.ok(overflow.left >= 0 && overflow.right <= 380, JSON.stringify(overflow));
+    assert.ok(overflow.top >= 12 && overflow.height >= 258 && overflow.height < 510, JSON.stringify(overflow));
     await page.screenshot({ path: `test-results/model-favorites-narrow-${theme}.png` });
   }
   await page.evaluate(() => window.modelPickerFixture.configure({ language: 'en' }));
@@ -564,11 +574,11 @@ try {
     { id: 'shared', name: 'DeepSeek V4', provider: 'relay', providerName: 'SiliconFlow', providerBrand: 'siliconflow' },
     { id: 'shared', name: 'DeepSeek V4', provider: 'unrecognized', providerName: 'Gateway' },
   ] }));
-  for (const [provider, brand] of [['DeepSeek', 'deepseek'], ['SiliconFlow', 'siliconflow'], ['Gateway', 'custom']]) {
+  for (const [provider, brand] of [['direct', 'deepseek'], ['relay', 'siliconflow'], ['unrecognized', 'custom']]) {
     await dialog.getByRole('button', { name: '选择模型', exact: true }).click();
-    const row = dialog.locator('.model-picker-select').filter({ has: page.getByText(provider, { exact: true }) });
-    assert.equal(await row.locator('.model-picker-provider-mark').getAttribute('data-provider-brand'), brand);
-    await row.click();
+    const group = providerGroups.and(dialog.locator(`[data-model-provider="${provider}"]`));
+    assert.equal(await group.locator('.model-picker-provider-mark').getAttribute('data-provider-brand'), brand);
+    await group.locator('.model-picker-select').click();
     await settleLayout(dialog);
     assert.equal(await cardMark.getAttribute('data-provider-brand'), brand);
     if (brand !== 'custom') {
@@ -576,6 +586,52 @@ try {
       assert.match(await cardMark.evaluate(mark => getComputedStyle(mark).maskImage), /linear-gradient/);
     }
   }
+  await page.evaluate(() => window.modelPickerFixture.configure({ models: [
+    { id: 'shared', name: 'Step Shared', provider: 'desktop-custom-other', providerName: '阶跃' },
+    { id: 'shared', name: 'Step Shared', provider: 'desktop-custom-step-api', providerName: '阶跃', providerBrand: 'stepfun', providerBilling: 'usage' },
+    { id: 'shared', name: 'Step Shared', provider: 'step', providerName: '阶跃' },
+  ] }));
+  for (const [provider, brand, shape] of [
+    ['step', 'step', 'svg rect'], ['desktop-custom-other', 'custom', 'svg.lucide-sparkles'],
+    ['desktop-custom-step-api', 'stepfun', 'svg path[fill-rule="evenodd"]'],
+  ]) {
+    await dialog.getByRole('button', { name: '选择模型', exact: true }).click();
+    await search.fill('阶跃 shared');
+    assert.equal(await providerGroups.count(), 3, 'search preserves same-name connection groups');
+    assert.equal(await providerGroups.first().getAttribute('data-model-provider'), 'step');
+    const group = dialog.locator(`[data-model-provider="${provider}"]`);
+    const mark = group.locator('.model-picker-provider-mark');
+    assert.equal(await mark.getAttribute('data-provider-brand'), brand);
+    assert.equal(await mark.locator(shape).count(), brand === 'step' ? 5 : 1);
+    await group.locator('.model-picker-select').click();
+    await settleLayout(dialog);
+    assert.equal(await cardMark.getAttribute('data-provider-brand'), brand);
+    assert.equal(await page.evaluate(() => window.modelCalls.at(-1)), `${provider}/shared`);
+    assert.equal(await dialog.getByRole('button', { name: '选择模型', exact: true }).evaluate(button => button === document.activeElement), true);
+  }
+  await page.keyboard.press('Escape');
+  await page.setViewportSize({ width: 390, height: 460 });
+  await page.locator('.test-composer').evaluate(element => {
+    Object.assign(element.style, { position: 'absolute', top: '185px', marginBottom: '0' });
+  });
+  const trigger = page.getByRole('button', { name: '模型与思考强度' });
+  await trigger.click();
+  await settleLayout(dialog);
+  const compactBelow = await dialog.boundingBox();
+  const anchorBounds = await trigger.boundingBox();
+  const shortFader = await slider.boundingBox();
+  assert.ok(compactBelow.y > anchorBounds.y + anchorBounds.height && compactBelow.height < 258,
+    'near the top, the larger space below the trigger wins');
+  assert.ok(shortFader.y >= compactBelow.y && shortFader.y + shortFader.height <= compactBelow.y + compactBelow.height,
+    'the effort slider fits instead of clipping when neither side has the full height');
+  await dialog.getByRole('button', { name: '选择模型', exact: true }).click();
+  await settleLayout(dialog);
+  assert.ok((await dialog.boundingBox()).y + (await dialog.boundingBox()).height <= 448);
+  await search.fill('阶跃 shared');
+  assert.equal(await providerGroups.count(), 3, 'short fallback still offers all groups via search and scrolling');
+  await providerGroups.last().locator('.model-picker-select').click();
+  await settleLayout(dialog);
+  assert.deepEqual(await dialog.boundingBox(), compactBelow);
   console.log('Ultra passed: independent identity, purple endpoint, italic flow, contrast, themes, narrow layout, shared fader motion and accessibility fallbacks.');
   console.log('Fader acceptance passed: no click jump, resisted drag, release commit, wheel and keyboard.');
   console.log('Model picker passed: explicit favorites, no automatic collection or model selection, search, failed save and retry, provider identity, availability, keyboard focus, IME guards, focus bounds, narrow themes and English.');

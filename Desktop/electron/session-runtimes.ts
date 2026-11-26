@@ -112,6 +112,7 @@ function workspaceKey(cwd: string) {
 }
 interface RuntimeIdleOptions {
   stopHost?: boolean;
+  stateTimeout?: number;
   allowStoppingBackgroundCommands?: boolean;
   recheckChangedCommandState?: boolean;
   allowRemote?: boolean;
@@ -903,7 +904,7 @@ export class SessionRuntimes {
       throw new BackgroundCommandStateError('Cannot verify background commands for this session; try again once the session is connected');
     for (let attempt = 0; worker.status === 'connected'; attempt++) {
       const revision = worker.revision;
-      const state = await worker.rpc.request('get_state');
+      const state = await worker.rpc.request('get_state', {}, options.stateTimeout);
       assertHost();
       if ((requireConnected || worker.remoteAttached && options.allowRemote)
         && (state?.sessionId !== sessionId || typeof state?.isStreaming !== 'boolean'))

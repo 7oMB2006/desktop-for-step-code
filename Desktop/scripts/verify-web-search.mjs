@@ -142,8 +142,18 @@ try {
   await openSearch();
   assert.deepEqual((await snapshot()).configured, []);
 
-  phase = 'catalog and independent credential save';
   const catalog = page.getByRole('button', { name: '添加搜索服务', exact: true });
+  phase = 'signed-out Step search details';
+  await catalog.click();
+  await page.locator('[data-search-preset="step"]').click();
+  await page.getByText('未登录阶跃账号', { exact: true }).waitFor();
+  assert.equal(await page.getByText('Step Plan', { exact: true }).count(), 0);
+  assert.equal(await page.getByRole('switch', { name: '加入搜索顺序' }).isDisabled(), true);
+  await page.getByRole('button', { name: '前往账户设置', exact: true }).click();
+  await category.getByRole('button', { name: '联网搜索', exact: true }).click();
+  await page.getByRole('heading', { name: '搜索顺序', exact: true }).waitFor();
+
+  phase = 'catalog and independent credential save';
   await catalog.click();
   assert.equal(await page.locator('[data-search-preset]').count(), 6);
   assert.ok(await page.locator('[data-search-preset] img').evaluateAll(images => images.every(image => image.complete && image.naturalWidth > 0)));

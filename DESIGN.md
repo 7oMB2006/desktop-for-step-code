@@ -707,30 +707,34 @@ Model and effort changes update only the owning draft or runtime. Do not refresh
 the history catalog for a picker selection. Idle runtime changes still await
 Step Code confirmation; an immediate send waits for the pending choice.
 
-The existing fixed-size model selector includes search and explicitly starred
-Favorites ahead of other available models, without duplicates. Its back arrow and
-search share one compact header row instead of a separate title; the saved height
-belongs to the internally scrolling model list. Returning restores focus to the
-model heading. No empty favorite
-section is reserved. An independent star button adds or removes a favorite without
-selecting a model or closing the picker; the selected checkmark remains separate.
-Reuse the local marks from provider settings in the model card and list. The
-mark follows the actual connection, never the model name or catalog binding.
-Use monochrome silhouettes in the picker with the existing Step card fade.
-Keep a neutral mark for unrecognized providers. Marks are decorative and do not
-replace provider labels or billing text in the list.
+The model list expands upward from the fixed bottom edge to at most 510px,
+bounded by the room above the trigger. If even the compact view cannot fit above
+and there is more room below, the popover opens on that side instead. The thinking
+and parameters views retain their compact size when room permits. Back and search
+share one compact row above the internally scrolling list. Opening focuses search; returning restores focus
+to the model heading. Explicit Favorites appear first when present, without
+duplicates. Other models are grouped by connection identity, not display name,
+with the built-in Step account first among providers. Group headings show the
+connection label and billing when known and stay visible while scrolling.
+An independent star adds or removes a favorite without selecting a model or
+closing the picker; the selected checkmark remains separate.
+Monochrome marks follow the actual connection, never the model name or catalog
+binding. The built-in Step account keeps its bare five-square mark; recognized
+Step API connections use the round mark. Unrecognized providers keep a neutral
+mark. Marks do not replace connection labels or billing text. Keep the existing
+mark fade on the model card.
 Favorites retain their saved order and provider/model identities in Desktop
 preferences. Runtime activity never creates or reorders them, and earlier recent
 history is not converted into favorites. Unavailable favorites are hidden but
 retained, and labels always come from the current catalog. Search matches names,
-IDs and providers in one deduplicated result list, with independent star controls.
+IDs and providers, preserving connection groups and deduplication.
 Saving failure is explicit and retryable. Up/Down and Home/End navigate the current
 button column; Left/Right move between selection and star controls. Reordering
 preserves star focus unless the user has moved it elsewhere. Visible focus,
 existing panel motion and reduced motion are shared. IME-composition keys do not
 navigate or dismiss the picker. Favorites do not change default models, next-turn
 choices, account identity or billing routes. A secondary management view remains
-outside this compact-picker change.
+outside the picker.
 
 Automatic continuation shares that timeline-event styling, with a 14px RotateCcw icon, an accent semibold upright label and a muted interruption reason. It records a requested attempt, never confirmed recovery or a specific network diagnosis. The Windows runtime preserves the original input/start pipeline and model instruction but stores a structured `step-auto-resume` custom message, not a human-authored turn. Rendering and replay require its versioned source metadata; no English-text matching rewrites old history. The note has no user bubble, editing controls, disclosure or activity animation, and its internal instruction is excluded from copied assistant prose.
 

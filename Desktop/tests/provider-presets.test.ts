@@ -10,7 +10,7 @@ import { importProviderModel } from '../src/provider-model-import';
 
 test('preset choices create independent unsaved drafts with no credential or active model', () => {
   assert.deepEqual([...new Set(providerPresets.map(preset => preset.brand))],
-    ['deepseek', 'kimi', 'zhipu', 'bailian', 'minimax', 'openai', 'anthropic', 'gemini', 'siliconflow', 'ark']);
+    ['stepfun', 'deepseek', 'kimi', 'zhipu', 'bailian', 'minimax', 'openai', 'anthropic', 'gemini', 'siliconflow', 'ark']);
   assert.equal(new Set(providerPresets.map(preset => preset.id)).size, providerPresets.length);
   for (const preset of providerPresets) {
     const first = providerPresetDraft(preset, 'zh');
@@ -43,6 +43,36 @@ test('model branding follows the configured connection, not a shared model or ca
 });
 
 const chatReply = { choices: [{ message: { role: 'assistant', content: 'OK' } }] };
+test('StepFun platform presets coexist with official login and keep regional credentials separate', async () => {
+  const login = { type: 'oauth', profile: 'step_plan', access: 'browser-session-fixture' };
+  const presets = providerPresets.filter(preset => preset.brand === 'stepfun');
+  const model = importProviderModel({ id: 'fixture-step', name: 'Step fixture' });
+  let auth: Record<string, unknown> = { step: login };
+  for (const [index, host] of ['api.stepfun.com', 'api.stepfun.ai'].entries()) {
+    const draft = { ...providerPresetDraft(presets[index], 'en'), models: [model] };
+    assert.equal(draft.baseUrl, `https://${host}/v1`);
+    assert.equal(draft.api, 'openai-completions');
+    const key = `platform-fixture-${index}`;
+    assert.throws(() => saveProviderAuth(auth, draft), /API key is required/);
+    auth = saveProviderAuth(auth, draft, key);
+    const row = providerInfos(auth).find(provider => provider.presetId === draft.presetId)!;
+    assert.deepEqual(await discoverProviderModels(auth, row, undefined, async (url, request) => {
+      assert.equal(url, `https://${host}/v1/models`);
+      assert.equal(new Headers(request.headers).get('authorization'), `Bearer ${key}`);
+      return Response.json({ data: [{ id: model.id, model_type: '大语言模型' }, { id: 'fixture-tts', model_type: '语音合成' }] });
+    }).then(models => models.map(m => m.id)), [model.id]);
+    assert.equal((await testProvider(auth, row, model.id, undefined, undefined, async (url, request) => {
+      assert.equal(url, `https://${host}/v1/chat/completions`);
+      assert.equal(new Headers(request.headers).get('authorization'), `Bearer ${key}`);
+      return Response.json(chatReply);
+    })).outcome, 'reply');
+  }
+  assert.equal(auth.step, login);
+  const [mainland, international] = providerInfos(auth);
+  assert.notEqual(mainland.id, international.id);
+  assert.throws(() => saveProviderAuth(auth, { ...international, id: mainland.id }), /API key is required/);
+});
+
 const officialEndpoints = [
   ['zhipu', 'openai-completions', 'https://open.bigmodel.cn/api/paas/v4', null, '/api/paas/v4/chat/completions', chatReply],
   ['bailian', 'openai-completions', 'https://dashscope.aliyuncs.com/compatible-mode/v1', null, '/compatible-mode/v1/chat/completions', chatReply],

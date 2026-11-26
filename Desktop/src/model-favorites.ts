@@ -4,6 +4,23 @@ export type ModelIdentity = Pick<Model, 'provider' | 'id'>;
 export type ModelFavoriteChange = ModelIdentity & { favorite: boolean };
 export const FAVORITE_MODEL_LIMIT = 100;
 export const modelKey = (model: ModelIdentity) => JSON.stringify([model.provider, model.id]);
+const isStepAccount = (model: ModelIdentity) => model.provider === 'step' || model.provider === 'stepfun';
+
+export function modelConnectionLabel(model: Model, language: 'zh' | 'en'): string {
+  if (isStepAccount(model)) return language === 'zh' ? '阶跃 · 当前账户' : 'Step · Current account';
+  const name = model.providerName || model.provider;
+  return model.provider.startsWith('desktop-custom-') ? `${name} · ${language === 'zh' ? '自定义' : 'Custom'}` : name;
+}
+
+export function groupModelsByConnection(models: Model[]): Model[][] {
+  const groups = new Map<string, Model[]>();
+  for (const model of models) {
+    const group = groups.get(model.provider);
+    if (group) group.push(model);
+    else groups.set(model.provider, [model]);
+  }
+  return [...groups.values()].sort((a, b) => Number(isStepAccount(b[0])) - Number(isStepAccount(a[0])));
+}
 
 export function normalizeFavoriteModels(value: unknown): ModelIdentity[] {
   if (!Array.isArray(value)) return [];
@@ -52,7 +69,8 @@ export function modelListGroups(models: Model[], saved: unknown, query: string) 
   if (terms.length) return {
     favorites: [] as Model[],
     available: [...favorites, ...available].filter(model => {
-      const text = [model.name, model.id, model.providerName, model.provider].filter(Boolean).join(' ').toLowerCase();
+      const text = [model.name, model.id, model.providerName, model.provider,
+        modelConnectionLabel(model, 'zh'), modelConnectionLabel(model, 'en')].filter(Boolean).join(' ').toLowerCase();
       return terms.every(term => text.includes(term));
     }),
   };

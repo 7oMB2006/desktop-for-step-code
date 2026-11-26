@@ -2,7 +2,7 @@ import { useId, useLayoutEffect, useRef, useState, type KeyboardEvent } from 're
 import { Check, ChevronLeft, Search, Star, X } from 'lucide-react';
 import type { Model } from './contracts';
 import { ProviderBrand } from './ProviderBrand';
-import { modelKey, modelListGroups, normalizeFavoriteModels, type ModelIdentity } from './model-favorites';
+import { groupModelsByConnection, modelConnectionLabel, modelKey, modelListGroups, normalizeFavoriteModels, type ModelIdentity } from './model-favorites';
 import { providerBillingLabels } from './provider-presets';
 
 export function ModelPickerList({ models, favoriteModels, selected, language, onSelect, onFavorite, onBack }: {
@@ -22,6 +22,8 @@ export function ModelPickerList({ models, favoriteModels, selected, language, on
   const groups = modelListGroups(models, favoriteModels, query);
   const favoriteKeys = new Set(normalizeFavoriteModels(favoriteModels).map(modelKey));
   const searching = Boolean(query.trim());
+  const connectionGroups = groupModelsByConnection(groups.available);
+  const billingLabel = (model: Model) => model.providerBilling && providerBillingLabels[model.providerBilling][zh ? 0 : 1];
   useLayoutEffect(() => {
     if (savingKey || !restoreFavoriteFocus.current) return;
     const row = [...(list.current?.querySelectorAll<HTMLElement>('.model-picker-row') ?? [])]
@@ -65,20 +67,20 @@ export function ModelPickerList({ models, favoriteModels, selected, language, on
       : (current + (event.key === 'ArrowDown' ? 1 : -1) + options.length) % options.length;
     options[index].focus();
   };
-  const option = (model: Model) => {
+  const option = (model: Model, inProviderGroup = false) => {
     const key = modelKey(model);
     const active = Boolean(selected && key === modelKey(selected));
     const starred = favoriteKeys.has(key);
-    const billing = model.providerBilling && providerBillingLabels[model.providerBilling][zh ? 0 : 1];
-    const providerLabel = [model.providerName || model.provider, billing].filter(Boolean).join(' · ');
+    const billing = billingLabel(model);
+    const providerLabel = [modelConnectionLabel(model, language), billing].filter(Boolean).join(' · ');
     const identity = `${model.name || model.id} · ${providerLabel}`;
     const action = starred ? zh ? '取消收藏' : 'Remove favorite' : zh ? '收藏模型' : 'Favorite model';
     return <div className={`model-picker-row${active ? ' is-selected' : ''}`} key={key} data-model-key={key}>
       <button type="button" className="model-picker-select" aria-pressed={active}
-        title={identity} onClick={() => void onSelect(model)}>
-        <ProviderBrand model={model} variant="row"/>
+        title={identity} aria-label={inProviderGroup ? identity : undefined} onClick={() => void onSelect(model)}>
+        {!inProviderGroup && <ProviderBrand model={model} variant="row"/>}
         <span className="model-picker-identity"><span>{model.name || model.id}</span>
-          <small>{providerLabel}</small></span>
+          {!inProviderGroup && <small>{providerLabel}</small>}</span>
         <span className="model-picker-check" aria-hidden="true">{active && <Check size={14}/>}</span>
       </button>
       {onFavorite && <button type="button" className={`model-picker-star${starred ? ' is-favorite' : ''}`}
@@ -116,13 +118,21 @@ export function ModelPickerList({ models, favoriteModels, selected, language, on
       aria-label={zh ? '模型' : 'Models'} onKeyDown={onListKey}>
       {groups.favorites.length > 0 && <div role="group" aria-label={zh ? '已收藏' : 'Favorites'}>
         <div className="model-picker-section" aria-hidden="true">{zh ? '已收藏' : 'Favorites'}</div>
-        {groups.favorites.map(option)}
+        {groups.favorites.map(model => option(model))}
       </div>}
-      {groups.available.length > 0 && <div role="group" aria-label={searching ? zh ? '搜索结果' : 'Search results'
-        : groups.favorites.length ? zh ? '其他模型' : 'Other models' : zh ? '全部模型' : 'All models'}>
-        {!searching && groups.favorites.length > 0 && <div className="model-picker-section" aria-hidden="true">{zh ? '其他模型' : 'Other models'}</div>}
-        {groups.available.map(option)}
-      </div>}
+      {connectionGroups.map(group => {
+        const [first] = group;
+        const label = modelConnectionLabel(first, language);
+        const billing = billingLabel(first);
+        return <div key={first.provider} role="group" aria-label={[label, billing].filter(Boolean).join(' · ')}
+          className="model-picker-provider-group" data-model-provider={first.provider}>
+          <div className="model-picker-section model-picker-provider-heading" aria-hidden="true">
+            <ProviderBrand model={first} variant="row"/>
+            <span title={label}>{label}</span>{billing && <small>{billing}</small>}
+          </div>
+          {group.map(model => option(model, true))}
+        </div>;
+      })}
       {!groups.favorites.length && !groups.available.length && <p className="model-picker-empty" role="status">
         {searching ? zh ? '没有匹配的模型' : 'No matching models' : zh ? '暂无可用模型' : 'No models available'}
       </p>}

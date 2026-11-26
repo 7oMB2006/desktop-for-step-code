@@ -102,7 +102,7 @@ try {
       if (method === 'contextMessages') {
         const current = globalThis.virtualizationFixture;
         if (args[0] !== current.runtimeId || args[1] !== current.state.sessionId) throw new Error('Unexpected context owner');
-        return current.messages;
+        return current.contextMessages ?? current.messages;
       }
       if (method === 'preferences') {
         Object.assign(globalThis.virtualizationFixture.preferences, args[0]);
@@ -308,17 +308,23 @@ try {
 
   async function updateMessages(messages, mode = 'button') {
     const countBefore = await app.evaluate(() => globalThis.virtualizationCalls.filter(method => method === 'snapshot').length);
-    const revision = await app.evaluate((_electron, messages) => {
+    const { modelName, contextInput } = await app.evaluate((_electron, messages) => {
       const fixture = globalThis.virtualizationFixture;
       globalThis.virtualizationRevision = (globalThis.virtualizationRevision ?? 0) + 1;
       fixture.state.model.name = `step-5-preview (r${globalThis.virtualizationRevision})`;
       fixture.messages = messages;
+      // Observe the separately fetched payload even when its message count stays the same.
+      const lastAssistant = messages.findLastIndex(message => message.role === 'assistant');
+      const input = globalThis.virtualizationRevision;
+      fixture.contextMessages = messages.map((message, index) => index === lastAssistant ? {
+        ...message, usage: { input, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: input + 1 },
+      } : message);
       fixture.sessions[0].messageCount = messages.length;
       fixture.stats.totalMessages = messages.length;
       fixture.stats.userMessages = messages.filter(message => message.role === 'user').length;
       fixture.stats.assistantMessages = messages.filter(message => message.role === 'assistant').length;
       fixture.stats.toolResults = messages.filter(message => message.role === 'toolResult').length;
-      return fixture.state.model.name;
+      return { modelName: fixture.state.model.name, contextInput: lastAssistant < 0 ? '--' : String(input) };
     }, messages);
     if (mode === 'event') {
       // main.tsx handles this event with refresh() -> bridge.snapshot() -> installSnapshot().
@@ -328,7 +334,8 @@ try {
     } else await panel.getByRole('button', { name: 'Refresh context', exact: true }).click();
     await page.waitForFunction(count => document.getElementById('context-tab-all')?.querySelector('small')?.textContent === String(count),
       messages.length);
-    await page.waitForFunction(name => document.querySelector('.context-identity > span')?.textContent === name, revision);
+    await page.waitForFunction(name => document.querySelector('.context-identity > span')?.textContent === name, modelName);
+    await page.waitForFunction(input => document.querySelector('.context-usage-input dd')?.textContent === input, contextInput);
     await page.waitForFunction(() => !document.querySelector('[aria-label="Refresh context"]')?.disabled);
     const countAfter = await app.evaluate(() => globalThis.virtualizationCalls.filter(method => method === 'snapshot').length);
     assert.ok(countAfter > countBefore, 'Updates must actually request and install an IPC snapshot');

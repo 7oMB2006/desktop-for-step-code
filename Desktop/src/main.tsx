@@ -1,3 +1,4 @@
+import { FeedbackExport } from './FeedbackExport';
 import { normalizedWorkspaceKey } from './workspace-key';
 import { UsageOverviewPanel } from './UsageOverviewPanel';
 import { searchSettings } from './settings-search';
@@ -424,6 +425,7 @@ function App() {
   const [capabilityRevision, setCapabilityRevision] = useState(0);
   const [details, setDetails] = useState('');
   const [windowMenuOpen, setWindowMenuOpen] = useState(false);
+  const [feedbackTarget, setFeedbackTarget] = useState<{ runtimeId: string; sessionId: string } | null>(null);
   const [projectPickerOpen, setProjectPickerOpen] = useState(false);
   const firstSend = useRef(false);
   const pendingFirstSend = useRef<object | null>(null);
@@ -2183,7 +2185,7 @@ function App() {
     const handler = (event: KeyboardEvent) => {
       const action = appShortcut(event, bridge?.platform);
       if (!action || !bridge || event.target instanceof Element && event.target.closest('.xterm, .user-message-editor, [role="dialog"], [role="menu"]')
-        || settingsOpen || preview || renaming || removeProject || imageMenu || windowMenuOpen
+        || feedbackTarget || settingsOpen || preview || renaming || removeProject || imageMenu || windowMenuOpen
         || requests.length && approvalOpen || speechConsentOpen || projectPickerOpen) return;
       if (isMini && !['new-session', 'settings'].includes(action)) return;
       if (loading && action !== 'sidebar') return;
@@ -2199,6 +2201,12 @@ function App() {
     window.addEventListener('keydown', handler, true);
     return () => window.removeEventListener('keydown', handler, true);
   });
+  const feedbackAvailable = Boolean(bridge && data.runtimeId && data.state?.sessionId && !data.draftId
+    && !navigationTarget && !loading && !usageOpen && !pluginsOpen && !scheduledOpen && !remoteOpen && !fulltextOpen);
+  const feedbackOpen = Boolean(feedbackAvailable && feedbackTarget
+    && feedbackTarget.runtimeId === data.runtimeId && feedbackTarget.sessionId === data.state?.sessionId);
+  useEffect(() => { if (!feedbackOpen) setFeedbackTarget(null); }, [feedbackOpen]);
+
   const menus: WindowMenu[] = [
     { id: 'file', label: t('文件', 'File'), items: [
       { label: t('新建会话', 'New session'), shortcut: keyLabel('new-session'), disabled: !bridge || loading, action: () => void newSession() },
@@ -2220,7 +2228,10 @@ function App() {
     ] },
     { id: 'help', label: t('帮助', 'Help'), items: [
       { label: t('设置', 'Settings'), shortcut: keyLabel('settings'), disabled: !bridge, action: () => void openSettings() },
-      { label: t('导出脱敏诊断', 'Export redacted diagnostics'), disabled: !bridge, action: () => void run(() => bridge!.diagnostics()) },
+      { label: t('导出当前会话反馈包', 'Export current conversation feedback bundle'), disabled: !feedbackAvailable, action: () => {
+        if (!feedbackAvailable || navigationPending.current || switching.current || !data.runtimeId || !data.state?.sessionId) return;
+        setFeedbackTarget({ runtimeId: data.runtimeId, sessionId: data.state.sessionId });
+      } },
     ] },
   ];
   const imageAction = (action: ImageMenuAction) => {
@@ -2377,6 +2388,15 @@ function App() {
           await composer.client.flush(); saveWindowPresentation();
           setMiniState(await bridge!.miniChatOpen());
         }) }}/>}
+    {feedbackOpen && bridge && feedbackTarget && <FeedbackExport bridge={bridge} {...feedbackTarget}
+      onSaved={destination => setNotice({ id: ++nextNoticeId.current, type: 'info',
+        message: t('反馈包已保存，未发送', 'Feedback bundle saved locally. Nothing sent.'),
+        actions: destination === 'default'
+          ? [{ label: t('打开目录', 'Open folder'), onClick: () => run(() => bridge.openFeedbackFolder()) }] : undefined })}
+      sessionTitle={activeTitle} zh={zh} onClose={() => {
+        setFeedbackTarget(null);
+        document.querySelector<HTMLButtonElement>(bridge.platform === 'darwin' ? '[data-menu="application"]' : '[data-menu="help"]')?.focus();
+      }}/>}
     {sessionMove && <SessionMoveDialog session={sessionMove.session} preferences={data.preferences} platform={bridge?.platform}
       initialDestination={sessionMove.destination} onCancel={() => setSessionMove(null)}
       onConfirm={async destination => {
@@ -2881,7 +2901,7 @@ function App() {
       width={browserWidth} onWidthChange={setBrowserWidth}
       replaced={desktopSideOpen || inspectionOpen || visibleRightPanel === 'turns' || visibleRightPanel === 'review' || visibleRightPanel === 'terminal' || visibleRightPanel === 'file' || visibleRightPanel === 'subagent' || visibleRightPanel === 'btw' || Boolean(details)}
       expanded={inspectorExpanded && visibleRightPanel === 'browser'} onToggleExpanded={() => setExpandedRightPanel(inspectorExpanded ? null : 'browser')}
-      blocked={speechConsentOpen || Boolean(quitReview.request) || handleBlocked || projectPickerOpen || queuePreviewOpen || liveChangesOpen || windowMenuOpen || pluginMenuOpen || settingsOpen || Boolean(removeProject) || Boolean(sessionMove) || Boolean(preview) || renaming || Boolean(contextMenu) || Boolean(imageMenu) || (approvalOpen && requests.length > 0) || (compactSidebar && compactSidebarOpen)}
+      blocked={speechConsentOpen || Boolean(quitReview.request) || handleBlocked || projectPickerOpen || queuePreviewOpen || liveChangesOpen || windowMenuOpen || feedbackOpen || pluginMenuOpen || settingsOpen || Boolean(removeProject) || Boolean(sessionMove) || Boolean(preview) || renaming || Boolean(contextMenu) || Boolean(imageMenu) || (approvalOpen && requests.length > 0) || (compactSidebar && compactSidebarOpen)}
       overlay={!summarySpace} language={data.preferences.language} onClose={closeRightPanel}/>
     <FilePreviewPanel file={previewFile} open={visibleRightPanel === 'file' && !details}
       replaced={Boolean(details) || (visibleRightPanel !== null && visibleRightPanel !== 'file')}

@@ -11,7 +11,7 @@
 :root :where(select, .form-focus-trigger):focus-visible,
 :is(.fulltext-input, .mini-session-search, .settings-search, .model-picker-search,
     .archive-search, .scheduled-search, .cap-search, .new-session-search, .skills-preview-search,
-    .browser-address-field):has(> input:focus),
+    .browser-address-field, .feedback-date-field):has(> input:focus),
 .sidebar-utility-row:has(.sidebar-search-field > input:focus-visible) {
   outline: var(--form-focus-width) solid var(--form-focus-color);
   outline-offset: var(--form-focus-offset, 2px);
@@ -21,7 +21,7 @@
 /* Only the bordered shell paints a ring for composite text fields. */
 :is(.fulltext-input, .mini-session-search, .settings-search, .model-picker-search,
     .archive-search, .scheduled-search, .cap-search, .new-session-search, .skills-preview-search,
-    .browser-address-field, .sidebar-search-field) > input:focus,
+    .browser-address-field, .sidebar-search-field, .feedback-date-field) > input:focus,
 .user-message-editor textarea:focus {
   outline: none;
 }
@@ -34,7 +34,7 @@
       [type=button], [type=submit], [type=reset], [type=image], [type=hidden]), textarea, select,
       .fulltext-input, .mini-session-search, .settings-search, .model-picker-search,
       .archive-search, .scheduled-search, .cap-search, .new-session-search, .skills-preview-search,
-      .sidebar-utility-row, .browser-address-field) {
+      .sidebar-utility-row, .browser-address-field, .feedback-date-field) {
     outline: var(--form-focus-width) solid transparent;
     outline-offset: var(--form-focus-offset, 2px);
     transition: outline-color var(--form-focus-duration, var(--form-focus-out)) var(--form-focus-ease);

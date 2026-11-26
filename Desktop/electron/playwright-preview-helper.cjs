@@ -85,7 +85,8 @@ port.on('message', ({ data }) => {
           return;
         }
         await field.fill(data.input.text, { timeout: 5000 });
-        send({ type: 'result', id: data.id, result: { content: [{ type: 'text', text: 'Filled the field. No submit action was sent.' }] } });
+        send({ type: 'result', id: data.id, result: { content: [{ type: 'text',
+          text: 'Filled the field. The shared tab remains read-only until Playwright disconnects.' }] } });
         return;
       }
       const [name, args] = tools[data.input.action](data.input);

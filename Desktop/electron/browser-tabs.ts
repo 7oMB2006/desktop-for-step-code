@@ -1,7 +1,7 @@
 import { app, clipboard, Menu, WebContentsView, session, shell, type BrowserWindow } from 'electron';
 import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
-import { automationNavigation, browserBounds, browserHandoffOrigin, browserNavigation, browserPreviewUrl, browserUrl,
+import { automationNavigation, browserBounds, browserHandoffOrigin, browserHandoffRequestAllowed, browserNavigation, browserPreviewUrl, browserUrl,
   MAX_BROWSER_TABS, type AutomationScope } from './browser-policy';
 import { PlaywrightPreview, type PreviewInput } from './playwright-preview';
 import { previewResourceAllowed } from './playwright-preview-scope';
@@ -14,7 +14,7 @@ import type { BrowserAction, BrowserBounds, BrowserEvent, BrowserHandoffMode, Br
 type Tab = { view: WebContentsView; info: BrowserTab; owner: string; navigation: number; faviconRevision: number;
   faviconAbort?: AbortController; faviconPage?: URL; previewOrigin?: string;
   automationScope?: AutomationScope; initialLoad?: Promise<void>; playwright?: PlaywrightPreview; onPlaywrightUserStop?: () => void;
-  document: number; attached?: boolean };
+  document: number; attached?: BrowserHandoffMode };
 type TabOptions = { local?: { path: string; origin: string }; activate?: boolean; previewOrigin?: string;
   automationScope?: AutomationScope; publicProxy?: string; profile?: BrowserProfile };
 type Conversation = { activeId?: string };
@@ -50,6 +50,19 @@ export class BrowserTabs {
       browserSession.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
       browserSession.setPermissionCheckHandler(() => false);
       browserSession.setDevicePermissionHandler(() => false);
+      browserSession.webRequest.onBeforeRequest((details, callback) => {
+        const liveTabs = [...this.tabs.values()].filter(tab => tab.info.profile === profile && !tab.view.webContents.isDestroyed());
+        const guest = liveTabs.find(tab => tab.view.webContents.id === details.webContentsId);
+        // Filling dispatches page events, so keep the shared tab and its workers on passive HTTP methods until disconnect.
+        const fillMode = guest?.attached === 'fill' || !guest && liveTabs.some(tab => tab.attached === 'fill');
+        const restricted = guest?.automationScope;
+        const background = !guest && liveTabs.some(tab => tab.automationScope);
+        const allowed = browserHandoffRequestAllowed(details.method, fillMode ? 'fill' : undefined)
+          && (profile !== 'agent' || (restricted?.kind === 'public'
+            ? publicBrowserResource(details.url, details.method, details.resourceType, restricted.site)
+            : !background));
+        callback({ cancel: !allowed });
+      });
       browserSession.on('will-download', (_event, item, contents) => {
         item.setSaveDialogOptions({ title: this.language() === 'zh' ? '保存下载' : 'Save download', defaultPath: item.getFilename() });
         if (![...this.tabs.values()].some(tab => tab.view.webContents === contents && !tab.automationScope && !tab.attached)) item.cancel();
@@ -229,7 +242,7 @@ export class BrowserTabs {
       }
     });
     target.playwright = lease;
-    target.attached = scope.kind === 'attached' || undefined;
+    target.attached = scope.kind === 'attached' ? scope.mode : undefined;
     target.onPlaywrightUserStop = onUserStop;
     if (target.attached) {
       target.info.testing = true;
@@ -325,15 +338,6 @@ export class BrowserTabs {
       const profile = session.fromPartition(partitions.agent);
       const liveTabs = () => [...this.tabs.values()].filter(tab => tab.info.profile === 'agent' && !tab.view.webContents.isDestroyed());
       const guestFor = (id: number | undefined) => liveTabs().find(tab => tab.view.webContents.id === id);
-      profile.webRequest.onBeforeRequest((details, callback) => {
-        const guest = guestFor(details.webContentsId);
-        const restricted = guest?.automationScope;
-        const background = !guest && liveTabs().some(tab => tab.automationScope);
-        const allowed = restricted?.kind === 'public'
-          ? publicBrowserResource(details.url, details.method, details.resourceType, restricted.site)
-          : !background;
-        callback({ cancel: !allowed });
-      });
       // Signed-in pages may load third-party assets, but not with the Agent profile's other sign-ins.
       const thirdParty = (id: number | undefined, url: string) => {
         const scope = guestFor(id)?.automationScope;
@@ -404,6 +408,10 @@ export class BrowserTabs {
       contents.session.setDevicePermissionHandler(() => false);
       contents.session.on('will-download', (_event, item) => item.cancel());
       contents.session.webRequest.onBeforeRequest((details, callback) => {
+        if (!browserHandoffRequestAllowed(details.method, tab.attached)) {
+          callback({ cancel: true });
+          return;
+        }
         if (automationScope) {
           const allowed = automationScope.kind === 'local'
             ? previewResourceAllowed(details.url, automationScope.origin, details.resourceType)
@@ -470,8 +478,8 @@ export class BrowserTabs {
       return browserNavigation(target) && (!origin || new URL(target).origin === origin);
     };
     const guard = (event: Electron.Event, target: string, _inPlace?: boolean, mainFrame = true) => {
-      const allowed = automationScope || mainFrame && tab.previewOrigin ? allowsTopLevel(target)
-        : browserNavigation(target) && (!local || target === 'about:blank' || new URL(target).origin === local.origin);
+      const allowed = !tab.attached && (automationScope || mainFrame && tab.previewOrigin ? allowsTopLevel(target)
+        : browserNavigation(target) && (!local || target === 'about:blank' || new URL(target).origin === local.origin));
       if (!allowed) {
         event.preventDefault();
         if (mainFrame) {
@@ -485,7 +493,7 @@ export class BrowserTabs {
     contents.on('will-navigate', guard);
     contents.on('will-redirect', guard);
     contents.on('will-frame-navigate', event => {
-      if (!browserNavigation(event.url) || (local && new URL(event.url).origin !== local.origin)
+      if (tab.attached || !browserNavigation(event.url) || (local && new URL(event.url).origin !== local.origin)
         || (automationScope && !allowsTopLevel(event.url))) event.preventDefault();
     });
     contents.on('will-attach-webview', event => event.preventDefault());

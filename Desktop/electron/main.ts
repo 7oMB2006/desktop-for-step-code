@@ -1314,7 +1314,7 @@ const collaboration: SessionCollaboration = new SessionCollaboration(runtimes, j
         throw new Error('The shared tab is no longer available');
       await tabs.attachPlaywright(owner, worker.id, grant, signal, () => { run.stoppedByUser = true; });
       return { content: [{ type: 'text', text: grant.mode === 'fill'
-        ? 'Attached to the original shared page, without navigating. Use snapshot and type to fill ordinary fields. The user submits the form.'
+        ? 'Attached to the original shared page, without navigating. Use snapshot and type to fill ordinary fields. The user submits after Playwright disconnects.'
         : 'Attached to the original shared page in view-only mode, without navigating. Use snapshot or screenshot.' }] };
     }
     if (input.action !== 'start') return tabs.controlPlaywright(worker.id, owner, input, signal);

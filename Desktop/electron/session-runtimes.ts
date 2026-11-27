@@ -748,7 +748,7 @@ export class SessionRuntimes {
     return worker.operations > (this.reads.get(worker)?.size ?? 0);
   }
   read(worker: SessionRuntime): Promise<void> {
-    if (worker.status !== 'connected') return Promise.resolve();
+    if (worker.status !== 'connected' || this.workers.get(worker.id) !== worker) return Promise.resolve();
     const reads = this.reads.get(worker) ?? new Set<Promise<void>>();
     this.reads.set(worker, reads);
     worker.operations++;
@@ -784,19 +784,24 @@ export class SessionRuntimes {
     const epoch = this.snapshotEpochs.get(worker);
     const rpc = worker.rpc;
     const statsVersion = this.nextStatsVersion(worker);
-    const [state, { models }, stats, history] = await Promise.all([
-      worker.rpc.request('get_state'),
-      worker.rpc.request('get_available_models'), worker.rpc.request('get_session_stats'),
-      worker.rpc.request('get_entries'),
-    ]);
-    if (worker.rpc !== rpc || worker.status !== 'connected' || this.workers.get(worker.id) !== worker
-      || this.snapshotEpochs.get(worker) !== epoch) return;
+    const ownsRead = () => worker.rpc === rpc && this.workers.get(worker.id) === worker
+      && this.snapshotEpochs.get(worker) === epoch;
+    const data = await Promise.all([
+      rpc.request('get_state'),
+      rpc.request('get_available_models'), rpc.request('get_session_stats'),
+      rpc.request('get_entries'),
+    ]).catch(error => {
+      // Retiring a transport rejects pending RPCs. Reports from an obsolete read cannot affect the current view.
+      if (ownsRead()) throw error;
+      return null;
+    });
+    if (!data || worker.status !== 'connected' || !ownsRead()) return;
+    const [state, { models }, stats, history] = data;
     const savedMessages = sessionTranscript(history.entries ?? [], history.leafId ?? null);
     if (revision === worker.revision && state.sessionId)
       worker.launch = projectLaunch(history.entries ?? [], history.leafId ?? null, state.sessionId, worker.launch);
     const decorated = this.hooks.messages ? await this.hooks.messages(worker, savedMessages) : savedMessages;
-    if (worker.rpc !== rpc || worker.status !== 'connected' || this.workers.get(worker.id) !== worker
-      || this.snapshotEpochs.get(worker) !== epoch) return;
+    if (worker.status !== 'connected' || !ownsRead()) return;
     // Never replace newly received deltas with an older asynchronous snapshot.
     if (revision === worker.revision) {
       worker.state = worker.runActive ? { ...state, isStreaming: true } : state;

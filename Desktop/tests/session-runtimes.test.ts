@@ -41,6 +41,44 @@ function fixture(hooks: ConstructorParameters<typeof SessionRuntimes>[2] = {}) {
   return { pool, transports, events, open };
 }
 
+test('a snapshot rejected after its runtime is retired does not fail the current view', async () => {
+  const { pool, open, transports } = fixture();
+  try {
+    const worker = await open();
+    const transport = transports[0];
+    const request = transport.request.bind(transport);
+    let cancelRead!: (error: Error) => void;
+    transport.request = (type, args) => type === 'get_entries'
+      ? new Promise((_resolve, reject) => { cancelRead = reject; })
+      : request(type, args);
+    transport.stop = async () => { cancelRead(new Error('Runtime stopped')); };
+    const reading = pool.read(worker);
+    assert.equal(worker.operations, 1);
+    const stopping = pool.remove(worker);
+    await Promise.all([reading, stopping]);
+    assert.equal(worker.operations, 0);
+    assert.equal(pool.hasNonSnapshotOperations(worker), false);
+    transport.request = async () => { assert.fail('No RPC may start for a retired worker'); };
+    await pool.read(worker);
+  } finally { await pool.stopAll(); }
+});
+
+test('snapshot errors from the current runtime still reach the caller', async () => {
+  const { pool, open, transports } = fixture();
+  try {
+    const worker = await open();
+    const transport = transports[0];
+    const request = transport.request.bind(transport);
+    const failure = new Error('Fixture history read failed');
+    transport.request = async (type, args) => {
+      if (type === 'get_entries') throw failure;
+      return request(type, args);
+    };
+    await assert.rejects(pool.read(worker), error => error === failure);
+    assert.equal(worker.operations, 0);
+  } finally { await pool.stopAll(); }
+});
+
 for (const kind of ['startup', 'status'] as const) {
   test(`${kind} metadata during initial history decoration cannot leave a restored worker empty`, async () => {
     const saved = [{ role: 'user' as const, content: 'Saved history' }];

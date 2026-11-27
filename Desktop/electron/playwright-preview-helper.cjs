@@ -6,7 +6,6 @@ const port = process.parentPort;
 let connection;
 let server;
 let protocol;
-let page;
 let nextId = 0;
 let ready;
 const pending = new Map();
@@ -32,7 +31,6 @@ async function connect(outputDir) {
   const browser = await chromium.connectOverCDP(transport, { noDefaults: true, timeout: 5000 });
   const [context] = browser.contexts();
   if (context?.pages().length !== 1) throw new Error('Expected exactly one preview page');
-  [page] = context.pages();
   server = await createConnection({ browser: { isolated: false }, outputDir, outputMode: 'stdout',
     ignoreRoots: true, timeouts: { action: 5000, navigation: 8000 } }, async () => context);
   protocol = {
@@ -73,21 +71,6 @@ port.on('message', ({ data }) => {
     try {
       if (!ready || !Object.hasOwn(tools, data.input.action)) throw new Error('Unavailable browser operation');
       await ready;
-      if (data.fillOnly) {
-        if (!/^e\d{1,10}$/.test(data.input.ref)) throw new Error('Fill requires an ordinary field in the main page');
-        const field = page.locator(`aria-ref=${data.input.ref}`).and(page.locator(
-          `:is(textarea,input:not([type]),input[type="text"],input[type="search"],input[type="email"],input[type="url"],input[type="tel"])
-           :not([autocomplete*="password" i],[autocomplete*="one-time-code" i],[autocomplete*="cc-" i],[autocomplete*="webauthn" i])`.replace(/\s+/g, ''),
-        ));
-        if (await field.count() !== 1) {
-          send({ type: 'result', id: data.id, result: { isError: true,
-            content: [{ type: 'text', text: 'This reference does not identify an ordinary field in the shared page.' }] } });
-          return;
-        }
-        await field.fill(data.input.text, { timeout: 5000 });
-        send({ type: 'result', id: data.id, result: { content: [{ type: 'text', text: 'Filled the field. No submit action was sent.' }] } });
-        return;
-      }
       const [name, args] = tools[data.input.action](data.input);
       const result = await rpc('tools/call', { name, arguments: args });
       send({ type: 'result', id: data.id, result });

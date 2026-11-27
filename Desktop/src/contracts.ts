@@ -353,7 +353,7 @@ export type BrowserAction = 'navigate' | 'back' | 'forward' | 'reload' | 'stop' 
 export interface BrowserBounds { x: number; y: number; width: number; height: number }
 export type BrowserProfile = 'personal' | 'agent';
 export type BrowserPresetMode = 'anonymous' | 'agent';
-export type BrowserHandoffMode = 'read' | 'fill';
+export type BrowserHandoffMode = 'read';
 export interface BrowserSite { domain: string; favicon?: string }
 export type BrowserProfileTarget = string | { origin: string };
 export interface BrowserProfileSite extends BrowserSite { host?: string; openOrigin?: string }

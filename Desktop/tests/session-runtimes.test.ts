@@ -41,6 +41,44 @@ function fixture(hooks: ConstructorParameters<typeof SessionRuntimes>[2] = {}) {
   return { pool, transports, events, open };
 }
 
+test('a snapshot rejected after its runtime is retired does not fail the current view', async () => {
+  const { pool, open, transports } = fixture();
+  try {
+    const worker = await open();
+    const transport = transports[0];
+    const request = transport.request.bind(transport);
+    let cancelRead!: (error: Error) => void;
+    transport.request = (type, args) => type === 'get_entries'
+      ? new Promise((_resolve, reject) => { cancelRead = reject; })
+      : request(type, args);
+    transport.stop = async () => { cancelRead(new Error('Runtime stopped')); };
+    const reading = pool.read(worker);
+    assert.equal(worker.operations, 1);
+    const stopping = pool.remove(worker);
+    await Promise.all([reading, stopping]);
+    assert.equal(worker.operations, 0);
+    assert.equal(pool.hasNonSnapshotOperations(worker), false);
+    transport.request = async () => { assert.fail('No RPC may start for a retired worker'); };
+    await pool.read(worker);
+  } finally { await pool.stopAll(); }
+});
+
+test('snapshot errors from the current runtime still reach the caller', async () => {
+  const { pool, open, transports } = fixture();
+  try {
+    const worker = await open();
+    const transport = transports[0];
+    const request = transport.request.bind(transport);
+    const failure = new Error('Fixture history read failed');
+    transport.request = async (type, args) => {
+      if (type === 'get_entries') throw failure;
+      return request(type, args);
+    };
+    await assert.rejects(pool.read(worker), error => error === failure);
+    assert.equal(worker.operations, 0);
+  } finally { await pool.stopAll(); }
+});
+
 for (const kind of ['startup', 'status'] as const) {
   test(`${kind} metadata during initial history decoration cannot leave a restored worker empty`, async () => {
     const saved = [{ role: 'user' as const, content: 'Saved history' }];
@@ -2280,6 +2318,31 @@ test('reading committed history during a stream preserves the live assistant mes
   assert.equal(JSON.stringify(a.messages), '[{"role":"assistant","content":[{"type":"text","text":"live text"}]}]');
   assert.equal(a.busy, true);
   await pool.stopAll();
+});
+
+test('feedback keeps committed turns during streaming but drops a changed leaf or session', async () => {
+  const { pool, transports, open } = fixture();
+  const worker = await open();
+  try {
+    const rpc = transports[0];
+    const original = rpc.request.bind(rpc);
+    rpc.request = async type => type === 'get_entries' ? { entries: [
+      { type: 'message', id: 'user', parentId: null, message: { role: 'user', content: 'Saved turn' } },
+      { type: 'message', id: 'reply', parentId: 'user', message: { role: 'assistant', content: [], stopReason: 'aborted' } },
+    ], leafId: 'reply' } : original(type);
+    await pool.read(worker);
+    const saved = pool.feedbackSnapshot(worker);
+    assert.equal(saved?.messages.length, 2);
+    rpc.receive({ type: 'agent_start' });
+    rpc.receive({ type: 'message_start', message: { role: 'user', content: 'Next turn' } });
+    assert.equal(pool.feedbackEvidence(worker), undefined);
+    assert.equal(pool.feedbackSnapshot(worker), saved);
+    worker.leafId = 'different-leaf';
+    assert.equal(pool.feedbackSnapshot(worker), undefined);
+    worker.leafId = 'reply';
+    worker.state = { ...worker.state!, sessionId: 'other-session' };
+    assert.equal(pool.feedbackSnapshot(worker), undefined);
+  } finally { await pool.stopAll(); }
 });
 
 test('successful background completion emits sound event once, never from restored history', async () => {

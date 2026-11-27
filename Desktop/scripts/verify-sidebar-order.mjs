@@ -352,7 +352,9 @@ try {
   await page.waitForFunction(() => document.querySelector('.session-row.selected')?.dataset.reorderId === 'sidebar-4');
   await page.waitForFunction(() => !document.querySelector('.new-chat')?.disabled &&
     !document.querySelector('.composer-wrap.session-navigation-pending'));
-  const beforeRelocation = await page.evaluate(() => window.desktop.snapshot());
+  const beforeRelocation = await waitForSessionFixtureSnapshot(page, snapshot => snapshot.runtimeId
+    && snapshot.status === 'connected' && snapshot.state?.sessionId === 'sidebar-4'
+    && !snapshot.state.isStreaming, 'the restored project session to connect before relocation');
   await relocateIdleWorkspaceFixture(page, relocated, beforeRelocation.runtimeId,
     () => app.evaluate(() => globalThis.__sidebarRelocationDialogs));
   const repaired = await page.evaluate(() => window.desktop.snapshot());

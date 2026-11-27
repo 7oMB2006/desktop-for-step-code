@@ -225,6 +225,7 @@ const bridge: DesktopBridge = {
   cancelProviderTest: () => invoke('cancelProviderTest'),
   deleteProvider: id => invoke('deleteProvider', id),
   saveMcp: (name, config, secrets) => invoke('saveMcp', name, config, secrets), preferences: patch => invoke('preferences', patch),
+  listFeedbackTurns: (runtimeId, sessionId) => invoke('listFeedbackTurns', runtimeId, sessionId),
   previewFeedback: (runtimeId, sessionId, options) => invoke('previewFeedback', runtimeId, sessionId, options),
   saveFeedback: (runtimeId, sessionId, token, destination) => invoke('saveFeedback', runtimeId, sessionId, token, destination),
   openFeedbackFolder: () => invoke('openFeedbackFolder'),

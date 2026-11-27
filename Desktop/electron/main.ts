@@ -2,7 +2,7 @@ import { normalizedWorkspaceKey } from '../src/workspace-key';
 import { WorkspaceDirectoryError } from '../src/workspace-directory-error';
 import { statusAccount } from './status-account';
 import { statusBuild } from './session-status';
-import { defaultFeedbackPath, feedbackDirectory, FeedbackPreview, feedbackReport, prepareFeedbackDirectory } from './feedback-export';
+import { defaultFeedbackPath, feedbackDirectory, FeedbackPreview, feedbackReport, feedbackTurnKeys, listFeedbackTurns, prepareFeedbackDirectory } from './feedback-export';
 import { bundledStepCode } from './app-build-info';
 import { app, BrowserWindow, dialog, ipcMain, shell, session, net, clipboard, ClipboardItem, nativeImage, nativeTheme, Menu, Notification } from 'electron';
 import { join, resolve, extname, basename } from 'node:path';
@@ -1867,7 +1867,7 @@ async function beginSession(workspace?: string, surface: Surface = 'main', resum
   } finally { transition = false; }
 }
 const text = (value: unknown, max = 100000): string => { if (typeof value !== 'string' || value.length > max) throw new Error('Invalid text'); return value; };
-let feedbackPreview: FeedbackPreview | undefined;
+let feedbackPreview: { file: FeedbackPreview; leafId: string } | undefined;
 async function handle(method: string, args: any[], surface: Surface = 'main', markCapabilityPhase?: CapabilityPhaseMarker) {
   const originWindow = () => surface === 'mini' ? miniChat!.window! : window;
   const readingOwner = () => {
@@ -2672,13 +2672,16 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
         throw new Error(preferences.language === 'zh' ? '请先将该项目的小窗会话返回主窗口，再重新定位项目' : 'Return this project’s MiniChat conversation to main before relocating it');
       if (!preferences.workspaces.some(value => pathKey(value) === pathKey(path))) throw new Error('Unknown workspace');
       const peers = () => [...runtimes.workers.values()].filter(worker => pathKey(worker.cwd) === pathKey(path));
-      transition = true;
-      try {
+      const assertRelocationIdle = async () => {
         for (const worker of peers()) {
           if (externallyOwned(worker)) throw new Error('Stop external tasks before relocating this project');
           if (worker.operations || worker.mutating || worker.submissions || worker.stopping) throw new Error('Session operation in progress');
-          await runtimes.assertIdle(worker, { stopHost: true });
+          await runtimes.assertIdle(worker, { stopHost: true, recheckChangedCommandState: true });
         }
+      };
+      transition = true;
+      try {
+        await assertRelocationIdle();
         const result = await dialog.showOpenDialog(window, { properties: ['openDirectory'] });
         if (result.canceled) return null;
         const destination = await workspaceDirectory(result.filePaths[0]);
@@ -2688,11 +2691,7 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
         const draftSelected = sessionDraft?.workspace && pathKey(sessionDraft.workspace) === pathKey(path);
         const recoverStartup = !sessionDraft && !runtimes.active && preferences.workspace &&
           pathKey(preferences.workspace) === pathKey(path);
-        for (const worker of peers()) {
-          if (externallyOwned(worker)) throw new Error('Stop external tasks before relocating this project');
-          if (worker.operations || worker.mutating || worker.submissions || worker.stopping) throw new Error('Session operation in progress');
-          await runtimes.assertIdle(worker, { stopHost: true });
-        }
+        await assertRelocationIdle();
         const previous = preferences;
         preferences = next;
         try { await savePreferences(); } catch (error) { preferences = previous; throw error; }
@@ -3945,6 +3944,7 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
       if (error) throw new Error(error);
       return;
     }
+    case 'listFeedbackTurns':
     case 'previewFeedback':
     case 'saveFeedback': {
       const runtimeId = text(args[0], 80), sessionId = text(args[1], 128);
@@ -3957,18 +3957,23 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
         return worker;
       };
       const worker = selected();
+      if (method === 'listFeedbackTurns') {
+        const snapshot = runtimes.feedbackSnapshot(worker);
+        return snapshot ? listFeedbackTurns(snapshot.messages, snapshot.history) : [];
+      }
       if (method === 'saveFeedback') {
         const preview = feedbackPreview;
         if (!preview) throw new Error('Preview the conversation first');
         const destination = args[3];
         if (destination !== 'default' && destination !== 'choose') throw new Error('Invalid feedback destination');
-        const saved = await preview.save(owner, sessionId, text(args[2], 80), async () => {
+        const saved = await preview.file.save(owner, sessionId, text(args[2], 80), async () => {
           if (destination === 'default') return defaultFeedbackPath(app.getPath('downloads'));
           const result = await dialog.showSaveDialog(originWindow(), { defaultPath: 'dfsc-feedback.json.gz' });
           return result.canceled ? undefined : result.filePath;
         }, () => {
-          selected();
-          if (feedbackPreview !== preview) throw new Error('Preview the conversation again');
+          const snapshot = runtimes.feedbackSnapshot(selected());
+          if (feedbackPreview !== preview || !snapshot?.history.positions.has(preview.leafId))
+            throw new Error('Preview the conversation again');
         });
         if (saved && feedbackPreview === preview) feedbackPreview = undefined;
         return saved;
@@ -3976,14 +3981,22 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
       const input = args[2];
       if (typeof input?.conversation !== 'boolean' || typeof input.tools !== 'boolean') throw new Error('Invalid feedback scope');
       const focus = input.focus;
-      if (focus !== undefined && focus !== 'failure' && focus !== 'current') throw new Error('Invalid feedback event');
+      if (focus !== undefined && focus !== 'failure' && focus !== 'current' && focus !== 'turn' && focus !== 'history')
+        throw new Error('Invalid feedback event');
+      const turnKey = focus === 'turn' ? text(input.turnKey, 64) : undefined;
+      if (turnKey !== undefined && !/^[a-f0-9]{64}$/.test(turnKey)) throw new Error('Invalid feedback turn');
+      const turnKeys = focus === 'history' ? feedbackTurnKeys(input.turnKeys) : undefined;
       const options = { errorAt: input.errorAt ? text(input.errorAt, 30) : undefined,
         expected: text(input.expected, 1000), actual: text(input.actual, 1000),
-        conversation: input.conversation, tools: input.tools, focus };
-      const content = feedbackReport(options, worker.messages, { desktop: app.getVersion(),
-        stepCode: bundledStepCode(runtimeManifest), platform: process.platform, arch: process.arch }, runtimes.feedbackEvidence(worker));
-      feedbackPreview = new FeedbackPreview(owner, sessionId, content);
-      return { token: feedbackPreview.token, content, defaultDirectory: feedbackDirectory(app.getPath('downloads')) };
+        conversation: input.conversation, tools: input.tools, focus, turnKey, turnKeys, includeBetween: input.includeBetween === true };
+      const snapshot = runtimes.feedbackSnapshot(worker);
+      const leafId = snapshot?.history.entryIds.at(-1);
+      if (!snapshot || !leafId) throw new Error('No committed feedback history is available yet');
+      const content = feedbackReport(options, snapshot.messages, { desktop: app.getVersion(),
+        stepCode: bundledStepCode(runtimeManifest), platform: process.platform, arch: process.arch }, snapshot.history);
+      const file = new FeedbackPreview(owner, sessionId, content);
+      feedbackPreview = { file, leafId };
+      return { token: file.token, content, defaultDirectory: feedbackDirectory(app.getPath('downloads')) };
     }
     case 'diagnostics': {
       const result = await dialog.showSaveDialog(window, { defaultPath: 'step-desktop-diagnostics.json' });
@@ -4318,7 +4331,8 @@ else app.whenReady().then(async () => {
     if (surface === 'mini' && !miniMethods.has(method)) throw new Error('Return to the main window for this operation');
     const senderId = event.sender.id, generation = rendererGenerations.get(senderId);
     const execute = () => diagnoseCapabilityMutation(method, args[0], async markCapabilityPhase => {
-      if (method === 'quitRespond' || method === 'windowControl' || method === 'appBuildInfo' || method === 'previewFeedback' || method === 'saveFeedback') return handle(method, args, surface);
+      if (method === 'quitRespond' || method === 'windowControl' || method === 'appBuildInfo'
+        || method === 'listFeedbackTurns' || method === 'previewFeedback' || method === 'saveFeedback') return handle(method, args, surface);
       if (method === 'navigateSession') {
         // Remote recovery prepares under the workspace lock without selecting a local view.
         await startup;

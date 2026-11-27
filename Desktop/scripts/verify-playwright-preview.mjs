@@ -158,12 +158,12 @@ try {
   const liveProfile = /space\.bilibili\.com\/506159361/;
   const liveOperations = [['start', () => ({ url: liveUrl })], ['snapshot'], ['snapshot'], ['snapshot']];
   const stages = { stopped: 0, normal: 0, denied: 0, background: 0, owned: 0, unrelated: 0,
-    publicDenied: 0, public: 0, live: 0, sharedRead: 0, sharedFill: 0, sharedFollowup: 0,
+    publicDenied: 0, public: 0, live: 0, sharedRead: 0, sharedAgain: 0, sharedFollowup: 0,
     sharedIndependent: 0, sharedOnce: 0, afterDowngrade: 0, afterOnce: 0, stale: 0, navigated: 0, signedIn: 0 };
   const scenarios = { stopped: stoppedOperations, normal: normalOperations, denied: deniedOperations,
     background: backgroundOperations, owned: ownedOperations, unrelated: unrelatedOperations,
     publicDenied: publicDeniedOperations, public: publicOperations, live: liveOperations,
-    sharedRead: shared('sharedRead'), sharedFill: shared('sharedFill'), sharedFollowup: [['attach'], ['snapshot']],
+    sharedRead: shared('sharedRead'), sharedAgain: shared('sharedAgain'), sharedFollowup: [['attach'], ['snapshot']],
     sharedIndependent: [['start', () => ({ url: origin })]], sharedOnce: [['attach']], afterDowngrade: [['attach']], afterOnce: [['attach']],
     stale: staleOperations,
     navigated: staleOperations, signedIn: signedInOperations };
@@ -192,9 +192,8 @@ try {
           .map(message => contentText(message.content)).join('\n');
         assert.match(system, /use desktop_playwright in the current conversation by default/);
         assert.match(system, /Do not work around that outcome by launching a headed browser/);
-        if (['sharedRead', 'sharedFill', 'sharedFollowup', 'sharedIndependent', 'stale', 'navigated'].includes(scenario))
-          assert.match(system, scenario === 'sharedFill' || scenario === 'sharedFollowup'
-            ? /kept an existing browser tab shared \(fill fields\)/ : /kept an existing browser tab shared \(view only\)/);
+        if (['sharedRead', 'sharedAgain', 'sharedFollowup', 'sharedIndependent', 'stale', 'navigated'].includes(scenario))
+          assert.match(system, /kept an existing browser tab shared \(view only\)/);
         if (scenario === 'sharedOnce') assert.match(system, /shared an existing browser tab for this turn \(view only\)/);
         if (['afterDowngrade', 'afterOnce'].includes(scenario))
           assert.doesNotMatch(system, /(?:kept|shared) an existing browser tab/);
@@ -694,6 +693,8 @@ try {
       const popup = Menu.prototype.popup;
       Menu.prototype.popup = function (options) {
         Menu.prototype.popup = popup;
+        if (this.items.length !== 2 || !this.items[0].label.endsWith('View only') || this.items[1].label !== 'Remove sharing')
+          throw new Error('Unexpected shared-tab permission options');
         this.items[index].click();
         options.callback?.();
       };
@@ -711,22 +712,22 @@ try {
   assert.deepEqual(await inspectDraft(), { name: 'User draft', code: '', state: 'Untouched' });
 
   await page.evaluate(({ activeId, context }) => window.desktop.browserSelect(activeId, context), prefilled);
-  await share(1);
-  await runScenario('sharedFill');
-  assert.match(resultByOperation.get('sharedFill:attach'), /original shared page/);
-  assert.match(resultByOperation.get('sharedFill:type:3'), /Filled the field/);
-  assert.match(resultByOperation.get('sharedFill:type:4'), /does not identify an ordinary field/);
-  assert.match(resultByOperation.get('sharedFill:press'), /does not allow/);
-  assert.match(resultByOperation.get('sharedFill:navigate'), /does not allow/);
-  assert.deepEqual(await inspectDraft(), { name: 'Agent draft', code: '', state: 'Untouched' });
+  await share(0);
+  await runScenario('sharedAgain');
+  assert.match(resultByOperation.get('sharedAgain:attach'), /original shared page/);
+  assert.match(resultByOperation.get('sharedAgain:type:3'), /does not allow/);
+  assert.match(resultByOperation.get('sharedAgain:type:4'), /does not allow/);
+  assert.match(resultByOperation.get('sharedAgain:press'), /does not allow/);
+  assert.match(resultByOperation.get('sharedAgain:navigate'), /does not allow/);
+  assert.deepEqual(await inspectDraft(), { name: 'User draft', code: '', state: 'Untouched' });
   assert.equal(await findNative(), samePage);
   assert.equal(await app.evaluate(({ webContents }, id) => webContents.fromId(id).debugger.isAttached(), samePage), false);
-  await panel.getByText('Kept shared · Fill fields', { exact: true }).waitFor();
+  await panel.getByText('Kept shared · View only', { exact: true }).waitFor();
   // The next local turn may attach again without a second share; the debugger and activity stay per-turn.
   await runScenario('sharedFollowup');
   assert.match(resultByOperation.get('sharedFollowup:attach'), /original shared page/);
-  assert.match(resultByOperation.get('sharedFollowup:snapshot'), /Agent draft/);
-  await panel.getByText('Kept shared · Fill fields', { exact: true }).waitFor();
+  assert.match(resultByOperation.get('sharedFollowup:snapshot'), /User draft/);
+  await panel.getByText('Kept shared · View only', { exact: true }).waitFor();
   await activity.waitFor({ state: 'detached' });
   assert.equal(await findNative(), samePage);
   assert.equal(await app.evaluate(({ webContents }, id) => webContents.fromId(id).debugger.isAttached(), samePage), false);

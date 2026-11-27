@@ -6,7 +6,7 @@ import { PreviewProtocolScope, previewNetworkSummary, previewResourceAllowed } f
 
 const origin = 'http://127.0.0.1:5173';
 const home = `${origin}/preview`;
-const fixture = () => {
+const fixture = (kind: 'local' | 'attached' = 'local') => {
   class Debugger extends EventEmitter {
     active = false;
     forwarded: Array<[string, unknown]> = [];
@@ -24,7 +24,7 @@ const fixture = () => {
   let url = home;
   const guest = { debugger: debuggerClient, getURL: () => url, getTitle: () => 'Test preview',
     getUserAgent: () => 'Chrome fixture' } as unknown as WebContents;
-  const scope = new PreviewProtocolScope(guest, { kind: 'local', origin }, value => forwarded.push(value), () => scope.close());
+  const scope = new PreviewProtocolScope(guest, { kind, origin }, value => forwarded.push(value), () => scope.close());
   return { scope, debuggerClient, forwarded, redirect: () => { url = 'https://example.invalid'; } };
 };
 
@@ -79,6 +79,24 @@ test('only one real target is announced and unknown targets, global storage, foc
   await assert.rejects(scope.dispatch({ id: 10, sessionId, method: 'Runtime.evaluate' }), /unavailable/);
   scope.close();
   assert.equal(debuggerClient.isAttached(), false);
+});
+
+test('attached previews reject browser input while isolated previews keep it', async () => {
+  for (const kind of ['attached', 'local'] as const) {
+    const { scope, debuggerClient, forwarded } = fixture(kind);
+    await scope.attach();
+    try {
+      await scope.dispatch({ id: 1, method: 'Target.setAutoAttach', params: { autoAttach: true, flatten: true } });
+      const sessionId = forwarded[0].params.sessionId;
+      await scope.dispatch({ id: 2, sessionId, method: 'Page.captureScreenshot' });
+      const input = { id: 3, sessionId, method: 'Input.insertText', params: { text: 'test draft' } };
+      if (kind === 'attached') await assert.rejects(scope.dispatch(input), /unavailable/);
+      else await scope.dispatch(input);
+      const methods = debuggerClient.forwarded.map(([method]) => method);
+      assert.ok(methods.includes('Page.captureScreenshot'));
+      assert.equal(methods.includes('Input.insertText'), kind === 'local');
+    } finally { scope.close(); }
+  }
 });
 
 test('revocation drops the debugger and stale commands without touching the page', async () => {

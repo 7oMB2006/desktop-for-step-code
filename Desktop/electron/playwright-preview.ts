@@ -33,7 +33,7 @@ export function previewInput(raw: Record<string, unknown>): PreviewInput {
 
 export function permittedPreviewAction(scope: AutomationScope, action: string) {
   if (scope.kind === 'attached' || scope.kind === 'public' && scope.signedIn)
-    return ['snapshot', 'screenshot', 'show', 'stop'].includes(action) || scope.kind === 'attached' && scope.mode === 'fill' && action === 'type';
+    return ['snapshot', 'screenshot', 'show', 'stop'].includes(action);
   return scope.kind === 'local' || !['console', 'network'].includes(action);
 }
 
@@ -166,7 +166,7 @@ export class PlaywrightPreview {
         this.inflightAction = input.action;
         started = true;
         onActivity?.(true);
-        this.post({ type: 'call', id: ++this.id, input, fillOnly: this.boundary.kind === 'attached' && input.action === 'type' });
+        this.post({ type: 'call', id: ++this.id, input });
       }, signal);
     } finally {
       this.inflight = undefined;

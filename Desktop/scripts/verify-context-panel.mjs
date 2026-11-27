@@ -62,6 +62,7 @@ try {
     ipcMain.handle('desktop', (_event, method, ...args) => {
       globalThis.contextCalls.push([method, method === 'command' ? args[0] : undefined]);
       if (method === 'snapshot') return globalThis.contextFixture;
+      if (method === 'contextMessages') return globalThis.contextFixture.messages;
       if (method === 'summary') return { sessionId: globalThis.contextFixture.state?.sessionId, tasks: [], mcp: [], skillCount: 0,
         status: { trusted: true, collaboration: globalThis.contextCollaboration ?? 'Default',
           agents: ['D:/fixture/AGENTS.md'], version: '0.1.0', versionSource: 'fallback',

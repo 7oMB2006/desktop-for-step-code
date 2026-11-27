@@ -1,12 +1,11 @@
 import { useId, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { createPortal } from 'react-dom';
 import { ArrowLeft, ArrowRight, CalendarRange, X } from 'lucide-react';
+import { CalendarMonth, calendarMonthDate as monthDate, calendarMonthIndex as monthIndex } from './CalendarMonth';
 import { DisclosureChevron } from './DisclosureChevron';
 import { parseUsageDate, usageDateKey, validUsageRange, type UsageRange } from './usage-range';
 import './usage-date-range.css';
 
-const monthIndex = (date: Date) => date.getFullYear() * 12 + date.getMonth();
-const monthDate = (index: number) => new Date(Math.floor(index / 12), index % 12, 1, 12);
 const dayOffset = (value: string, offset: number) => {
   const date = parseUsageDate(value)!; date.setDate(date.getDate() + offset); return usageDateKey(date);
 };
@@ -14,8 +13,6 @@ export function UsageDateRange({ value, min, max, custom, onChange, language = '
   value: UsageRange; min: string; max: string; custom: boolean; onChange: (value: UsageRange) => void; language?: string;
 }) {
   const t = (zh: string, en: string) => language === 'zh' ? zh : en;
-  const locale = language === 'zh' ? 'zh-CN' : 'en-US';
-  const weekdays = language === 'zh' ? ['一', '二', '三', '四', '五', '六', '日'] : ['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su'];
   const id = useId(), anchor = useRef<HTMLButtonElement>(null), panel = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState(value);
@@ -123,31 +120,14 @@ export function UsageDateRange({ value, min, max, custom, onChange, language = '
         <button type="button" className="range-icon" aria-label={t('下个月', 'Next month')} disabled={month + 1 >= maxMonth} onClick={() => setMonth(m => m + 1)}><ArrowRight size={15}/></button>
       </div>
       <div className="usage-calendars" onPointerLeave={() => setHover(undefined)}>
-        {[month, month + 1].map(index => {
-          const date = monthDate(index), title = date.toLocaleDateString(locale, { year: 'numeric', month: 'long' });
-          const offset = (date.getDay() + 6) % 7, count = new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate();
-          return <section className="usage-calendar" key={index} aria-label={title}><h3>{title}</h3>
-            <div role="grid" aria-label={title}>
-              <div className="usage-calendar-row" role="row">{weekdays.map(day => <span key={day} role="columnheader">{day}</span>)}</div>
-              {Array.from({ length: 6 }, (_, week) => <div className="usage-calendar-row" role="row" key={week}>
-                {Array.from({ length: 7 }, (_, weekday) => {
-                  const day = week * 7 + weekday - offset + 1;
-                  if (day < 1 || day > count) return <span role="gridcell" key={weekday}/>;
-                  const key = usageDateKey(new Date(date.getFullYear(), date.getMonth(), day, 12));
-                  const disabled = key < min || key > max;
-                  const inRange = valid && !disabled && key >= rangeStart && key <= rangeEnd;
-                  return <span role="gridcell" aria-selected={inRange} key={weekday}
-                    className={`usage-calendar-day${inRange ? ' in-range' : ''}${key === rangeStart ? ' range-start' : ''}${key === rangeEnd ? ' range-end' : ''}`}>
-                    <button type="button" data-date={key} aria-label={key} disabled={disabled} tabIndex={key === visibleCursor ? 0 : -1}
-                      aria-current={key === max ? 'date' : undefined}
-                      onFocus={() => setCursor(key)} onPointerEnter={() => { if (selectingEnd) setHover(key); }}
-                      onClick={() => choose(key)} onKeyDown={event => onDayKey(event, key)}>{day}</button>
-                  </span>;
-                })}
-              </div>)}
-            </div>
-          </section>;
-        })}
+        {[month, month + 1].map(index => <CalendarMonth key={index} month={index} zh={language === 'zh'} dayState={key => {
+          const disabled = key < min || key > max;
+          return { selected: valid && !disabled && key >= rangeStart && key <= rangeEnd,
+            start: key === rangeStart, end: key === rangeEnd,
+            button: { disabled, tabIndex: key === visibleCursor ? 0 : -1, 'aria-current': key === max ? 'date' : undefined,
+              onFocus: () => setCursor(key), onPointerEnter: () => { if (selectingEnd) setHover(key); },
+              onClick: () => choose(key), onKeyDown: event => onDayKey(event, key) } };
+        }}/>)}
       </div>
       {!valid && <p className="usage-range-error" role="alert">{t(`请选择 ${min} 至 ${max} 内的有效日期，结束日期不能早于开始日期。`, `Choose valid dates from ${min} to ${max}; the end cannot precede the start.`)}</p>}
       <footer><span>{valid ? `${draft.start}${t(' 至 ', ' to ')}${draft.end}` : t('日期范围无效', 'Invalid date range')}</span>

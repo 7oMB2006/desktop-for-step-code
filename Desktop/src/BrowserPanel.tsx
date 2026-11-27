@@ -247,7 +247,6 @@ export function BrowserPanel({ owner, open, replaced, overlay, expanded, blocked
         : selected?.playwrightBusy ? t('Playwright 验收中', 'Playwright testing')
         : selected?.testing ? t('Playwright 已连接', 'Playwright connected')
         : selected?.handoff === 'read' ? selected.handoffPersistent ? t('持续共享 · 仅查看', 'Kept shared · View only') : t('下轮共享 · 仅查看', 'Shared next turn · View only')
-        : selected?.handoff === 'fill' ? selected.handoffPersistent ? t('持续共享 · 填写表单', 'Kept shared · Fill fields') : t('下轮共享 · 填写表单', 'Shared next turn · Fill fields')
         : selected?.profile === 'agent' ? t('Agent 专用资料', 'Agent profile')
         : selected?.localFile ? t('本地预览', 'Local preview') : t('就绪', 'Ready')}</span>
         <button className="icon-button" {...label('缩小网页', 'Zoom out')} disabled={!selected || selected.zoom <= .5} onClick={() => action('zoomOut')}><ZoomOut size={13}/></button>

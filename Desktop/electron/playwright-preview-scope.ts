@@ -122,6 +122,7 @@ export class PreviewProtocolScope {
       }
     }
     if (sessionId !== this.pageSession) return deny();
+    if (this.scope.kind === 'attached' && method.startsWith('Input.')) return deny();
     switch (method) {
       case 'Page.bringToFront':
       case 'Target.setAutoAttach':

@@ -10,17 +10,16 @@ export const isImportedHistoryEntry = (entry: Entry) => ['codex', 'claude-code']
   && typeof entry.imported?.sessionId === 'string' && typeof entry.imported?.itemId === 'string';
 const historicalCallId = (entry: Entry, id: string) => `desktop-import:${JSON.stringify([entry.imported?.source, entry.imported?.sessionId, id])}`;
 
-// Context RPC intentionally textualizes historical tools. Display the original
-// active-path entries, never that model-only projection or a flattened branch.
-export function importedHistoryMessages(messages: Message[], entries: Entry[], leafId: string | null): Message[] {
-  const path = activeHistory(entries, leafId) as Entry[];
-  if (!path.some(isImportedHistoryEntry)) return messages;
+// The transcript follows the saved branch, not the model's compacted context.
+export function sessionTranscript(entries: Entry[], leafId: string | null): Message[] {
+  const path = activeHistory(entries, leafId);
+  const imported = path.some(isImportedHistoryEntry);
   return path.flatMap((entry): Message[] => {
     if (entry.type === 'message' && entry.message) {
       const historical = isImportedHistoryEntry(entry);
       const message = entry.message;
       return [{
-        ...message, entryId: entry.id,
+        ...message, content: message.content ?? [], entryId: entry.id,
         ...(historical ? {
           desktopImported: true, usage: undefined,
           ...(message.role === 'toolResult' && message.toolCallId
@@ -36,7 +35,7 @@ export function importedHistoryMessages(messages: Message[], entries: Entry[], l
       display: entry.display, details: entry.details, entryId: entry.id,
       timestamp: Date.parse(entry.timestamp ?? ''),
     }];
-    if (entry.type === 'compaction' && entry.summary) return [{
+    if (imported && entry.type === 'compaction' && entry.summary) return [{
       role: 'custom', customType: 'imported-compaction', content: entry.summary,
       desktopImported: true, entryId: entry.id, timestamp: Date.parse(entry.timestamp ?? ''),
     }];

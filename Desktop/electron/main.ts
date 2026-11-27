@@ -2,6 +2,7 @@ import { normalizedWorkspaceKey } from '../src/workspace-key';
 import { WorkspaceDirectoryError } from '../src/workspace-directory-error';
 import { statusAccount } from './status-account';
 import { statusBuild } from './session-status';
+import { defaultFeedbackPath, feedbackDirectory, FeedbackPreview, feedbackReport, prepareFeedbackDirectory } from './feedback-export';
 import { bundledStepCode } from './app-build-info';
 import { app, BrowserWindow, dialog, ipcMain, shell, session, net, clipboard, ClipboardItem, nativeImage, nativeTheme, Menu, Notification } from 'electron';
 import { join, resolve, extname, basename } from 'node:path';
@@ -34,8 +35,7 @@ import { PluginConnections } from './plugin-connection';
 import { pluginWindowMethodAllowed } from './plugin-window-policy';
 import { parseWindowPresentation } from './window-presentation';
 import { composerKey, type ComposerOwner, type WindowPresentation } from '../src/window-conversation';
-import { importedHistoryMessages } from './imported-history';
-import { messagesWithEntryIds } from './session-branching';
+import { sessionTranscript } from './session-transcript';
 import { SessionCollaboration } from './session-collaboration';
 import { saveWebSearch, webSearchSettings } from './web-search-config';
 import { createWebSearch, nativeStepSearch } from './web-search-service';
@@ -1017,7 +1017,7 @@ const externalTasks: ExternalConnectorTasks = new ExternalConnectorTasks({
   respond: (worker, request, answer) => {
     if (runtimes.workers.get(worker.id) !== worker || worker.status !== 'connected'
       || !['ask', 'approve-for-me'].includes(worker.permissionPreset ?? '') || worker.pendingUI.get(request.id) !== request
-      || quitting || quitPending || updateInstalling || settingsMutation || providerSettingsPending)
+      || quitting || quitPending || updateInstalling || settingsMutation)
       throw new Error('connector:unavailable');
     runtimes.respondToRequest(worker, { id: request.id, ...(typeof answer === 'boolean' ? { confirmed: answer }
       : answer === '' ? { cancelled: true } : { value: answer }) });
@@ -1048,7 +1048,7 @@ function externallyOwned(worker: SessionRuntime) {
 const runtimeManifest = JSON.parse(readFileSync(join(runtimeRoot, 'manifest.json'), 'utf8'));
 const sessionOwnedCron = runtimeManifest.patches?.includes('desktop-cron-session-ownership-v1') === true;
 const backgroundAgents = new BackgroundAgents(runtimes.workers,
-  () => transition || sessionNavigation.busy || settingsMutation || providerSettingsPending || undoBusy || quitting || quitPending,
+  () => transition || sessionNavigation.busy || settingsMutation || undoBusy || quitting || quitPending,
   runtimeManifest.patches?.includes('desktop-subagent-redaction') === true,
   runtimeManifest.patches?.includes('desktop-background-reply') === true);
 const launchControls = new LaunchControls(runtimes);
@@ -1313,9 +1313,7 @@ const collaboration: SessionCollaboration = new SessionCollaboration(runtimes, j
       if (grant.persistentWorker && worker.permissionPreset !== 'full-access')
         throw new Error('The shared tab is no longer available');
       await tabs.attachPlaywright(owner, worker.id, grant, signal, () => { run.stoppedByUser = true; });
-      return { content: [{ type: 'text', text: grant.mode === 'fill'
-        ? 'Attached to the original shared page, without navigating. Use snapshot and type to fill ordinary fields. The user submits after Playwright disconnects.'
-        : 'Attached to the original shared page in view-only mode, without navigating. Use snapshot or screenshot.' }] };
+      return { content: [{ type: 'text', text: 'Attached to the original shared page in view-only mode, without navigating. Use snapshot or screenshot.' }] };
     }
     if (input.action !== 'start') return tabs.controlPlaywright(worker.id, owner, input, signal);
     if (sharedTabOnly(run)) throw new Error('This turn was authorized for the shared tab only. Do not open a replacement page.');
@@ -1571,7 +1569,7 @@ async function snapshot(worker = runtimes.active, refresh = true, ignoreDraft = 
     browserOwner: surface === 'main' ? browserOwner(draft, worker) : undefined,
     startupWorkspaceIssue: surface === 'main' && !draft && !worker ? startupWorkspaceIssue : undefined,
     preferences: { ...preferences, workspace: draft ? draft.workspace : worker?.cwd ?? preferences.workspace }, themePacks: themePacks.packs,
-    customBackground: backgroundState, providerSettingsPending,
+    customBackground: backgroundState, providerSettingsPending, providerApplyFailed,
     status: draft ? 'ready' : worker?.status ?? status, draftId: draft?.id, runtimeId: worker?.id, runtimeStartupTiming: draft ? undefined : worker?.startupTiming, runtimes: runtimeSummaries, unreadSessionIds: [...runtimes.unreadSessionIds],
     state: draft ? { isStreaming: false, ...draftModelState(draft) }
       : worker?.state ? { ...worker.state, desktopStartup: worker.startup,
@@ -1589,7 +1587,7 @@ async function snapshot(worker = runtimes.active, refresh = true, ignoreDraft = 
     independent: draft ? !draft.workspace : !worker || !(await sessionWorkspacePath(worker.cwd)),
   };
 }
-async function guardIdle(options: { stopHost?: boolean; resources?: boolean; allowWaitingCron?: boolean } = {}) {
+async function guardIdle(options: { stopHost?: boolean; resources?: boolean; allowWaitingCron?: boolean; stateTimeout?: number } = {}) {
   if (transition) throw new Error('Workspace operation in progress');
   if ([...runtimes.workers.values()].some(externallyOwned)) throw new Error('Stop external tasks before changing shared settings');
   // Saving resources keeps session ownership, but resident Cron can still use them.
@@ -1597,7 +1595,8 @@ async function guardIdle(options: { stopHost?: boolean; resources?: boolean; all
     ...(options.stopHost === false ? { allowRemote: true, resources: true } : {}) });
 }
 function canApplyProviders() {
-  return !speechSaving && capabilityService.available && !capabilityGate.active && !providerApplyFailed && !transition && !undoBusy && !runtimes.running && !admin.hasPendingRequests
+  return !quitting && !quitPending && !updateInstalling && !miniNavigation.busy && !deletingArchived
+    && !speechSaving && capabilityService.available && !capabilityGate.active && !providerApplyFailed && !transition && !undoBusy && !runtimes.running && !admin.hasPendingRequests
     && [...runtimes.workers.values()].every(worker => worker.status !== 'connecting'
       && !worker.operations && !worker.mutating && !worker.stopping && !worker.remoteAttached && !externallyOwned(worker));
 }
@@ -1608,7 +1607,11 @@ function applyProviderSettings(): Promise<void> {
   settingsMutation = true;
   providerApplication = performProviderSettings().catch(error => {
     providerApplyFailed = true;
-    throw error;
+    void crashLog.record('provider-settings-apply', error);
+    emit({ type: 'desktop_sessions_changed' });
+    emit({ type: 'desktop_error', message: preferences.language === 'en'
+      ? 'Provider settings were saved, but could not be applied. Restart the app to retry.'
+      : '供应商配置已保存，但应用失败，请重启软件后重试。' });
   }).finally(async () => {
     settingsMutation = alreadyMutating || !capabilityService.runtimeAvailable; providerApplication = undefined;
     await pluginHosts.resumeDeferred();
@@ -1617,7 +1620,11 @@ function applyProviderSettings(): Promise<void> {
 }
 async function performProviderSettings() {
   if (!providerSettingsPending || !canApplyProviders()) return;
-  await guardIdle();
+  // Native state can still report background commands even when Desktop
+  // observes an idle turn. A failed preflight leaves the saved change pending.
+  try { await guardIdle({ stateTimeout: 2000 }); }
+  catch { return; }
+  if (!canApplyProviders()) return;
   await capabilityService.recover();
   const workers = [...runtimes.workers.values()];
   const drafts = new Map<string, { surface: Surface; draft: NonNullable<typeof sessionDraft> }>();
@@ -1667,13 +1674,7 @@ async function performProviderSettings() {
 }
 setInterval(() => {
   if (quitting || settingsMutation || !providerSettingsPending || !canApplyProviders()) return;
-  void applyProviderSettings().catch(error => {
-    providerApplyFailed = true;
-    void crashLog.record('provider-settings-apply', error);
-    emit({ type: 'desktop_error', message: preferences.language === 'en'
-      ? 'Provider settings were saved, but could not be applied. Restart the app to retry.'
-      : '供应商配置已保存，但应用失败，请重启软件后重试。' });
-  });
+  void applyProviderSettings().catch(error => crashLog.record('provider-settings-apply', error));
 }, 1000).unref();
 function commitSessionNavigation(worker: SessionRuntime, value: Snapshot, surface: Surface = 'main'): Snapshot {
   if (runtimes.workers.get(worker.id) !== worker || worker.status !== 'connected' || worker.stopping)
@@ -1720,9 +1721,7 @@ async function sessionReading(id: string, owner: string, revision?: number): Pro
   const history = await admin.request('session_history', { sessionId: id, sessionPath: target.path });
   if (historyReadingOwners.get(owner) !== token) return null;
   if (!history || history.sessionId !== id) return null;
-  const projected = importedHistoryMessages(history.messages, history.entries, history.leafId);
-  const messages = projected === history.messages
-    ? messagesWithEntryIds(projected, history.entries, history.leafId) : projected;
+  const messages = sessionTranscript(history.entries, history.leafId);
   const [decorated, record] = await Promise.all([
     decorateSessionMessages(id, target.cwd, messages), modelSelections.load(id),
   ]);
@@ -1868,6 +1867,7 @@ async function beginSession(workspace?: string, surface: Surface = 'main', resum
   } finally { transition = false; }
 }
 const text = (value: unknown, max = 100000): string => { if (typeof value !== 'string' || value.length > max) throw new Error('Invalid text'); return value; };
+let feedbackPreview: FeedbackPreview | undefined;
 async function handle(method: string, args: any[], surface: Surface = 'main', markCapabilityPhase?: CapabilityPhaseMarker) {
   const originWindow = () => surface === 'mini' ? miniChat!.window! : window;
   const readingOwner = () => {
@@ -2058,7 +2058,7 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
       return selected.canceled ? null : selected.filePaths[0] ?? null;
     }
     case 'cronOpenHost': {
-      if (transition || sessionNavigation.busy || settingsMutation || providerSettingsPending || undoBusy || deletingArchived || quitting || quitPending)
+      if (transition || sessionNavigation.busy || settingsMutation || undoBusy || deletingArchived || quitting || quitPending)
         throw new Error('Wait for account and workspace changes to finish');
       const worker = cronManagement.host(args[0]), rpc = worker.rpc, sessionId = worker.state!.sessionId;
       transition = true;
@@ -2072,7 +2072,7 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
       } finally { worker.operations--; transition = false; }
     }
     case 'cronList': {
-      if (transition || settingsMutation || providerSettingsPending) throw new Error('Wait for account and workspace changes to finish');
+      if (transition || settingsMutation) throw new Error('Wait for account and workspace changes to finish');
       const overview = await cronManagement.list(preferences.workspaces);
       overview.history = [];
       for (const workspace of new Set([...preferences.workspaces, ...overview.tasks.map(task => task.workspace)])) {
@@ -2102,7 +2102,7 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
               && (row.createdAt === undefined || row.createdAt === task.createdAt)));
         } catch { overview.issues.push({ workspace: task.workspace, reason: 'unavailable' }); }
       }
-      if (transition || settingsMutation || providerSettingsPending) throw new Error('Wait for account and workspace changes to finish');
+      if (transition || settingsMutation) throw new Error('Wait for account and workspace changes to finish');
       return overview;
     }
     case 'cronDisableAutomatic': {
@@ -2122,7 +2122,7 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
     case 'cronCreate':
     case 'cronUpdate':
     case 'cronDelete': {
-      if (transition || settingsMutation || providerSettingsPending || undoBusy) throw new Error('Wait for account and workspace changes to finish');
+      if (transition || settingsMutation || undoBusy) throw new Error('Wait for account and workspace changes to finish');
       const runtimeId = method === 'cronDelete' ? args[0] : args[0]?.runtimeId;
       if (typeof runtimeId === 'string') {
         const worker = runtimes.workers.get(runtimeId);
@@ -2131,7 +2131,7 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
       if (method === 'cronUpdate') {
         const manifest = JSON.parse(await readFile(join(runtimeRoot, 'manifest.json'), 'utf8'));
         if (!manifest.patches?.includes('desktop-cron-management-beta')) throw new Error('This runtime does not support task editing');
-        if (transition || settingsMutation || providerSettingsPending || undoBusy)
+        if (transition || settingsMutation || undoBusy)
           throw new Error('Wait for account and workspace changes to finish');
         return cronManagement.update(args[0]);
       }
@@ -2531,6 +2531,20 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
       const worker = runtimes.require(text(args[0]?.runtimeId, 80));
       if (externallyOwned(worker)) throw new Error('Stop the external task before sending a local reply');
       return runtimes.withBackgroundAction(worker, () => backgroundAgents.reply(args[0]));
+    }
+    case 'contextMessages': {
+      const runtimeId = text(args[0], 80);
+      const sessionId = text(args[1], 300);
+      const worker = runtimes.require(runtimeId);
+      const rpc = worker.rpc;
+      const isCurrent = () => runtimeId === selectedRuntime(surface) && !selectedDraft(surface)
+        && runtimes.workers.get(runtimeId) === worker && worker.status === 'connected'
+        && worker.rpc === rpc && worker.state?.sessionId === sessionId;
+      if (!isCurrent()) throw new Error('Session changed');
+      const { messages } = await rpc.request('get_messages');
+      if (!isCurrent()) throw new Error('Session changed');
+      if (!Array.isArray(messages)) throw new Error('Invalid runtime context');
+      return messages;
     }
     case 'summary': {
       const worker = runtimes.require(text(args[0], 80));
@@ -3519,12 +3533,11 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
     }
     case 'saveProvider':
     case 'deleteProvider': {
-      // Do not queue a refresh while a turn could launch a command that needs a new prompt to stop it.
-      for (const worker of runtimes.workers.values()) await runtimes.assertBackgroundCommandsMayStop(worker);
       const previous = authData;
       const next = method === 'saveProvider' ? saveProviderAuth(previous, args[0], args[1]) : deleteProviderAuth(previous, args[0]);
       // Keep live credentials and models unchanged until every task and queue drains.
-      await persistAuth(next);
+      await vault.save(next);
+      authData = next;
       providerSettingsPending = true;
       providerApplyFailed = false;
       await applyProviderSettings();
@@ -3534,6 +3547,7 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
       await guardIdle();
       accountAllowance.cancel();
       await applyProviderSettings();
+      if (providerSettingsPending) throw new Error('Provider changes have not been applied');
       officialAccountChanging = true;
       try {
         const next = await admin.request('login', { profile: text(args[0], 40), key: args[1] === undefined ? undefined : text(args[1], 4096) }, 300000);
@@ -3555,6 +3569,7 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
       await guardIdle();
       accountAllowance.cancel();
       await applyProviderSettings();
+      if (providerSettingsPending) throw new Error('Provider changes have not been applied');
       officialAccountChanging = true;
       try {
         const next = await admin.request('logout');
@@ -3925,6 +3940,51 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
       }
       return true;
     }
+    case 'openFeedbackFolder': {
+      const error = await shell.openPath(await prepareFeedbackDirectory(app.getPath('downloads')));
+      if (error) throw new Error(error);
+      return;
+    }
+    case 'previewFeedback':
+    case 'saveFeedback': {
+      const runtimeId = text(args[0], 80), sessionId = text(args[1], 128);
+      const owner = readingOwner();
+      const selected = () => {
+        const worker = runtimes.workers.get(runtimeId);
+        if (!worker || !sessionId || worker.state?.sessionId !== sessionId || selectedRuntime(surface) !== runtimeId
+          || selectedDraft(surface) || readingSelections.has(owner) || readingOwner() !== owner)
+          throw new Error('Preview the selected conversation again');
+        return worker;
+      };
+      const worker = selected();
+      if (method === 'saveFeedback') {
+        const preview = feedbackPreview;
+        if (!preview) throw new Error('Preview the conversation first');
+        const destination = args[3];
+        if (destination !== 'default' && destination !== 'choose') throw new Error('Invalid feedback destination');
+        const saved = await preview.save(owner, sessionId, text(args[2], 80), async () => {
+          if (destination === 'default') return defaultFeedbackPath(app.getPath('downloads'));
+          const result = await dialog.showSaveDialog(originWindow(), { defaultPath: 'dfsc-feedback.json.gz' });
+          return result.canceled ? undefined : result.filePath;
+        }, () => {
+          selected();
+          if (feedbackPreview !== preview) throw new Error('Preview the conversation again');
+        });
+        if (saved && feedbackPreview === preview) feedbackPreview = undefined;
+        return saved;
+      }
+      const input = args[2];
+      if (typeof input?.conversation !== 'boolean' || typeof input.tools !== 'boolean') throw new Error('Invalid feedback scope');
+      const focus = input.focus;
+      if (focus !== undefined && focus !== 'failure' && focus !== 'current') throw new Error('Invalid feedback event');
+      const options = { errorAt: input.errorAt ? text(input.errorAt, 30) : undefined,
+        expected: text(input.expected, 1000), actual: text(input.actual, 1000),
+        conversation: input.conversation, tools: input.tools, focus };
+      const content = feedbackReport(options, worker.messages, { desktop: app.getVersion(),
+        stepCode: bundledStepCode(runtimeManifest), platform: process.platform, arch: process.arch }, runtimes.feedbackEvidence(worker));
+      feedbackPreview = new FeedbackPreview(owner, sessionId, content);
+      return { token: feedbackPreview.token, content, defaultDirectory: feedbackDirectory(app.getPath('downloads')) };
+    }
     case 'diagnostics': {
       const result = await dialog.showSaveDialog(window, { defaultPath: 'step-desktop-diagnostics.json' });
       if (result.canceled || !result.filePath) return false;
@@ -4258,7 +4318,7 @@ else app.whenReady().then(async () => {
     if (surface === 'mini' && !miniMethods.has(method)) throw new Error('Return to the main window for this operation');
     const senderId = event.sender.id, generation = rendererGenerations.get(senderId);
     const execute = () => diagnoseCapabilityMutation(method, args[0], async markCapabilityPhase => {
-      if (method === 'quitRespond' || method === 'windowControl' || method === 'appBuildInfo') return handle(method, args, surface);
+      if (method === 'quitRespond' || method === 'windowControl' || method === 'appBuildInfo' || method === 'previewFeedback' || method === 'saveFeedback') return handle(method, args, surface);
       if (method === 'navigateSession') {
         // Remote recovery prepares under the workspace lock without selecting a local view.
         await startup;

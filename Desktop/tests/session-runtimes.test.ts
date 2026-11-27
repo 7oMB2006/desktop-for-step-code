@@ -22,7 +22,7 @@ class Transport implements WorkerTransport {
   async request(type: string, _args?: Record<string, unknown>): Promise<any> {
     this.calls.push(type);
     if (type === 'get_state') return { sessionId: this.sessionId, sessionFile: `${this.sessionId}.jsonl`, isStreaming: false };
-    if (type === 'get_messages') return { messages: [] };
+    if (type === 'get_entries') return { entries: [], leafId: null };
     if (type === 'get_available_models') return { models: [] };
     return {};
   }
@@ -47,7 +47,9 @@ for (const kind of ['startup', 'status'] as const) {
     const pool = new SessionRuntimes(() => {}, receive => {
       const transport = new Transport(receive, 'restored-session');
       const request = transport.request.bind(transport);
-      transport.request = async (type, args) => type === 'get_messages' ? { messages: saved }
+      transport.request = async (type, args) => type === 'get_entries' ? {
+        entries: [{ id: 'saved-user', parentId: null, type: 'message', message: saved[0] }], leafId: 'saved-user',
+      }
         : type === 'desktop_startup' ? pool.workers.get(transport.startEnv.DFSC_RUNTIME_ID!)!.startup : request(type, args);
       return transport;
     }, { messages: async (worker, messages) => {
@@ -64,7 +66,7 @@ for (const kind of ['startup', 'status'] as const) {
     try {
       const worker = await pool.prepare('node', 'step', 'workspace', {}, 'saved.jsonl');
       assert.ok(worker.revision > 0, 'The real event handler advanced its native revision during the read');
-      assert.deepEqual(worker.messages, saved, 'Metadata must not discard unchanged historical messages');
+      assert.deepEqual(worker.messages, [{ ...saved[0], entryId: 'saved-user' }], 'Metadata must not discard unchanged historical messages');
       await pool.recycle(() => false);
       // Age only this fixture past the unchanged idle deadline.
       worker.touched = Date.now() - 6 * 60000;
@@ -632,7 +634,7 @@ for (const phase of ['launch', 'process', 'session', 'snapshot', 'model', 'plugi
       transport = new Transport(receive, 'private-session');
       const request = transport.request.bind(transport);
       transport.request = async (type, args) => {
-        if (type === { launch: '', process: 'get_state', session: 'switch_session', snapshot: 'get_messages', model: '', plugins: '' }[phase])
+        if (type === { launch: '', process: 'get_state', session: 'switch_session', snapshot: 'get_available_models', model: '', plugins: '' }[phase])
           fail();
         return request(type, args);
       };
@@ -685,7 +687,7 @@ for (const phase of ['snapshot', 'model'] as const) {
       transport = new Transport(receive, 'startup-session');
       const request = transport.request.bind(transport), stop = transport.stop.bind(transport);
       transport.request = async (type, args) => {
-        if (phase === 'snapshot' && type === 'get_messages') fail();
+        if (phase === 'snapshot' && type === 'get_available_models') fail();
         return request(type, args);
       };
       transport.stop = async () => {
@@ -803,7 +805,7 @@ for (const phase of ['process', 'session', 'snapshot', 'model', 'plugins'] as co
       const transport = new Transport(receive, 'startup-session');
       const request = transport.request.bind(transport);
       transport.request = async (type, args) => {
-        if (type === { process: 'get_state', session: 'new_session', snapshot: 'get_messages', model: '', plugins: '' }[phase])
+        if (type === { process: 'get_state', session: 'new_session', snapshot: 'get_entries', model: '', plugins: '' }[phase])
           await hold();
         return request(type, args);
       };
@@ -1240,13 +1242,30 @@ for (const outcome of [{ result: {}, aborted: false }, { errorMessage: 'failed',
     const { pool, transports, events, open } = fixture();
     const worker = await open();
     try {
+      const transport = transports[0];
+      const request = transport.request.bind(transport);
+      const entries = [
+        { id: 'old', parentId: null, type: 'message', message: { role: 'user', content: 'Old request' } },
+        { id: 'current', parentId: 'old', type: 'message', message: { role: 'user', content: 'Current request' } },
+      ];
+      let compacted = false;
+      const checkpoint = { id: 'compact', parentId: 'current', type: 'compaction',
+        summary: 'Unrelated but nonempty', firstKeptEntryId: 'current', tokensBefore: 100 };
+      transport.request = async (type, args) => type === 'get_entries'
+        ? compacted ? { entries: [...entries, checkpoint], leafId: checkpoint.id } : { entries, leafId: 'current' }
+        : request(type, args);
+      await pool.read(worker);
+      assert.deepEqual(worker.messages.map(message => message.entryId), ['old', 'current']);
       transports[0].receive({ type: 'compaction_start', reason: 'manual' });
       assert.equal(worker.state?.isCompacting, true);
       assert.equal(pool.isBusy(worker), true);
+      compacted = Boolean(outcome.result);
       transports[0].receive({ type: 'compaction_end', reason: 'manual', willRetry: false, ...outcome });
       assert.equal(worker.state?.isCompacting, false);
       assert.equal(pool.isBusy(worker), false);
       assert.ok(events.some(event => event.type === 'desktop_runtimes'));
+      await pool.read(worker);
+      assert.deepEqual(worker.messages.map(message => message.entryId), ['old', 'current']);
     } finally { await pool.stopAll(); }
   });
 }
@@ -1641,7 +1660,7 @@ test('new-session requests wait for all ordinary snapshot reads and then reuse t
   const original = transports[0].request.bind(transports[0]);
   const releases: Array<() => void> = [];
   transports[0].request = async type => {
-    if (type === 'get_messages') await new Promise<void>(resolve => releases.push(resolve));
+    if (type === 'get_entries') await new Promise<void>(resolve => releases.push(resolve));
     return original(type);
   };
   const reads = [pool.read(empty), pool.read(empty)];
@@ -1676,7 +1695,7 @@ test('waiting for a snapshot rechecks history, activity, operations and worker m
     const original = transports[0].request.bind(transports[0]);
     let release!: () => void;
     transports[0].request = async type => {
-      if (type === 'get_messages') await new Promise<void>(resolve => { release = resolve; });
+      if (type === 'get_entries') await new Promise<void>(resolve => { release = resolve; });
       return original(type);
     };
     const read = pool.read(empty);
@@ -1709,7 +1728,7 @@ test('a non-snapshot operation alongside a read is not treated as a reusable emp
   const original = transports[0].request.bind(transports[0]);
   let release!: () => void;
   transports[0].request = async type => {
-    if (type === 'get_messages') await new Promise<void>(resolve => { release = resolve; });
+    if (type === 'get_entries') await new Promise<void>(resolve => { release = resolve; });
     return original(type);
   };
   const read = pool.read(empty);
@@ -1730,7 +1749,7 @@ test('failed snapshot reads reject waiting opens without spawning and release th
   const original = transports[0].request.bind(transports[0]);
   let fail!: (error: Error) => void;
   transports[0].request = async type => {
-    if (type === 'get_messages') await new Promise<void>((_resolve, reject) => { fail = reject; });
+    if (type === 'get_entries') await new Promise<void>((_resolve, reject) => { fail = reject; });
     return original(type);
   };
   const read = pool.read(empty);
@@ -1823,8 +1842,10 @@ function branchFixture(outcome: 'success' | 'cancelled' | 'changed' = 'success')
     transport.request = async (type, args) => {
       transport.calls.push(type);
       if (type === 'get_state') return { sessionId: branched ? 'branch' : 'source', sessionFile: 'source.jsonl', isStreaming: false };
-      if (type === 'get_messages') return { messages: branched && transport.calls.includes('fork') ? [] : history.map(entry => entry.message) };
-      if (type === 'get_entries') return { entries: history, leafId: outcome === 'changed' && transports.length > 1 ? 'u1' : 'a1' };
+      if (type === 'get_entries') {
+        if (branched && transport.calls.includes('fork')) return { entries: [], leafId: null };
+        return { entries: history, leafId: outcome === 'changed' && transports.length > 1 ? 'u1' : 'a1' };
+      }
       if (type === 'get_available_models') return { models: [] };
       if (type === 'get_commands') return { commands: [{ name: 'permissions', source: 'extension' }] };
       if (type === 'prompt') assert.equal(args?.message, '/permissions approve-for-me');
@@ -1858,7 +1879,6 @@ function retryFixture(outcome: 'success' | 'cancelled' | 'unsupported' | 'reject
     transport.request = async (type, args) => {
       if (type === 'get_state') return { sessionId: 'source', sessionFile: 'source.jsonl', isStreaming: false };
       if (type === 'get_entries') return { entries, leafId };
-      if (type === 'get_messages') return { messages: leafId === 'a1' ? entries.slice(0, 2).map(entry => entry.message) : entries.map(entry => entry.message) };
       if (type === 'get_available_models') return { models: [] };
       if (type === 'get_commands') return { commands: outcome === 'unsupported' ? [] : [{ name: '_desktop_retry', source: 'extension' }] };
       if (type === 'switch_session') { leafId = 'a2'; return {}; }
@@ -2222,7 +2242,7 @@ test('snapshot read cannot overwrite a message arriving while queries are pendin
   const original = transports[0].request.bind(transports[0]);
   let release!: () => void;
   transports[0].request = async type => {
-    if (type === 'get_messages') await new Promise<void>(resolve => { release = resolve; });
+    if (type === 'get_entries') await new Promise<void>(resolve => { release = resolve; });
     return original(type);
   };
   const read = pool.read(a);

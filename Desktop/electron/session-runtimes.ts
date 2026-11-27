@@ -10,8 +10,9 @@ import { isUserMessage } from '../src/user-message';
 import { projectInstructionsMessage } from './project-instructions';
 import { desktopSystemPolicy } from './workspace-policy';
 import { applyMessageEvent } from '../src/message-events';
-import { activeHistory, messagesWithEntryIds, type BranchOperation } from './session-branching';
-import { importedHistoryMessages } from './imported-history';
+import { activeHistory, type BranchOperation } from './session-branching';
+import { feedbackHistory, type FeedbackHistory } from './feedback-history';
+import { sessionTranscript } from './session-transcript';
 import type { BackgroundLaneActivity, Message, Model, ModelSelection, PermissionPreset, RuntimeEvent, RuntimeState, RuntimeStartupTiming, SessionStats, UIRequest } from '../src/contracts';
 import { backgroundAgentsSnapshot } from './background-agents';
 import type { BackgroundAgentSnapshot } from '../src/background-agents';
@@ -111,6 +112,7 @@ function workspaceKey(cwd: string) {
 }
 interface RuntimeIdleOptions {
   stopHost?: boolean;
+  stateTimeout?: number;
   allowStoppingBackgroundCommands?: boolean;
   recheckChangedCommandState?: boolean;
   allowRemote?: boolean;
@@ -760,6 +762,12 @@ export class SessionRuntimes {
     reads.add(reading);
     return reading;
   }
+  // Evidence is valid only for the transcript captured with the same active leaf.
+  private readonly feedbackHistories = new WeakMap<Message[], { sessionId: string; history: FeedbackHistory }>();
+  feedbackEvidence(worker: SessionRuntime) {
+    const metadata = this.feedbackHistories.get(worker.messages);
+    if (metadata && metadata.sessionId === worker.state?.sessionId) return metadata.history;
+  }
   private transcriptRevision(worker: SessionRuntime) {
     return worker.revision - (this.transcriptMetadataRevisions.get(worker) ?? 0);
   }
@@ -769,16 +777,14 @@ export class SessionRuntimes {
     const epoch = this.snapshotEpochs.get(worker);
     const rpc = worker.rpc;
     const statsVersion = this.nextStatsVersion(worker);
-    const [state, { messages }, { models }, stats, history] = await Promise.all([
-      worker.rpc.request('get_state'), worker.rpc.request('get_messages'),
+    const [state, { models }, stats, history] = await Promise.all([
+      worker.rpc.request('get_state'),
       worker.rpc.request('get_available_models'), worker.rpc.request('get_session_stats'),
       worker.rpc.request('get_entries'),
     ]);
     if (worker.rpc !== rpc || worker.status !== 'connected' || this.workers.get(worker.id) !== worker
       || this.snapshotEpochs.get(worker) !== epoch) return;
-    const projected = importedHistoryMessages(messages, history.entries ?? [], history.leafId ?? null);
-    const savedMessages = projected === messages
-      ? messagesWithEntryIds(messages, history.entries ?? [], history.leafId ?? null) : projected;
+    const savedMessages = sessionTranscript(history.entries ?? [], history.leafId ?? null);
     if (revision === worker.revision && state.sessionId)
       worker.launch = projectLaunch(history.entries ?? [], history.leafId ?? null, state.sessionId, worker.launch);
     const decorated = this.hooks.messages ? await this.hooks.messages(worker, savedMessages) : savedMessages;
@@ -790,10 +796,12 @@ export class SessionRuntimes {
       worker.busy = worker.runActive || Boolean(state.isStreaming) || reviewActive(worker.launch?.review);
     }
     // Startup/status metadata can advance state without invalidating saved history.
-    // get_messages contains committed history, never the in-flight assistant.
+    // Saved entries do not contain the in-flight assistant.
     if (transcriptRevision === this.transcriptRevision(worker) && !state.isStreaming && !worker.runActive) {
       worker.messages = decorated;
       worker.leafId = history.leafId ?? undefined;
+      if (state.sessionId) this.feedbackHistories.set(decorated, { sessionId: state.sessionId,
+        history: feedbackHistory(history.entries ?? [], history.leafId ?? null, state.sessionId, decorated) });
     }
     worker.models = models;
     if (this.statsVersions.get(worker) === statsVersion) worker.stats = stats;
@@ -896,7 +904,7 @@ export class SessionRuntimes {
       throw new BackgroundCommandStateError('Cannot verify background commands for this session; try again once the session is connected');
     for (let attempt = 0; worker.status === 'connected'; attempt++) {
       const revision = worker.revision;
-      const state = await worker.rpc.request('get_state');
+      const state = await worker.rpc.request('get_state', {}, options.stateTimeout);
       assertHost();
       if ((requireConnected || worker.remoteAttached && options.allowRemote)
         && (state?.sessionId !== sessionId || typeof state?.isStreaming !== 'boolean'))

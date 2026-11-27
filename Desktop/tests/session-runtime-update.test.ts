@@ -356,17 +356,19 @@ for (const delayedAt of ['rpc', 'decoration'] as const) {
     const lease = await release(f.pool, worker);
     let lateRead: Promise<void> | undefined;
     let replacement: UpdateTransport | undefined;
-    let interceptMessages = false;
+    let interceptEntries = false;
 
     try {
       await f.restore(lease, { configure: transport => {
         replacement = transport;
         const request = transport.request.bind(transport);
         transport.request = async (type, args) => {
-          if (type === 'get_messages' && interceptMessages) {
-            interceptMessages = false;
+          if (type === 'get_entries' && interceptEntries) {
+            interceptEntries = false;
+            const stale = { entries: structuredClone(transport.entries), leafId: transport.leafId };
             held.resolve();
-            return { messages: await unblock.promise };
+            await unblock.promise;
+            return stale;
           }
           if (type !== 'set_thinking_level' || lateRead) return request(type, args);
           const live = { state: transport.state, messages: transport.messages, entries: transport.entries,
@@ -377,7 +379,7 @@ for (const delayedAt of ['rpc', 'decoration'] as const) {
           transport.leafId = 'stale-answer';
           transport.models = [fallback];
           transport.stats = stats(999);
-          interceptMessages = delayedAt === 'rpc';
+          interceptEntries = delayedAt === 'rpc';
           // Capture a concurrent internal read on the replacement transport, not an obsolete process.
           lateRead = f.pool.read(worker);
           Object.assign(transport, live);

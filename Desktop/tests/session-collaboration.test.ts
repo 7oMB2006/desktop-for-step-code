@@ -165,7 +165,27 @@ test('the local preview broker binds requests to their live caller, regardless o
       method: 'POST', headers: { authorization: `Bearer ${token}` }, body: JSON.stringify(data),
     });
     const url = 'http://localhost:5173/';
-    const result = await request({ action: 'open-preview', url });
+    assert.equal((await request({ action: 'open-preview', url })).status, 400, 'idle requests cannot open a preview');
+    f.a.runActive = true;
+    f.a.remoteAttached = true;
+    assert.equal((await request({ action: 'open-preview', url })).status, 400, 'remote sessions cannot open a preview');
+    f.a.remoteAttached = false;
+    const nextApproval = async () => {
+      for (let attempt = 0; !f.a.pendingUI.size && attempt < 100; attempt++)
+        await new Promise(resolve => setTimeout(resolve, 5));
+      const approval = [...f.a.pendingUI.values()][0];
+      assert.ok(approval);
+      assert.ok(approval.message?.endsWith(url));
+      assert.deepEqual(requests, []);
+    };
+    const denied = request({ action: 'open-preview', url });
+    await nextApproval();
+    f.approve(false);
+    assert.equal((await denied).status, 400);
+    const allowed = request({ action: 'open-preview', url });
+    await nextApproval();
+    f.approve(true);
+    const result = await allowed;
     assert.equal(result.status, 200);
     assert.deepEqual(await result.json(), { opened: true, load: 'loading' });
     assert.equal(f.pool.active, f.b);
@@ -174,7 +194,7 @@ test('the local preview broker binds requests to their live caller, regardless o
     f.broker.detach(f.a);
     assert.equal((await request({ action: 'open-preview', url })).status, 403);
     assert.deepEqual(requests, [['session-0', url]]);
-  } finally { await f.close(); }
+  } finally { f.a.runActive = false; await f.close(); }
 });
 
 test('read/list are snapshots and do not switch sessions, stop workers, or clear unread', async () => {

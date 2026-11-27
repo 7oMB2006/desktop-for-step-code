@@ -1,14 +1,13 @@
 import { createInterface } from 'node:readline';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { importedHistoryMessages } from './imported-history';
-import { messagesWithEntryIds } from './session-branching';
+import { sessionTranscript } from './session-transcript';
 import { ConversationTiming } from './conversation-timing';
 import { ModelSelections } from './model-selection';
 import { WorkflowBindings, hydrateWorkflowHistory } from './workflow-history';
 import { assertReadingBudget } from './session-reading-budget';
 // @ts-expect-error The read-only native adapter is staged beside this bundle.
-import { readHistorySource, assertHistoryUnchanged } from './session-history.mjs';
+import { readHistorySource, assertHistoryUnchanged, MAX_HISTORY_SOURCE_BYTES } from './session-history.mjs';
 
 // One bounded request per process. Import only the library entry, never CLI main,
 // SessionManager.open, an Agent, model discovery or session_start.
@@ -23,12 +22,10 @@ lines.once('line', async line => {
     if (![root, profile, file, sessionId, cwd].every(value => typeof value === 'string' && value.length > 0))
       throw new Error('Invalid reading request');
     const upstream = await import(pathToFileURL(join(dirname(fileURLToPath(import.meta.url)), 'step/dist/bundle/index.js')).href);
-    const history = await readHistorySource(upstream, root, file, sessionId);
+    const history = await readHistorySource(upstream, root, file, sessionId, MAX_HISTORY_SOURCE_BYTES, false);
     // Desktop project redirects leave the original header cwd intact. Managed
     // file/session identity is verified above; decoration uses the current cwd.
-    const imported = importedHistoryMessages(history.messages, history.entries, history.leafId);
-    const messages = imported === history.messages
-      ? messagesWithEntryIds(imported, history.entries, history.leafId) : imported;
+    const messages = sessionTranscript(history.entries, history.leafId);
     const timing = new ConversationTiming(join(profile, 'conversation-timing'));
     const bindings = new WorkflowBindings(join(profile, 'workflow-bindings'));
     const models = new ModelSelections(join(profile, 'model-changes'), () => {});

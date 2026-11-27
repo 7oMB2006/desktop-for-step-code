@@ -707,30 +707,34 @@ Model and effort changes update only the owning draft or runtime. Do not refresh
 the history catalog for a picker selection. Idle runtime changes still await
 Step Code confirmation; an immediate send waits for the pending choice.
 
-The existing fixed-size model selector includes search and explicitly starred
-Favorites ahead of other available models, without duplicates. Its back arrow and
-search share one compact header row instead of a separate title; the saved height
-belongs to the internally scrolling model list. Returning restores focus to the
-model heading. No empty favorite
-section is reserved. An independent star button adds or removes a favorite without
-selecting a model or closing the picker; the selected checkmark remains separate.
-Reuse the local marks from provider settings in the model card and list. The
-mark follows the actual connection, never the model name or catalog binding.
-Use monochrome silhouettes in the picker with the existing Step card fade.
-Keep a neutral mark for unrecognized providers. Marks are decorative and do not
-replace provider labels or billing text in the list.
+The model list expands upward from the fixed bottom edge to at most 510px,
+bounded by the room above the trigger. If even the compact view cannot fit above
+and there is more room below, the popover opens on that side instead. The thinking
+and parameters views retain their compact size when room permits. Back and search
+share one compact row above the internally scrolling list. Opening focuses search; returning restores focus
+to the model heading. Explicit Favorites appear first when present, without
+duplicates. Other models are grouped by connection identity, not display name,
+with the built-in Step account first among providers. Group headings show the
+connection label and billing when known and stay visible while scrolling.
+An independent star adds or removes a favorite without selecting a model or
+closing the picker; the selected checkmark remains separate.
+Monochrome marks follow the actual connection, never the model name or catalog
+binding. The built-in Step account and recognized Step API connections use
+the bare five-square mark. Unrecognized providers keep a neutral
+mark. Marks do not replace connection labels or billing text. Keep the existing
+mark fade on the model card.
 Favorites retain their saved order and provider/model identities in Desktop
 preferences. Runtime activity never creates or reorders them, and earlier recent
 history is not converted into favorites. Unavailable favorites are hidden but
 retained, and labels always come from the current catalog. Search matches names,
-IDs and providers in one deduplicated result list, with independent star controls.
+IDs and providers, preserving connection groups and deduplication.
 Saving failure is explicit and retryable. Up/Down and Home/End navigate the current
 button column; Left/Right move between selection and star controls. Reordering
 preserves star focus unless the user has moved it elsewhere. Visible focus,
 existing panel motion and reduced motion are shared. IME-composition keys do not
 navigate or dismiss the picker. Favorites do not change default models, next-turn
 choices, account identity or billing routes. A secondary management view remains
-outside this compact-picker change.
+outside the picker.
 
 Automatic continuation shares that timeline-event styling, with a 14px RotateCcw icon, an accent semibold upright label and a muted interruption reason. It records a requested attempt, never confirmed recovery or a specific network diagnosis. The Windows runtime preserves the original input/start pipeline and model instruction but stores a structured `step-auto-resume` custom message, not a human-authored turn. Rendering and replay require its versioned source metadata; no English-text matching rewrites old history. The note has no user bubble, editing controls, disclosure or activity animation, and its internal instruction is excluded from copied assistant prose.
 
@@ -779,6 +783,8 @@ Disclosure indicators use the custom SVG in `Desktop/src/DisclosureChevron.tsx`:
 The diff inspector's source and base pickers use Electron native radio menus, with the custom disclosure SVG on their triggers. Keep Branch selectable outside Git; explain the unavailable comparison inside the panel rather than disabling the option or forcing Last turn.
 
 Context, Changes and Conversation navigation share the `right-panel-header` visual primitive: 52px height, 20px left/12px right padding, 13px semibold title and 26px close/action buttons. Navigation follows Context's 344px full-height neutral inspector surface and divided, unframed rows; code diffs retain their wider reading surface. Wide layouts consume the existing right gutter before reserving space. Narrow inspectors are nonmodal, leaving visible transcript and composer controls interactive. Navigation retains cubic enter/exit, its right-rail anchor, trackless scrolling and original per-turn timestamps. Summary retains its separate hanging-board treatment.
+
+Conversation navigation lists the newest saved turn first, retaining the original chronological numbers. The transcript and ruler remain oldest-first. Compaction only changes the model's working context, shown in the Context panel; the transcript and navigation follow the saved history of the active branch instead.
 
 Inspection-oriented right panels share a header expand/restore control. Context and Changes expand leftward across the main view while retaining the window bar, sidebar and right rail; this is not native window fullscreen. Both directions use 260ms cubic width transitions, disabled during native window resizing and under reduced motion. Expansion preserves the mounted content, filters, disclosures and reading position where the resized scroll range permits. Context uses a centered, bounded reading surface and two-column statistics when space permits. Covered conversation controls are inert. Escape first restores the inspector and returns focus to its expand control; closing or switching tools clears expansion. Future inspection tools should reuse this convention. Conversation navigation deliberately has no expand control, and its row backgrounds and pointer targets span the full panel width with padding inside each row. Summary remains outside this convention.
 
@@ -901,7 +907,7 @@ The Desktop Agent tool `desktop_open_preview` opens an explicit loopback HTTP UR
 
 Browser and Terminal offer Standard, Wide and Fullscreen widths through native header menus. Standard retains the existing width; Wide uses approximately 60% of the available main view while leaving at least 480 pixels for the conversation when docked. Narrow overlays converge Standard and Wide rather than squeezing the conversation further. Fullscreen/restore retains the previous non-fullscreen width. Their selection survives panel and conversation switches within the renderer lifetime, but is not persisted across relaunch/reload. Width changes use the existing cubic animation, with the native page following the measured viewport. The compact trigger includes its layout icon, label and shared DisclosureChevron in one hit area. Chinese uses an 84-pixel trigger; English retains 126 pixels for its longer labels. An Electron native menu opens above the WebContentsView without hiding or reloading the page.
 
-Public HTTPS browsing leaves the panel and its current selection alone when another tab is already selected. The new tab remains in the owning conversation and uses the same activity state and Stop control. The default is anonymous; a configured Agent profile opens in view-only mode. The toolbar's Share with Agent button offers View only and Fill fields for the selected existing page. Show the pending mode and a cancel action until the Agent connects; then use the existing tab accent, activity icon and Stop control. Do not switch the selected tab or open the panel when connecting to an existing page.
+Public HTTPS browsing leaves the panel and its current selection alone when another tab is already selected. The new tab remains in the owning conversation and uses the same activity state and Stop control. The default is anonymous; a configured Agent profile opens in view-only mode. The toolbar's Share with Agent button offers view-only sharing for the selected existing page. Show the pending mode and a cancel action until the Agent connects; then use the existing tab accent, activity icon and Stop control. Do not switch the selected tab or open the panel when connecting to an existing page.
 
 In Full Access, the same menu and footer explicitly say the tab is kept shared. Retain the idle share status and cancel action between turns, without displaying the connected treatment. Other permission tiers label the grant as next-turn only.
 

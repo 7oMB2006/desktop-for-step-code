@@ -53,7 +53,7 @@ export interface SessionStats { toolCalls: number; assistantMessages: number; us
 export type PermissionPreset = 'ask' | 'approve-for-me' | 'full-access';
 export interface ElapsedTiming { startedAt: number; endedAt?: number }
 export interface MessageTiming { run: ElapsedTiming; thinking: Record<string, ElapsedTiming>; completed?: true }
-export interface Message { role: string; content: string | Content[]; customType?: string; display?: boolean; timestamp?: number; desktopTiming?: MessageTiming; desktopSteered?: boolean; toolCallId?: string; toolName?: string; isError?: boolean; usage?: Usage; stopReason?: string; entryId?: string; provider?: string; model?: string; errorMessage?: string; summary?: string; command?: string; output?: string; excludeFromContext?: boolean; details?: { patch?: string; diff?: string; results?: unknown[]; [key: string]: unknown } }
+export interface Message { role: string; content: string | Content[]; customType?: string; display?: boolean; timestamp?: number; desktopTiming?: MessageTiming; desktopSteered?: boolean; toolCallId?: string; toolName?: string; isError?: boolean; usage?: Usage; stopReason?: string; entryId?: string; provider?: string; model?: string; responseModel?: string; errorMessage?: string; summary?: string; command?: string; output?: string; excludeFromContext?: boolean; details?: { patch?: string; diff?: string; results?: unknown[]; [key: string]: unknown } }
 export interface Message { incomplete?: 'no_visible_output' | 'missing_tool_call' }
 export interface RuntimeState { desktopCompletionReview?: 1; isStreaming: boolean; isCompacting?: boolean; sessionId?: string; sessionName?: string; sessionFile?: string; model?: Model; thinkingLevel?: string; messageCount?: number; pendingMessageCount?: number }
 export interface RuntimeState { desktopStartup?: import('./runtime-startup').RuntimeStartup }
@@ -69,6 +69,7 @@ export interface RuntimeSummary { runtimeId: string; sessionId: string; cwd: str
 export interface Preferences { themeMotion?: boolean; themeBrightness?: number; stellarTaskMap?: boolean }
 export interface Snapshot { themePacks?: import('./theme-packs').ThemePack[] }
 export interface Snapshot { customBackground?: import('./custom-background').CustomBackgroundState }
+export interface Snapshot { providerApplyFailed?: boolean }
 export interface Snapshot { preferences: Preferences; status: string; providerSettingsPending?: boolean; draftId?: string; runtimeId?: string; runtimeRevision?: number; runtimes?: RuntimeSummary[]; unreadSessionIds?: string[]; requests?: UIRequest[]; state?: RuntimeState; modelSelection?: ModelSelection; modelChanges?: ModelChange[]; permissionPreset?: PermissionPreset; launch?: LaunchState; messages: Message[]; models: Model[]; sessions: Session[]; independent?: boolean; stats?: SessionStats; pendingMessages?: PendingMessage[] }
 export interface Profile { id: string; title: string; description: string; credentialSource: string }
 export interface Account { loggedIn: boolean; validity: string; profile?: string; account?: string; userId?: string }
@@ -250,6 +251,7 @@ export interface DesktopBridge extends SessionImportBridge, BtwBridge, Backgroun
   quitRespond(id: string, confirmed: boolean): Promise<void>;
   systemTheme(): Promise<{ systemDark: boolean }>;
   snapshot(): Promise<Snapshot>;
+  contextMessages(runtimeId: string, sessionId: string): Promise<Message[]>;
   beginSession(workspace?: string, resume?: boolean): Promise<Snapshot>;
   chooseSessionProject(): Promise<Snapshot | null>;
   createDraftSession(draftId: string): Promise<Snapshot>;
@@ -301,6 +303,9 @@ export interface DesktopBridge extends SessionImportBridge, BtwBridge, Backgroun
   importClipboardImage(data: string, mimeType: string, name: string): Promise<ComposerAttachment>;
   imageAction(action: 'copy' | 'save' | 'reveal', src: string, name: string): Promise<boolean>;
   copyText(text: string): Promise<void>;
+  previewFeedback(runtimeId: string, sessionId: string, options: FeedbackOptions): Promise<{ token: string; content: string; defaultDirectory: string }>;
+  saveFeedback(runtimeId: string, sessionId: string, token: string, destination: 'default' | 'choose'): Promise<boolean>;
+  openFeedbackFolder(): Promise<void>;
   diagnostics(): Promise<boolean>;
   onEvent(callback: (event: RuntimeEvent) => void): () => void;
 }
@@ -348,7 +353,7 @@ export type BrowserAction = 'navigate' | 'back' | 'forward' | 'reload' | 'stop' 
 export interface BrowserBounds { x: number; y: number; width: number; height: number }
 export type BrowserProfile = 'personal' | 'agent';
 export type BrowserPresetMode = 'anonymous' | 'agent';
-export type BrowserHandoffMode = 'read' | 'fill';
+export type BrowserHandoffMode = 'read';
 export interface BrowserSite { domain: string; favicon?: string }
 export type BrowserProfileTarget = string | { origin: string };
 export interface BrowserProfileSite extends BrowserSite { host?: string; openOrigin?: string }
@@ -411,3 +416,49 @@ export interface SessionStatusDetails {
   provider?: string; model?: string; commit?: string; node?: string;
 }
 declare global { interface Window { desktop?: DesktopBridge; desktopTheme?: DesktopTheme } }
+
+export interface FeedbackOptions { errorAt?: string; expected: string; actual: string; conversation: boolean; tools: boolean; focus?: 'failure' | 'current' }
+export interface FeedbackExcerpt { text: string; truncated: boolean }
+export type FeedbackToolResult = 'ok' | 'error' | 'timeout' | 'aborted' | 'denied' | 'blocked' | 'not_run';
+export type FeedbackEvent = {
+  at: string | null;
+} & ({
+  kind: 'model';
+  result: 'reply' | 'error' | 'aborted' | 'request';
+  requestId: string | null;
+  provider: string | null;
+  model: string | null;
+  modelSource: 'response' | 'requested' | null;
+  statusCode: number | null;
+  statusSource: 'request' | 'error_text' | null;
+  outcome: 'ok' | 'http_error' | 'transport_error' | null;
+  transportAttempts: number | null;
+  errorDetail: FeedbackExcerpt | null;
+} | {
+  kind: 'tool';
+  call: number;
+  toolName: string | null;
+  source: 'execution_trace' | 'tool_result';
+  result: FeedbackToolResult | 'started';
+});
+export interface FeedbackReport {
+  format: 'dfsc-local-feedback-v3';
+  at: string;
+  context: { desktop: string; stepCode: AppBuildInfo['runtime']; platform: string; arch: string };
+  expected: FeedbackExcerpt;
+  actual: FeedbackExcerpt;
+  reportedAt: string | null;
+  scope: 'latest_failed_turn' | 'current_turn';
+  summary: {
+    modelErrors: number;
+    toolErrors: number;
+    toolsWithOnlyFinalResult: number[];
+    toolsWithNoResult: number[];
+    omittedEvents: number;
+    optionalText: 'excluded' | 'included' | 'not_recorded' | 'redaction_limit';
+  };
+  events: FeedbackEvent[];
+  excerpts: (FeedbackExcerpt & { role: string })[];
+  omittedEligibleMessages: number;
+  exclusions: string[];
+}

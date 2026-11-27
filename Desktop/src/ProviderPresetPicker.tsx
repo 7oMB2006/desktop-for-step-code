@@ -7,8 +7,9 @@ import type { ProviderInfo } from './contracts';
 
 const brands = [...new Set(providerPresets.map(p => p.brand))].map(id => ({ id, presets: providerPresets.filter(p => p.brand === id) }));
 const brandRows = Array.from({ length: Math.ceil(brands.length / 2) }, (_, i) => brands.slice(i * 2, i * 2 + 2));
-const brandHeadings: Partial<Record<ProviderBrandId, { name?: string; summary: readonly [string, string] }>> = {
-  kimi: { name: 'Kimi', summary: ['开放平台 / Kimi Code', 'Open Platform / Kimi Code'] },
+const brandHeadings: Partial<Record<ProviderBrandId, { name?: readonly [string, string]; summary: readonly [string, string] }>> = {
+  stepfun: { name: ['阶跃星辰', 'StepFun'], summary: ['开放平台 · 中国大陆 / 海外', 'Open Platform · Mainland China / International'] },
+  kimi: { name: ['Kimi', 'Kimi'], summary: ['开放平台 / Kimi Code', 'Open Platform / Kimi Code'] },
   bailian: { summary: ['按量 API / Token Plan', 'Pay as you go / Token Plan'] },
   minimax: { summary: ['按量 API / M Plan', 'Pay as you go / M Plan'] },
 };
@@ -53,7 +54,7 @@ export function ProviderPresetPicker({ language, returnBrand, onBack, onSelect, 
               aria-controls={expandable ? regionId : undefined} onClick={() => expandable
                 ? setExpanded(open ? undefined : id) : onSelect(providerPresetDraft(presets[0], language))}>
               <ProviderPresetMark brand={id} size={28}/>
-              <span className="provider-preset-label"><strong id={`${regionId}-name`}>{heading?.name ?? presets[0].name[labels]}</strong><small>{heading?.summary[labels] ?? presets[0].label[labels]}</small></span>
+              <span className="provider-preset-label"><strong id={`${regionId}-name`}>{heading?.name?.[labels] ?? presets[0].name[labels]}</strong><small>{heading?.summary[labels] ?? presets[0].label[labels]}</small></span>
               <DisclosureChevron/>
             </button>
             {expandable && <div id={regionId} className="provider-preset-variants" role="group" aria-labelledby={`${regionId}-name`} inert={!open} aria-hidden={!open}>

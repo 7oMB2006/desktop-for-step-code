@@ -26,7 +26,7 @@ test('Simple only folds verified, same-run process, including ordinary tool fail
     tool('approval', true, 'clarify_user'), { ...prose, index: 1, key: 'earlier' }, { ...prose, index: 2 }];
   const before = structuredClone(content);
   assert.deepEqual(settledTurnProcess(items, content, false), {
-    keys: new Set(['narration', 'thought', 'completed', 'failed']), duration: 16000,
+    keys: new Set(['narration', 'thought', 'completed', 'failed']), failures: 1, duration: 16000,
   });
   assert.deepEqual(content, before);
   assert.equal(settledTurnProcess(items, content, true), undefined, 'streaming final text does not settle the turn');
@@ -91,7 +91,7 @@ test('compact process leaves errors approvals missing results and dedicated tool
   assert.equal(groupProcesses([thought('a'), pending], false)[1], pending);
 });
 
-test('Simple keeps ordinary failures in one process row and excludes them from its success summary', () => {
+test('Simple explicitly reports failures in mixed, running and failure-only groups', () => {
   const failed = tool('failed', true, 'run_command');
   failed.result!.details = { execution: { status: 'exited', exitCode: 2, signal: null, timedOut: false, aborted: false } };
   const input = [thought('start'), tool('read'), failed, tool('another'), prose];
@@ -102,10 +102,13 @@ test('Simple keeps ordinary failures in one process row and excludes them from i
   assert.equal(group.type, 'process-group');
   assert.deepEqual(group.items, input.slice(0, -1));
   assert.deepEqual(group.failedToolKeys, new Set(['failed']));
-  assert.deepEqual(processGroupSummary(group, 'zh'), { label: '已完成：读取文件 2 项', detail: '' });
+  assert.deepEqual(processGroupSummary(group, 'zh'), { label: '1 项工具操作失败', detail: '' });
+  const [running] = groupProcesses([failed, tool('pending', false)], true, [], { simple: true });
+  assert.equal(running.type, 'process-group');
+  assert.match(processGroupSummary(running, 'en').label, /^1 tool operation failed · Reading/);
   const [onlyFailure] = groupProcesses([failed], false, [], { simple: true });
   assert.equal(onlyFailure.type, 'process-group');
-  assert.equal(processGroupSummary(onlyFailure, 'en').label, 'Tool activity');
+  assert.equal(processGroupSummary(onlyFailure, 'en').label, '1 tool operation failed');
 });
 
 test('Simple never absorbs approvals, dedicated errors, unresolved results or records from a different fold range', () => {

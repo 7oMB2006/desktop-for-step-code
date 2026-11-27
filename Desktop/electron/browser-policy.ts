@@ -33,11 +33,7 @@ export function browserPreviewUrl(input: unknown): string {
 }
 
 export type AutomationScope = { kind: 'local'; origin: string } | { kind: 'public'; site: string; signedIn?: boolean }
-  | { kind: 'attached'; origin: string; mode: 'read' | 'fill' };
-
-export function browserHandoffRequestAllowed(method: string, mode?: 'read' | 'fill') {
-  return mode !== 'fill' || method === 'GET' || method === 'HEAD';
-}
+  | { kind: 'attached'; origin: string };
 
 export function browserAutomationTarget(input: unknown): { url: string; scope: AutomationScope } {
   try {

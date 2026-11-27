@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { chromium } from 'playwright';
 import { createServer } from 'vite';
 import { verifyPluginMarketInfo } from './plugin-market-info-checks.mjs';
+import { verifyCommunityMarketplaceUi } from './community-marketplace-ui-checks.mjs';
 
 const cacheDir = await mkdtemp(join(tmpdir(), 'dfsc-plugin-center-vite-'));
 const server = process.env.DESKTOP_PREVIEW_URL ? undefined : await createServer({
@@ -33,6 +34,7 @@ function focusClips(element) {
 }
 try {
   await verifyPluginMarketInfo({ browser, base, output: `${output}/market-info` });
+  await verifyCommunityMarketplaceUi({ browser, base });
   const installation = await browser.newPage({ viewport: { width: 1440, height: 980 } });
   const installationErrors = [];
   installation.on('pageerror', error => installationErrors.push(error.message));

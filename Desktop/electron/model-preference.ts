@@ -1,6 +1,6 @@
 import type { Model } from '../src/contracts';
 import { activeHistory, type HistoryEntry } from './session-branching';
-import { isImportedHistoryEntry } from './imported-history';
+import { isImportedHistoryEntry } from './session-transcript';
 import type { SessionRuntime } from './session-runtimes';
 
 export type ModelPreference = Pick<Model, 'provider' | 'id' | 'name'>;

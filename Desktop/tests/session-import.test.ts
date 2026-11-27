@@ -4,8 +4,7 @@ import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { SessionImports, importedProjectDirectory, importEnvironment, importScanOptions, importSelections, importStartOptions } from '../electron/session-import';
-import { importedHistoryMessages } from '../electron/imported-history';
-import { messagesWithEntryIds } from '../electron/session-branching';
+import { sessionTranscript } from '../electron/session-transcript';
 import { responsePresentation } from '../src/conversation-presentation';
 import { groupConsecutiveTools } from '../src/tool-groups';
 import { approvedPlan } from '../src/plan-execution';
@@ -67,11 +66,6 @@ test('a rejected start reconciles busy state without forgetting other live batch
     await assert.rejects(host.start([{ candidateId: 'one', fingerprint: 'a'.repeat(64), cwd: process.cwd() }]), /expired preview/);
     assert.equal(host.busy, running);
   }
-});
-
-test('native messages keep the existing projection by identity', () => {
-  const messages: Message[] = [{ role: 'assistant', content: 'native' }];
-  assert.equal(importedHistoryMessages(messages, [], null), messages);
 });
 
 test('project grouping is an explicit validated opt-in at the bridge boundary', () => {
@@ -150,7 +144,7 @@ test('historical transcript uses raw active-path records, with usage stripped an
     { id: 'other', parentId: 'user', type: 'message', imported: provenance, message: { role: 'assistant', content: 'wrong branch' } },
     { id: 'native', parentId: 'result', type: 'message', message: { role: 'assistant', content: 'new answer', model: 'current', usage: raw.usage } },
   ];
-  const displayed = importedHistoryMessages([{ role: 'user', content: 'model-only projection' }], entries, 'native');
+  const displayed = sessionTranscript(entries, 'native');
   assert.equal(displayed.length, 4);
   assert.equal(displayed[1].usage, undefined);
   assert.equal(displayed[1].desktopImported, true);
@@ -192,7 +186,7 @@ test('foreign tool IDs cannot pair with a new native result or contribute curren
 test('entry ids on imported native continuations remain matchable', () => {
   const messages: Message[] = [{ role: 'user', content: 'continue', timestamp: 123 }];
   const entries = [{ type: 'message', id: 'native-user', parentId: null, message: messages[0] }];
-  assert.equal(messagesWithEntryIds(messages, entries, 'native-user')[0].entryId, 'native-user');
+  assert.equal(sessionTranscript(entries, 'native-user')[0].entryId, 'native-user');
 });
 
 test('larger history frames remain bounded without raising the default management limit', () => {

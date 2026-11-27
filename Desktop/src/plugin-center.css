@@ -413,6 +413,9 @@
 .pc-source-row > div { flex: 1; min-width: 0; }
 .pc-source-row strong { font-size: 13px; font-weight: 500; }
 .pc-source-row small { display: block; margin-top: 7px; overflow-wrap: anywhere; line-height: 1.6; font-size: 11px; }
+.pc-community-mark { flex: 0 0 20px; object-fit: contain; }
+.pc-community-add, .pc-community-added { flex: 0 0 auto; }
+.pc-community-added { display: inline-flex; align-items: center; gap: 5px; color: var(--green); font-size: 12px; }
 .pc-source-form { display: flex; align-items: end; gap: 9px; padding: 4px 4px 22px; }
 .pc-source-form label { flex: 1; margin: 0; font-size: 12px; }
 .pc-source-form button { margin-bottom: 2px; }
@@ -520,6 +523,7 @@
   .pc-source-row { flex-wrap: wrap; gap: 12px; }
   .pc-source-row > div { flex-basis: calc(100% - 44px); }
   .pc-source-row > .pc-status { margin-left: 35px; }
+  .pc-source-row > :is(.pc-community-add, .pc-community-added) { margin-left: 32px; }
   .pc-source-row > .icon-button, .pc-source-row > svg:last-child { margin-left: auto; }
   .pc-source-form { flex-wrap: wrap; }
   .pc-source-form label { flex-basis: 100%; }

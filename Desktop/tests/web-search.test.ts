@@ -43,6 +43,31 @@ test('Step Plan defaults first, remembers a manual order across sign-in and neve
   assert.deepEqual(webSearchRoute(edit(overseas, { action: 'policy', field: 'enabled', value: false })).order, []);
 });
 
+test('search settings show the routed Step account channel and region without exposing credentials', () => {
+  const auth = setup('tavily');
+  for (const [profile, mode, region, host] of [
+    ['step_plan', 'plan', 'cn', 'api.stepfun.com'],
+    ['step_plan_oversea', 'plan', 'oversea', 'api.stepfun.ai'],
+    ['platform_cn', 'api', 'cn', 'api.stepfun.com'],
+    ['platform_oversea', 'api', 'oversea', 'api.stepfun.ai'],
+  ] as const) {
+    const step = mode === 'plan' ? { ...plan, profile } : { type: 'api_key', profile, key: 'api-fixture-secret' };
+    const signedIn = { ...auth, step: { ...step, uid: 'fixture-uid' } };
+    const settings = webSearchSettings(signedIn);
+    assert.equal(settings.step, mode);
+    assert.equal(settings.stepRegion, region);
+    assert.deepEqual(settings.configured, ['step', 'tavily']);
+    assert.deepEqual(settings.order, mode === 'plan' ? ['step', 'tavily'] : ['tavily']);
+    assert.equal(stepSearchAccount(signedIn)?.url, `https://${host}${mode === 'plan' ? '/step_plan' : ''}/v1/mcp/web_search/mcp`);
+    assert.doesNotMatch(JSON.stringify(settings), /fixture-secret|fixture-uid|api\.stepfun/);
+  }
+  const signedOut = webSearchSettings(auth);
+  assert.equal(signedOut.step, undefined);
+  assert.equal(signedOut.stepRegion, undefined);
+  assert.deepEqual(signedOut.configured, ['tavily']);
+  assert.deepEqual(signedOut.order, ['tavily']);
+});
+
 test('each external adapter sends the expected request and returns bounded citeable results', async () => {
   const good = { url: 'https://example.org/a', title: 'Fixture', content: 'A useful result' };
   const cases = [

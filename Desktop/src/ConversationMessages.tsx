@@ -45,7 +45,7 @@ import type { ApprovedPlan, PlanExecutionState } from './plan-execution';
 import { PlanExecution } from './PlanExecution';
 import { normalizeInterfaceSettings, type InterfacePreferences } from './interface-presets';
 import { groupConsecutiveTools, toolGroupLabel, type ToolItem } from './tool-groups';
-import { groupProcesses, hideOrdinaryProcess, liveThinkingKey, processGroupSummary, settledTurnProcess, thinkingPreview, type ProcessGroup as ProcessGroupData } from './process-groups';
+import { groupProcesses, hideOrdinaryProcess, liveThinkingKey, processFailureLabel, processGroupSummary, settledTurnProcess, thinkingPreview, type ProcessGroup as ProcessGroupData } from './process-groups';
 import './tool-groups.css';
 import { QuestionTool } from './QuestionTool';
 import { useAnimatedDisclosure } from './useAnimatedDisclosure';
@@ -55,7 +55,7 @@ import { AutoResumeMessage } from './AutoResumeMessage';
 import { searchTextMatch, type SearchTextTarget } from './fulltext-search';
 import './auto-resume-message.css';
 import { incompleteResponse } from './incomplete-response';
-import type { PreparedMarkdown } from './markdown-parser';
+import { plainMarkdownParagraph, type PreparedMarkdown } from './markdown-parser';
 import { useConversationDisclosure } from './ConversationDisclosureState';
 import { attachmentPresentation } from './attachment-references';
 
@@ -187,9 +187,11 @@ function RevealedText({ text, streaming = false, commands, ...props }: { text: s
     : messageContentRehypePlugins, [reveal.batches]);
   const readBlocks = useMemo(createMarkdownBlockReader, []);
   const blocks = useMemo(() => segmented ? readBlocks(text) : undefined, [segmented, text, readBlocks]);
+  const paragraph = useMemo(() => streaming || segmented ? undefined : plainMarkdownParagraph(text), [streaming, segmented, text]);
   if (blocks) return <>{blocks.map(block => <MarkdownBlockText key={block.key} block={block}
     batches={blockRevealBatches(block, reveal.batches)} language={props.language}
     openImage={props.openImage} onError={props.onError} commands={commands}/>)}</>;
+  if (paragraph !== undefined) return <p>{paragraph}</p>;
   return <MarkdownText text={text} language={props.language} openImage={props.openImage} onError={props.onError} plugins={plugins} commands={commands}/>;
 }
 type BlockTextProps = { block: MarkdownBlock; batches: RevealState['batches']; commands?: ComposerCommand[] }
@@ -444,8 +446,8 @@ function ProcessGroup({ group, stateKey, children, ...props }: { group: ProcessG
   return <section className={`process-tool-group compact-process${group.running ? ' running' : ''}`} data-message-index={group.index} data-single={single}>
     <button ref={trigger} hidden={single && !focused} onFocus={() => setFocused(true)} onBlur={() => setFocused(false)}
       type="button" className="tool-group-trigger" aria-expanded={open} aria-controls={id} onClick={() => setExpanded(value => !value)}>
-      {group.running ? runningTool ? <Wrench size={14}/> : <Brain size={14}/>
-        : group.failedToolKeys.size ? <Wrench size={14}/> : <Check size={14}/>}
+      {group.failedToolKeys.size ? <CircleAlert size={14} aria-hidden="true"/>
+        : group.running ? runningTool ? <Wrench size={14}/> : <Brain size={14}/> : <Check size={14}/>}
       <ProcessRowLabel label={label} running={group.running}/>
       <span className="tool-group-chevron"><DisclosureChevron/></span>
       {!open && detail && <span className="process-group-preview">{detail}</span>}
@@ -634,7 +636,7 @@ function HistoricalAgents({ count, stateKey, language, children, onLayoutChange 
         {round && <button type="button" className="tool-group-trigger turn-process-trigger" aria-expanded={roundOpen}
           aria-controls={presentation.flatMap(item => item.type !== 'tool-group' && isFoldable(item) ? [slotId(item.key)] : []).join(' ')}
           onClick={() => setRoundOpen(!roundOpen)}>
-          <span>{zh ? '用时 ' : 'Worked for '}{formatElapsedDuration(round.duration, props.language)}</span>
+          <span>{round.failures > 0 && `${processFailureLabel(round.failures, props.language)} · `}{zh ? '用时 ' : 'Worked for '}{formatElapsedDuration(round.duration, props.language)}</span>
           <span className="tool-group-chevron"><DisclosureChevron/></span>
         </button>}
         {presentation.map(item =>

@@ -7,9 +7,9 @@ export interface HistoryEntry {
   message?: Message;
 }
 
-export function activeHistory(entries: HistoryEntry[], leafId: string | null) {
+export function activeHistory<Entry extends HistoryEntry>(entries: Entry[], leafId: string | null) {
   const byId = new Map(entries.map(entry => [entry.id, entry]));
-  const path: HistoryEntry[] = [];
+  const path: Entry[] = [];
   const visited = new Set<string>();
   let id = leafId;
   while (id) {
@@ -23,35 +23,40 @@ export function activeHistory(entries: HistoryEntry[], leafId: string | null) {
   return path.reverse();
 }
 
-// Match full user/assistant identity on the active path, never text or array position alone.
-export function messagesWithEntryIds(messages: Message[], entries: HistoryEntry[], leafId: string | null): Message[] {
-  const key = (message: Message) => {
-    const inputId = message.role === 'custom' && message.customType === 'desktop-goal-input'
-      ? message.details?.desktopGoalInputId : undefined;
-    // Custom live messages and persisted entries have independent upstream clocks.
-    if (typeof inputId === 'string' && inputId.length > 0 && inputId.length <= 128)
-      return JSON.stringify(['desktop-goal-input', inputId, message.content]);
-    return JSON.stringify([message.role, message.timestamp, message.content, message.customType]);
-  };
-  const matches = new Map<string, string[]>();
-  for (const entry of activeHistory(entries, leafId)) {
-    const custom = entry as HistoryEntry & { customType?: string; timestamp?: string; content?: Message['content']; display?: boolean; details?: Message['details'] };
-    if (custom.type === 'custom_message' && custom.customType === 'desktop-goal-input' && custom.content !== undefined) {
-      const timestamp = Date.parse(custom.timestamp ?? '');
-      if (!Number.isFinite(timestamp)) continue;
-      const identity = key({ role: 'custom', customType: custom.customType, content: custom.content, timestamp, details: custom.details });
-      matches.set(identity, [...matches.get(identity) ?? [], entry.id]);
-      continue;
-    }
-    if (entry.type !== 'message' || !entry.message || !['user', 'assistant'].includes(entry.message.role)) continue;
-    const identity = key(entry.message);
-    matches.set(identity, [...matches.get(identity) ?? [], entry.id]);
+export interface FeedbackRequestEvidence {
+  requestId?: unknown;
+  responseProvider?: unknown;
+  responseModel?: unknown;
+  requestedProvider?: unknown;
+  requestedModel?: unknown;
+  statusCode?: unknown;
+  outcome?: unknown;
+  transportAttempts?: unknown;
+}
+
+export function feedbackRequestsOnPath(path: HistoryEntry[], sessionId: string) {
+  const requests = new Map<string, FeedbackRequestEvidence>();
+  const ambiguous = new Set<string>();
+  const replies = new Set<string>();
+  for (const item of path) {
+    if (item.type === 'message' && item.message?.role === 'assistant') replies.add(item.id);
+    const entry = item as HistoryEntry & { customType?: string; data?: FeedbackRequestEvidence & {
+      usageEntryId?: unknown; purpose?: unknown; originSessionId?: unknown; sessionId?: unknown;
+    } };
+    const data = entry.data;
+    if (entry.type !== 'custom' || entry.customType !== 'step.usage_provenance' || !data
+      || data.purpose !== undefined || data.sessionId !== sessionId || data.originSessionId !== sessionId
+      || typeof data.usageEntryId !== 'string' || !replies.has(data.usageEntryId)) continue;
+    const id = data.usageEntryId;
+    if (ambiguous.has(id)) continue;
+    if (requests.has(id)) { requests.delete(id); ambiguous.add(id); continue; }
+    requests.set(id, data);
   }
-  return messages.map(message => {
-    const { entryId: _previousId, ...original } = message;
-    const ids = matches.get(key(original));
-    return ids?.length === 1 ? { ...original, entryId: ids[0] } : original;
-  });
+  return requests;
+}
+
+export function feedbackRequestsOnBranch(entries: HistoryEntry[], leafId: string | null, sessionId: string) {
+  return feedbackRequestsOnPath(activeHistory(entries, leafId), sessionId);
 }
 
 export type BranchOperation = {

@@ -80,7 +80,9 @@ test('obsolete startup does not suspend bounded idle recycling or remove protect
           if (id === 'slow') await gate.promise;
           return { sessionId: id, isStreaming: false };
         }
-        if (type === 'get_messages') return { messages: [{ role: 'user', content: id }] };
+        if (type === 'get_entries') return { leafId: id, entries: [
+          { id, parentId: null, type: 'message', message: { role: 'user', content: id } },
+        ] };
         if (type === 'get_available_models') return { models: [] };
         return {};
       },
@@ -145,7 +147,9 @@ test('idle recycling resumes after an overtaken resident snapshot releases its p
           if (held && id === 'old') await gate.promise;
           return { sessionId: id, isStreaming: false };
         }
-        if (type === 'get_messages') return { messages: [{ role: 'user', content: id }] };
+        if (type === 'get_entries') return { leafId: id, entries: [
+          { id, parentId: null, type: 'message', message: { role: 'user', content: id } },
+        ] };
         if (type === 'get_available_models') return { models: [] };
         return {};
       },

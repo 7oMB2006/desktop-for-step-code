@@ -562,6 +562,14 @@ try {
     const pickerBounds = await mini.locator('.model-effort-popover').boundingBox();
     assert.ok(pickerBounds.x >= frameBounds.x && pickerBounds.x + pickerBounds.width <= frameBounds.x + frameBounds.width,
       `${name}: model picker remains inside the mini window`);
+    const modelPicker = mini.locator('.model-effort-popover');
+    await modelPicker.getByRole('button', { name: query.includes('lang=en') ? 'Select model' : '选择模型', exact: true }).click();
+    await settleLayout(modelPicker);
+    const listBounds = await modelPicker.boundingBox();
+    assert.ok(listBounds.y >= frameBounds.y && listBounds.y + listBounds.height <= frameBounds.y + frameBounds.height
+      && listBounds.height >= pickerBounds.height && listBounds.height <= 510,
+      `${name}: expanded model picker stays inside the mini window`);
+    assert.equal(await modelPicker.locator('.model-picker-provider-group').count(), 1);
     await page.keyboard.press('Escape');
     const english = query.includes('lang=en');
     await mini.getByRole('button', { name: english ? 'Switch MiniChat conversation' : '切换小窗会话', exact: true }).click();

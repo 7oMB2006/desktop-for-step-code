@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { browserAutomationTarget, browserBounds, browserHandoffOrigin, browserHandoffRequestAllowed, browserNavigation, browserPreviewUrl, browserUrl } from '../electron/browser-policy';
+import { browserAutomationTarget, browserBounds, browserHandoffOrigin, browserNavigation, browserPreviewUrl, browserUrl } from '../electron/browser-policy';
 
 test('browser addresses accept explicit web URLs and normalize local preview hosts', () => {
   assert.equal(browserUrl('localhost:4173/path'), 'http://localhost:4173/path');
@@ -32,13 +32,6 @@ test('existing HTTP and HTTPS tabs can be shared without broadening agent-initia
     assert.equal(browserHandoffOrigin(url), undefined, url);
   for (const url of ['http://example.com/', 'https://example.com:8443/', 'https://intranet.local/'])
     assert.throws(() => browserAutomationTarget(url), /loopback|public HTTPS/);
-});
-test('fill-only handoffs permit passive reads but reject requests that can mutate authenticated state', () => {
-  for (const method of ['GET', 'HEAD']) assert.equal(browserHandoffRequestAllowed(method, 'fill'), true, method);
-  for (const method of ['POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS', 'get'])
-    assert.equal(browserHandoffRequestAllowed(method, 'fill'), false, method);
-  assert.equal(browserHandoffRequestAllowed('POST', 'read'), true);
-  assert.equal(browserHandoffRequestAllowed('POST'), true);
 });
 test('agent previews only accept explicit HTTP URLs on the supported loopback hosts', () => {
   assert.equal(browserPreviewUrl('http://localhost:5173/preview'), 'http://localhost:5173/preview');

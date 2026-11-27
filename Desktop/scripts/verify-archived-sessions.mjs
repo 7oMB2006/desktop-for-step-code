@@ -102,7 +102,7 @@ try {
   await page.getByRole('button', { name: '会话导航', exact: true }).click();
   const dates = page.locator('.nav-turn-time');
   await dates.first().waitFor();
-  assert.deepEqual(await dates.allTextContents(), ['10月03日 14:41', '10月03日 14:50', '10月03日 14:59']);
+  assert.deepEqual(await dates.allTextContents(), ['10月03日 14:59', '10月03日 14:50', '10月03日 14:41']);
   assert.equal(await dates.first().evaluate(element => getComputedStyle(element).opacity), '1');
   await page.mouse.move(10, 10);
   await page.screenshot({ path: 'test-results/navigation-turn-dates-light.png' });
@@ -171,7 +171,7 @@ try {
   await page.getByRole('button', { name: 'Unarchive', exact: true }).first().waitFor();
   await page.locator('.settings-dialog > header').getByRole('button', { name: /^(?:Close|\u5173\u95ed)$/u }).click();
   await page.getByRole('button', { name: 'Conversation navigation', exact: true }).click();
-  assert.deepEqual(await dates.allTextContents(), ['10/03 14:41', '10/03 14:50', '10/03 14:59']);
+  assert.deepEqual(await dates.allTextContents(), ['10/03 14:59', '10/03 14:50', '10/03 14:41']);
   console.log('Archive actions, light/dark/narrow layouts and bilingual dates passed; checking delete guards and restart.');
   // A forged IPC call cannot delete the currently viewed archived session.
   const stored = await persistedIds();

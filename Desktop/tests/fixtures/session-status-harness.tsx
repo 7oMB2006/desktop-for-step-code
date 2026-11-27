@@ -38,7 +38,7 @@ function Demo() {
   const [view, setView] = useState<'status' | 'context' | 'clm'>('context');
   return <main style={{ width: 'min(100%, 480px)', height: '100dvh', margin: '0 auto', background: 'var(--bg)' }}>
     <ContextPanel snapshot={snapshot} view={view} onView={setView} title={language === 'zh' ? '状态面板验收' : 'Session status'}
-      language={language} messages={[]} state={snapshot.state} connected={snapshot.status === 'connected'}
+      language={language} state={snapshot.state} connected={snapshot.status === 'connected'}
       busy={Boolean(snapshot.state?.isStreaming)} expanded={false} onToggleExpanded={() => {}} onClose={() => {}}
       onRefresh={async () => {}} onError={console.error}/>
   </main>;

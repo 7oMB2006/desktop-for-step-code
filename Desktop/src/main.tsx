@@ -1,3 +1,4 @@
+import { FeedbackExport } from './FeedbackExport';
 import { normalizedWorkspaceKey } from './workspace-key';
 import { UsageOverviewPanel } from './UsageOverviewPanel';
 import { searchSettings } from './settings-search';
@@ -424,6 +425,7 @@ function App() {
   const [capabilityRevision, setCapabilityRevision] = useState(0);
   const [details, setDetails] = useState('');
   const [windowMenuOpen, setWindowMenuOpen] = useState(false);
+  const [feedbackTarget, setFeedbackTarget] = useState<{ runtimeId: string; sessionId: string } | null>(null);
   const [projectPickerOpen, setProjectPickerOpen] = useState(false);
   const firstSend = useRef(false);
   const pendingFirstSend = useRef<object | null>(null);
@@ -1289,7 +1291,13 @@ function App() {
         });
         return;
       }
-      if (event.type === 'desktop_sessions_changed') { void run(refresh); return; }
+      if (event.type === 'desktop_sessions_changed') {
+        void run(async () => {
+          await refresh();
+          setStatusRevision(value => value + 1);
+        });
+        return;
+      }
       if (event.sessionId && ['desktop_model_selection', 'desktop_history', 'message_start', 'message_update', 'message_end', 'tool_execution_update', 'tool_execution_end'].includes(event.type)) {
         readingCache.current.delete(event.sessionId);
       }
@@ -1342,7 +1350,7 @@ function App() {
         setRequests(previous => previous.filter(request => request.id !== event.id));
       }
       if (event.type === 'agent_start') setBusy(true);
-      if (['live_context', 'auto_clm_end', 'agent_end', 'desktop_history'].includes(event.type)) setStatusRevision(value => value + 1);
+      if (['live_context', 'compaction_end', 'auto_compaction_end', 'auto_clm_end', 'agent_end', 'agent_settled', 'desktop_history'].includes(event.type)) setStatusRevision(value => value + 1);
       if (['compaction_start', 'compaction_end', 'auto_compaction_start', 'auto_clm_start', 'auto_compaction_end', 'auto_clm_end'].includes(event.type))
         setData(d => ({ ...d, state: d.state ? { ...d.state, isCompacting: event.type.endsWith('_start') } : d.state }));
       if ((event.type === 'agent_end' && !event.desktopRecoveryPending || event.desktopRecoverySettled) && !event.desktopReviewPending
@@ -2183,7 +2191,7 @@ function App() {
     const handler = (event: KeyboardEvent) => {
       const action = appShortcut(event, bridge?.platform);
       if (!action || !bridge || event.target instanceof Element && event.target.closest('.xterm, .user-message-editor, [role="dialog"], [role="menu"]')
-        || settingsOpen || preview || renaming || removeProject || imageMenu || windowMenuOpen
+        || feedbackTarget || settingsOpen || preview || renaming || removeProject || imageMenu || windowMenuOpen
         || requests.length && approvalOpen || speechConsentOpen || projectPickerOpen) return;
       if (isMini && !['new-session', 'settings'].includes(action)) return;
       if (loading && action !== 'sidebar') return;
@@ -2199,6 +2207,12 @@ function App() {
     window.addEventListener('keydown', handler, true);
     return () => window.removeEventListener('keydown', handler, true);
   });
+  const feedbackAvailable = Boolean(bridge && data.runtimeId && data.state?.sessionId && !data.draftId
+    && !navigationTarget && !loading && !usageOpen && !pluginsOpen && !scheduledOpen && !remoteOpen && !fulltextOpen);
+  const feedbackOpen = Boolean(feedbackAvailable && feedbackTarget
+    && feedbackTarget.runtimeId === data.runtimeId && feedbackTarget.sessionId === data.state?.sessionId);
+  useEffect(() => { if (!feedbackOpen) setFeedbackTarget(null); }, [feedbackOpen]);
+
   const menus: WindowMenu[] = [
     { id: 'file', label: t('文件', 'File'), items: [
       { label: t('新建会话', 'New session'), shortcut: keyLabel('new-session'), disabled: !bridge || loading, action: () => void newSession() },
@@ -2220,7 +2234,10 @@ function App() {
     ] },
     { id: 'help', label: t('帮助', 'Help'), items: [
       { label: t('设置', 'Settings'), shortcut: keyLabel('settings'), disabled: !bridge, action: () => void openSettings() },
-      { label: t('导出脱敏诊断', 'Export redacted diagnostics'), disabled: !bridge, action: () => void run(() => bridge!.diagnostics()) },
+      { label: t('导出当前会话反馈包', 'Export current conversation feedback bundle'), disabled: !feedbackAvailable, action: () => {
+        if (!feedbackAvailable || navigationPending.current || switching.current || !data.runtimeId || !data.state?.sessionId) return;
+        setFeedbackTarget({ runtimeId: data.runtimeId, sessionId: data.state.sessionId });
+      } },
     ] },
   ];
   const imageAction = (action: ImageMenuAction) => {
@@ -2377,6 +2394,15 @@ function App() {
           await composer.client.flush(); saveWindowPresentation();
           setMiniState(await bridge!.miniChatOpen());
         }) }}/>}
+    {feedbackOpen && bridge && feedbackTarget && <FeedbackExport bridge={bridge} {...feedbackTarget}
+      onSaved={destination => setNotice({ id: ++nextNoticeId.current, type: 'info',
+        message: t('反馈包已保存，未发送', 'Feedback bundle saved locally. Nothing sent.'),
+        actions: destination === 'default'
+          ? [{ label: t('打开目录', 'Open folder'), onClick: () => run(() => bridge.openFeedbackFolder()) }] : undefined })}
+      sessionTitle={activeTitle} zh={zh} onClose={() => {
+        setFeedbackTarget(null);
+        document.querySelector<HTMLButtonElement>(bridge.platform === 'darwin' ? '[data-menu="application"]' : '[data-menu="help"]')?.focus();
+      }}/>}
     {sessionMove && <SessionMoveDialog session={sessionMove.session} preferences={data.preferences} platform={bridge?.platform}
       initialDestination={sessionMove.destination} onCancel={() => setSessionMove(null)}
       onConfirm={async destination => {
@@ -2881,7 +2907,7 @@ function App() {
       width={browserWidth} onWidthChange={setBrowserWidth}
       replaced={desktopSideOpen || inspectionOpen || visibleRightPanel === 'turns' || visibleRightPanel === 'review' || visibleRightPanel === 'terminal' || visibleRightPanel === 'file' || visibleRightPanel === 'subagent' || visibleRightPanel === 'btw' || Boolean(details)}
       expanded={inspectorExpanded && visibleRightPanel === 'browser'} onToggleExpanded={() => setExpandedRightPanel(inspectorExpanded ? null : 'browser')}
-      blocked={speechConsentOpen || Boolean(quitReview.request) || handleBlocked || projectPickerOpen || queuePreviewOpen || liveChangesOpen || windowMenuOpen || pluginMenuOpen || settingsOpen || Boolean(removeProject) || Boolean(sessionMove) || Boolean(preview) || renaming || Boolean(contextMenu) || Boolean(imageMenu) || (approvalOpen && requests.length > 0) || (compactSidebar && compactSidebarOpen)}
+      blocked={speechConsentOpen || Boolean(quitReview.request) || handleBlocked || projectPickerOpen || queuePreviewOpen || liveChangesOpen || windowMenuOpen || feedbackOpen || pluginMenuOpen || settingsOpen || Boolean(removeProject) || Boolean(sessionMove) || Boolean(preview) || renaming || Boolean(contextMenu) || Boolean(imageMenu) || (approvalOpen && requests.length > 0) || (compactSidebar && compactSidebarOpen)}
       overlay={!summarySpace} language={data.preferences.language} onClose={closeRightPanel}/>
     <FilePreviewPanel file={previewFile} open={visibleRightPanel === 'file' && !details}
       replaced={Boolean(details) || (visibleRightPanel !== null && visibleRightPanel !== 'file')}
@@ -2961,7 +2987,7 @@ function App() {
         </aside>
       </div>}
       {visibleRightPanel === 'context' && !details && <div className={`summary-region context-region right-inspector-surface${inspectorExpanded ? ' is-expanded' : ''}`}>
-        <ContextPanel key={data.state?.sessionId ?? data.runtimeId ?? 'empty'} messages={data.messages} stats={data.stats} state={data.state} estimate={data.estimate}
+        <ContextPanel key={data.state?.sessionId ?? data.runtimeId ?? 'empty'} stats={data.stats} state={data.state} estimate={data.estimate}
           snapshot={{ ...data, requests }} runtimeRevision={statusRevision} view={contextView} onView={setRightPanel}
           title={activeTitle} language={data.preferences.language} busy={busy} connected={connected} onClose={closeRightPanel}
           expanded={inspectorExpanded} onToggleExpanded={() => setExpandedRightPanel(inspectorExpanded ? null : 'context')}
@@ -3125,7 +3151,7 @@ function App() {
         onOpen={async id => { const session = (await bridge.sessions()).find(item => item.id === id); if (!session) throw new Error('Imported session is unavailable'); finishSettingsClose(); await navigateSession(session); }}/>
       : tab === 'about' ? <AboutSettings bridge={bridge} state={appUpdate} preferences={data.preferences} onPreferences={setPreference}/>
       : tab === 'general' ? <>{bridge && <><CompactionSettings bridge={bridge} language={data.preferences.language} models={data.models} model={data.state?.model}/><SpeechSettings bridge={bridge} language={data.preferences.language}/><NetworkSettings bridge={bridge} language={data.preferences.language} busy={anyBusy || busy}/></>}<h3>{t('语言', 'Language')}</h3><label data-settings-anchor="language">{t('语言', 'Language')}<DisclosureSelect aria-label={t('语言', 'Language')} value={data.preferences.language} onChange={e => void setPreference({ language: e.target.value })}><option value="zh">简体中文</option><option value="en">English</option></DisclosureSelect></label><h3>{t('诊断', 'Diagnostics')}</h3><button data-settings-anchor="diagnostics" onClick={() => void run(() => bridge!.diagnostics())}><Download size={15}/>{t('导出脱敏诊断', 'Export diagnostics')}</button></> : !settings ? <p>{t('加载中…', 'Loading…')}</p> : tab === 'providers' ? <ProviderSettings language={data.preferences.language} providers={settings.providers ?? []} pending={data.providerSettingsPending}
-        onDiscover={(provider, key) => bridge!.discoverProviderModels(provider, key)}
+        applyFailed={data.providerApplyFailed} onDiscover={(provider, key) => bridge!.discoverProviderModels(provider, key)}
         onTest={(provider, modelId, key) => bridge!.testProvider(provider, modelId, key)}
         onCancelTest={() => bridge!.cancelProviderTest()}
         onCopyDiagnostic={text => bridge!.copyText(text)}

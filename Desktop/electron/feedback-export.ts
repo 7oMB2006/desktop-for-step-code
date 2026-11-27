@@ -2,7 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { lstat, mkdir, mkdtemp, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { gzipSync } from 'node:zlib';
-import { MAX_FEEDBACK_TURNS, type FeedbackEvent, type FeedbackOptions, type FeedbackReport,
+import { MAX_FEEDBACK_TURNS, type FeedbackEvent, type FeedbackOptions, type FeedbackReport, type FeedbackToolIssueGroup,
   type FeedbackTurn, type FeedbackTurnEvidence, type Message } from '../src/contracts';
 import { attachmentPresentation } from '../src/attachment-references';
 import { isUserMessage } from '../src/user-message';
@@ -19,6 +19,11 @@ const MAX_REDACTION_CONTEXT = 128 * 1024;
 const MAX_REDACTION_FIELDS = 64;
 const MAX_EVENTS = 64;
 const MAX_HISTORY_EVENTS = 4 * MAX_FEEDBACK_TURNS;
+// Fixed public labels from the pinned Step Code tool profile, not an export of arbitrary names.
+const STEP_TOOL_LABELS = new Set([
+  'list_directory', 'find_files', 'search_files', 'search_web', 'read_file', 'write_file',
+  'edit_file', 'run_command', 'bash_list', 'bash_kill', 'find_tools',
+]);
 
 export function feedbackDirectory(downloads: string) {
   return join(downloads, 'Desktop for Step Code Feedback');
@@ -97,7 +102,7 @@ function httpStatus(value: unknown) {
 
 type ModelEvent = Extract<FeedbackEvent, { kind: 'model' }>;
 type ToolEvent = Extract<FeedbackEvent, { kind: 'tool' }>;
-type ToolGroup = { name?: string; start: number; finals: number; notable: boolean };
+type ToolGroup = { name?: string; imported?: boolean; start: number; finals: number; notable: boolean };
 type Evidence = { position: number; start: number } & (
   { kind: 'model'; message: Message; request?: FeedbackRequestEvidence; result: ModelEvent['result'] } |
   { kind: 'tool'; call: ToolGroup; at?: number; source: ToolEvent['source']; result: ToolEvent['result'];
@@ -133,8 +138,9 @@ function evidenceFor(messages: Message[], history?: FeedbackHistory) {
     evidence.push({ kind: 'tool', call, start: call.start, position: order, at, source, result, notRunReason });
   };
   messages.forEach((message, index) => {
-    if (isUserMessage(message) && !message.desktopSteered
-      && !(message.entryId && history?.steering.has(message.entryId))) {
+    const recordedStart = message.entryId && history?.turnStarts.has(message.entryId);
+    if (recordedStart || (isUserMessage(message) && !message.desktopSteered
+      && !(message.entryId && history?.steering.has(message.entryId)))) {
       const anchorPosition = message.entryId ? history?.positions.get(message.entryId) : undefined;
       if (anchorPosition !== undefined) scope.lastEntry = history?.entryIds[anchorPosition - 1];
       scope = { start: index, anchor: message, rows: [], abnormal: false, interrupted: false };
@@ -148,7 +154,8 @@ function evidenceFor(messages: Message[], history?: FeedbackHistory) {
     if (message.role === 'assistant') {
       const issued = Array.isArray(message.content) ? message.content.filter(block => block?.type === 'toolCall' || block?.type === 'tool_use') : [];
       for (const block of issued) if (block.id)
-        calls.set(block.id, calls.has(block.id) ? null : { name: block.name, start, finals: 0, notable: false });
+        calls.set(block.id, calls.has(block.id) ? null
+          : { name: block.name, imported: message.desktopImported, start, finals: 0, notable: false });
       const request = message.entryId ? history?.requests.get(message.entryId) : undefined;
       const stopped = message.stopReason;
       const result = stopped === 'aborted' ? 'aborted'
@@ -211,6 +218,22 @@ function turnEvidence(turn: TurnScope): FeedbackTurnEvidence {
   return evidence;
 }
 
+function toolIssueGroups(rows: Evidence[], numbers: Map<number, number>, multi: boolean) {
+  const groups = new Map<string, FeedbackToolIssueGroup>();
+  for (const row of rows) {
+    if (row.kind !== 'tool' || row.result === 'started' || row.result === 'ok') continue;
+    const toolName = row.source === 'execution_trace' && !row.call.imported
+      && row.call.name && STEP_TOOL_LABELS.has(row.call.name) ? row.call.name : null;
+    const turn = multi ? numbers.get(row.start) : undefined;
+    const { result, notRunReason } = row;
+    const key = JSON.stringify([turn, toolName, result, notRunReason]);
+    const group = groups.get(key);
+    if (group) group.count++;
+    else groups.set(key, { turn, toolName, result, notRunReason, count: 1 });
+  }
+  return [...groups.values()].sort((a, b) => b.count - a.count);
+}
+
 function turnKey(turn: TurnScope, history?: FeedbackHistory) {
   const entry = turn.anchor?.entryId;
   const last = entry ? history?.turnEnds.get(entry) ?? turn.lastEntry : undefined;
@@ -247,16 +270,24 @@ function eventsForTurns(turns: TurnScope[], max: number) {
   const perTurn = turns.map(turn => {
     const last = turn.rows.length - 1;
     const firstIssue = turn.rows.findIndex(issue);
-    let lastIssue = -1, lastModel = -1;
-    for (let i = last; i >= 0 && (lastIssue < 0 || lastModel < 0); i--) {
-      if (lastIssue < 0 && issue(turn.rows[i])) lastIssue = i;
-      if (lastModel < 0 && turn.rows[i].kind === 'model') lastModel = i;
+    let lastModel = -1, lastModelError = -1, lastToolIssue = -1;
+    for (let i = last; i >= 0 && (lastModelError < 0 || lastToolIssue < 0); i--) {
+      const row = turn.rows[i];
+      if (row.kind === 'model') {
+        if (lastModel < 0) lastModel = i;
+        if (lastModelError < 0 && row.result === 'error') lastModelError = i;
+      } else if (lastToolIssue < 0 && issue(row)) lastToolIssue = i;
     }
-    for (const index of [firstIssue, lastIssue, lastModel, last]) {
+    // At most four reserved slots per turn. A tool loop must not crowd out a model failure.
+    for (const index of [firstIssue, last, lastModelError, lastToolIssue]) {
       if (index >= 0) rows.add(turn.rows[index]);
     }
-    return { rows: turn.rows, cursor: last };
+    return { rows: turn.rows, cursor: last, lastModel };
   });
+  for (const turn of perTurn) {
+    if (rows.size === max) break;
+    if (turn.lastModel >= 0) rows.add(turn.rows[turn.lastModel]);
+  }
   // Reserve evidence for every detailed turn before sharing the remaining space.
   let grew = true;
   while (rows.size < max && grew) {
@@ -425,10 +456,11 @@ export function feedbackReport(options: FeedbackOptions, messages: Message[], co
     summary: {
       modelErrors: evidence.reduce((count, turn) => count + turn.modelErrors, 0),
       toolErrors: evidence.reduce((count, turn) => count + turn.toolErrors, 0),
-      toolsNotRun, notRunReasons,
+      toolsNotRun, notRunReasons, toolIssueGroups: toolIssueGroups(rows, numbers, multi),
       toolsWithOnlyFinalResult: [...calls].flatMap(([call, id]) => finalOnly.has(call) && !started.has(call) ? [id] : []),
       toolsWithNoResult: [...calls].flatMap(([call, id]) => call.finals === 0 ? [id] : []),
       omittedEvents: rows.length - events.length,
+      ...(!contextScanned ? { redactionLimited: true } : {}),
       optionalText: !optionalRequested ? 'excluded' : !contextScanned ? 'redaction_limit'
         : optionalIncluded ? 'included' : 'not_recorded',
     },

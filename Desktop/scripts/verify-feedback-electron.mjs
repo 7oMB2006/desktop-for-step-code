@@ -38,7 +38,10 @@ try {
       trace('error-two', 'error-one', { phase: 'end', endedAt: Date.parse(stamp) + 2000, outcome: 'timeout' }),
       trace('error-three', 'error-two', { phase: 'end', endedAt: Date.parse(stamp) + 3000, outcome: 'error' }),
       { type: 'message', id: 't', parentId: 'error-three', message: { ...msg('toolResult', [{ type: 'text', text: 'Failed step. PRIVATE_OUTPUT_TAIL' }]), toolCallId: 'call', toolName: 'fixture', isError: true } },
-      { type: 'message', id: 'fail', parentId: 't', message: { ...msg('assistant', []), provider: 'fixture', model: 'fixture',
+      { type: 'message', id: 'edit-reply', parentId: 't', message: msg('assistant', [{ type: 'toolCall', id: 'edit', name: 'edit_file' }]) },
+      trace('edit-skipped', 'edit-reply', { toolCallId: 'edit', phase: 'end', endedAt: Date.parse(stamp) + 4000,
+        outcome: 'not_run', notRunReason: 'invalid_arguments' }),
+      { type: 'message', id: 'fail', parentId: 'edit-skipped', message: { ...msg('assistant', []), provider: 'fixture', model: 'fixture',
         stopReason: 'error', errorMessage: 'HTTP 429: fixture response error' } },
       request('req', 'fail', 'fail', 429),
       { type: 'message', id: 'retry-input', parentId: 'req', message: msg('user', 'Try again') },
@@ -62,7 +65,10 @@ try {
   const page = await app.firstWindow();
   await app.evaluate(({ BrowserWindow }) => {
     const win = BrowserWindow.getAllWindows().find(w => w.webContents.getURL().includes('index.html')) ?? BrowserWindow.getAllWindows()[0];
-    win.setSize(1440, 960); win.showInactive();
+    win.setSize(1440, 960);
+    win.setOpacity(0);
+    win.setIgnoreMouseEvents(true);
+    win.showInactive();
   });
   page.setDefaultTimeout(35000);
   const choose = id => page.locator('[data-reorder-kind="session"][data-reorder-id="' + id + '"] button').first().click();
@@ -113,6 +119,7 @@ try {
   assert.equal(await dialog.locator('pre').isVisible(), false);
   assert.match(await dialog.locator('.feedback-summary').innerText(), /回复失败[\s\S]*concrete-fixture[\s\S]*429[\s\S]*req-A/);
   assert.match(await dialog.locator('.feedback-summary').innerText(), /未包含会话正文或错误文本片段/);
+  await dialog.getByText('edit_file · 参数校验失败: 1', { exact: true }).waitFor();
   const errorRows = dialog.locator('.feedback-event-heading strong').filter({ hasText: /工具调用 1 · (失败|超时)/ });
   assert.deepEqual(await errorRows.allTextContents(), ['工具调用 1 · 失败', '工具调用 1 · 超时', '工具调用 1 · 失败']);
   await screenshot(page, 'feedback-evidence-light');
@@ -123,6 +130,11 @@ try {
   assert.doesNotMatch(minimal, /MARKER_|private_fixture|PRIVATE_TOOL_ARG|Failed step|req-retry|fixture response error/);
   assert.equal(JSON.parse(minimal).events.at(-1).at, new Date(stamp).toISOString());
   assert.equal(JSON.parse(minimal).summary.toolErrors, 3);
+  assert.deepEqual(JSON.parse(minimal).summary.toolIssueGroups, [
+    { toolName: null, result: 'error', count: 2 },
+    { toolName: null, result: 'timeout', count: 1 },
+    { toolName: 'edit_file', result: 'not_run', notRunReason: 'invalid_arguments', count: 1 },
+  ]);
   await saveAs(true);
   await dialog.getByRole('button', { name: '另存为…' }).click();
   await dialog.getByRole('button', { name: '另存为…' }).and(page.locator(':enabled')).waitFor();

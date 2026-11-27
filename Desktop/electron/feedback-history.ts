@@ -19,6 +19,7 @@ export function feedbackHistory(entries: HistoryEntry[], leafId: string | null, 
   const pendingEnds = new Map<string, FeedbackToolResult>();
   const storedResults = new Map<string, HistoryEntry | null>();
   const steering = new Set<string>();
+  const turnStarts = new Set<string>();
   const turnOutcomes = new Map<string, 'aborted' | 'completed' | 'error'>();
   const turnEnds = new Map<string, string>();
   let openTurn: { id: string; userEntryId?: string } | undefined;
@@ -37,7 +38,11 @@ export function feedbackHistory(entries: HistoryEntry[], leafId: string | null, 
     const data = entry.data;
     if (entry.type === 'custom' && entry.customType === 'step.turn' && data?.version === 1 && typeof data.turnId === 'string') {
       if (data.phase === 'start') {
-        openTurn = { id: data.turnId, userEntryId: typeof data.userEntryId === 'string' ? data.userEntryId : undefined };
+        const anchorPosition = typeof data.userEntryId === 'string' ? positions.get(data.userEntryId) : undefined;
+        const anchor = anchorPosition !== undefined && anchorPosition < position ? path[anchorPosition] : undefined;
+        const userEntryId = anchor?.message?.role === 'user' || anchor?.type === 'custom_message' ? anchor.id : undefined;
+        if (userEntryId) turnStarts.add(userEntryId);
+        openTurn = { id: data.turnId, userEntryId };
         pendingUsers.length = 0;
       } else if (data.phase === 'end' && data.turnId === openTurn?.id) {
         if (openTurn.userEntryId && (data.outcome === 'aborted' || data.outcome === 'completed' || data.outcome === 'error')) {
@@ -86,7 +91,7 @@ export function feedbackHistory(entries: HistoryEntry[], leafId: string | null, 
       resultEntries.set(message, stored.id);
   }
   return { sessionId, entryIds: path.map(entry => entry.id), positions, calls, matchedResults, resultEntries, steering,
-    turnOutcomes, turnEnds, requests: feedbackRequestsOnPath(path, sessionId) };
+    turnStarts, turnOutcomes, turnEnds, requests: feedbackRequestsOnPath(path, sessionId) };
 }
 
 export type FeedbackHistory = ReturnType<typeof feedbackHistory>;

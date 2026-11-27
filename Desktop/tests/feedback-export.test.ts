@@ -202,6 +202,7 @@ test('unsafe hand-written notes fail closed without exporting echoes in other fi
     assert.deepEqual(report.excerpts, []);
     assert.equal(report.events.at(-1).errorDetail, null);
     assert.equal(report.summary.modelErrors, 1);
+    assert.equal(report.summary.redactionLimited, true);
     assert.equal(report.summary.optionalText, conversation ? 'redaction_limit' : 'excluded');
   }
 });
@@ -350,19 +351,105 @@ test('a stopped historical turn stays selectable after a new message and keeps i
 });
 
 function historyFixture() {
-  const entries: (HistoryEntry & { customType?: string; data?: object })[] = [];
+  const entries: (HistoryEntry & { customType?: string; data?: object; content?: string; timestamp?: string })[] = [];
   const append = (id: string, fields: Omit<(typeof entries)[number], 'id' | 'parentId'>) =>
     entries.push({ id, parentId: entries.at(-1)?.id ?? null, ...fields });
   const message = (id: string, message: Message) => append(id, { type: 'message', message });
   const custom = (id: string, customType: string, data: object) =>
     append(id, { type: 'custom', customType, data: { version: 1, ...data } });
+  const customMessage = (id: string, customType: string, content: string, timestamp: string) =>
+    append(id, { type: 'custom_message', customType, content, timestamp });
   function snapshot(leaf = entries.at(-1)?.id ?? null, sessionId = 'A') {
     const messages = sessionTranscript(entries, leaf);
     const history = feedbackHistory(entries, leaf, sessionId, messages);
     return { messages, history, turns: listFeedbackTurns(messages, history) };
   }
-  return { message, custom, snapshot };
+  return { message, custom, customMessage, snapshot };
 }
+
+test('runtime-anchored automatic turns do not inherit the previous human turn or its text', () => {
+  const { message, custom, customMessage, snapshot } = historyFixture();
+  message('human', { role: 'user', content: 'HUMAN_PROMPT_CANARY', timestamp: 100 });
+  custom('human-start', 'step.turn', { phase: 'start', turnId: 'human', userEntryId: 'human' });
+  message('human-reply', { role: 'assistant', content: 'HUMAN_REPLY_CANARY', timestamp: 200 });
+  custom('human-end', 'step.turn', { phase: 'end', turnId: 'human', outcome: 'completed' });
+  customMessage('cron', 'step-cron', 'CRON_PROMPT_CANARY', new Date(300).toISOString());
+  custom('cron-start', 'step.turn', { phase: 'start', turnId: 'cron', userEntryId: 'cron', trigger: 'cron' });
+  customMessage('notice', 'step-cron', 'CRON_NOTICE_CANARY', new Date(400).toISOString());
+  message('cron-reply', { role: 'assistant', content: [], stopReason: 'error', timestamp: 500 });
+  custom('cron-end', 'step.turn', { phase: 'end', turnId: 'cron', outcome: 'error' });
+  const { messages, history, turns } = snapshot();
+  assert.deepEqual(turns.map(turn => [turn.number, turn.status, turn.evidence.outcome]),
+    [[2, 'errors', 'error'], [1, null, 'completed']]);
+  const raw = feedbackReport({ ...options, conversation: true }, messages, context, history);
+  const report: FeedbackReport = JSON.parse(raw);
+  assert.equal(report.scope, 'latest_failed_turn');
+  assert.equal(report.turn?.outcome, 'error');
+  assert.equal(report.turn?.startedAt, new Date(300).toISOString());
+  assert.deepEqual(report.events.map(event => event.result), ['error']);
+  assert.doesNotMatch(raw, /HUMAN_|CRON_/);
+});
+
+test('a tool error loop cannot displace the model failure from the bounded timeline', () => {
+  const { message, snapshot } = historyFixture();
+  message('u', { role: 'user', content: 'Test mixed failure' });
+  message('first-tool', { role: 'toolResult', toolName: 'fixture', isError: true, content: [], timestamp: 1 });
+  message('model-error', { role: 'assistant', stopReason: 'error', errorMessage: 'HTTP 429: Synthetic rate limit',
+    content: [], timestamp: 2 });
+  for (let i = 3; i < 75; i++) message(`tool-${i}`, { role: 'toolResult', toolName: 'fixture', isError: true,
+    content: [], timestamp: i });
+  message('reply', { role: 'assistant', content: 'Recovered', timestamp: 75 });
+  const { messages, history } = snapshot();
+  const report: FeedbackReport = JSON.parse(feedbackReport(options, messages, context, history));
+  assert.equal(report.events.length, 64);
+  assert.equal(report.events[0].at, new Date(1).toISOString());
+  assert.equal(report.events.at(-2)?.at, new Date(74).toISOString());
+  assert.equal(report.events.at(-1)?.result, 'reply');
+  const model = report.events.find(event => event.kind === 'model' && event.result === 'error');
+  assert.ok(model?.kind === 'model');
+  assert.equal(model.statusCode, 429);
+});
+
+test('long interrupted loops retain fixed tool labels and counts when details cannot be redacted', () => {
+  const { message, custom, snapshot } = historyFixture();
+  const trace = (id: string, name: string, outcome: string, notRunReason?: string) => {
+    message(`a-${id}`, { role: 'assistant', content: [
+      { type: 'toolCall', id, name, arguments: { text: 'PRIVATE_ARGUMENT_CANARY' } },
+    ] });
+    custom(`end-${id}`, 'step.tool_execution', { phase: 'end', toolCallId: id, endedAt: 20, outcome, notRunReason });
+  };
+  message('first', { role: 'user', content: 'PRIVATE_EXCERPT_CANARY', timestamp: 10 });
+  custom('start-loop', 'step.turn', { phase: 'start', turnId: 'loop', userEntryId: 'first' });
+  for (let i = 0; i < 99; i++) trace(`call-${i}`, 'edit_file', 'not_run', 'invalid_arguments');
+  trace('custom', 'PRIVATE_TOOL_NAME_CANARY', 'not_run', 'PRIVATE_REASON_CANARY');
+  message('unlinked-result', { role: 'toolResult', toolName: 'read_file', isError: true, content: 'x'.repeat(33000) });
+  custom('end-loop', 'step.turn', { phase: 'end', turnId: 'loop', outcome: 'aborted' });
+  message('gap', { role: 'user', content: 'Intermediate turn' });
+  trace('gap-call', 'search_web', 'blocked');
+  message('last', { role: 'user', content: 'Later turn' });
+  message('reply', { role: 'assistant', content: 'Later reply' });
+  const { messages, history, turns: [last, , first] } = snapshot();
+  const expanded = { ...options, conversation: true, tools: true, expected: 'PRIVATE_NOTE_CANARY' };
+  const raw = feedbackReport({ ...expanded, focus: 'turn', turnKey: first.key }, messages, context, history);
+  const report: FeedbackReport = JSON.parse(raw);
+  assert.equal(report.summary.optionalText, 'redaction_limit');
+  assert.equal(report.expected.text, '[redacted]');
+  assert.equal(report.excerpts.length, 0);
+  assert.equal(report.events.length, 64);
+  assert.equal(report.summary.toolsNotRun, 100);
+  assert.deepEqual(report.summary.toolIssueGroups, [
+    { toolName: 'edit_file', result: 'not_run', notRunReason: 'invalid_arguments', count: 99 },
+    { toolName: null, result: 'not_run', count: 1 },
+    { toolName: null, result: 'error', count: 1 },
+  ]);
+  assert.ok(report.events.every(event => event.kind !== 'tool' || event.toolName === null));
+  assert.doesNotMatch(raw, /PRIVATE_|read_file|search_web|Later reply/);
+  const multi: FeedbackReport = JSON.parse(feedbackReport({ ...expanded, focus: 'history', turnKeys: [last.key, first.key],
+    includeBetween: true }, messages, context, history));
+  assert.deepEqual(multi.summary.toolIssueGroups, report.summary.toolIssueGroups?.map(group => ({ turn: 1, ...group })));
+  assert.equal(multi.gaps?.[0].overview?.toolErrors, 1);
+  assert.doesNotMatch(JSON.stringify(multi), /search_web/);
+});
 
 test('history exports ordered selections, opt-in structure-only gaps, and no session or turn keys', () => {
   const { message, custom, snapshot } = historyFixture();

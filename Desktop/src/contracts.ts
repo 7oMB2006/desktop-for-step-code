@@ -440,6 +440,13 @@ export interface FeedbackTurnEvidence {
 export interface FeedbackExcerpt { text: string; truncated: boolean }
 export type FeedbackToolResult = 'ok' | 'error' | 'timeout' | 'aborted' | 'denied' | 'blocked' | 'not_run';
 export type FeedbackNotRunReason = 'aborted_before_start' | 'invalid_arguments' | 'output_truncated' | 'skipped_after_stop' | 'tool_not_found';
+export interface FeedbackToolIssueGroup {
+  turn?: number;
+  toolName: string | null;
+  result: Exclude<FeedbackToolResult, 'ok'>;
+  notRunReason?: FeedbackNotRunReason;
+  count: number;
+}
 export type FeedbackEvent = {
   at: string | null;
   turn?: number;
@@ -486,9 +493,11 @@ export interface FeedbackReport {
     toolErrors: number;
     toolsNotRun: number;
     notRunReasons: Partial<Record<FeedbackNotRunReason, number>>;
+    toolIssueGroups?: FeedbackToolIssueGroup[];
     toolsWithOnlyFinalResult: number[];
     toolsWithNoResult: number[];
     omittedEvents: number;
+    redactionLimited?: true;
     optionalText: 'excluded' | 'included' | 'not_recorded' | 'redaction_limit';
   };
   events: FeedbackEvent[];

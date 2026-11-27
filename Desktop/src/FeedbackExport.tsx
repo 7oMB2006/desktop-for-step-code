@@ -25,6 +25,8 @@ function FeedbackSummary({ report, content, zh }: { report: FeedbackReport; cont
   const t = (cn: string, en: string) => zh ? cn : en;
   const missing = t('未记录', 'Not recorded');
   const { events, context, summary } = report;
+  const redactionLimited = summary.redactionLimited || summary.optionalText === 'redaction_limit';
+  const missingIdentifier = redactionLimited ? t('未显示', 'Not shown') : missing;
   const date = (value: string | null) => value ? new Date(value).toLocaleString(zh ? 'zh-CN' : 'en-GB', {
     year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit',
     hourCycle: 'h23', timeZoneName: 'shortOffset',
@@ -47,16 +49,30 @@ function FeedbackSummary({ report, content, zh }: { report: FeedbackReport; cont
   })[reason];
   const reasons = (Object.entries(summary.notRunReasons ?? {}) as [FeedbackNotRunReason, number][])
     .map(([reason, count]) => `${notRunLabel(reason)}: ${count}`).join(' · ');
+  const toolResultLabel = (result: Extract<FeedbackEvent, { kind: 'tool' }>['result']) => ({
+    started: t('已开始', 'Started'), ok: t('已完成', 'Completed'), error: t('失败', 'Failed'), timeout: t('超时', 'Timed out'),
+    aborted: t('已中止', 'Interrupted'), denied: t('未获批准', 'Approval denied'), blocked: t('被策略阻止', 'Blocked by policy'),
+    not_run: t('未执行', 'Not run'),
+  })[result];
+  const toolGroups = (notRun: boolean) => {
+    const groups = summary.toolIssueGroups?.filter(group => (group.result === 'not_run') === notRun) ?? [];
+    return groups.length ? <>
+      {groups.slice(0, 3).map((group, index) => <small className="feedback-nonexecution-reasons" key={index}>
+        {group.turn && t(`入包轮次 ${group.turn} · `, `Included turn ${group.turn} · `)}
+        {group.toolName ? <code>{group.toolName}</code> : t('其他或未识别工具', 'Other or unidentified tool')}
+        {' · '}{group.notRunReason ? notRunLabel(group.notRunReason) : toolResultLabel(group.result)}: {group.count}
+      </small>)}
+      {groups.length > 3 && <small className="feedback-nonexecution-reasons">
+        {t(`另有 ${groups.length - 3} 组，见原始 JSON`, `${groups.length - 3} more groups in raw JSON`)}
+      </small>}
+    </> : notRun && reasons ? <small className="feedback-nonexecution-reasons">{reasons}</small> : null;
+  };
   const result = (event: FeedbackEvent) => {
     if (event.kind === 'model') return {
       error: t('回复失败', 'Response failed'), reply: t('已返回回复', 'Reply returned'),
       aborted: t('请求已中止', 'Request interrupted'), request: t('返回工具调用', 'Tool call returned'),
     }[event.result];
-    return {
-      started: t('已开始', 'Started'), ok: t('已完成', 'Completed'), error: t('失败', 'Failed'), timeout: t('超时', 'Timed out'),
-      aborted: t('已中止', 'Interrupted'), denied: t('未获批准', 'Approval denied'), blocked: t('被策略阻止', 'Blocked by policy'),
-      not_run: t('未执行', 'Not run'),
-    }[event.result];
+    return toolResultLabel(event.result);
   };
   return <div className="feedback-summary">
     <section>
@@ -77,10 +93,13 @@ function FeedbackSummary({ report, content, zh }: { report: FeedbackReport; cont
         {(report.turn?.interrupted || report.turn?.outcome) && row(t('轮次状态', 'Turn status'),
           report.turn.interrupted ? t('已中止', 'Interrupted') : report.turn.outcome === 'error'
             ? t('轮次失败', 'Turn failed') : t('已结束', 'Completed'))}
-        {row(t('异常记录', 'Recorded issues'), t(`模型 ${summary.modelErrors} 条 · 工具 ${summary.toolErrors} 条`,
-          `Model: ${summary.modelErrors} · Tool: ${summary.toolErrors}`))}
+        {row(t('异常记录', 'Recorded issues'), <>
+          {t(`模型 ${summary.modelErrors} 条 · 工具 ${summary.toolErrors} 条`,
+            `Model: ${summary.modelErrors} · Tool: ${summary.toolErrors}`)}
+          {toolGroups(false)}
+        </>)}
         {summary.toolsNotRun > 0 && row(t('工具未执行', 'Tools not run'), <>
-          {summary.toolsNotRun}{reasons && <small className="feedback-nonexecution-reasons">{reasons}</small>}
+          {summary.toolsNotRun}{toolGroups(true)}
         </>)}
       </dl>
     </section>
@@ -129,12 +148,12 @@ function FeedbackSummary({ report, content, zh }: { report: FeedbackReport; cont
             {summary.toolsWithNoResult.includes(event.call) && <p>{t('未记录结束结果。', 'No final result was recorded.')}</p>}
           </> : <dl>
             {row(t('模型', 'Model'), event.model
-              ? `${event.model}${event.modelSource === 'requested' ? t('（请求时）', ' (requested)') : ''}` : missing)}
+              ? `${event.model}${event.modelSource === 'requested' ? t('（请求时）', ' (requested)') : ''}` : missingIdentifier)}
             {event.provider && row(t('提供方', 'Provider'), event.provider)}
             {event.statusCode !== null && row(t('HTTP 状态', 'HTTP status'), event.statusSource === 'error_text'
               ? `${event.statusCode}${t('（来自错误提示）', ' (from error text)')}` : event.statusCode)}
             {event.outcome === 'transport_error' && row(t('请求结果', 'Request outcome'), t('传输异常或中断', 'Transport error or interruption'))}
-            {row(t('请求 ID', 'Request ID'), event.requestId ? <code>{event.requestId}</code> : missing)}
+            {row(t('请求 ID', 'Request ID'), event.requestId ? <code>{event.requestId}</code> : missingIdentifier)}
             {event.transportAttempts !== null && event.transportAttempts > 1 && row(t('传输次数', 'Transport attempts'),
               t(`${event.transportAttempts}（仅有计数，无逐次记录）`, `${event.transportAttempts} (count only; no per-attempt records)`))}
             {event.errorDetail && row(t('回复错误详情', 'Response error detail'), text(event.errorDetail))}
@@ -152,9 +171,9 @@ function FeedbackSummary({ report, content, zh }: { report: FeedbackReport; cont
       </dl>}
       {summary.optionalText === 'excluded' && <p>{t('未包含会话正文或错误文本片段。', 'No conversation or error text excerpts included.')}</p>}
       {summary.optionalText === 'not_recorded' && <p>{t('未记录所选类型的文本片段。', 'No text was recorded for the selected excerpt types.')}</p>}
-      {summary.optionalText === 'redaction_limit' && <p>{t(
-        '超出脱敏范围，已隐藏手填说明和可选文本。结构化事件仍保留。',
-        'The redaction limit was reached. Typed notes and optional excerpts are hidden; structured events are still included.',
+      {redactionLimited && <p>{t(
+        '达到脱敏上限，未导出手填说明、可选文本或请求标识。结构化事件和工具汇总仍保留。',
+        'The redaction limit was reached. Typed notes, optional excerpts, and request identifiers were not exported. Structured events and tool counts are still included.',
       )}</p>}
       {summary.optionalText === 'included' && report.omittedEligibleMessages > 0 &&
         <p>{t(`已截断：另有 ${report.omittedEligibleMessages} 条文本未收录。`, `Truncated: ${report.omittedEligibleMessages} more excerpts omitted.`)}</p>}

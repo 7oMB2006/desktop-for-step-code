@@ -2674,13 +2674,16 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
         throw new Error(preferences.language === 'zh' ? '请先将该项目的小窗会话返回主窗口，再重新定位项目' : 'Return this project’s MiniChat conversation to main before relocating it');
       if (!preferences.workspaces.some(value => pathKey(value) === pathKey(path))) throw new Error('Unknown workspace');
       const peers = () => [...runtimes.workers.values()].filter(worker => pathKey(worker.cwd) === pathKey(path));
-      transition = true;
-      try {
+      const assertRelocationIdle = async () => {
         for (const worker of peers()) {
           if (externallyOwned(worker)) throw new Error('Stop external tasks before relocating this project');
           if (worker.operations || worker.mutating || worker.submissions || worker.stopping) throw new Error('Session operation in progress');
-          await runtimes.assertIdle(worker, { stopHost: true });
+          await runtimes.assertIdle(worker, { stopHost: true, recheckChangedCommandState: true });
         }
+      };
+      transition = true;
+      try {
+        await assertRelocationIdle();
         const result = await dialog.showOpenDialog(window, { properties: ['openDirectory'] });
         if (result.canceled) return null;
         const destination = await workspaceDirectory(result.filePaths[0]);
@@ -2690,11 +2693,7 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
         const draftSelected = sessionDraft?.workspace && pathKey(sessionDraft.workspace) === pathKey(path);
         const recoverStartup = !sessionDraft && !runtimes.active && preferences.workspace &&
           pathKey(preferences.workspace) === pathKey(path);
-        for (const worker of peers()) {
-          if (externallyOwned(worker)) throw new Error('Stop external tasks before relocating this project');
-          if (worker.operations || worker.mutating || worker.submissions || worker.stopping) throw new Error('Session operation in progress');
-          await runtimes.assertIdle(worker, { stopHost: true });
-        }
+        await assertRelocationIdle();
         const previous = preferences;
         preferences = next;
         try { await savePreferences(); } catch (error) { preferences = previous; throw error; }

@@ -98,3 +98,34 @@ test('a prepared destination can recheck once but requires a fresh, idle command
     assert.equal(reads, 2, 'never accept a fresh snapshot with a live command');
   } finally { await pool.stopAll(); }
 });
+
+test('workspace relocation requires a fresh command check on both sides of the chooser', async () => {
+  let receive!: (event: any) => void;
+  let count = 0, changed = false, reads = 0;
+  const transport: WorkerTransport = { start() {}, respond() {}, async stop() {}, async request(type) {
+    if (type === 'get_state') {
+      reads++;
+      if (changed) {
+        changed = false;
+        receive({ type: 'extension_ui_request', method: 'setStatus', statusKey: 'fixture-startup' });
+      }
+      return { sessionId: 'session-a', isStreaming: false, desktopBackgroundCommands: { version: 1, count } };
+    }
+    if (type === 'get_available_models') return { models: [] };
+    if (type === 'get_entries') return { entries: [], leafId: null };
+    return {};
+  } };
+  const pool = new SessionRuntimes(() => {}, handler => { receive = handler; return transport; },
+    { backgroundCommandsAvailable: () => true });
+  try {
+    const worker = await pool.open('node', 'step', 'workspace', {});
+    const guard = { stopHost: true, recheckChangedCommandState: true };
+    changed = true;
+    const before = reads;
+    await pool.assertIdle(worker, guard);
+    assert.equal(reads - before, 2, 'a stale idle reply must be followed by a fresh one');
+    count = 1;
+    await assert.rejects(pool.assertIdle(worker, guard), /Stop background commands/);
+    assert.equal(reads - before, 3, 'the next preflight cannot reuse the earlier zero-command reply');
+  } finally { await pool.stopAll(); }
+});

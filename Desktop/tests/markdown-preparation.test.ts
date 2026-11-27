@@ -5,7 +5,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import Markdown from 'react-markdown';
 import type { Root } from 'mdast';
 import type { Message } from '../src/contracts';
-import { parseMarkdown } from '../src/markdown-parser';
+import { parseMarkdown, plainMarkdownParagraph } from '../src/markdown-parser';
 import { historyMarkdownTexts, prepareHistoryMarkdown } from '../src/markdown-preparation';
 import { remarkPreparedBlock } from '../src/markdown-blocks';
 import { messageRemarkPlugins, messageRehypePlugins } from '../src/markdown-math';
@@ -19,6 +19,25 @@ function render(text: string, tree?: Root) {
     rehypePlugins: messageRehypePlugins,
   }));
 }
+
+test('the plain paragraph shortcut matches Markdown without consuming formatted text', () => {
+  for (const text of [
+    'Answer 82: ' + 'Saved conversation text. '.repeat(360),
+    'Answer  82.',
+    '2.5 is the answer.',
+    '\u9636\u8DC3\uFF1A\u6587\u672C\u3002',
+    'Cafe\u0301, resume\u0301. ',
+  ]) {
+    const paragraph = plainMarkdownParagraph(text);
+    assert.notEqual(paragraph, undefined);
+    assert.equal(renderToStaticMarkup(createElement('p', null, paragraph)), render(text));
+  }
+  for (const text of [
+    '', '  ', ' indented', '    code', 'first\nsecond', 'first\n',
+    '1. first', '1.', 'www.example.com', 'See https://example.com', 'mail@example.com',
+    'Read /clm.', 'See **bold**.', 'Use `code`.', 'Value &amp; more.', 'Try $x$.', 'raw <b>text</b>.',
+  ]) assert.equal(plainMarkdownParagraph(text), undefined, text);
+});
 
 for (const text of [
   '# Header\n\n**Strong** and _emphasis_, ~~deleted~~, `inline`.\n\n- [x] Done\n- [ ] Next',

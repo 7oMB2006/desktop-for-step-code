@@ -19,6 +19,7 @@ import { UsageTokenValue } from './UsageTokenValue';
 import type { UsageUnit } from './usage-unit';
 
 type ContextRow = { message: Message; index: number; key: string };
+const emptyMessages: Message[] = [];
 
 function JsonCode({ json }: { json: string }) {
   const nodes: ReactNode[] = [];
@@ -82,10 +83,11 @@ function contextRowFocusTargets(row: HTMLElement) {
     .filter(element => element.tabIndex >= 0 && !element.matches(':disabled') && element.getClientRects().length > 0);
 }
 
-function ContextMessageList({ rows, scroll, expanded, filter, language, timeFormat, onToggle, onError }: {
+function ContextMessageList({ rows, scroll, expanded, filter, language, timeFormat, onToggle, onError, emptyLabel }: {
   rows: ContextRow[]; scroll: RefObject<HTMLDivElement | null>; expanded: string | null; filter: MessageFilter;
   language: 'zh' | 'en'; timeFormat: Intl.DateTimeFormat;
   onToggle: (key: string, open: boolean) => void; onError: (error: string) => void;
+  emptyLabel: string;
 }) {
   const list = useRef<HTMLDivElement>(null);
   const [margin, setMargin] = useState(0);
@@ -194,14 +196,14 @@ function ContextMessageList({ rows, scroll, expanded, filter, language, timeForm
           onToggle={onToggle} language={language} timeFormat={timeFormat} onError={onError}/>
       </div>;
     })}</div>
-    {!rows.length && <p className="context-message-empty">{language === 'zh' ? '暂无消息' : 'No messages'}</p>}
+    {!rows.length && <p className="context-message-empty">{emptyLabel}</p>}
   </div>;
 }
 
-export function ContextPanel({ messages, stats, state, estimate, title, language, busy, connected, expanded: fullView, onToggleExpanded, onClose, onRefresh, onError, snapshot, view = 'context', onView, runtimeRevision = 0, width = 'standard', onWidthChange }: {
+export function ContextPanel({ stats, state, estimate, title, language, busy, connected, expanded: fullView, onToggleExpanded, onClose, onRefresh, onError, snapshot, view = 'context', onView, runtimeRevision = 0, width = 'standard', onWidthChange }: {
   snapshot?: Snapshot; view?: 'status' | 'context' | 'clm'; onView?: (view: 'status' | 'context' | 'clm') => void;
   runtimeRevision?: number;
-  messages: Message[]; stats?: SessionStats; state?: RuntimeState; title: string; language: 'zh' | 'en'; busy: boolean; connected: boolean;
+  stats?: SessionStats; state?: RuntimeState; title: string; language: 'zh' | 'en'; busy: boolean; connected: boolean;
   estimate?: SessionEstimate;
   onClose: () => void; onRefresh: () => Promise<void>; onError: (error: string) => void;
   expanded: boolean; onToggleExpanded: () => void;
@@ -211,6 +213,26 @@ export function ContextPanel({ messages, stats, state, estimate, title, language
   const [filter, setFilter] = useState<MessageFilter>('all');
   const [refreshing, setRefreshing] = useState(false);
   const [statusRevision, setStatusRevision] = useState(0);
+  const [context, setContext] = useState<{ runtimeId: string; sessionId: string; messages?: Message[] }>();
+  const runtimeId = snapshot?.runtimeId;
+  const sessionId = state?.sessionId;
+  const read = window.desktop?.contextMessages;
+  const canRead = connected && !snapshot?.draftId && Boolean(runtimeId && sessionId && read);
+  const currentContext = canRead && context?.runtimeId === runtimeId && context?.sessionId === sessionId ? context : undefined;
+  const messages = currentContext?.messages ?? emptyMessages;
+  useEffect(() => {
+    if (!canRead || view !== 'context' || !runtimeId || !sessionId || !read) return;
+    let cancelled = false;
+    // Coalesce nearby context and settlement events without streaming the transcript again.
+    const timer = setTimeout(() => {
+      void read(runtimeId, sessionId).then(messages => {
+        if (!cancelled) setContext({ runtimeId, sessionId, messages });
+      }).catch(() => {
+        if (!cancelled) setContext({ runtimeId, sessionId });
+      });
+    }, 120);
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [read, canRead, view, runtimeId, sessionId, busy, statusRevision, runtimeRevision]);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [unit, setUnit] = useState<UsageUnit>('default');
   const scroll = useRef<HTMLDivElement>(null);
@@ -300,7 +322,7 @@ export function ContextPanel({ messages, stats, state, estimate, title, language
           <span>{t('缓存命中', 'Cache hit')} <b>{hit === undefined ? '--' : `${hit.toFixed(1)}%`}</b></span></div>
       </section>
       <section className="context-message-section" aria-label={t('当前消息', 'Current messages')}>
-        <div className="context-section-title"><h3>{t('当前消息', 'Current messages')}</h3><span>{number(counts.all)}</span></div>
+        <div className="context-section-title"><h3>{t('当前消息', 'Current messages')}</h3><span>{currentContext?.messages ? number(counts.all) : '--'}</span></div>
         <div className="context-message-tabs text-tabs" role="tablist" aria-label={t('消息类别', 'Message roles')}>
           {(['all', 'user', 'assistant', 'toolResult'] as const).map(value => <button key={value} type="button" role="tab"
             id={`context-tab-${value}`} aria-selected={filter === value} aria-controls="context-message-list" onClick={() => setFilter(value)}
@@ -314,6 +336,8 @@ export function ContextPanel({ messages, stats, state, estimate, title, language
             }}>{value === 'all' ? t('全部', 'All') : role(value)}<small>{counts[value]}</small></button>)}
         </div>
         <ContextMessageList key={filter} rows={rows} scroll={scroll} expanded={expanded} filter={filter}
+          emptyLabel={!canRead || currentContext && !currentContext.messages ? t('暂无运行时数据', 'Runtime data unavailable')
+            : !currentContext ? t('读取中', 'Loading') : t('暂无消息', 'No messages')}
           language={language} timeFormat={timeFormat} onToggle={toggleMessage} onError={onError}/>
       </section>
       </div>

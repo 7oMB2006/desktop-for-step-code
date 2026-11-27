@@ -126,19 +126,37 @@ export function ModelEffortPicker({ model, models, favoriteModels, onFavorite, l
   useLayoutEffect(() => {
     const anchor = root.current, panel = popover.current;
     if (!open || !anchor || !panel) return;
+    const surface = anchor.closest('.first-run-production, .mini-chat-content, .main-content');
     const position = () => {
-      const alignedLeft = anchor.getBoundingClientRect().right - panel.offsetWidth;
+      const bounds = anchor.getBoundingClientRect();
+      const alignedLeft = bounds.right - panel.offsetWidth;
       const left = Math.max(12, Math.min(alignedLeft, document.documentElement.clientWidth - panel.offsetWidth - 12));
       panel.style.setProperty('--effort-popover-shift', `${left - alignedLeft}px`);
+      const surfaceBounds = surface?.getBoundingClientRect();
+      const above = bounds.top - Math.max(0, surfaceBounds?.top ?? 0);
+      const viewportBottom = document.documentElement.clientHeight;
+      const below = Math.min(viewportBottom, surfaceBounds?.bottom ?? viewportBottom) - bounds.bottom;
+      const opensBelow = above < 258 + 24 && below > above;
+      panel.toggleAttribute('data-opens-below', opensBelow);
+      panel.style.setProperty('--effort-anchor-room', `${Math.max(0, Math.floor(opensBelow ? below : above))}px`);
     };
     position();
     const observer = new ResizeObserver(position);
     observer.observe(anchor);
-    observer.observe(panel);
+    if (surface) observer.observe(surface);
     if (anchor.parentElement) observer.observe(anchor.parentElement);
     window.addEventListener('resize', position);
-    return () => { observer.disconnect(); window.removeEventListener('resize', position); };
+    surface?.addEventListener('scroll', position);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('resize', position);
+      surface?.removeEventListener('scroll', position);
+    };
   }, [open]);
+  useLayoutEffect(() => {
+    if (open && view === 'models')
+      popover.current?.querySelector<HTMLInputElement>('.model-picker-search input')?.focus({ preventScroll: true });
+  }, [open, view]);
   useEffect(() => {
     if (!drag.current) { setPreviewIndex(currentIndex); setPressure(0); }
     submitted.current = undefined;
@@ -221,9 +239,13 @@ export function ModelEffortPicker({ model, models, favoriteModels, onFavorite, l
   }, [open]);
   useEffect(() => { if (disabled) { setOpen(false); setView('effort'); drag.current = null; } }, [disabled]);
 
+  const returnToEffort = () => {
+    setView('effort');
+    requestAnimationFrame(() => popover.current?.querySelector<HTMLButtonElement>('.model-effort-heading')?.focus({ preventScroll: true }));
+  };
   const chooseModel = async (next: Model) => {
     if (next.provider !== model?.provider || next.id !== model.id) await onModel(next);
-    setView('effort');
+    returnToEffort();
   };
   return <div className="model-effort" ref={root}>
     <button ref={trigger} type="button" className="model-effort-trigger" aria-label={zh ? '模型与思考强度' : 'Model and thinking level'} aria-expanded={open} aria-haspopup="dialog" disabled={disabled} onClick={() => { setOpen(value => !value); setView('effort'); }}>
@@ -292,11 +314,7 @@ export function ModelEffortPicker({ model, models, favoriteModels, onFavorite, l
       </div>
       <div className="model-effort-panel model-effort-models-panel" inert={view !== 'models'} aria-hidden={view !== 'models'}>
         <ModelPickerList key={view === 'models' ? 'open' : 'closed'} models={models} favoriteModels={favoriteModels}
-          selected={model} language={language} onSelect={chooseModel} onFavorite={onFavorite}
-          onBack={() => {
-            setView('effort');
-            requestAnimationFrame(() => root.current?.querySelector<HTMLButtonElement>('.model-effort-heading')?.focus());
-          }}/>
+          selected={model} language={language} onSelect={chooseModel} onFavorite={onFavorite} onBack={returnToEffort}/>
       </div>
     </div>}
   </div>;

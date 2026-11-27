@@ -1,6 +1,7 @@
 import { Box, Sparkles } from 'lucide-react';
 import type { Model } from './contracts';
 import type { ProviderBrandId } from './provider-presets';
+import stepfun from './assets/providers/stepfun-color.svg';
 import deepseek from './assets/providers/deepseek-color.svg';
 import kimi from './assets/providers/kimi-color.svg';
 import zhipu from './assets/providers/zhipu-color.svg';
@@ -13,7 +14,7 @@ import siliconflow from './assets/providers/siliconcloud-color.svg';
 import ark from './assets/providers/volcengine-color.svg';
 
 const marks: Record<ProviderBrandId, string> = {
-  deepseek, kimi, zhipu, bailian, minimax, openai, anthropic, gemini, siliconflow, ark,
+  stepfun, deepseek, kimi, zhipu, bailian, minimax, openai, anthropic, gemini, siliconflow, ark,
 };
 
 function ProviderMarkImage({ brand, size, className }: { brand: ProviderBrandId; size: number; className?: string }) {
@@ -35,7 +36,8 @@ export function ProviderBrand({ model, variant }: { model?: Model; variant: 'car
   const size = variant === 'card' ? 36 : 16;
   return <span className={`model-provider-mark ${variant === 'card' ? 'model-effort-provider-brand' : 'model-picker-provider-mark'}`}
     data-provider-brand={brand} aria-hidden="true">
-    {brand === 'step' ? <StepPlatformIcon size={size}/> : brand === 'custom' ? <Sparkles size={size} strokeWidth={1.5} fill="currentColor"/>
+    {brand === 'step' || brand === 'stepfun' ? <StepPlatformIcon size={size}/>
+      : brand === 'custom' ? <Sparkles size={size} strokeWidth={1.5} fill="currentColor"/>
       : <span className="model-provider-silhouette" style={{ width: size, height: size, maskImage: `url(${JSON.stringify(marks[brand])})` }}/>}
   </span>;
 }

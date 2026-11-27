@@ -203,7 +203,7 @@ export function FirstRun({ bridge, snapshot, onSnapshot }: {
                 : t('凭据已保存，暂无法验证。继续不会发送模型请求。', 'Credentials saved; verification unavailable. Continuing sends no model request.')}</p>}
             </div> : settings ? <fieldset className="first-run-provider" disabled={pending}>
               <legend className="first-run-sr">{t('其他供应商', 'Other provider')}</legend>
-              <ProviderSettings language={language} providers={settings.providers ?? []} pending={snapshot.providerSettingsPending}
+              <ProviderSettings language={language} providers={settings.providers ?? []} pending={snapshot.providerSettingsPending} applyFailed={snapshot.providerApplyFailed}
                 activeModel={model} onBusyChange={setProviderBusy} onDiscover={(provider, key) => bridge.discoverProviderModels(provider, key)}
                 onTest={(provider, modelId, key) => bridge.testProvider(provider, modelId, key)} onCancelTest={() => bridge.cancelProviderTest()}
                 onCopyDiagnostic={value => bridge.copyText(value)}

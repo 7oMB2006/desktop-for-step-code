@@ -58,6 +58,9 @@ try {
   };
   const nav = page.locator('.conversation-nav-panel');
   const current = nav.locator('nav button[aria-current=location] .nav-turn-number');
+  const turn = number => nav.locator('nav button').filter({
+    has: page.locator('.nav-turn-number').filter({ hasText: new RegExp(`^${number}$`) }),
+  });
   const scrollTo = async index => {
     await page.locator('.conversation').evaluate((scroll, index) => {
       const message = scroll.querySelector(`[data-message-index="${index}"]`);
@@ -76,8 +79,16 @@ try {
   await page.waitForFunction(() => document.querySelector('.conversation-nav-panel [aria-current=location] .nav-turn-number')?.textContent === '5');
   assert.equal(await page.locator('.turn-marker[aria-current=location]').count(), 1);
   await shot('navigation-reading');
-  await nav.locator('nav button').nth(2).click();
+  await page.evaluate(() => {
+    window.turnNavigationScrollEnded = false;
+    document.querySelector('.conversation').addEventListener('scrollend', () => {
+      window.turnNavigationScrollEnded = true;
+    }, { once: true });
+  });
+  await turn(3).click();
   await page.waitForFunction(() => document.querySelector('.conversation-nav-panel [aria-current=location] .nav-turn-number')?.textContent === '3');
+  await page.waitForFunction(() => window.turnNavigationScrollEnded);
+  await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
   await page.locator('.turn-marker.active').hover();
   await page.locator('.turn-marker-preview time').waitFor();
   assert.match(await page.locator('.turn-marker-preview').innerText(), /11月05日/);
@@ -93,7 +104,7 @@ try {
   await scrollTo(4);
   await page.waitForFunction(() => document.querySelector('.conversation-nav-panel [aria-current=location] .nav-turn-number')?.textContent === '3');
   const readingTop = await page.locator('.conversation').evaluate(e => e.scrollTop);
-  await page.locator('.sidebar-bottom > button').click();
+  await page.locator('.sidebar-settings').click();
   const settings = page.getByRole('dialog', { name: '设置', exact: true });
   await settings.waitFor();
   await settings.getByRole('button', { name: /^(?:Close|\u5173\u95ed)$/u }).click();
@@ -155,7 +166,7 @@ try {
     await panel('会话导航');
     await focusFits(nav.locator('nav button').last());
     await shot(`navigation-${width}`);
-    await nav.locator('nav button').nth(1).click();
+    await turn(2).click();
     await nav.waitFor({ state: 'detached' });
     await panel('会话导航');
     assert.equal(await current.innerText(), '2');
@@ -177,7 +188,7 @@ try {
   assert.equal(await agents.locator('.workflow-pane:not([hidden])').evaluate(e => getComputedStyle(e).animationName), 'none');
   await open('navigation');
   await panel('会话导航');
-  await nav.locator('nav button').nth(4).click();
+  await turn(5).click();
   await page.waitForFunction(() => document.querySelector('.conversation-nav-panel [aria-current=location] .nav-turn-number')?.textContent === '5');
   assert.equal(await nav.locator('nav button').first().evaluate(e => getComputedStyle(e).transitionDuration), '0s');
   for (const theme of ['light', 'dark']) {

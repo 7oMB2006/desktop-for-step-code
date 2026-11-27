@@ -16,8 +16,9 @@ export function stepSearchAccount(auth: Auth) {
   const profile = step.profile === 'step' ? 'step_plan' : step.profile ?? (step.type === 'oauth' ? 'step_plan' : 'platform_cn');
   if (typeof profile !== 'string' || !['step_plan', 'step_plan_oversea', 'platform_cn', 'platform_oversea'].includes(profile)) return;
   const mode = profile.startsWith('step_plan') ? 'plan' : 'api';
-  const host = profile.endsWith('_oversea') ? 'api.stepfun.ai' : 'api.stepfun.com';
-  return { mode, key: credential.trim(), url: `https://${host}${mode === 'plan' ? '/step_plan' : ''}/v1/mcp/web_search/mcp` } as const;
+  const region = profile.endsWith('_oversea') ? 'oversea' : 'cn';
+  const host = region === 'oversea' ? 'api.stepfun.ai' : 'api.stepfun.com';
+  return { mode, region, key: credential.trim(), url: `https://${host}${mode === 'plan' ? '/step_plan' : ''}/v1/mcp/web_search/mcp` } as const;
 }
 
 function instance(value: string) {
@@ -61,9 +62,10 @@ function savedOrder(value: Config, step?: 'plan' | 'api'): WebSearchProvider[] {
 
 export function webSearchSettings(auth: Auth): WebSearchSettings {
   const value = config(auth);
-  const step = stepSearchAccount(auth)?.mode;
+  const account = stepSearchAccount(auth);
+  const step = account?.mode;
   return {
-    revision: value.revision, enabled: value.enabled, fallback: value.fallback, step,
+    revision: value.revision, enabled: value.enabled, fallback: value.fallback, step, stepRegion: account?.region,
     order: savedOrder(value, step).filter(id => id !== 'step' || stepEnabled(value, step)),
     configured: webSearchIds.filter(id => id === 'step' ? step !== undefined : Boolean(value.credentials[id])),
     instance: value.credentials.searxng,

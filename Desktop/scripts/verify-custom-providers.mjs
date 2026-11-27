@@ -11,6 +11,8 @@ import { submitSessionFixture, waitForSessionFixtureSnapshot, waitForSessionFixt
 import { closeDesktopFixtureAndWait } from './close-desktop-fixture.mjs';
 
 const profile = await mkdtemp(join(tmpdir(), 'desktop-custom-providers-'));
+const releaseCommand = join(profile, 'release-provider-background-command');
+const backgroundPrompt = 'Hold an idle background command';
 await writeFile(join(profile, 'preferences.json'), JSON.stringify({ language: 'zh', theme: 'dark', workspaces: [] }));
 await mkdir(join(profile, 'step-runtime'), { recursive: true });
 await writeFile(join(profile, 'step-runtime/config.toml'), 'permissionPreset = "approve-for-me"\n[telemetry]\nenabled = false\n[mcp_servers.steppage__steppage]\nenabled = false\n');
@@ -85,6 +87,18 @@ const server = createServer(async (req, res) => {
       send({ tool_calls: [{ index: 0, id: 'provider-task-list', type: 'function', function: { name: tool.function.name, arguments: '{}' } }] });
       send({}, 'tool_calls'); res.end('data: [DONE]\n\n'); return;
     }
+    const latestUser = body.messages.findLast(message => message.role === 'user');
+    if (textOfMessage(latestUser ?? {}) === backgroundPrompt
+      && !body.messages.some(message => message.tool_call_id === 'provider-background-command')) {
+      assert.ok(body.tools.some(tool => tool.function?.name === 'run_command'));
+      const marker = Buffer.from(releaseCommand).toString('base64');
+      const child = `const fs=require("node:fs"),path=Buffer.from("${marker}","base64").toString();let t=setInterval(()=>{if(fs.existsSync(path))process.exit(0)},50);setTimeout(()=>clearInterval(t),20000);`;
+      const node = JSON.stringify(process.execPath.replaceAll('\\', '/'));
+      send({ tool_calls: [{ index: 0, id: 'provider-background-command', type: 'function', function: { name: 'run_command',
+        arguments: JSON.stringify({ command: `${node} -e '${child}'`, run_in_background: true }),
+      } }] });
+      send({}, 'tool_calls'); res.end('data: [DONE]\n\n'); return;
+    }
     if (hold) await new Promise(resolve => { release = resolve; });
     send({ content: 'Custom provider fixture reply.' });
     send({}, 'stop');
@@ -143,8 +157,22 @@ try {
   const subscriptionChoice = variants.getByRole('button', { name: /Kimi Code 国内.*套餐/ });
   assert.deepEqual(await dialog.boundingBox(), shell, 'picker uses the same settings shell');
   assert.deepEqual(await presets.locator('[data-preset-brand]').evaluateAll(tiles => tiles.map(tile => tile.dataset.presetBrand)),
-    ['deepseek', 'kimi', 'zhipu', 'bailian', 'minimax', 'openai', 'anthropic', 'gemini', 'siliconflow', 'ark']);
+    ['stepfun', 'deepseek', 'kimi', 'zhipu', 'bailian', 'minimax', 'openai', 'anthropic', 'gemini', 'siliconflow', 'ark']);
   await page.waitForFunction(() => [...document.querySelectorAll('.provider-preset-tile img')].every(img => img.naturalWidth > 0));
+  const stepfun = presets.locator('[data-preset-brand="stepfun"]');
+  const stepfunChoices = presets.locator('.provider-preset-variants[aria-labelledby$="-stepfun-name"]');
+  await assertFocusVisible(page, stepfun, 'StepFun tile');
+  await page.keyboard.press('Enter');
+  for (const [region, host] of [['中国大陆', 'api.stepfun.com'], ['海外', 'api.stepfun.ai']]) {
+    const choice = stepfunChoices.getByRole('button', { name: new RegExp(`^阶跃开放平台（${region}）.*按量$`) });
+    await assertFocusVisible(page, choice, `StepFun ${region}`);
+    await page.keyboard.press('Enter');
+    assert.equal(await input('Base URL').inputValue(), `https://${host}/v1`);
+    assert.match(await format.textContent(), /^Chat Completions/);
+    assert.equal(await input('API Key').inputValue(), '');
+    await page.getByRole('button', { name: '返回供应商预设' }).press('Enter');
+    await assertFocusVisible(page, stepfun, 'return to StepFun tile', { focus: false });
+  }
   assert.equal(await variants.evaluate(el => el.inert), true);
   assert.equal(await variants.evaluate(el => getComputedStyle(el).transitionDuration), '0.24s, 0.24s');
   await assertFocusVisible(page, kimi, 'Kimi tile');
@@ -454,60 +482,51 @@ try {
   await page.locator(`.session-row[data-reorder-id="${sessionId}"] > button:first-child`).click();
   state = await waitFor(s => s.state?.sessionId === sessionId && s.status === 'connected');
   assert.equal(state.state.thinkingLevel, 'ultra', 'Ultra survives relaunch and explicit session restore');
-  const runtimeRoot = await app.evaluate(({ app }) => app.isPackaged ? process.resourcesPath : process.cwd());
-  const manifest = JSON.parse(await readFile(join(runtimeRoot, 'runtime', 'manifest.json'), 'utf8'));
-  const protectBackgroundCommands = manifest.patches?.includes('desktop-background-command-state') === true;
   hold = true;
   const prompt = page.getByRole('textbox', { name: '消息', exact: true });
   await prompt.fill('Hold this response');
   await submitSessionFixture(page, () => prompt.press('Enter'));
   await waitFor(s => s.state?.isStreaming && typeof release === 'function');
+  await prompt.fill('Queued before saving provider');
+  await prompt.press('Enter');
+  await waitFor(s => s.pendingMessages?.length === 1);
   const oldRuntime = await snapshot();
   const beforeProjection = await readFile(join(profile, 'step-runtime/models.json'), 'utf8');
-  const latestName = protectBackgroundCommands ? '任务结束后保存的供应商' : '运行中再次保存的供应商';
+  const latestName = '运行中再次保存的供应商';
   await settings();
   await page.getByLabel('名称', { exact: true }).fill('运行中保存的供应商');
   assert.equal(await page.getByRole('button', { name: '保存', exact: true }).isEnabled(), true);
   await page.getByRole('button', { name: '保存', exact: true }).click();
-  if (protectBackgroundCommands) {
-    await page.locator('.provider-error[role="alert"]').filter({ hasText: '正在运行或有排队消息的会话需先结束' }).waitFor();
-    await assert.rejects(page.evaluate(id => window.desktop.deleteProvider(id), restored.id),
-      /Wait for the current session task to finish/);
-  } else {
-    await page.getByText('已保存，待任务空闲后应用', { exact: true }).waitFor();
-  }
+  await page.getByText('已保存，待任务空闲后应用', { exact: true }).waitFor();
   const pending = await snapshot();
-  assert.equal(Boolean(pending.providerSettingsPending), !protectBackgroundCommands);
+  assert.equal(pending.providerSettingsPending, true);
+  assert.equal(pending.pendingMessages.length, 1);
   assert.equal(pending.runtimeId, oldRuntime.runtimeId);
   assert.equal(pending.state.sessionId, oldRuntime.state.sessionId);
   assert.equal(pending.state.isStreaming, true);
   assert.equal(await readFile(join(profile, 'step-runtime/models.json'), 'utf8'), beforeProjection,
     'in-flight parent and child model projection remains untouched');
   assert.equal((await page.evaluate(() => window.desktop.settings())).providers[0].name,
-    protectBackgroundCommands ? restored.name : '运行中保存的供应商');
-  if (!protectBackgroundCommands) {
-    const updated = await page.evaluate(({ provider, name }) =>
-      window.desktop.saveProvider({ ...provider, name }), { provider: restored, name: latestName });
-    assert.equal(updated.providerSettingsPending, true);
-    const addedId = await page.evaluate(async p => {
-      await window.desktop.saveProvider({ ...p, id: '', name: '运行中新增供应商' }, 'isolated-extra-fixture');
-      return (await window.desktop.settings()).providers.find(provider => provider.name === '运行中新增供应商').id;
-    }, restored);
-    assert.equal((await snapshot()).models.some(model => model.provider === addedId), false,
-      'a saved addition does not alter an in-flight registry');
-    const removed = await page.evaluate(id => window.desktop.deleteProvider(id), addedId);
-    assert.equal(removed.providerSettingsPending, true, 'pending additions can be removed without stopping the agent');
-    assert.equal(removed.runtimeId, oldRuntime.runtimeId);
-    assert.equal(await readFile(join(profile, 'step-runtime/models.json'), 'utf8'), beforeProjection);
-  }
+    '运行中保存的供应商');
+  const updated = await page.evaluate(({ provider, name }) =>
+    window.desktop.saveProvider({ ...provider, name }), { provider: restored, name: latestName });
+  assert.equal(updated.providerSettingsPending, true);
+  const addedId = await page.evaluate(async p => {
+    await window.desktop.saveProvider({ ...p, id: '', name: '运行中新增供应商' }, 'isolated-extra-fixture');
+    return (await window.desktop.settings()).providers.find(provider => provider.name === '运行中新增供应商').id;
+  }, restored);
+  assert.equal((await snapshot()).models.some(model => model.provider === addedId), false,
+    'a saved addition does not alter an in-flight registry');
+  const removed = await page.evaluate(id => window.desktop.deleteProvider(id), addedId);
+  assert.equal(removed.providerSettingsPending, true, 'pending additions can be removed without stopping the agent');
+  assert.equal(removed.runtimeId, oldRuntime.runtimeId);
+  assert.equal(await readFile(join(profile, 'step-runtime/models.json'), 'utf8'), beforeProjection);
   hold = false; release();
-  if (protectBackgroundCommands) {
-    await waitFor(s => !s.state?.isStreaming);
-    await page.getByLabel('名称', { exact: true }).fill(latestName);
-    await page.getByRole('button', { name: '保存', exact: true }).click();
-    await page.getByText('已保存', { exact: true }).waitFor();
-  }
   const applied = await waitFor(s => !s.state?.isStreaming && !s.providerSettingsPending);
+  assert.equal(applied.pendingMessages.length, 0);
+  assert.ok(requests.some(({ body, keyMatches }) => keyMatches && body.messages?.some(message =>
+    message.role === 'user' && textOfMessage(message) === 'Queued before saving provider')),
+    'the queued turn still reaches the original route');
   assert.equal(applied.runtimeId, oldRuntime.runtimeId, 'idle reload keeps renderer runtime identity');
   assert.equal(applied.state.sessionId, oldRuntime.state.sessionId);
   assert.equal(applied.models.find(m => m.provider === provider.id)?.providerName, latestName);
@@ -515,6 +534,23 @@ try {
     'the held response finishes normally and survives reload');
   await page.locator('.settings-dialog > header').getByRole('button', { name: /^(?:Close|\u5173\u95ed)$/u }).click();
   await page.locator('.settings-backdrop').waitFor({ state: 'detached' });
+  const runtimeRoot = await app.evaluate(({ app }) => app.isPackaged ? process.resourcesPath : process.cwd());
+  const manifest = JSON.parse(await readFile(join(runtimeRoot, 'runtime', 'manifest.json'), 'utf8'));
+  if (manifest.patches?.includes('desktop-background-command-state')) {
+    await prompt.fill(backgroundPrompt);
+    await submitSessionFixture(page, () => prompt.press('Enter'));
+    const background = await waitFor(s => !s.state?.isStreaming && s.state?.desktopBackgroundCommands?.count === 1);
+    const before = await readFile(join(profile, 'step-runtime/models.json'), 'utf8');
+    const name = '保存后等待后台命令结束';
+    const pending = await page.evaluate(({ provider, name }) => window.desktop.saveProvider({ ...provider, name }), { provider: restored, name });
+    assert.equal(pending.providerSettingsPending, true);
+    assert.equal(pending.state.desktopBackgroundCommands.count, 1);
+    assert.equal(await readFile(join(profile, 'step-runtime/models.json'), 'utf8'), before);
+    await writeFile(releaseCommand, '');
+    const applied = await waitFor(s => !s.providerSettingsPending);
+    assert.equal(applied.runtimeId, background.runtimeId);
+    assert.equal(applied.models.find(m => m.provider === provider.id)?.providerName, name);
+  }
   await settings();
   const beforeDisable = await snapshot();
   const requestsBeforeDisable = requests.length;
@@ -704,10 +740,7 @@ try {
     'the provider removal to persist');
   assert.equal((await snapshot()).models.some(m => m.provider === provider.id), false);
   assert.deepEqual(errors, []);
-  const runningMutations = protectBackgroundCommands
-    ? 'guarded running save/remove and successful retry when idle'
-    : 'running save/add/remove and deferred idle application';
-  console.log(`Custom provider UI, three wire protocols with and without authentication, real tool invocation, secure persistence, ${runningMutations}, stable identity, rename, relaunch, disable, rejected save and removal passed. Local HTTP fixtures only.`);
+  console.log('Custom provider UI, three wire protocols, secure persistence, running save/add/remove, queue drain and deferred application, relaunch, disable, rejected save and removal passed. Local HTTP fixtures only.');
 } catch (error) {
   if (page && !page.isClosed()) {
     await page.screenshot({ path: 'test-results/custom-providers-failure.png' }).catch(() => {});
@@ -715,6 +748,7 @@ try {
   throw error;
 } finally {
   hold = false; release?.();
+  await writeFile(releaseCommand, '').catch(() => {});
   server.closeAllConnections();
   if (app && page && !page.isClosed()) {
     await page.evaluate(async () => {

@@ -190,6 +190,7 @@ const bridge: DesktopBridge = {
   systemTheme: () => ipcRenderer.invoke('desktop-system-theme'),
   newIndependentSession: () => invoke('newIndependentSession'), openSessionFolder: () => invoke('openSessionFolder'), openWorkspaceFolder: path => invoke('openWorkspaceFolder', path),
   snapshot: () => invoke('snapshot'), chooseWorkspace: () => invoke('chooseWorkspace'), workspace: path => invoke('workspace', path),
+  contextMessages: (runtimeId, sessionId) => invoke('contextMessages', runtimeId, sessionId),
   removeWorkspace: path => invoke('removeWorkspace', path), relocateWorkspace: path => invoke('relocateWorkspace', path),
   moveSessionToProject: (id, destination) => invoke('moveSessionToProject', id, destination),
   beginSession: (workspace, resume) => invoke('beginSession', workspace, resume),

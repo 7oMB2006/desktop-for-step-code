@@ -48,7 +48,7 @@ function Harness() {
         {language === 'en' ? 'Third-party model' : '第三方模型'}</label>
     </section>
     <div className="usage-estimates-context"><ContextPanel title={language === 'en' ? 'Review streaming behaviour' : '检查消息续流'}
-      messages={[]} estimate={estimate} state={{ isStreaming: false, model: { id: 'step-5-preview', name: 'Step 5 Preview', provider: custom ? 'desktop-custom-example' : 'step' } }}
+      estimate={estimate} state={{ isStreaming: false, model: { id: 'step-5-preview', name: 'Step 5 Preview', provider: custom ? 'desktop-custom-example' : 'step' } }}
       stats={{ toolCalls: 6, assistantMessages: 15, tokens: { input: 386871, cacheRead: 1142528, cacheWrite: 0, output: 17987, total: 1547386 },
         contextUsage: { percent: 16.2, tokens: 162000, contextWindow: 1000000 } }}
       language={language} busy={false} connected expanded={expanded} onToggleExpanded={() => setExpanded(!expanded)} onClose={() => {}}

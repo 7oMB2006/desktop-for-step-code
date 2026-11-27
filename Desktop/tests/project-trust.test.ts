@@ -25,7 +25,7 @@ async function fixture(t: TestContext, beforeRequest?: (type: string) => Promise
       calls.push(type);
       await beforeRequest?.(type);
       if (type === 'get_state') return { sessionId: 'trust-test', isStreaming: false };
-      if (type === 'get_messages') return { messages: [] };
+      if (type === 'get_entries') return { entries: [], leafId: null };
       if (type === 'get_available_models') return { models: [] };
       return {};
     },
@@ -105,7 +105,7 @@ for (const phase of ['before command', 'during approval'] as const) {
     let hold = false;
     let release!: () => void;
     const blocked = new Promise<void>(resolve => { release = resolve; });
-    const f = await fixture(t, type => hold && type === 'get_messages' ? blocked : undefined);
+    const f = await fixture(t, type => hold && type === 'get_entries' ? blocked : undefined);
     hold = true;
     let reading = phase === 'before command' ? f.pool.read(f.worker) : undefined;
     t.after(release);
@@ -145,7 +145,7 @@ test('a snapshot cannot mask an additional operation starting during trust appro
   const blocked = new Promise<void>(resolve => { release = resolve; });
   const original = f.worker.rpc.request;
   f.worker.rpc.request = async (type, ...args) => {
-    if (type === 'get_messages') await blocked;
+    if (type === 'get_entries') await blocked;
     return original(type, ...args);
   };
   const reading = f.pool.read(f.worker);

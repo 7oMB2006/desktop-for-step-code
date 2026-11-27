@@ -1291,7 +1291,13 @@ function App() {
         });
         return;
       }
-      if (event.type === 'desktop_sessions_changed') { void run(refresh); return; }
+      if (event.type === 'desktop_sessions_changed') {
+        void run(async () => {
+          await refresh();
+          setStatusRevision(value => value + 1);
+        });
+        return;
+      }
       if (event.sessionId && ['desktop_model_selection', 'desktop_history', 'message_start', 'message_update', 'message_end', 'tool_execution_update', 'tool_execution_end'].includes(event.type)) {
         readingCache.current.delete(event.sessionId);
       }
@@ -1344,7 +1350,7 @@ function App() {
         setRequests(previous => previous.filter(request => request.id !== event.id));
       }
       if (event.type === 'agent_start') setBusy(true);
-      if (['live_context', 'auto_clm_end', 'agent_end', 'desktop_history'].includes(event.type)) setStatusRevision(value => value + 1);
+      if (['live_context', 'compaction_end', 'auto_compaction_end', 'auto_clm_end', 'agent_end', 'agent_settled', 'desktop_history'].includes(event.type)) setStatusRevision(value => value + 1);
       if (['compaction_start', 'compaction_end', 'auto_compaction_start', 'auto_clm_start', 'auto_compaction_end', 'auto_clm_end'].includes(event.type))
         setData(d => ({ ...d, state: d.state ? { ...d.state, isCompacting: event.type.endsWith('_start') } : d.state }));
       if ((event.type === 'agent_end' && !event.desktopRecoveryPending || event.desktopRecoverySettled) && !event.desktopReviewPending
@@ -2981,7 +2987,7 @@ function App() {
         </aside>
       </div>}
       {visibleRightPanel === 'context' && !details && <div className={`summary-region context-region right-inspector-surface${inspectorExpanded ? ' is-expanded' : ''}`}>
-        <ContextPanel key={data.state?.sessionId ?? data.runtimeId ?? 'empty'} messages={data.messages} stats={data.stats} state={data.state} estimate={data.estimate}
+        <ContextPanel key={data.state?.sessionId ?? data.runtimeId ?? 'empty'} stats={data.stats} state={data.state} estimate={data.estimate}
           snapshot={{ ...data, requests }} runtimeRevision={statusRevision} view={contextView} onView={setRightPanel}
           title={activeTitle} language={data.preferences.language} busy={busy} connected={connected} onClose={closeRightPanel}
           expanded={inspectorExpanded} onToggleExpanded={() => setExpandedRightPanel(inspectorExpanded ? null : 'context')}
@@ -3145,7 +3151,7 @@ function App() {
         onOpen={async id => { const session = (await bridge.sessions()).find(item => item.id === id); if (!session) throw new Error('Imported session is unavailable'); finishSettingsClose(); await navigateSession(session); }}/>
       : tab === 'about' ? <AboutSettings bridge={bridge} state={appUpdate} preferences={data.preferences} onPreferences={setPreference}/>
       : tab === 'general' ? <>{bridge && <><CompactionSettings bridge={bridge} language={data.preferences.language} models={data.models} model={data.state?.model}/><SpeechSettings bridge={bridge} language={data.preferences.language}/><NetworkSettings bridge={bridge} language={data.preferences.language} busy={anyBusy || busy}/></>}<h3>{t('语言', 'Language')}</h3><label data-settings-anchor="language">{t('语言', 'Language')}<DisclosureSelect aria-label={t('语言', 'Language')} value={data.preferences.language} onChange={e => void setPreference({ language: e.target.value })}><option value="zh">简体中文</option><option value="en">English</option></DisclosureSelect></label><h3>{t('诊断', 'Diagnostics')}</h3><button data-settings-anchor="diagnostics" onClick={() => void run(() => bridge!.diagnostics())}><Download size={15}/>{t('导出脱敏诊断', 'Export diagnostics')}</button></> : !settings ? <p>{t('加载中…', 'Loading…')}</p> : tab === 'providers' ? <ProviderSettings language={data.preferences.language} providers={settings.providers ?? []} pending={data.providerSettingsPending}
-        onDiscover={(provider, key) => bridge!.discoverProviderModels(provider, key)}
+        applyFailed={data.providerApplyFailed} onDiscover={(provider, key) => bridge!.discoverProviderModels(provider, key)}
         onTest={(provider, modelId, key) => bridge!.testProvider(provider, modelId, key)}
         onCancelTest={() => bridge!.cancelProviderTest()}
         onCopyDiagnostic={text => bridge!.copyText(text)}

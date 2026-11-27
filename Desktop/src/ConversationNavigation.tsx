@@ -92,9 +92,9 @@ export function ConversationNavigationPanel({ open, replaced, overlay, turns, sc
         <button type="button" className="icon-button" aria-label={zh ? '关闭侧栏' : 'Close panel'}
           data-tooltip={zh ? '关闭侧栏' : 'Close panel'} onClick={onClose}><X size={16}/></button></header>
       <nav aria-label={zh ? '会话轮次' : 'Conversation turns'}>
-        {turns.map((turn, number) => <button key={turn.index} type="button"
+        {[...turns].reverse().map((turn, number) => <button key={turn.index} type="button"
           aria-current={turn.index === readingIndex ? 'location' : undefined} onClick={() => onSelect(turn.index)}>
-          <span className="nav-turn-number">{number + 1}</span><span className="nav-turn-content"><span className="nav-turn-preview">{turn.preview}</span>
+          <span className="nav-turn-number">{turns.length - number}</span><span className="nav-turn-content"><span className="nav-turn-preview">{turn.preview}</span>
             {turnTime(turn.timestamp, language) && <time className="nav-turn-time" dateTime={new Date(turn.timestamp!).toISOString()}>{turnTime(turn.timestamp, language)}</time>}
           </span>
         </button>)}

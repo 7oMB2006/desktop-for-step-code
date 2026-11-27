@@ -1,7 +1,7 @@
 import type { ProviderApi, ProviderInfo } from './contracts';
 import { resolveCatalogProvider } from './provider-catalog';
 
-export type ProviderBrandId = 'deepseek' | 'kimi' | 'zhipu' | 'bailian' | 'minimax' | 'openai' | 'anthropic' | 'gemini' | 'siliconflow' | 'ark';
+export type ProviderBrandId = 'stepfun' | 'deepseek' | 'kimi' | 'zhipu' | 'bailian' | 'minimax' | 'openai' | 'anthropic' | 'gemini' | 'siliconflow' | 'ark';
 export type ProviderBilling = 'usage' | 'subscription';
 export const providerBillingLabels: Record<ProviderBilling, readonly [string, string]> = {
   usage: ['按量', 'Pay as you go'],
@@ -26,6 +26,16 @@ type Preset = {
 const miniMaxUrl = 'https://api.minimax.cn/v1';
 
 export const providerPresets: readonly Preset[] = [
+  {
+    id: 'stepfun-api-cn', brand: 'stepfun', name: ['阶跃开放平台（中国大陆）', 'StepFun Open Platform (Mainland China)'],
+    label: ['中国大陆 · 开放平台 API Key', 'Mainland China · Open Platform API key'], billing: 'usage', officialApiOnly: true,
+    baseUrl: 'https://api.stepfun.com/v1', api: 'openai-completions',
+  },
+  {
+    id: 'stepfun-api-global', brand: 'stepfun', name: ['阶跃开放平台（海外）', 'StepFun Open Platform (International)'],
+    label: ['海外 · 开放平台 API Key', 'International · Open Platform API key'], billing: 'usage', officialApiOnly: true,
+    baseUrl: 'https://api.stepfun.ai/v1', api: 'openai-completions',
+  },
   {
     id: 'deepseek-api', brand: 'deepseek', name: ['DeepSeek', 'DeepSeek'], label: ['开放平台 · 按量', 'API · Pay as you go'], billing: 'usage',
     baseUrl: 'https://api.deepseek.com', api: 'openai-completions', recommendations: ['deepseek-flash', 'deepseek-v4-pro'],

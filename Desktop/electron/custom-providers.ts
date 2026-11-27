@@ -8,7 +8,7 @@ import { enrichDiscoveredModel, officialModelCapabilities, officialResponsesRequ
 import type { CustomProvider, ProviderInfo, Model, ProviderApi, DiscoveredProviderModel } from '../src/contracts';
 import { catalogProviders, resolveCatalogProvider } from '../src/provider-catalog';
 import { providerBrandFor, providerCredentialIssue, providerPresetFor, sameProviderCredentialScope } from '../src/provider-presets';
-import { THINKING_LEVELS, stringSubset, modelListing, parseModelListing, readModelJson, isArkChatModel } from './provider-discovery';
+import { THINKING_LEVELS, stringSubset, modelListing, parseModelListing, readModelJson, isArkChatModel, isStepFunChatModel } from './provider-discovery';
 import type { ModelCatalog } from './model-catalog';
 export { THINKING_LEVELS, discoverModelMetadata } from './provider-discovery';
 
@@ -50,7 +50,8 @@ export async function discoverProviderModels(auth: AuthData, raw: unknown, key?:
       await response.body?.cancel();
       throw new Error(`Model discovery HTTP ${response.status}`);
     }
-    const models = parseModelListing(await readModelJson(response, 2 * 1024 * 1024), brand === 'ark' ? isArkChatModel : undefined)
+    const include = brand === 'ark' ? isArkChatModel : brand === 'stepfun' ? isStepFunChatModel : undefined;
+    const models = parseModelListing(await readModelJson(response, 2 * 1024 * 1024), include)
       .map(model => enrichDiscoveredModel(p.baseUrl, p.api, model));
     return catalog ? await catalog.enrich(p, models) : models;
   } catch (error) {

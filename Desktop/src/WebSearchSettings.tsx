@@ -69,9 +69,14 @@ export function WebSearchSettings({ bridge, language, onAccount }: {
   const configured = Boolean(id && settings?.configured.includes(id));
   const dirty = Boolean(id && settings && (form.enabled !== settings.order.includes(id)
     || form.credential !== (id === 'searxng' ? settings.instance ?? '' : '')));
-  const note = (provider: WebSearchProvider) => provider === 'step'
-    ? settings?.step === 'api' ? t('阶跃开放平台 · 按量', 'Step Open Platform · Pay as you go') : 'Step Plan'
-    : webSearchProviders[provider].note[index];
+  const stepRegion = settings?.stepRegion === 'cn' ? t('中国大陆', 'Mainland China')
+    : settings?.stepRegion === 'oversea' ? t('海外', 'International') : undefined;
+  const stepNote = settings?.step ? [
+    settings.step === 'api' ? t('阶跃开放平台', 'Step Open Platform') : 'Step Plan',
+    stepRegion,
+    settings.step === 'api' ? t('按量', 'Pay as you go') : undefined,
+  ].filter(Boolean).join(' · ') : t('未登录阶跃账号', 'Not signed in to Step');
+  const note = (provider: WebSearchProvider) => provider === 'step' ? stepNote : webSearchProviders[provider].note[index];
 
   function open(target: View, force = false) {
     if (!settings || saving || target === view) return;
@@ -209,8 +214,9 @@ export function WebSearchSettings({ bridge, language, onAccount }: {
         event.preventDefault();
         void save({ action: 'service', id, enabled: form.enabled, credential: form.credential.trim() || undefined });
       }}>
-        {id === 'step' ? <div className="web-search-policy-row"><strong>{note(id)}</strong><small>
-          {configured ? t('使用当前账户凭据', 'Use current account credentials') : t('未登录阶跃账号', 'Not signed in to Step')}</small>
+        {id === 'step' ? <div className="web-search-policy-row"><div>
+          <strong>{configured ? t('跟随当前账户', 'Follows the current account') : stepNote}</strong>
+          {configured && <small>{stepNote}</small>}</div>
           {!configured && <button type="button" onClick={onAccount}>{t('前往账户设置', 'Open account settings')}</button>}</div>
           : <label>{id === 'searxng' ? t('实例地址', 'Instance URL') : 'API Key'}
             <input type={id === 'searxng' ? 'url' : 'password'} autoComplete="off" spellCheck={false} maxLength={2048}

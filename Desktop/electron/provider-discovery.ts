@@ -55,6 +55,11 @@ export function isArkChatModel(entry: Record<string, unknown>): boolean {
     && (output === undefined || (Array.isArray(output) && output.includes('text')));
 }
 
+export function isStepFunChatModel(entry: Record<string, unknown>): boolean {
+  const type = entry.model_type;
+  return typeof type !== 'string' || !type.trim() || type === '大语言模型' || type === '路由模型';
+}
+
 export function parseModelListing(body: unknown, include?: (entry: Record<string, unknown>) => boolean): DiscoveredProviderModel[] {
   const payload = object(body);
   const rows: { key?: string; value: unknown }[] = Array.isArray(body) ? body.map(value => ({ value }))

@@ -5,7 +5,8 @@ import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { gunzipSync } from 'node:zlib';
 import { mkdtemp, removeTestProfile } from '../scripts/test-profile.mjs';
-import { feedbackRequestsOnBranch, messagesWithEntryIds, type HistoryEntry } from '../electron/session-branching';
+import { feedbackRequestsOnBranch, type HistoryEntry } from '../electron/session-branching';
+import { sessionTranscript } from '../electron/session-transcript';
 import { feedbackHistory } from '../electron/feedback-history';
 import { defaultFeedbackPath, feedbackDirectory, FeedbackPreview, feedbackReport } from '../electron/feedback-export';
 import type { Message } from '../src/contracts';
@@ -190,7 +191,7 @@ test('three recorded errors share one tool call; a matching result is not a four
   custom('request2', 'step.usage_provenance', { usageEntryId: 'reply', requestId: 'actual-success', statusCode: 200,
     outcome: 'ok', sessionId: 'A', originSessionId: 'A' });
   custom(leaf, 'step.turn', { phase: 'end', turnId: 'my-turn', outcome: 'completed' });
-  const messages = messagesWithEntryIds(path.flatMap(row => row.message ? [row.message] : []), path, leaf);
+  const messages = sessionTranscript(path, leaf);
   const raw = feedbackReport(options, messages, context, feedbackHistory([
     ...path, { id: 'sibling', parentId: 'end1', type: 'custom', customType: 'step.tool_execution',
       data: { version: 1, toolCallId: 'exact-call', phase: 'end', endedAt: 999, outcome: 'blocked' } } as HistoryEntry,

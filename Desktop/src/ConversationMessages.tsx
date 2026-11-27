@@ -45,7 +45,7 @@ import type { ApprovedPlan, PlanExecutionState } from './plan-execution';
 import { PlanExecution } from './PlanExecution';
 import { normalizeInterfaceSettings, type InterfacePreferences } from './interface-presets';
 import { groupConsecutiveTools, toolGroupLabel, type ToolItem } from './tool-groups';
-import { groupProcesses, hideOrdinaryProcess, liveThinkingKey, processGroupSummary, settledTurnProcess, thinkingPreview, type ProcessGroup as ProcessGroupData } from './process-groups';
+import { groupProcesses, hideOrdinaryProcess, liveThinkingKey, processFailureLabel, processGroupSummary, settledTurnProcess, thinkingPreview, type ProcessGroup as ProcessGroupData } from './process-groups';
 import './tool-groups.css';
 import { QuestionTool } from './QuestionTool';
 import { useAnimatedDisclosure } from './useAnimatedDisclosure';
@@ -446,8 +446,8 @@ function ProcessGroup({ group, stateKey, children, ...props }: { group: ProcessG
   return <section className={`process-tool-group compact-process${group.running ? ' running' : ''}`} data-message-index={group.index} data-single={single}>
     <button ref={trigger} hidden={single && !focused} onFocus={() => setFocused(true)} onBlur={() => setFocused(false)}
       type="button" className="tool-group-trigger" aria-expanded={open} aria-controls={id} onClick={() => setExpanded(value => !value)}>
-      {group.running ? runningTool ? <Wrench size={14}/> : <Brain size={14}/>
-        : group.failedToolKeys.size ? <Wrench size={14}/> : <Check size={14}/>}
+      {group.failedToolKeys.size ? <CircleAlert size={14} aria-hidden="true"/>
+        : group.running ? runningTool ? <Wrench size={14}/> : <Brain size={14}/> : <Check size={14}/>}
       <ProcessRowLabel label={label} running={group.running}/>
       <span className="tool-group-chevron"><DisclosureChevron/></span>
       {!open && detail && <span className="process-group-preview">{detail}</span>}
@@ -636,7 +636,7 @@ function HistoricalAgents({ count, stateKey, language, children, onLayoutChange 
         {round && <button type="button" className="tool-group-trigger turn-process-trigger" aria-expanded={roundOpen}
           aria-controls={presentation.flatMap(item => item.type !== 'tool-group' && isFoldable(item) ? [slotId(item.key)] : []).join(' ')}
           onClick={() => setRoundOpen(!roundOpen)}>
-          <span>{zh ? '用时 ' : 'Worked for '}{formatElapsedDuration(round.duration, props.language)}</span>
+          <span>{round.failures > 0 && `${processFailureLabel(round.failures, props.language)} · `}{zh ? '用时 ' : 'Worked for '}{formatElapsedDuration(round.duration, props.language)}</span>
           <span className="tool-group-chevron"><DisclosureChevron/></span>
         </button>}
         {presentation.map(item =>

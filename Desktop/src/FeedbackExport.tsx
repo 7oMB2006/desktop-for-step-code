@@ -152,7 +152,10 @@ function FeedbackSummary({ report, content, zh }: { report: FeedbackReport; cont
       </dl>}
       {summary.optionalText === 'excluded' && <p>{t('未包含会话正文或错误文本片段。', 'No conversation or error text excerpts included.')}</p>}
       {summary.optionalText === 'not_recorded' && <p>{t('未记录所选类型的文本片段。', 'No text was recorded for the selected excerpt types.')}</p>}
-      {summary.optionalText === 'redaction_limit' && <p>{t('超出脱敏范围，已省略可选文本。', 'Optional text omitted because the redaction limit was reached.')}</p>}
+      {summary.optionalText === 'redaction_limit' && <p>{t(
+        '超出脱敏范围，已隐藏手填说明和可选文本。结构化事件仍保留。',
+        'The redaction limit was reached. Typed notes and optional excerpts are hidden; structured events are still included.',
+      )}</p>}
       {summary.optionalText === 'included' && report.omittedEligibleMessages > 0 &&
         <p>{t(`已截断：另有 ${report.omittedEligibleMessages} 条文本未收录。`, `Truncated: ${report.omittedEligibleMessages} more excerpts omitted.`)}</p>}
       <p>{t('不含完整会话、附件、工作区文件、环境变量或原始日志。', 'Full sessions, attachments, workspace files, environment variables, and raw logs are excluded.')}</p>

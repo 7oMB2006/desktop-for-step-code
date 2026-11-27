@@ -58,24 +58,18 @@ function excerpt(redactor: BoundedSecretRedactor, value: string, limit: number, 
 }
 
 function feedbackRedactionScope() {
-  let redactor = createBoundedSecretRedactor();
-  const scanned: string[] = [];
+  const redactor = createBoundedSecretRedactor();
+  let scanned = 0;
   let characters = 0;
   return {
-    get redactor() { return redactor; },
+    redactor,
     collect(fields: Iterable<string>) {
       for (const field of fields) {
         characters += field.length;
-        if (scanned.length >= MAX_REDACTION_FIELDS || field.length > MAX_REDACTION_FIELD
+        if (scanned >= MAX_REDACTION_FIELDS || field.length > MAX_REDACTION_FIELD
           || characters > MAX_REDACTION_CONTEXT) return false;
-        const text = sanitizeTerminalText(field);
-        if (redactor.redact(text).status !== 'ready') {
-          // Restore the bounded, successfully scanned prefix for the manual notes.
-          const recovery = createBoundedSecretRedactor();
-          if (scanned.every(value => recovery.redact(value).status === 'ready')) redactor = recovery;
-          return false;
-        }
-        scanned.push(text);
+        if (redactor.redact(sanitizeTerminalText(field)).status !== 'ready') return false;
+        scanned++;
       }
       return true;
     },
@@ -360,8 +354,8 @@ export function feedbackReport(options: FeedbackOptions, messages: Message[], co
   const optionalRequested = options.conversation || options.tools;
   const candidates = new Map<number, { role: string; value: string }[]>();
   let eligibleMessages = 0;
-  // Scan the explicitly shared notes first. Optional context cannot invalidate
-  // those notes, but any secrets found there still redact echoes in the notes.
+  // Notes can echo a credential declared later in selected context. Release
+  // neither source until the entire opted-in redaction scope has been scanned.
   const redaction = feedbackRedactionScope();
   const notesScanned = redaction.collect([options.expected, options.actual]);
   function* contextFields() {
@@ -388,8 +382,8 @@ export function feedbackReport(options: FeedbackOptions, messages: Message[], co
     recent.push({ role: message.role, value: message.role === 'user' ? attachmentPresentation(text)?.draft ?? text : text });
   }
   const { redactor } = redaction;
-  const expected = feedbackNote(redactor, options.expected, notesScanned);
-  const actual = feedbackNote(redactor, options.actual, notesScanned);
+  const expected = feedbackNote(redactor, options.expected, contextScanned);
+  const actual = feedbackNote(redactor, options.actual, contextScanned);
   const excerpts = [...numbers.values()].flatMap(number => (candidates.get(number) ?? []).map(({ role, value }) => ({
     ...(multi ? { turn: number } : {}), role, ...excerpt(redactor, value, role === 'toolResult' ? 160 : 320, role === 'toolResult'),
   })));

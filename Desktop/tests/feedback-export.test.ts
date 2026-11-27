@@ -150,7 +150,7 @@ End of report` },
   assert.equal(JSON.parse(content).omittedEligibleMessages, 1);
 });
 
-test('optional context limits preserve independently scanned notes and timeline', () => {
+test('optional context limits suppress both notes and excerpts while preserving the timeline', () => {
   const limits: [string, string[]][] = [
     ['single field', ['x'.repeat(32 * 1024 + 1)]],
     ['field count', Array.from({ length: 64 }, () => 'Unverified excerpt')],
@@ -161,14 +161,16 @@ test('optional context limits preserve independently scanned notes and timeline'
     const longTurn: Message[] = [
       { role: 'user', content: 'password=prior-context-value' },
       ...fields.map(content => ({ role: 'assistant' as const, content })),
+      { role: 'assistant', content: 'password=late-context-value' },
       { role: 'toolResult', toolName: 'fixture-tool', timestamp: 1000, isError: true, content: 'Unverified excerpt' },
     ];
-    const reportOptions = { ...options, actual: 'Failed while processing prior-context-value.' };
+    const reportOptions = { ...options, expected: 'Expected no echo of late-context-value.',
+      actual: 'Failed while processing prior-context-value and late-context-value.' };
     const raw = feedbackReport({ ...reportOptions, conversation: true, tools: true }, longTurn, context);
     const expanded = JSON.parse(raw);
-    assert.doesNotMatch(raw, /prior-context-value|fixture-password|Unverified excerpt/, name);
-    assert.deepEqual(expanded.expected, { text: options.expected, truncated: false }, name);
-    assert.match(expanded.actual.text, /^Failed while processing /, name);
+    assert.doesNotMatch(raw, /prior-context-value|late-context-value|fixture-password|Unverified excerpt/, name);
+    assert.deepEqual(expanded.expected, { text: '[redacted]', truncated: true }, name);
+    assert.deepEqual(expanded.actual, { text: '[redacted]', truncated: true }, name);
     assert.equal(expanded.summary.optionalText, 'redaction_limit', name);
     assert.equal(expanded.summary.toolErrors, 1, name);
     assert.deepEqual(expanded.excerpts, [], name);
@@ -439,7 +441,7 @@ test('one bounded redaction scope covers secrets echoed across detailed turns', 
   message('u1', { role: 'user', content: 'API_KEY=synthetic-cross-turn-secret' });
   message('a1', { role: 'assistant', content: 'Early evidence' });
   message('u2', { role: 'user', content: 'Unselected intervening text' });
-  message('a2', { role: 'assistant', content: 'x'.repeat(40000) });
+  message('a2', { role: 'assistant', content: `password=synthetic-unscanned-secret\n${'x'.repeat(40000)}` });
   message('u3', { role: 'user', content: 'Later evidence' });
   message('a3', { role: 'assistant', content: 'Echo: synthetic-cross-turn-secret' });
   const s = snapshot();
@@ -449,10 +451,14 @@ test('one bounded redaction scope covers secrets echoed across detailed turns', 
   assert.match(safe, /Early evidence/);
   assert.match(safe, /Later evidence/);
   assert.doesNotMatch(safe, /synthetic-cross-turn-secret|Unselected intervening text/);
-  const bounded = JSON.parse(feedbackReport({ ...selection, turnKeys: s.turns.map(turn => turn.key) }, s.messages, context, s.history));
+  const raw = feedbackReport({ ...selection, actual: 'Echo: synthetic-unscanned-secret', turnKeys: s.turns.map(turn => turn.key) },
+    s.messages, context, s.history);
+  assert.doesNotMatch(raw, /synthetic-unscanned-secret/);
+  const bounded = JSON.parse(raw);
   assert.equal(bounded.summary.optionalText, 'redaction_limit');
   assert.deepEqual(bounded.excerpts, []);
-  assert.equal(bounded.expected.text, options.expected);
+  assert.deepEqual(bounded.expected, { text: '[redacted]', truncated: true });
+  assert.deepEqual(bounded.actual, { text: '[redacted]', truncated: true });
   assert.equal(bounded.turns.length, 3);
 });
 

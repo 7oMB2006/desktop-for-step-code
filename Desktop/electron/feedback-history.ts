@@ -1,8 +1,10 @@
-import type { FeedbackToolResult, Message } from '../src/contracts';
+import type { FeedbackNotRunReason, FeedbackToolResult, Message } from '../src/contracts';
 import { activeHistory, feedbackRequestsOnPath, type HistoryEntry } from './session-branching';
 
 const toolResults = new Set<unknown>(['ok', 'error', 'timeout', 'aborted', 'denied', 'blocked', 'not_run']);
-type ToolTrace = { at: number; position: number; result: FeedbackToolResult | 'started' };
+const notRunReasons = new Set<FeedbackNotRunReason>(
+  ['aborted_before_start', 'invalid_arguments', 'output_truncated', 'skipped_after_stop', 'tool_not_found']);
+type ToolTrace = { at: number; position: number; result: FeedbackToolResult | 'started'; notRunReason?: FeedbackNotRunReason };
 type ToolCall = { reply: string; traces: ToolTrace[] };
 
 function toolResultIdentity(message: Message) {
@@ -17,7 +19,9 @@ export function feedbackHistory(entries: HistoryEntry[], leafId: string | null, 
   const pendingEnds = new Map<string, FeedbackToolResult>();
   const storedResults = new Map<string, HistoryEntry | null>();
   const steering = new Set<string>();
-  let openTurn: string | undefined;
+  const turnOutcomes = new Map<string, 'aborted' | 'completed' | 'error'>();
+  const turnEnds = new Map<string, string>();
+  let openTurn: { id: string; userEntryId?: string } | undefined;
   const pendingUsers: string[] = [];
 
   for (const item of path) {
@@ -32,14 +36,20 @@ export function feedbackHistory(entries: HistoryEntry[], leafId: string | null, 
     const entry = item as HistoryEntry & { customType?: string; data?: Record<string, unknown> };
     const data = entry.data;
     if (entry.type === 'custom' && entry.customType === 'step.turn' && data?.version === 1 && typeof data.turnId === 'string') {
-      if (data.phase === 'start') { openTurn = data.turnId; pendingUsers.length = 0; }
-      else if (data.phase === 'end' && data.turnId === openTurn) {
+      if (data.phase === 'start') {
+        openTurn = { id: data.turnId, userEntryId: typeof data.userEntryId === 'string' ? data.userEntryId : undefined };
+        pendingUsers.length = 0;
+      } else if (data.phase === 'end' && data.turnId === openTurn?.id) {
+        if (openTurn.userEntryId && (data.outcome === 'aborted' || data.outcome === 'completed' || data.outcome === 'error')) {
+          turnOutcomes.set(openTurn.userEntryId, data.outcome);
+          turnEnds.set(openTurn.userEntryId, entry.id);
+        }
         for (const id of pendingUsers) steering.add(id);
         openTurn = undefined;
         pendingUsers.length = 0;
       }
     }
-    if (item.message?.role === 'user' && openTurn) pendingUsers.push(item.id);
+    if (item.message?.role === 'user' && openTurn && item.id !== openTurn.userEntryId) pendingUsers.push(item.id);
     if (entry.type === 'custom' && entry.customType === 'step.tool_execution' && data?.version === 1 && typeof data.toolCallId === 'string') {
       const call = calls.get(data.toolCallId);
       if (!call || positions.get(call.reply)! >= position) continue;
@@ -49,7 +59,9 @@ export function feedbackHistory(entries: HistoryEntry[], leafId: string | null, 
         pendingEnds.delete(data.toolCallId);
       } else if (data.phase === 'end' && typeof data.endedAt === 'number' && Number.isFinite(data.endedAt) && toolResults.has(data.outcome)) {
         const result = data.outcome as FeedbackToolResult;
-        call.traces.push({ position, at: data.endedAt, result });
+        const reason = data.notRunReason as FeedbackNotRunReason;
+        call.traces.push({ position, at: data.endedAt, result,
+          notRunReason: result === 'not_run' && notRunReasons.has(reason) ? reason : undefined });
         pendingEnds.set(data.toolCallId, result);
       }
     }
@@ -73,7 +85,8 @@ export function feedbackHistory(entries: HistoryEntry[], leafId: string | null, 
     if (stored?.message && JSON.stringify(stored.message.content) === JSON.stringify(message.content))
       resultEntries.set(message, stored.id);
   }
-  return { positions, calls, matchedResults, resultEntries, steering, requests: feedbackRequestsOnPath(path, sessionId) };
+  return { sessionId, entryIds: path.map(entry => entry.id), positions, calls, matchedResults, resultEntries, steering,
+    turnOutcomes, turnEnds, requests: feedbackRequestsOnPath(path, sessionId) };
 }
 
 export type FeedbackHistory = ReturnType<typeof feedbackHistory>;

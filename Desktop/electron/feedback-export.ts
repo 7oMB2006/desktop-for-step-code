@@ -1,8 +1,9 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { lstat, mkdir, mkdtemp, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { gzipSync } from 'node:zlib';
-import type { FeedbackEvent, FeedbackOptions, FeedbackReport, Message } from '../src/contracts';
+import { MAX_FEEDBACK_TURNS, type FeedbackEvent, type FeedbackOptions, type FeedbackReport,
+  type FeedbackTurn, type FeedbackTurnEvidence, type Message } from '../src/contracts';
 import { attachmentPresentation } from '../src/attachment-references';
 import { isUserMessage } from '../src/user-message';
 import { sanitizeTerminalText } from './feedback-upstream/sanitize-terminal.ts';
@@ -17,6 +18,7 @@ const MAX_REDACTION_FIELD = 32 * 1024;
 const MAX_REDACTION_CONTEXT = 128 * 1024;
 const MAX_REDACTION_FIELDS = 64;
 const MAX_EVENTS = 64;
+const MAX_HISTORY_EVENTS = 4 * MAX_FEEDBACK_TURNS;
 
 export function feedbackDirectory(downloads: string) {
   return join(downloads, 'Desktop for Step Code Feedback');
@@ -55,6 +57,35 @@ function excerpt(redactor: BoundedSecretRedactor, value: string, limit: number, 
   return { text: safe.slice(0, end), truncated: safe.length > end };
 }
 
+function feedbackRedactionScope() {
+  let redactor = createBoundedSecretRedactor();
+  const scanned: string[] = [];
+  let characters = 0;
+  return {
+    get redactor() { return redactor; },
+    collect(fields: Iterable<string>) {
+      for (const field of fields) {
+        characters += field.length;
+        if (scanned.length >= MAX_REDACTION_FIELDS || field.length > MAX_REDACTION_FIELD
+          || characters > MAX_REDACTION_CONTEXT) return false;
+        const text = sanitizeTerminalText(field);
+        if (redactor.redact(text).status !== 'ready') {
+          // Restore the bounded, successfully scanned prefix for the manual notes.
+          const recovery = createBoundedSecretRedactor();
+          if (scanned.every(value => recovery.redact(value).status === 'ready')) redactor = recovery;
+          return false;
+        }
+        scanned.push(text);
+      }
+      return true;
+    },
+  };
+}
+
+function feedbackNote(redactor: BoundedSecretRedactor, value: string, scanned: boolean) {
+  return scanned || !value ? excerpt(redactor, value, 1000) : { text: '[redacted]', truncated: true };
+}
+
 function isoTime(value?: number) {
   const date = new Date(value ?? NaN);
   return Number.isFinite(date.getTime()) ? date.toISOString() : null;
@@ -75,22 +106,47 @@ type ToolEvent = Extract<FeedbackEvent, { kind: 'tool' }>;
 type ToolGroup = { name?: string; start: number; finals: number; notable: boolean };
 type Evidence = { position: number; start: number } & (
   { kind: 'model'; message: Message; request?: FeedbackRequestEvidence; result: ModelEvent['result'] } |
-  { kind: 'tool'; call: ToolGroup; at?: number; source: ToolEvent['source']; result: ToolEvent['result'] });
+  { kind: 'tool'; call: ToolGroup; at?: number; source: ToolEvent['source']; result: ToolEvent['result'];
+    notRunReason?: ToolEvent['notRunReason'] });
+
+type TurnScope = {
+  start: number;
+  anchor?: Message;
+  lastEntry?: string;
+  rows: Evidence[];
+  interrupted: boolean;
+  abnormal: boolean;
+  outcome?: FeedbackTurnEvidence['outcome'];
+};
+
+function issue(row: Evidence) {
+  return row.result !== 'started' && row.result !== 'ok' && row.result !== 'reply' && row.result !== 'request';
+}
 
 function evidenceFor(messages: Message[], history?: FeedbackHistory) {
-  let start = 0, position = -1;
+  let scope: TurnScope = { start: 0, rows: [], interrupted: false, abnormal: false };
+  const turns = new Map([[0, scope]]);
+  let position = -1;
   const scopes: number[] = [];
   const visibleEntries = new Set(messages.flatMap(message => message.entryId && message.display !== false ? [message.entryId] : []));
   const evidence: Evidence[] = [];
   const calls = new Map<string, ToolGroup | null>();
   const unlinked = new Map<number, Map<string, ToolGroup>>();
-  const addTool = (call: ToolGroup, result: ToolEvent['result'], source: ToolEvent['source'], order: number, at?: number) => {
+  const addTool = (call: ToolGroup, result: ToolEvent['result'], source: ToolEvent['source'], order: number,
+    at?: number, notRunReason?: ToolEvent['notRunReason']) => {
     if (result !== 'started') call.finals++;
     if (result !== 'started' && result !== 'ok') call.notable = true;
-    evidence.push({ kind: 'tool', call, start: call.start, position: order, at, source, result });
+    evidence.push({ kind: 'tool', call, start: call.start, position: order, at, source, result, notRunReason });
   };
   messages.forEach((message, index) => {
-    if (isUserMessage(message) && !message.desktopSteered && !(message.entryId && history?.steering.has(message.entryId))) start = index;
+    if (isUserMessage(message) && !message.desktopSteered
+      && !(message.entryId && history?.steering.has(message.entryId))) {
+      const anchorPosition = message.entryId ? history?.positions.get(message.entryId) : undefined;
+      if (anchorPosition !== undefined) scope.lastEntry = history?.entryIds[anchorPosition - 1];
+      scope = { start: index, anchor: message, rows: [], abnormal: false, interrupted: false };
+      turns.set(index, scope);
+    }
+    const start = scope.start;
     scopes.push(start);
     const entryId = message.entryId ?? history?.resultEntries.get(message);
     position = (entryId ? history?.positions.get(entryId) : undefined) ?? position + 1 / (messages.length + 1);
@@ -110,6 +166,7 @@ function evidenceFor(messages: Message[], history?: FeedbackHistory) {
       let call = id ? calls.get(id) : undefined;
       const matched = entryId && history?.matchedResults.get(entryId);
       const origin = matched && history?.calls.get(matched);
+      if (call) scopes[index] = call.start;
       if (call && origin && visibleEntries.has(origin.reply)) return;
       if (!call) {
         const group = { name: message.toolName, start, finals: 0, notable: false };
@@ -127,25 +184,136 @@ function evidenceFor(messages: Message[], history?: FeedbackHistory) {
     if (!recorded?.traces.length) continue;
     const call = calls.get(id);
     if (!call || !visibleEntries.has(recorded.reply)) continue;
-    for (const trace of recorded.traces) addTool(call, trace.result, 'execution_trace', trace.position, trace.at);
+    for (const trace of recorded.traces) addTool(call, trace.result, 'execution_trace', trace.position, trace.at, trace.notRunReason);
   }
+  scope.lastEntry = history?.entryIds.at(-1);
   evidence.sort((a, b) => a.position - b.position);
-  return { evidence, scopes, currentStart: start };
+  for (const row of evidence) {
+    const turn = turns.get(row.start)!;
+    if (row.kind === 'model') turn.interrupted = row.result === 'aborted';
+    if (issue(row)) turn.abnormal = true;
+    if (row.kind === 'model' || row.call.notable || !row.call.finals) turn.rows.push(row);
+  }
+  for (const turn of turns.values()) {
+    const entry = turn.anchor?.entryId;
+    const recorded = entry ? history?.turnOutcomes.get(entry) : undefined;
+    if (recorded) {
+      turn.outcome = recorded;
+      turn.interrupted = recorded === 'aborted';
+      if (recorded !== 'completed') turn.abnormal = true;
+    }
+  }
+  return { turns, scopes, current: scope };
 }
 
-function modelEvent(row: Extract<Evidence, { kind: 'model' }>, redactor: BoundedSecretRedactor, includeError: boolean): ModelEvent {
+function turnEvidence(turn: TurnScope): FeedbackTurnEvidence {
+  const evidence: FeedbackTurnEvidence = { outcome: turn.outcome ?? null, modelErrors: 0, toolErrors: 0, toolsNotRun: 0 };
+  for (const row of turn.rows) {
+    if (row.kind === 'model') {
+      if (row.result === 'error') evidence.modelErrors++;
+    } else if (row.result === 'not_run') evidence.toolsNotRun++;
+    else if (issue(row)) evidence.toolErrors++;
+  }
+  return evidence;
+}
+
+function turnKey(turn: TurnScope, history?: FeedbackHistory) {
+  const entry = turn.anchor?.entryId;
+  const last = entry ? history?.turnEnds.get(entry) ?? turn.lastEntry : undefined;
+  if (!entry || !last || !history?.positions.has(entry)) return undefined;
+  // A new turn does not change this key; a branch change within this turn does.
+  return createHash('sha256').update(JSON.stringify([history.sessionId, entry, last])).digest('hex');
+}
+
+export function listFeedbackTurns(messages: Message[], history?: FeedbackHistory): FeedbackTurn[] {
+  if (!history) return [];
+  let number = 0;
+  return [...evidenceFor(messages, history).turns.values()].flatMap(turn => {
+    if (!turn.anchor) return [];
+    number++;
+    const key = turnKey(turn, history);
+    if (!key) return [];
+    const evidence = turnEvidence(turn);
+    const status: FeedbackTurn['status'] = turn.interrupted ? 'interrupted'
+      : evidence.modelErrors || evidence.toolErrors || turn.outcome === 'error' ? 'errors'
+      : evidence.toolsNotRun ? 'not_run' : turn.abnormal ? 'errors' : null;
+    return [{ key, number, startedAt: isoTime(turn.anchor.timestamp), status, evidence }];
+  }).reverse();
+}
+
+export function feedbackTurnKeys(value: unknown): string[] {
+  if (!Array.isArray(value) || !value.length || value.length > MAX_FEEDBACK_TURNS
+    || [...value].some(key => typeof key !== 'string' || !/^[a-f0-9]{64}$/.test(key))
+    || new Set(value).size !== value.length) throw new Error('Invalid feedback turn selection');
+  return value;
+}
+
+function eventsForTurns(turns: TurnScope[], max: number) {
+  const rows = new Set<Evidence>();
+  const perTurn = turns.map(turn => {
+    const last = turn.rows.length - 1;
+    const firstIssue = turn.rows.findIndex(issue);
+    let lastIssue = -1, lastModel = -1;
+    for (let i = last; i >= 0 && (lastIssue < 0 || lastModel < 0); i--) {
+      if (lastIssue < 0 && issue(turn.rows[i])) lastIssue = i;
+      if (lastModel < 0 && turn.rows[i].kind === 'model') lastModel = i;
+    }
+    for (const index of [firstIssue, lastIssue, lastModel, last]) {
+      if (index >= 0) rows.add(turn.rows[index]);
+    }
+    return { rows: turn.rows, cursor: last };
+  });
+  // Reserve evidence for every detailed turn before sharing the remaining space.
+  let grew = true;
+  while (rows.size < max && grew) {
+    grew = false;
+    for (const turn of perTurn) {
+      while (turn.cursor >= 0 && rows.has(turn.rows[turn.cursor])) turn.cursor--;
+      if (turn.cursor < 0) continue;
+      rows.add(turn.rows[turn.cursor--]);
+      grew = true;
+      if (rows.size === max) break;
+    }
+  }
+  return [...rows].sort((a, b) => a.position - b.position);
+}
+
+function gapsForTurns(all: TurnScope[], chosen: TurnScope[], includeBetween: boolean): NonNullable<FeedbackReport['gaps']> {
+  const positions = new Map(all.map((turn, index) => [turn, index]));
+  return chosen.flatMap((turn, index) => {
+    if (index === 0) return [];
+    const start = positions.get(chosen[index - 1])! + 1;
+    const end = positions.get(turn)!;
+    if (start === end) return [];
+    const overview = includeBetween
+      ? { completed: 0, aborted: 0, failed: 0, unknown: 0, modelErrors: 0, toolErrors: 0, toolsNotRun: 0 }
+      : null;
+    if (overview) for (let i = start; i < end; i++) {
+      const { outcome, modelErrors, toolErrors, toolsNotRun } = turnEvidence(all[i]);
+      overview[outcome === 'completed' ? 'completed' : outcome === 'aborted' ? 'aborted' : outcome === 'error' ? 'failed' : 'unknown']++;
+      overview.modelErrors += modelErrors;
+      overview.toolErrors += toolErrors;
+      overview.toolsNotRun += toolsNotRun;
+    }
+    return [{ after: index, before: index + 1, count: end - start, overview }];
+  });
+}
+
+function modelEvent(row: Extract<Evidence, { kind: 'model' }>, redactor: BoundedSecretRedactor,
+  includeIdentifiers: boolean, includeError: boolean): ModelEvent {
   const { message, request, result } = row;
   const error = result === 'error' && typeof message.errorMessage === 'string' ? message.errorMessage : '';
   const recordedStatus = httpStatus(request?.statusCode);
   const statusCode = recordedStatus ?? (error.length <= MAX_REDACTION_FIELD
     ? httpStatus(Number(/^(?:HTTP(?: status)?\s*[:=]?\s+|(?:API|request) error\s*\(?)([45]\d\d)\b/i.exec(error)?.[1])) : null);
-  const responseModel = safeIdentifier(redactor, request?.responseModel ?? message.responseModel, true);
-  const model = responseModel ?? safeIdentifier(redactor, request?.requestedModel ?? message.model, true);
+  const responseModel = includeIdentifiers ? safeIdentifier(redactor, request?.responseModel ?? message.responseModel, true) : null;
+  const model = responseModel ?? (includeIdentifiers ? safeIdentifier(redactor, request?.requestedModel ?? message.model, true) : null);
   const outcome = request?.outcome;
   const attempts = request?.transportAttempts;
   return {
-    kind: 'model', result, at: isoTime(message.timestamp), requestId: safeIdentifier(redactor, request?.requestId),
-    provider: safeIdentifier(redactor, request?.responseProvider ?? message.provider ?? request?.requestedProvider),
+    kind: 'model', result, at: isoTime(message.timestamp),
+    requestId: includeIdentifiers ? safeIdentifier(redactor, request?.requestId) : null,
+    provider: includeIdentifiers ? safeIdentifier(redactor, request?.responseProvider ?? message.provider ?? request?.requestedProvider) : null,
     model, modelSource: model ? responseModel ? 'response' : 'requested' : null, statusCode,
     statusSource: recordedStatus !== null ? 'request' : statusCode !== null ? 'error_text' : null,
     outcome: outcome === 'ok' || outcome === 'http_error' || outcome === 'transport_error' ? outcome : null,
@@ -155,75 +323,122 @@ function modelEvent(row: Extract<Evidence, { kind: 'model' }>, redactor: Bounded
 }
 
 export function feedbackReport(options: FeedbackOptions, messages: Message[], context: FeedbackReport['context'], history?: FeedbackHistory) {
-  const { evidence, scopes, currentStart } = evidenceFor(messages, history);
+  const { turns, scopes, current } = evidenceFor(messages, history);
   const reportedAt = options.errorAt ?? null;
   if (reportedAt !== null && isoTime(Date.parse(reportedAt)) !== reportedAt)
     throw new Error('Invalid incident time');
-  let failed: Evidence | undefined;
-  if (options.focus !== 'current') for (let index = evidence.length - 1; index >= 0; index--) {
-    const row = evidence[index];
-    if (row.result === 'error' || row.result === 'timeout' || row.result === 'blocked' || row.result === 'not_run') {
-      failed = row;
-      break;
+  let chosen = current;
+  let scope: FeedbackReport['scope'] = 'current_turn';
+  let selection: TurnScope[] | undefined;
+  const all = [...turns.values()];
+  if (options.focus === 'history') {
+    const keys = new Set(feedbackTurnKeys(options.turnKeys));
+    selection = all.filter(turn => {
+      const key = turnKey(turn, history);
+      return key && keys.has(key);
+    });
+    if (selection.length !== keys.size) throw new Error('The selected turn is no longer available in this conversation');
+    chosen = selection[0];
+    scope = selection.length === 1 ? 'selected_turn' : 'selected_turns';
+  } else if (options.focus === 'turn') {
+    const match = options.turnKey && [...turns.values()].find(turn => turnKey(turn, history) === options.turnKey);
+    if (!match) throw new Error('The selected turn is no longer available in this conversation');
+    chosen = match;
+    scope = 'selected_turn';
+  } else if (options.focus !== 'current') {
+    const latest = [...all].reverse().find(turn => turn.abnormal || turn.interrupted);
+    if (latest) {
+      chosen = latest;
+      scope = latest.interrupted ? 'latest_interrupted_turn' : 'latest_failed_turn';
     }
   }
-  const start = failed?.start ?? currentStart;
-  const rows = evidence.filter(row => row.start === start && (row.kind === 'model' || row.call.notable || !row.call.finals));
-  const selected = rows.slice(-MAX_EVENTS);
-  const turn = options.conversation || options.tools ? messages.filter((_message, index) => scopes[index] === start) : [];
-  const candidates = turn.flatMap(message => {
-    if (message.display === false || !((options.conversation && ['user', 'assistant'].includes(message.role))
-      || (options.tools && message.role === 'toolResult' && message.isError))) return [];
+  const detailed = selection ?? [chosen];
+  const multi = detailed.length > 1;
+  const numbers = new Map(detailed.map((turn, index) => [turn.start, index + 1]));
+  const rows = detailed.flatMap(turn => turn.rows);
+  const selected = eventsForTurns(detailed, multi ? MAX_HISTORY_EVENTS : MAX_EVENTS);
+  const optionalRequested = options.conversation || options.tools;
+  const candidates = new Map<number, { role: string; value: string }[]>();
+  let eligibleMessages = 0;
+  // Scan the explicitly shared notes first. Optional context cannot invalidate
+  // those notes, but any secrets found there still redact echoes in the notes.
+  const redaction = feedbackRedactionScope();
+  const notesScanned = redaction.collect([options.expected, options.actual]);
+  function* contextFields() {
+    for (const [index, message] of messages.entries()) {
+      const number = numbers.get(scopes[index]);
+      if (number === undefined || message.display === false || message.desktopToolPending) continue;
+      if (typeof message.errorMessage === 'string' && message.errorMessage) yield message.errorMessage;
+      yield* textBlocks(message);
+    }
+  }
+  const contextScanned = notesScanned && (!optionalRequested || redaction.collect(contextFields()));
+  if (optionalRequested) for (const [index, message] of messages.entries()) {
+    const number = numbers.get(scopes[index]);
+    if (number === undefined || message.display === false || message.desktopToolPending
+      || !((options.conversation && (message.role === 'user' || message.role === 'assistant'))
+        || (options.tools && message.role === 'toolResult' && message.isError))) continue;
     const text = textBlocks(message).next().value ?? '';
-    return text.trim() ? [{ role: message.role, value: message.role === 'user' && text.length <= MAX_REDACTION_FIELD
-      ? attachmentPresentation(text)?.draft ?? text : text }] : [];
-  });
-  // Discover labelled secrets in the bounded related turn before exporting any excerpt.
-  // The additional blocks are scanned locally because a selected excerpt may echo a value from them.
-  const redactor = createBoundedSecretRedactor();
-  function* redactionFields() {
-    yield options.expected;
-    yield options.actual;
-    if (options.conversation) for (const row of selected) {
-      if (row.kind === 'model' && typeof row.message.errorMessage === 'string') yield row.message.errorMessage;
-    }
-    for (const message of turn) yield* textBlocks(message);
+    if (!text || (text.length <= MAX_REDACTION_FIELD && !text.trim())) continue;
+    eligibleMessages++;
+    if (!contextScanned) continue;
+    let recent = candidates.get(number);
+    if (!recent) candidates.set(number, recent = []);
+    if (recent.length === 4) recent.shift();
+    recent.push({ role: message.role, value: message.role === 'user' ? attachmentPresentation(text)?.draft ?? text : text });
   }
-  let characters = 0, count = 0, redactionLimited = false;
-  for (const field of redactionFields()) {
-    characters += field.length;
-    if (++count > MAX_REDACTION_FIELDS || field.length > MAX_REDACTION_FIELD || characters > MAX_REDACTION_CONTEXT
-      || redactor.redact(sanitizeTerminalText(field)).status !== 'ready') {
-      redactor.invalidate();
-      redactionLimited = true;
-      break;
-    }
-  }
-  const excerpts = (redactionLimited ? [] : candidates.slice(-4)).map(({ role, value }) => ({
-    role, ...excerpt(redactor, value, role === 'toolResult' ? 160 : 320, role === 'toolResult'),
-  }));
+  const { redactor } = redaction;
+  const expected = feedbackNote(redactor, options.expected, notesScanned);
+  const actual = feedbackNote(redactor, options.actual, notesScanned);
+  const excerpts = [...numbers.values()].flatMap(number => (candidates.get(number) ?? []).map(({ role, value }) => ({
+    ...(multi ? { turn: number } : {}), role, ...excerpt(redactor, value, role === 'toolResult' ? 160 : 320, role === 'toolResult'),
+  })));
   const calls = new Map<ToolGroup, number>();
   const events: FeedbackEvent[] = selected.map(row => {
-    if (row.kind === 'model') return modelEvent(row, redactor, options.conversation && !redactionLimited);
+    const reference = multi ? { turn: numbers.get(row.start)! } : {};
+    if (row.kind === 'model') return { ...reference, ...modelEvent(row, redactor, contextScanned, options.conversation && contextScanned) };
     let call = calls.get(row.call);
     if (call === undefined) calls.set(row.call, call = calls.size + 1);
-    return { kind: 'tool', call, source: row.source, result: row.result, at: isoTime(row.at),
-      toolName: safeIdentifier(redactor, row.call.name) };
+    return { ...reference, kind: 'tool', call, source: row.source, result: row.result, at: isoTime(row.at), notRunReason: row.notRunReason,
+      toolName: contextScanned ? safeIdentifier(redactor, row.call.name) : null };
   });
+  const notRunReasons: FeedbackReport['summary']['notRunReasons'] = {};
+  let toolsNotRun = 0;
+  for (const row of rows) if (row.kind === 'tool' && row.result === 'not_run') {
+    toolsNotRun++;
+    if (row.notRunReason) notRunReasons[row.notRunReason] = (notRunReasons[row.notRunReason] ?? 0) + 1;
+  }
   const optionalIncluded = excerpts.length || events.some(event => event.kind === 'model' && event.errorDetail);
-  const report: FeedbackReport = { format: 'dfsc-local-feedback-v3', at: new Date().toISOString(), context,
-    expected: excerpt(redactor, options.expected, 1000), actual: excerpt(redactor, options.actual, 1000), reportedAt,
-    scope: failed ? 'latest_failed_turn' : 'current_turn',
+  const evidence = detailed.map(turnEvidence);
+  const includedCounts = new Map<number, number>();
+  for (const row of selected) includedCounts.set(row.start, (includedCounts.get(row.start) ?? 0) + 1);
+  const finalOnly = new Set<ToolGroup>();
+  const started = new Set<ToolGroup>();
+  for (const row of rows) if (row.kind === 'tool') {
+    if (row.result === 'started') started.add(row.call);
+    else finalOnly.add(row.call);
+  }
+  const report: FeedbackReport = { format: multi ? 'dfsc-local-feedback-v4' : 'dfsc-local-feedback-v3',
+    at: new Date().toISOString(), context,
+    expected, actual, reportedAt,
+    scope, turn: !multi && (chosen.anchor || chosen.interrupted)
+      ? { startedAt: isoTime(chosen.anchor?.timestamp), interrupted: chosen.interrupted, outcome: chosen.outcome } : null,
+    ...(multi ? {
+      turns: detailed.map((turn, index) => ({ turn: index + 1, startedAt: isoTime(turn.anchor?.timestamp),
+        interrupted: turn.interrupted, ...evidence[index], omittedEvents: turn.rows.length - (includedCounts.get(turn.start) ?? 0) })),
+      gaps: gapsForTurns(all, detailed, options.includeBetween === true),
+    } : {}),
     summary: {
-      modelErrors: rows.filter(row => row.kind === 'model' && row.result === 'error').length,
-      toolErrors: rows.filter(row => row.kind === 'tool' && (row.result === 'error' || row.result === 'timeout')).length,
-      toolsWithOnlyFinalResult: [...calls].flatMap(([call, id]) => call.finals === 1 ? [id] : []),
+      modelErrors: evidence.reduce((count, turn) => count + turn.modelErrors, 0),
+      toolErrors: evidence.reduce((count, turn) => count + turn.toolErrors, 0),
+      toolsNotRun, notRunReasons,
+      toolsWithOnlyFinalResult: [...calls].flatMap(([call, id]) => finalOnly.has(call) && !started.has(call) ? [id] : []),
       toolsWithNoResult: [...calls].flatMap(([call, id]) => call.finals === 0 ? [id] : []),
       omittedEvents: rows.length - events.length,
-      optionalText: redactionLimited ? 'redaction_limit' : optionalIncluded ? 'included'
-        : options.conversation || options.tools ? 'not_recorded' : 'excluded',
+      optionalText: !optionalRequested ? 'excluded' : !contextScanned ? 'redaction_limit'
+        : optionalIncluded ? 'included' : 'not_recorded',
     },
-    events, excerpts, omittedEligibleMessages: candidates.length - excerpts.length,
+    events, excerpts, omittedEligibleMessages: eligibleMessages - excerpts.length,
     exclusions: ['raw session', 'other sessions', 'environment', 'workspace files', 'attachments', 'logs',
       'tool arguments', 'full tool outputs', 'non-text blocks', 'additional text blocks',
       ...(!options.conversation ? ['conversation text', 'response error text'] : []), ...(!options.tools ? ['tool output excerpts'] : [])],

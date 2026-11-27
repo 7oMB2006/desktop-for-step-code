@@ -47,6 +47,10 @@ try {
       request('req-retry', 'retry', 'retry', 200),
       { type: 'session_info', id: 'name', parentId: 'req-retry', name: 'Feedback ' + id },
     ];
+    if (id === 'B') rows.push(
+      { type: 'message', id: 'third-input', parentId: 'name', message: msg('user', 'Later selected turn') },
+      { type: 'message', id: 'third', parentId: 'third-input', message: msg('assistant', 'Selected reply') },
+    );
     await writeFile(join(sessions, id + '.jsonl'), rows.map(r => JSON.stringify({ timestamp: stamp, ...r })).join('\n') + '\n');
   }
   const env = { ...process.env, DESKTOP_TEST_USER_DATA: profile, DESKTOP_TEST_NO_FOCUS: '1' };
@@ -231,12 +235,42 @@ try {
   const next = await inspectJson();
   assert.match(next, /MARKER_B/);
   assert.doesNotMatch(next, /MARKER_A|req-A|LATE_A/);
+  await dialog.getByRole('button', { name: '返回编辑' }).click();
+  await dialog.getByLabel('会话范围').selectOption('history');
+  const picker = dialog.getByRole('group', { name: '已记录轮次' });
+  await picker.getByRole('checkbox', { name: /第 1 轮/ }).waitFor();
+  assert.equal(await picker.locator('input:checked').count(), 0);
+  assert.equal(await dialog.getByRole('button', { name: '预览' }).isDisabled(), true);
+  await picker.getByRole('button', { name: '勾选最近 1 个异常' }).click();
+  await picker.getByRole('button', { name: '全部', exact: true }).click();
+  await picker.getByRole('checkbox', { name: /第 3 轮/ }).check();
+  await picker.getByRole('button', { name: '已选', exact: true }).click();
+  assert.equal(await picker.locator('.feedback-turn-list input:checked').count(), 2);
+  const gap = picker.getByRole('checkbox', { name: /附上中间轮次的摘要/ });
+  assert.equal(await gap.isChecked(), false);
+  await screenshot(page, 'feedback-history-dark');
+  await dialog.getByRole('button', { name: '预览' }).click();
+  const sparse = JSON.parse(await inspectJson());
+  assert.equal(sparse.format, 'dfsc-local-feedback-v4');
+  assert.deepEqual(sparse.gaps, [{ after: 1, before: 2, count: 1, overview: null }]);
+  await dialog.getByRole('button', { name: '返回编辑' }).click();
+  await gap.check();
+  await dialog.getByRole('button', { name: '预览' }).click();
+  await dialog.locator('.feedback-gap').filter({ hasText: '中间 1 轮，仅附摘要' }).waitFor();
+  await screenshot(page, 'feedback-history-preview-dark');
+  const multi = await inspectJson();
+  assert.doesNotMatch(multi, /Retry succeeded|req-retry/);
+  assert.match(multi, /MARKER_B[\s\S]*Selected reply/);
+  const multiple = JSON.parse(multi);
+  assert.equal(multiple.turns.length, 2);
+  assert.equal(multiple.gaps[0].overview.unknown, 1);
+  assert.equal(multiple.events.at(-1).turn, 2);
   assert.equal(await app.evaluate(() => globalThis.feedbackNetworkRequests), 0);
   await dialog.getByRole('button', { name: '保存到默认目录' }).click();
   await dialog.waitFor({ state: 'hidden' });
   const savedFiles = await readdir(defaultDirectory);
   assert.equal(savedFiles.length, 2);
-  assert.equal(gunzipSync(await readFile(join(defaultDirectory, savedFiles.find(name => name !== first)))).toString(), next);
+  assert.equal(gunzipSync(await readFile(join(defaultDirectory, savedFiles.find(name => name !== first)))).toString(), multi);
   await page.locator(process.platform === 'darwin' ? '[data-menu="application"]' : '[data-menu="file"]').click();
   await page.getByRole('menuitem', { name: /^新建会话/ }).click();
   await menuTrigger.click();

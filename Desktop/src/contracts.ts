@@ -303,6 +303,7 @@ export interface DesktopBridge extends SessionImportBridge, BtwBridge, Backgroun
   importClipboardImage(data: string, mimeType: string, name: string): Promise<ComposerAttachment>;
   imageAction(action: 'copy' | 'save' | 'reveal', src: string, name: string): Promise<boolean>;
   copyText(text: string): Promise<void>;
+  listFeedbackTurns(runtimeId: string, sessionId: string): Promise<FeedbackTurn[]>;
   previewFeedback(runtimeId: string, sessionId: string, options: FeedbackOptions): Promise<{ token: string; content: string; defaultDirectory: string }>;
   saveFeedback(runtimeId: string, sessionId: string, token: string, destination: 'default' | 'choose'): Promise<boolean>;
   openFeedbackFolder(): Promise<void>;
@@ -417,11 +418,31 @@ export interface SessionStatusDetails {
 }
 declare global { interface Window { desktop?: DesktopBridge; desktopTheme?: DesktopTheme } }
 
-export interface FeedbackOptions { errorAt?: string; expected: string; actual: string; conversation: boolean; tools: boolean; focus?: 'failure' | 'current' }
+export const MAX_FEEDBACK_TURNS = 32;
+export interface FeedbackOptions {
+  errorAt?: string; expected: string; actual: string; conversation: boolean; tools: boolean;
+  focus?: 'failure' | 'current' | 'turn' | 'history'; turnKey?: string;
+  turnKeys?: string[]; includeBetween?: boolean;
+}
+export interface FeedbackTurn {
+  key: string;
+  number: number;
+  startedAt: string | null;
+  status: 'interrupted' | 'errors' | 'not_run' | null;
+  evidence: FeedbackTurnEvidence;
+}
+export interface FeedbackTurnEvidence {
+  outcome: 'completed' | 'aborted' | 'error' | null;
+  modelErrors: number;
+  toolErrors: number;
+  toolsNotRun: number;
+}
 export interface FeedbackExcerpt { text: string; truncated: boolean }
 export type FeedbackToolResult = 'ok' | 'error' | 'timeout' | 'aborted' | 'denied' | 'blocked' | 'not_run';
+export type FeedbackNotRunReason = 'aborted_before_start' | 'invalid_arguments' | 'output_truncated' | 'skipped_after_stop' | 'tool_not_found';
 export type FeedbackEvent = {
   at: string | null;
+  turn?: number;
 } & ({
   kind: 'model';
   result: 'reply' | 'error' | 'aborted' | 'request';
@@ -440,25 +461,38 @@ export type FeedbackEvent = {
   toolName: string | null;
   source: 'execution_trace' | 'tool_result';
   result: FeedbackToolResult | 'started';
+  notRunReason?: FeedbackNotRunReason;
 });
 export interface FeedbackReport {
-  format: 'dfsc-local-feedback-v3';
+  format: 'dfsc-local-feedback-v3' | 'dfsc-local-feedback-v4';
   at: string;
   context: { desktop: string; stepCode: AppBuildInfo['runtime']; platform: string; arch: string };
   expected: FeedbackExcerpt;
   actual: FeedbackExcerpt;
   reportedAt: string | null;
-  scope: 'latest_failed_turn' | 'current_turn';
+  scope: 'latest_failed_turn' | 'latest_interrupted_turn' | 'current_turn' | 'selected_turn' | 'selected_turns';
+  turn: { startedAt: string | null; interrupted: boolean; outcome?: FeedbackTurnEvidence['outcome'] } | null;
+  turns?: (FeedbackTurnEvidence & {
+    turn: number; startedAt: string | null; interrupted: boolean; omittedEvents: number;
+  })[];
+  gaps?: {
+    after: number; before: number; count: number;
+    overview: (Omit<FeedbackTurnEvidence, 'outcome'> & {
+      completed: number; aborted: number; failed: number; unknown: number;
+    }) | null;
+  }[];
   summary: {
     modelErrors: number;
     toolErrors: number;
+    toolsNotRun: number;
+    notRunReasons: Partial<Record<FeedbackNotRunReason, number>>;
     toolsWithOnlyFinalResult: number[];
     toolsWithNoResult: number[];
     omittedEvents: number;
     optionalText: 'excluded' | 'included' | 'not_recorded' | 'redaction_limit';
   };
   events: FeedbackEvent[];
-  excerpts: (FeedbackExcerpt & { role: string })[];
+  excerpts: (FeedbackExcerpt & { role: string; turn?: number })[];
   omittedEligibleMessages: number;
   exclusions: string[];
 }

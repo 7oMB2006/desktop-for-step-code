@@ -8,8 +8,8 @@ import { mkdtemp, removeTestProfile } from '../scripts/test-profile.mjs';
 import { feedbackRequestsOnBranch, type HistoryEntry } from '../electron/session-branching';
 import { sessionTranscript } from '../electron/session-transcript';
 import { feedbackHistory } from '../electron/feedback-history';
-import { defaultFeedbackPath, feedbackDirectory, FeedbackPreview, feedbackReport } from '../electron/feedback-export';
-import type { Message } from '../src/contracts';
+import { defaultFeedbackPath, feedbackDirectory, FeedbackPreview, feedbackReport, listFeedbackTurns } from '../electron/feedback-export';
+import { MAX_FEEDBACK_TURNS, type FeedbackReport, type Message } from '../src/contracts';
 
 const context = { desktop: 'test', stepCode: { baseline: 'v0.1.8', commit: 'a'.repeat(40) }, platform: 'linux', arch: 'x64' };
 const options = { expected: 'works', actual: 'failed', conversation: false, tools: false };
@@ -150,20 +150,58 @@ End of report` },
   assert.equal(JSON.parse(content).omittedEligibleMessages, 1);
 });
 
-test('an oversized opted-in redaction context suppresses excerpts without affecting diagnostics-only', () => {
-  const longTurn: Message[] = [
-    { role: 'user', content: 'x'.repeat(32 * 1024 + 1) },
-    { role: 'assistant', content: 'Unverified excerpt' },
+test('optional context limits preserve independently scanned notes and timeline', () => {
+  const limits: [string, string[]][] = [
+    ['single field', ['x'.repeat(32 * 1024 + 1)]],
+    ['field count', Array.from({ length: 64 }, () => 'Unverified excerpt')],
+    ['total text size', Array.from({ length: 4 }, () => 'x'.repeat(32 * 1024))],
+    ['credential candidates', [Array.from({ length: 257 }, (_, index) => `password=fixture-password-${index}`).join('\n')]],
   ];
-  const expanded = JSON.parse(feedbackReport({ ...options, conversation: true }, longTurn, context));
-  assert.doesNotMatch(JSON.stringify(expanded), /Unverified excerpt/);
-  assert.deepEqual(expanded.excerpts, []);
-  assert.equal(expanded.summary.optionalText, 'redaction_limit');
-  const diagnostics = JSON.parse(feedbackReport(options, longTurn, context));
-  assert.equal(diagnostics.events[0].result, 'reply');
-  assert.equal(diagnostics.events[0].requestId, null);
-  assert.equal(diagnostics.expected.text, options.expected);
-  assert.deepEqual(diagnostics.excerpts, []);
+  for (const [name, fields] of limits) {
+    const longTurn: Message[] = [
+      { role: 'user', content: 'password=prior-context-value' },
+      ...fields.map(content => ({ role: 'assistant' as const, content })),
+      { role: 'toolResult', toolName: 'fixture-tool', timestamp: 1000, isError: true, content: 'Unverified excerpt' },
+    ];
+    const reportOptions = { ...options, actual: 'Failed while processing prior-context-value.' };
+    const raw = feedbackReport({ ...reportOptions, conversation: true, tools: true }, longTurn, context);
+    const expanded = JSON.parse(raw);
+    assert.doesNotMatch(raw, /prior-context-value|fixture-password|Unverified excerpt/, name);
+    assert.deepEqual(expanded.expected, { text: options.expected, truncated: false }, name);
+    assert.match(expanded.actual.text, /^Failed while processing /, name);
+    assert.equal(expanded.summary.optionalText, 'redaction_limit', name);
+    assert.equal(expanded.summary.toolErrors, 1, name);
+    assert.deepEqual(expanded.excerpts, [], name);
+    assert.ok(expanded.omittedEligibleMessages > 0, name);
+    assert.deepEqual(expanded.events.at(-1), {
+      kind: 'tool', call: 1, source: 'tool_result', result: 'error', at: new Date(1000).toISOString(), toolName: null,
+    }, name);
+
+    const diagnostics = JSON.parse(feedbackReport(options, longTurn, context));
+    assert.equal(diagnostics.summary.optionalText, 'excluded', name);
+    assert.equal(diagnostics.expected.text, options.expected, name);
+    assert.equal(diagnostics.actual.text, options.actual, name);
+    assert.equal(diagnostics.events.at(-1).toolName, 'fixture-tool', name);
+    assert.deepEqual(diagnostics.excerpts, [], name);
+  }
+});
+
+test('unsafe hand-written notes fail closed without exporting echoes in other fields', () => {
+  const longExpected = `password=oversized-note-value\n${'x'.repeat(32 * 1024)}`;
+  for (const conversation of [false, true]) {
+    const raw = feedbackReport({ ...options, conversation, expected: longExpected, actual: 'Echo: oversized-note-value' }, [
+      { role: 'user', content: 'Echo in the conversation: oversized-note-value' },
+      { role: 'assistant', content: [], stopReason: 'error', errorMessage: 'Echo in the response: oversized-note-value' },
+    ], context);
+    const report = JSON.parse(raw);
+    assert.doesNotMatch(raw, /oversized-note-value/);
+    assert.deepEqual(report.expected, { text: '[redacted]', truncated: true });
+    assert.deepEqual(report.actual, { text: '[redacted]', truncated: true });
+    assert.deepEqual(report.excerpts, []);
+    assert.equal(report.events.at(-1).errorDetail, null);
+    assert.equal(report.summary.modelErrors, 1);
+    assert.equal(report.summary.optionalText, conversation ? 'redaction_limit' : 'excluded');
+  }
 });
 
 test('three recorded errors share one tool call; a matching result is not a fourth error', () => {
@@ -236,7 +274,8 @@ test('event limits and absent optional material are declared', () => {
   assert.equal(report.summary.toolErrors, 67);
   assert.equal(report.summary.omittedEvents, 3);
   assert.equal(report.summary.optionalText, 'not_recorded');
-  assert.equal(report.events[0].at, new Date(3).toISOString());
+  assert.equal(report.events[0].at, new Date(0).toISOString());
+  assert.equal(report.events.at(-1).at, new Date(66).toISOString());
 });
 
 test('a desktop goal starts a separate excerpt scope', () => {
@@ -247,4 +286,200 @@ test('a desktop goal starts a separate excerpt scope', () => {
   ], context);
   assert.match(content, /Related error/);
   assert.doesNotMatch(content, /Unrelated earlier prompt/);
+});
+
+test('a stopped historical turn stays selectable after a new message and keeps in-turn steering', () => {
+  const entries: (HistoryEntry & { customType?: string; data?: object })[] = [];
+  const append = (id: string, fields: Omit<(typeof entries)[number], 'id' | 'parentId'>) =>
+    entries.push({ id, parentId: entries.at(-1)?.id ?? null, ...fields });
+  const message = (id: string, message: Message) => append(id, { type: 'message', message });
+  const custom = (id: string, customType: string, data: object) =>
+    append(id, { type: 'custom', customType, data: { version: 1, ...data } });
+
+  message('first-user', { role: 'user', content: 'Do not export earlier prompt' });
+  message('first-error', { role: 'assistant', stopReason: 'error', content: [], timestamp: 500 });
+  message('loop-user', { role: 'user', content: 'Reproduce loop', timestamp: 1000 });
+  custom('loop-start', 'step.turn', { phase: 'start', turnId: 'loop', userEntryId: 'loop-user' });
+  for (let i = 0; i < 70; i++) {
+    message(`repeat-${i}`, { role: 'assistant', timestamp: 1100 + i * 10,
+      content: [{ type: 'toolCall', id: `tool-${i}`, name: 'inspect' }] });
+    custom(`skipped-${i}`, 'step.tool_execution', { phase: 'end', toolCallId: `tool-${i}`,
+      endedAt: 1101 + i * 10, outcome: 'not_run', notRunReason: i === 69 ? 'unverified-private-value' : 'invalid_arguments' });
+  }
+  message('loop-steer', { role: 'user', content: 'Steering stays in the loop', timestamp: 1900 });
+  // This stop was recorded by the runtime even though no aborted reply was saved.
+  custom('loop-end', 'step.turn', { phase: 'end', turnId: 'loop', outcome: 'aborted' });
+  const snapshot = (leaf: string, sessionId = 'A') => {
+    const messages = sessionTranscript(entries, leaf);
+    const history = feedbackHistory(entries, leaf, sessionId, messages);
+    return { messages, history, turns: listFeedbackTurns(messages, history) };
+  };
+  const old = snapshot('loop-end');
+  const key = old.turns[0].key;
+  message('new-user', { role: 'user', content: 'Do not export next prompt', timestamp: 2000 });
+  message('new-reply', { role: 'assistant', content: 'Clean reply', timestamp: 2100 });
+  const now = snapshot('new-reply');
+  assert.deepEqual(now.turns.map(turn => [turn.number, turn.status]), [[3, null], [2, 'interrupted'], [1, 'errors']]);
+  assert.equal(now.turns[1].key, key);
+  assert.doesNotMatch(JSON.stringify(now.turns), /Reproduce loop|Steering stays|loop-user/);
+
+  const selected = { ...options, focus: 'turn' as const, turnKey: key };
+  const raw = feedbackReport(selected, now.messages, context, now.history);
+  const report = JSON.parse(raw);
+  assert.equal(report.scope, 'selected_turn');
+  assert.deepEqual(report.turn, { startedAt: new Date(1000).toISOString(), interrupted: true, outcome: 'aborted' });
+  assert.equal(report.summary.modelErrors, 0);
+  assert.equal(report.summary.toolErrors, 0);
+  assert.equal(report.summary.toolsNotRun, 70);
+  assert.deepEqual(report.summary.notRunReasons, { invalid_arguments: 69 });
+  assert.equal(report.events.at(-3).notRunReason, 'invalid_arguments');
+  assert.equal(report.events.at(-1).notRunReason, undefined);
+  assert.equal(report.summary.omittedEvents, 76);
+  assert.equal(report.events.length, 64);
+  assert.doesNotMatch(raw, new RegExp(`${key}|loop-user|new-user|Do not export|unverified-private-value`));
+  assert.equal(JSON.parse(feedbackReport(options, now.messages, context, now.history)).scope, 'latest_interrupted_turn');
+  const current = JSON.parse(feedbackReport({ ...options, focus: 'current' }, now.messages, context, now.history));
+  assert.deepEqual(current.events.map((event: { result: string }) => event.result), ['reply']);
+  assert.equal(current.turn.interrupted, false);
+  // Optional excerpts in a bounded projection include steering, not the neighboring prompts.
+  const text = feedbackReport({ ...selected, conversation: true }, now.messages, context, now.history);
+  assert.match(text, /Steering stays in the loop/);
+  assert.doesNotMatch(text, /Do not export/);
+});
+
+function historyFixture() {
+  const entries: (HistoryEntry & { customType?: string; data?: object })[] = [];
+  const append = (id: string, fields: Omit<(typeof entries)[number], 'id' | 'parentId'>) =>
+    entries.push({ id, parentId: entries.at(-1)?.id ?? null, ...fields });
+  const message = (id: string, message: Message) => append(id, { type: 'message', message });
+  const custom = (id: string, customType: string, data: object) =>
+    append(id, { type: 'custom', customType, data: { version: 1, ...data } });
+  function snapshot(leaf = entries.at(-1)?.id ?? null, sessionId = 'A') {
+    const messages = sessionTranscript(entries, leaf);
+    const history = feedbackHistory(entries, leaf, sessionId, messages);
+    return { messages, history, turns: listFeedbackTurns(messages, history) };
+  }
+  return { message, custom, snapshot };
+}
+
+test('history exports ordered selections, opt-in structure-only gaps, and no session or turn keys', () => {
+  const { message, custom, snapshot } = historyFixture();
+  message('u100', { role: 'user', content: 'First selected turn', timestamp: 100 });
+  custom('start100', 'step.turn', { phase: 'start', turnId: '100', userEntryId: 'u100' });
+  message('a100', { role: 'assistant', content: 'Start of loop', stopReason: 'aborted', timestamp: 150 });
+  custom('end100', 'step.turn', { phase: 'end', turnId: '100', outcome: 'aborted' });
+  const onlyFirst = snapshot();
+  custom('metadata', 'something.else', {});
+  message('u101', { role: 'user', content: 'MIDDLE_TEXT_CANARY', timestamp: 200 });
+  custom('start101', 'step.turn', { phase: 'start', turnId: '101', userEntryId: 'u101' });
+  message('a101', { role: 'assistant', content: 'An intermediate failure', timestamp: 250 });
+  custom('req101', 'step.usage_provenance', { sessionId: 'A', originSessionId: 'A', usageEntryId: 'a101',
+    requestId: 'MIDDLE_REQUEST_ID', statusCode: 200, outcome: 'ok' });
+  custom('end101', 'step.turn', { phase: 'end', turnId: '101', outcome: 'error' });
+  message('u102', { role: 'user', content: 'Later selected turn', timestamp: 300 });
+  message('a102', { role: 'assistant', content: 'Behavior improved', timestamp: 350 });
+  const beforeAppend = snapshot();
+  const [latest, middle, first] = beforeAppend.turns;
+  assert.equal(first.key, onlyFirst.turns[0].key);
+  assert.equal(middle.status, 'errors');
+  assert.equal(middle.evidence.outcome, 'error');
+  assert.equal(middle.evidence.modelErrors, 0);
+  message('u103', { role: 'user', content: 'LATE_PROMPT_CANARY', timestamp: 400 });
+  const { messages, history } = snapshot();
+  const selection = { ...options, conversation: true, focus: 'history' as const, turnKeys: [latest.key, first.key] };
+  const render = (extra = {}) => {
+    const raw = feedbackReport({ ...selection, ...extra }, messages, context, history);
+    assert.doesNotMatch(raw, new RegExp([latest.key, middle.key, first.key, 'LATE_PROMPT_CANARY'].join('|')));
+    return { raw, report: JSON.parse(raw) as FeedbackReport };
+  };
+  const skipped = render();
+  assert.equal(skipped.report.format, 'dfsc-local-feedback-v4');
+  assert.deepEqual(skipped.report.events.map(event => [event.turn, event.result]), [[1, 'aborted'], [2, 'reply']]);
+  assert.deepEqual(skipped.report.gaps, [{ after: 1, before: 2, count: 1, overview: null }]);
+  const bridged = render({ includeBetween: true });
+  assert.deepEqual(bridged.report.gaps?.[0].overview,
+    { completed: 0, aborted: 0, failed: 1, unknown: 0, modelErrors: 0, toolErrors: 0, toolsNotRun: 0 });
+  for (const { raw } of [skipped, bridged]) assert.doesNotMatch(raw, /MIDDLE_TEXT_CANARY|MIDDLE_REQUEST_ID/);
+  const detailed = render({ turnKeys: [...selection.turnKeys, middle.key], includeBetween: true });
+  assert.deepEqual(detailed.report.gaps, []);
+  assert.match(detailed.raw, /MIDDLE_TEXT_CANARY|MIDDLE_REQUEST_ID/);
+  assert.deepEqual(detailed.report.turns?.map(turn => turn.outcome), ['aborted', 'error', null]);
+  const foreign = snapshot(undefined, 'B');
+  assert.throws(() => feedbackReport(selection, foreign.messages, context, foreign.history), /no longer available/);
+  const past = snapshot('end100');
+  assert.throws(() => feedbackReport(selection, past.messages, context, past.history), /no longer available/);
+  for (const turnKeys of [[], [first.key, first.key], ['bogus'], Array(MAX_FEEDBACK_TURNS + 1).fill(first.key)]) {
+    assert.throws(() => feedbackReport({ ...selection, turnKeys }, messages, context, history), /Invalid feedback turn selection/);
+  }
+});
+
+test('multi-turn budgets preserve each turn and the first fault even with long retry loops', () => {
+  const { message, snapshot } = historyFixture();
+  for (let turn = 1; turn <= MAX_FEEDBACK_TURNS; turn++) {
+    message(`u${turn}`, { role: 'user', content: 'Next turn', timestamp: turn * 1000 });
+    for (let i = 0; i < 140; i++) message(`a${turn}-${i}`, { role: 'assistant', content: [],
+      stopReason: i === 139 ? 'aborted' : 'error', timestamp: turn * 1000 + i + 1 });
+  }
+  const { messages, turns, history } = snapshot();
+  const report: FeedbackReport = JSON.parse(feedbackReport({ ...options, focus: 'history', turnKeys: turns.map(turn => turn.key) },
+    messages, context, history));
+  assert.equal(report.events.length, 128);
+  assert.equal(report.turns?.length, MAX_FEEDBACK_TURNS);
+  assert.equal(report.summary.omittedEvents, MAX_FEEDBACK_TURNS * 140 - 128);
+  for (const turn of report.turns ?? []) {
+    const events = report.events.filter(event => event.turn === turn.turn);
+    assert.equal(events[0].at, new Date(turn.turn * 1000 + 1).toISOString());
+    assert.equal(events.at(-1)?.result, 'aborted');
+    assert.equal(turn.modelErrors, 139);
+  }
+});
+
+test('one bounded redaction scope covers secrets echoed across detailed turns', () => {
+  const { message, snapshot } = historyFixture();
+  message('u1', { role: 'user', content: 'API_KEY=synthetic-cross-turn-secret' });
+  message('a1', { role: 'assistant', content: 'Early evidence' });
+  message('u2', { role: 'user', content: 'Unselected intervening text' });
+  message('a2', { role: 'assistant', content: 'x'.repeat(40000) });
+  message('u3', { role: 'user', content: 'Later evidence' });
+  message('a3', { role: 'assistant', content: 'Echo: synthetic-cross-turn-secret' });
+  const s = snapshot();
+  const selection = { ...options, focus: 'history' as const, conversation: true, includeBetween: true,
+    turnKeys: [s.turns[0].key, s.turns[2].key] };
+  const safe = feedbackReport(selection, s.messages, context, s.history);
+  assert.match(safe, /Early evidence/);
+  assert.match(safe, /Later evidence/);
+  assert.doesNotMatch(safe, /synthetic-cross-turn-secret|Unselected intervening text/);
+  const bounded = JSON.parse(feedbackReport({ ...selection, turnKeys: s.turns.map(turn => turn.key) }, s.messages, context, s.history));
+  assert.equal(bounded.summary.optionalText, 'redaction_limit');
+  assert.deepEqual(bounded.excerpts, []);
+  assert.equal(bounded.expected.text, options.expected);
+  assert.equal(bounded.turns.length, 3);
+});
+
+test('an interrupted or successful turn can be selected, but not from a different session or divergent branch', () => {
+  const entries = [
+    { type: 'message', id: 'user', parentId: null, message: { role: 'user', content: 'Fixture prompt' } },
+    { type: 'message', id: 'stopped', parentId: 'user', message: { role: 'assistant', stopReason: 'aborted', content: [], timestamp: 1000 } },
+    { type: 'message', id: 'continued-user', parentId: 'stopped', message: { role: 'user', content: 'Follow-up' } },
+    { type: 'message', id: 'continued', parentId: 'continued-user', message: { role: 'assistant', content: 'OK', timestamp: 2000 } },
+    { type: 'message', id: 'sibling', parentId: 'user', message: { role: 'assistant', content: 'Different branch', timestamp: 3000 } },
+  ];
+  const snapshot = (leaf: string, id: string) => {
+    const messages = sessionTranscript(entries, leaf);
+    const history = feedbackHistory(entries, leaf, id, messages);
+    return { messages, history, turns: listFeedbackTurns(messages, history) };
+  };
+  const { messages, history, turns } = snapshot('continued', 'A');
+  const automatic = JSON.parse(feedbackReport(options, messages, context, history));
+  assert.equal(automatic.scope, 'latest_interrupted_turn');
+  assert.deepEqual(automatic.events.map((event: { result: string }) => event.result), ['aborted']);
+  const selection = { ...options, focus: 'turn' as const, turnKey: turns[0].key };
+  const success = JSON.parse(feedbackReport(selection, messages, context, history));
+  assert.equal(success.scope, 'selected_turn');
+  assert.deepEqual(success.events.map((event: { result: string }) => event.result), ['reply']);
+  for (const other of [snapshot('sibling', 'A'), snapshot('continued', 'B')]) {
+    assert.throws(() => feedbackReport({ ...selection, turnKey: turns[1].key }, other.messages, context, other.history),
+      /no longer available/);
+  }
+  assert.throws(() => feedbackReport(selection, messages, context), /no longer available/);
 });

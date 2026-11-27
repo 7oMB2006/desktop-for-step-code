@@ -762,11 +762,18 @@ export class SessionRuntimes {
     reads.add(reading);
     return reading;
   }
-  // Evidence is valid only for the transcript captured with the same active leaf.
-  private readonly feedbackHistories = new WeakMap<Message[], { sessionId: string; history: FeedbackHistory }>();
+  // Keep committed evidence available while the next turn is streaming.
+  private readonly feedbackHistories = new WeakMap<SessionRuntime, {
+    leafId?: string; rpc: SessionRuntime['rpc']; messages: Message[]; history: FeedbackHistory;
+  }>();
+  feedbackSnapshot(worker: SessionRuntime) {
+    const saved = this.feedbackHistories.get(worker);
+    if (saved && !worker.mutating && saved.rpc === worker.rpc && saved.leafId === worker.leafId
+      && saved.history.sessionId === worker.state?.sessionId) return saved;
+  }
   feedbackEvidence(worker: SessionRuntime) {
-    const metadata = this.feedbackHistories.get(worker.messages);
-    if (metadata && metadata.sessionId === worker.state?.sessionId) return metadata.history;
+    const saved = this.feedbackSnapshot(worker);
+    if (saved?.messages === worker.messages) return saved.history;
   }
   private transcriptRevision(worker: SessionRuntime) {
     return worker.revision - (this.transcriptMetadataRevisions.get(worker) ?? 0);
@@ -800,7 +807,7 @@ export class SessionRuntimes {
     if (transcriptRevision === this.transcriptRevision(worker) && !state.isStreaming && !worker.runActive) {
       worker.messages = decorated;
       worker.leafId = history.leafId ?? undefined;
-      if (state.sessionId) this.feedbackHistories.set(decorated, { sessionId: state.sessionId,
+      if (state.sessionId) this.feedbackHistories.set(worker, { leafId: worker.leafId, rpc, messages: decorated,
         history: feedbackHistory(history.entries ?? [], history.leafId ?? null, state.sessionId, decorated) });
     }
     worker.models = models;
@@ -965,6 +972,7 @@ export class SessionRuntimes {
     const sessionId = worker.state?.sessionId;
     const sessionFile = worker.state?.sessionFile;
     const permissionPreset = worker.permissionPreset;
+    this.feedbackHistories.delete(worker);
     await worker.rpc.request('prompt', { message: `/_desktop_retry ${entryId}` }, 60000);
     await this.read(worker);
     if (worker.state?.sessionId !== sessionId || (worker.leafId ?? null) !== selected.parentId) {
@@ -983,6 +991,7 @@ export class SessionRuntimes {
       // so the original question remains editable instead of stranding its draft.
       if ((current.leafId ?? null) === selected.parentId && sessionFile) {
         this.hooks.pluginsReset?.(worker);
+        this.feedbackHistories.delete(worker);
         const restored = await worker.rpc.request('switch_session', { sessionPath: sessionFile, cwdOverride: worker.cwd }, 60000);
         if (restored.cancelled) throw new Error('Submission failed and history restoration was cancelled');
         if (permissionPreset && permissionPreset !== 'full-access') await worker.rpc.request('prompt', { message: `/permissions ${permissionPreset}` });

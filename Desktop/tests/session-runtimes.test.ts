@@ -2282,6 +2282,31 @@ test('reading committed history during a stream preserves the live assistant mes
   await pool.stopAll();
 });
 
+test('feedback keeps committed turns during streaming but drops a changed leaf or session', async () => {
+  const { pool, transports, open } = fixture();
+  const worker = await open();
+  try {
+    const rpc = transports[0];
+    const original = rpc.request.bind(rpc);
+    rpc.request = async type => type === 'get_entries' ? { entries: [
+      { type: 'message', id: 'user', parentId: null, message: { role: 'user', content: 'Saved turn' } },
+      { type: 'message', id: 'reply', parentId: 'user', message: { role: 'assistant', content: [], stopReason: 'aborted' } },
+    ], leafId: 'reply' } : original(type);
+    await pool.read(worker);
+    const saved = pool.feedbackSnapshot(worker);
+    assert.equal(saved?.messages.length, 2);
+    rpc.receive({ type: 'agent_start' });
+    rpc.receive({ type: 'message_start', message: { role: 'user', content: 'Next turn' } });
+    assert.equal(pool.feedbackEvidence(worker), undefined);
+    assert.equal(pool.feedbackSnapshot(worker), saved);
+    worker.leafId = 'different-leaf';
+    assert.equal(pool.feedbackSnapshot(worker), undefined);
+    worker.leafId = 'reply';
+    worker.state = { ...worker.state!, sessionId: 'other-session' };
+    assert.equal(pool.feedbackSnapshot(worker), undefined);
+  } finally { await pool.stopAll(); }
+});
+
 test('successful background completion emits sound event once, never from restored history', async () => {
   const { pool, transports, events, open } = fixture();
   const a = await open();

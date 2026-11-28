@@ -1,35 +1,35 @@
 {
   "schemaVersion": 1,
   "repository": "7oMB2006/desktop-for-step-code",
-  "generatedAt": "2026-11-26T16:19:43.708Z",
+  "generatedAt": "2026-11-28T06:27:58.756Z",
   "channels": {
     "stable": {
-      "version": "1.0.2",
-      "tag": "v1.0.2",
-      "name": "v1.0.2 (Windows)",
+      "version": "1.0.3",
+      "tag": "v1.0.3",
+      "name": "v1.0.3 (Windows)",
       "prerelease": false,
-      "notes": "本版提供 Windows x64 安装包，可从 `v1.0.1` 直接覆盖升级，无需先卸载。macOS 本版不发包，继续使用 `v1.0.0`。\n\n### 导出当前会话反馈包\n\n- 遇到异常、工具报错或回复不符合预期时，从「帮助 → 导出当前会话反馈包」发起。可填写预期、实际情况和出错时间，日期既能手填，也能从日历选择。\n- 保存前可以预览。模型请求失败和工具失败分开显示，同一次工具调用里有记录的多条错误会归在一起；没有记录的中间错误不会被推测补上。\n- 默认不包含会话正文或工具输出，可按需加入相关脱敏片段。反馈包保存到系统「下载」下的 `Desktop for Step Code Feedback`，也可以另存为。不会自动上传，用户可以自行发给 Desktop 维护者或 Step Code 官方。\n- 应用级脱敏诊断仍可在「设置 → 通用」单独导出。\n\n### Windows 验证\n\n已用此安装包从公开 `v1.0.1` 覆盖升级，未发现问题；安装后的应用文件与候选包一致。已验收反馈包预览、默认保存、另存为及导出的内容。Step Code 运行时钉点不变。\n",
-      "url": "https://github.com/7oMB2006/desktop-for-step-code/releases/tag/v1.0.2",
-      "publishedAt": "2026-11-26T16:19:05Z",
+      "notes": "## 多轮反馈导出\n\n- 从会话历史中回选最多 32 个已保存的轮次。发了新消息后，仍能选到之前失败或手动停止的轮次。\n- 排查跨轮问题时，可附上未选中间轮次的统计摘要，不附带这些轮次的对话正文。\n- 反馈包只保存到本地，不自动上传。你可以先预览内容，再决定交给 Desktop 维护者、Step Code 官方或模型提供方。\n\n## 日常使用\n\n- 完善社区市场入口、模型配置和会话历史。\n- 简洁模式会显示失败的工具调用。\n\n## 修复与安全\n\n- 修复会话重启和工作区迁移时的偶发错误。\n- 限制大图预览的资源占用，并将委托审批绑定到对应的工具调用。\n- 打开 Agent 提供的本地预览前会询问；共享已有浏览器标签页时仅允许查看。\n\n## 安装\n\n本次仅提供 Windows x64 安装包。已有用户可直接覆盖安装，无需先卸载。安装包未签名，Windows 可能提示 SmartScreen。macOS 本次不更新。\n",
+      "url": "https://github.com/7oMB2006/desktop-for-step-code/releases/tag/v1.0.3",
+      "publishedAt": "2026-11-28T06:27:40Z",
       "installer": {
-        "name": "Desktop.for.Step.Code.Setup.1.0.2.exe",
-        "url": "https://github.com/7oMB2006/desktop-for-step-code/releases/download/v1.0.2/Desktop.for.Step.Code.Setup.1.0.2.exe",
-        "size": 164367961,
+        "name": "Desktop.for.Step.Code.Setup.1.0.3.exe",
+        "url": "https://github.com/7oMB2006/desktop-for-step-code/releases/download/v1.0.3/Desktop.for.Step.Code.Setup.1.0.3.exe",
+        "size": 164391106,
         "inApp": true
       }
     },
     "preview": {
-      "version": "1.0.2",
-      "tag": "v1.0.2",
-      "name": "v1.0.2 (Windows)",
+      "version": "1.0.3",
+      "tag": "v1.0.3",
+      "name": "v1.0.3 (Windows)",
       "prerelease": false,
-      "notes": "本版提供 Windows x64 安装包，可从 `v1.0.1` 直接覆盖升级，无需先卸载。macOS 本版不发包，继续使用 `v1.0.0`。\n\n### 导出当前会话反馈包\n\n- 遇到异常、工具报错或回复不符合预期时，从「帮助 → 导出当前会话反馈包」发起。可填写预期、实际情况和出错时间，日期既能手填，也能从日历选择。\n- 保存前可以预览。模型请求失败和工具失败分开显示，同一次工具调用里有记录的多条错误会归在一起；没有记录的中间错误不会被推测补上。\n- 默认不包含会话正文或工具输出，可按需加入相关脱敏片段。反馈包保存到系统「下载」下的 `Desktop for Step Code Feedback`，也可以另存为。不会自动上传，用户可以自行发给 Desktop 维护者或 Step Code 官方。\n- 应用级脱敏诊断仍可在「设置 → 通用」单独导出。\n\n### Windows 验证\n\n已用此安装包从公开 `v1.0.1` 覆盖升级，未发现问题；安装后的应用文件与候选包一致。已验收反馈包预览、默认保存、另存为及导出的内容。Step Code 运行时钉点不变。\n",
-      "url": "https://github.com/7oMB2006/desktop-for-step-code/releases/tag/v1.0.2",
-      "publishedAt": "2026-11-26T16:19:05Z",
+      "notes": "## 多轮反馈导出\n\n- 从会话历史中回选最多 32 个已保存的轮次。发了新消息后，仍能选到之前失败或手动停止的轮次。\n- 排查跨轮问题时，可附上未选中间轮次的统计摘要，不附带这些轮次的对话正文。\n- 反馈包只保存到本地，不自动上传。你可以先预览内容，再决定交给 Desktop 维护者、Step Code 官方或模型提供方。\n\n## 日常使用\n\n- 完善社区市场入口、模型配置和会话历史。\n- 简洁模式会显示失败的工具调用。\n\n## 修复与安全\n\n- 修复会话重启和工作区迁移时的偶发错误。\n- 限制大图预览的资源占用，并将委托审批绑定到对应的工具调用。\n- 打开 Agent 提供的本地预览前会询问；共享已有浏览器标签页时仅允许查看。\n\n## 安装\n\n本次仅提供 Windows x64 安装包。已有用户可直接覆盖安装，无需先卸载。安装包未签名，Windows 可能提示 SmartScreen。macOS 本次不更新。\n",
+      "url": "https://github.com/7oMB2006/desktop-for-step-code/releases/tag/v1.0.3",
+      "publishedAt": "2026-11-28T06:27:40Z",
       "installer": {
-        "name": "Desktop.for.Step.Code.Setup.1.0.2.exe",
-        "url": "https://github.com/7oMB2006/desktop-for-step-code/releases/download/v1.0.2/Desktop.for.Step.Code.Setup.1.0.2.exe",
-        "size": 164367961,
+        "name": "Desktop.for.Step.Code.Setup.1.0.3.exe",
+        "url": "https://github.com/7oMB2006/desktop-for-step-code/releases/download/v1.0.3/Desktop.for.Step.Code.Setup.1.0.3.exe",
+        "size": 164391106,
         "inApp": true
       }
     }

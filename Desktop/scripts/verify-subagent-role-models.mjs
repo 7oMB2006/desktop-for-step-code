@@ -227,6 +227,11 @@ try {
     };
     const rowFor = id => page.locator('.subagent-definition-row').filter({ has: page.locator(`[title="${id}"]`) });
     const back = page.getByRole('button', { name: '返回角色列表' });
+    const narrowDetail = async () => {
+      await resize(760, 640);
+      // Electron's resize request can resolve before Chromium applies the container query.
+      await back.waitFor({ state: 'visible' });
+    };
     const chooseRole = async id => {
       if (await back.isVisible()) await back.click();
       await rowFor(id).click();
@@ -292,7 +297,7 @@ try {
     assert.deepEqual((await page.evaluate(() => window.desktop.subagentRoleSettings())).values.planner,
       { provider: ids.review, id: 'same-id', effort: 'high' });
     await page.locator('.subagent-definitions').screenshot({ path: 'test-results/personal-subagent-catalog-wide-dark.png' });
-    await resize(760, 640);
+    await narrowDetail();
     await chooseRole('review');
     await back.click();
     assert.ok(await rowFor('review').evaluate(element =>
@@ -350,7 +355,7 @@ try {
     await chooseRole('planner');
     await chooseRole(personalId);
     assert.equal(await prompt.inputValue(), 'PERSONAL-ROLE-SENTINEL-V2');
-    await resize(760, 640);
+    await narrowDetail();
     await focusVisible(prompt);
     await page.locator('.settings-dialog').screenshot({ path: 'test-results/personal-subagent-editor-narrow-light.png' });
     await save();

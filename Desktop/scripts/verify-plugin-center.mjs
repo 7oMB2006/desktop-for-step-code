@@ -119,6 +119,8 @@ try {
     assert.equal(await updates.locator('.pc-update-action').count(), 1);
     assert.equal(await action.locator('..').getAttribute('class'), 'pc-card-actions', 'Update uses the existing footer actions');
     assert.equal(await action.getByRole('button').innerText(), '更新', 'The update action has a visible text label');
+    assert.equal(await card.locator('.pc-card-state .pc-status').count(), 0, 'An available update hides the redundant service label');
+    assert.equal(await card.getByRole('switch').getAttribute('aria-checked'), 'true');
     const oldIcon = await card.locator('img').getAttribute('src');
     const initialHeight = (await card.boundingBox()).height;
     const initialFooterHeight = (await card.locator('.pc-card-footer').boundingBox()).height;
@@ -129,9 +131,11 @@ try {
     await updates.waitForFunction(() => !window.pluginUpdateTest.snapshot().checking);
     await updates.getByRole('switch', { name: '启用 Bilibili Video Research 服务', exact: true }).click();
     await updates.waitForFunction(() => document.querySelector('[aria-label="启用 Bilibili Video Research 服务"]')?.getAttribute('aria-checked') === 'false');
+    assert.equal(await card.locator('.pc-card-state .pc-status').count(), 0, 'The update also hides the redundant off label');
     await updates.getByRole('button', { name: '更新 Bilibili Video Research 至 v0.1.1', exact: true }).dblclick();
     await action.getByRole('progressbar').waitFor();
     assert.equal(await action.getByRole('button').innerText(), '更新中');
+    assert.equal(await card.locator('.pc-card-state .pc-status').count(), 0);
     assert.equal((await card.boundingBox()).height, initialHeight, 'Downloading does not increase card height');
     assert.equal(await action.getByRole('progressbar').evaluate(element => {
       const progress = element.getBoundingClientRect(), footer = element.closest('.pc-card-footer').getBoundingClientRect();
@@ -144,6 +148,7 @@ try {
     await updates.waitForFunction(() => document.querySelector('.pc-card-version')?.textContent.includes('v0.1.1'));
     assert.notEqual(await card.locator('img').getAttribute('src'), oldIcon);
     assert.equal(await card.getByRole('switch').getAttribute('aria-checked'), 'false', 'Updating keeps the saved service switch');
+    assert.equal(await card.locator('.pc-card-state .pc-status').innerText(), '服务已停用', 'Completion restores the service label');
     assert.deepEqual(await updates.evaluate(() => window.pluginCenterTest.configuration()), originalConfiguration);
     assert.equal((await card.boundingBox()).height, initialHeight, 'Update phases keep card height stable');
     assert.equal((await card.locator('.pc-card-footer').boundingBox()).height, initialFooterHeight, 'Update actions do not enlarge the footer');
@@ -234,18 +239,15 @@ try {
           const bounds = element.getBoundingClientRect();
           const controls = [...element.querySelectorAll('button:not([data-empty]), a')];
           const status = element.querySelector('.pc-status');
-          const range = document.createRange();
-          range.selectNodeContents(status);
-          const textLines = [...range.getClientRects()].filter(rect => rect.width > 0);
-          const boxes = [...controls.map(control => control.getBoundingClientRect()), ...textLines];
+          const boxes = controls.map(control => control.getBoundingClientRect());
           const inside = boxes.every(box => box.left >= bounds.left - 1 && box.right <= bounds.right + 1
             && box.top >= bounds.top - 1 && box.bottom <= bounds.bottom + 1);
           const separate = boxes.every((a, i) => boxes.slice(i + 1).every(b =>
             Math.min(a.right, b.right) - Math.max(a.left, b.left) < 1
             || Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top) < 1));
-          return { controls: controls.length, lines: textLines.length, inside, separate };
+          return { controls: controls.length, hasStatus: Boolean(status), inside, separate };
         });
-        assert.deepEqual(layout, { controls: 7, lines: 1, inside: true, separate: true }, `${language}/${width}: full card footer`);
+        assert.deepEqual(layout, { controls: 7, hasStatus: false, inside: true, separate: true }, `${language}/${width}: full card footer`);
         const update = footer.locator('.pc-update-trigger');
         await update.focus();
         assert.deepEqual(await update.evaluate(focusClips), []);

@@ -43,7 +43,9 @@ Update blockers list affected sessions without a disclosure. Viewing saved
 details does not start another update. A configuration mismatch is separate
 from ownership, and explicit configuration setup changes are disclosed before
 applying. Installed card footers wrap the action group when space runs out;
-the service state remains on one line.
+visible service state remains on one line. While an update is pending, omit
+the on/off text already conveyed by the service switch. Keep the switch,
+partial service state, and runtime warnings visible.
 
 ## Plugin Risk Confirmation
 

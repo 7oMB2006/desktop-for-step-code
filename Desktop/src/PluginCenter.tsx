@@ -583,7 +583,7 @@ export function PluginCenter({ bridge, language, busy, active, runtimeId, curren
       disabled={operationLocked || !owned.length || owned.some(server => !server.configurable)}
       onClick={() => void perform({ action: 'plugin-toggle', id: plugin.id, enabled: !owned.every(server => server.enabled) })}><span/></button>;
   };
-  const status = (plugin: CapabilityPlugin) => {
+  const statusLabel = (plugin: CapabilityPlugin, hideToggleLabel: boolean) => {
     if (plugin.package?.hostConfiguration === 'custom-background-v1')
       return !backgroundState?.available ? t('本机外观', 'Local appearance') : backgroundState.issue ? t('图片不可用', 'Image unavailable')
         : !backgroundState.image ? t('尚未选择图片', 'No image selected')
@@ -593,12 +593,20 @@ export function PluginCenter({ bridge, language, busy, active, runtimeId, curren
       ? startup.tools.filter(tool => owned.some(server => server.name === tool.name)) : [];
     if (observed.some(tool => tool.cleanupConfirmed === false)) return t('当前会话清理未确认', 'Current session cleanup unconfirmed');
     if (observed.some(tool => tool.status === 'failed')) return t('当前会话不可用', 'Unavailable in current session');
-    return !owned.length ? t('无 MCP 服务', 'No MCP services') : owned.every(server => server.enabled) ? t('服务已启用', 'Services enabled')
-      : owned.every(server => !server.enabled) ? t('服务已停用', 'Services disabled') : t('部分服务启用', 'Some services enabled');
+    if (!owned.length) return t('无 MCP 服务', 'No MCP services');
+    if (owned.every(server => server.enabled)) return hideToggleLabel ? undefined : t('服务已启用', 'Services enabled');
+    if (owned.every(server => !server.enabled)) return hideToggleLabel ? undefined : t('服务已停用', 'Services disabled');
+    return t('部分服务启用', 'Some services enabled');
   };
-  const statusClass = (plugin: CapabilityPlugin) => startup?.runtimeId === runtimeId
-    && startup?.tools.some(tool => tool.status === 'failed' && servers(plugin).some(server => server.name === tool.name))
-    ? 'pc-status pc-status-unavailable' : 'pc-status';
+  const renderStatus = (plugin: CapabilityPlugin, inCard = false) => {
+    const update = inCard ? updates?.items[plugin.id] : undefined;
+    const hideToggleLabel = Boolean(update && !['current', 'unavailable', 'updated'].includes(update.phase));
+    const label = statusLabel(plugin, hideToggleLabel);
+    if (!label) return null;
+    const failed = startup?.runtimeId === runtimeId
+      && startup?.tools.some(tool => tool.status === 'failed' && servers(plugin).some(server => server.name === tool.name));
+    return <span className={failed ? 'pc-status pc-status-unavailable' : 'pc-status'}>{label}</span>;
+  };
   const confirmInstall = (item: Entry) => {
     if (!item.available || installLocked(item) || item.available.installed || item.available.blocked) return;
     const available = item.available;
@@ -788,7 +796,7 @@ export function PluginCenter({ bridge, language, busy, active, runtimeId, curren
               <PluginCategoryTags pkg={item.package} language={language} compact/>
               <span className="pc-card-meta"><span>{item.source}</span>
                 <PluginStars value={item.repository && item.package ? item.package.stars ?? { status: 'unknown' } : undefined} language={language}/></span>
-              <footer className="pc-card-footer"><div className="pc-card-state">{item.installed ? <>{toggle(item.installed)}<span className={statusClass(item.installed)}>{status(item.installed)}</span></>
+              <footer className="pc-card-footer"><div className="pc-card-state">{item.installed ? <>{toggle(item.installed)}{renderStatus(item.installed, true)}</>
                 : <button disabled={installLocked(item) || item.available?.installed || item.available?.blocked} onClick={() => confirmInstall(item)}>
                   {item.available?.installed ? <Check size={14}/> : <ArrowDownToLine size={14}/>} {item.available?.installed ? t('已安装', 'Installed') : t('安装', 'Install')}</button>}</div>
                 <div className="pc-card-actions">
@@ -821,7 +829,7 @@ export function PluginCenter({ bridge, language, busy, active, runtimeId, curren
             <PluginUpdateBadge state={!entry.available && entry.installed ? updates?.items[entry.installed.id] : undefined} language={language}/><span>{entry.source}</span></p>
           <p className="pc-plugin-byline"><PluginAuthor pkg={entry.package} language={language}/></p></div></div>
           <div className="pc-plugin-summary"><p>{entry.description}</p><PluginCategoryTags pkg={entry.package} language={language}/>
-            {entry.installed && <span className={statusClass(entry.installed)}>{status(entry.installed)}</span>}</div>
+            {entry.installed && renderStatus(entry.installed)}</div>
           <div className="pc-header-actions"><span className="pc-repository"><ProjectLink entry={entry} language={language}/><PluginStars value={entry.repository && entry.package ? entry.package.stars ?? { status: 'unknown' } : undefined} language={language}/>
             {entry.repository && entry.package && <button className="icon-button" disabled={repositoryPending} aria-label={t('刷新仓库信息', 'Refresh repository information')}
               onClick={() => void refreshRepository()}><RefreshCw size={13} className={repositoryPending ? 'pc-spin' : undefined}/></button>}</span>{entry.installed ? <>

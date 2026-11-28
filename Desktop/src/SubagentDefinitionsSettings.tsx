@@ -153,6 +153,7 @@ export function SubagentDefinitionsSettings({ bridge, language, models }: {
   const inspector = useRef<HTMLDivElement>(null);
   const addButton = useRef<HTMLButtonElement>(null);
   const backButton = useRef<HTMLButtonElement>(null);
+  const editFocus = useRef<string | null>(null);
   const roles = catalog?.roles ?? [];
   const newDraft = drafts[newId];
   const editableModels = models.filter(model => subagentModelLevels(model).length);
@@ -221,16 +222,21 @@ export function SubagentDefinitionsSettings({ bridge, language, models }: {
       return next;
     });
   }
-  const focusEdit = (id: string) => requestAnimationFrame(() => {
+  // The edit button is mounted by the commit that closes the editor.
+  useLayoutEffect(() => {
+    const id = editFocus.current;
+    if (!id) return;
+    editFocus.current = null;
+    if (selectedId !== id || !showDetail) return;
     const detail = inspector.current?.querySelector<HTMLElement>('section[data-definition-id]:not([hidden])');
     if (detail?.dataset.definitionId === id && detail.checkVisibility()) detail.querySelector<HTMLButtonElement>('.subagent-definition-edit')?.focus();
-  });
+  }, [drafts, selectedId, showDetail]);
   async function save(id: string, draft: Editor) {
     const saved = await bridge.saveSubagentDefinition(draft);
+    editFocus.current = saved.id;
     setCatalog(current => current && { ...current, roles: [...current.roles.filter(role => role.id !== saved.id), saved] });
     closeDraft(id);
     setSelectedId(current => current === id ? saved.id : current);
-    focusEdit(saved.id);
     setStatus(t('角色已保存', 'Role saved'));
   }
   async function remove() {
@@ -332,7 +338,7 @@ export function SubagentDefinitionsSettings({ bridge, language, models }: {
                 onClick={() => { setError(''); setPendingDelete(role); }}><Trash2 size={15}/></button>}
             </div>
             {editing ? <PersonalEditor initial={editing} language={language} models={models} onSave={draft => save(role.id, draft)}
-              onClose={() => { closeDraft(role.id); focusEdit(role.id); }}/> : <>
+              onClose={() => { editFocus.current = role.id; closeDraft(role.id); }}/> : <>
               <p className="subagent-definition-duty">{role.description}</p>
               {modelRole && builtin?.available ? <RoleRow role={modelRole} language={language} models={editableModels} detail
                 saved={builtin.values[modelRole]} onSave={async value => {

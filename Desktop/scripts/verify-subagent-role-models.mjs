@@ -239,6 +239,9 @@ try {
     const newRole = page.getByRole('button', { name: '新建子代理' });
     const form = page.locator('.subagent-definition-form:visible');
     const edit = page.getByRole('button', { name: '编辑角色', exact: true });
+    const waitForEditFocus = () => page.waitForFunction(() => Boolean(
+      document.activeElement?.matches('.subagent-definition-edit'),
+    ));
     const duplicate = page.getByRole('button', { name: '复制为个人角色' });
     const slug = form.getByRole('textbox', { name: '角色标识' });
     const prompt = form.getByRole('textbox', { name: '系统提示词' });
@@ -247,6 +250,7 @@ try {
     const save = async () => {
       await form.getByRole('button', { name: '保存角色' }).click();
       await form.waitFor({ state: 'hidden' });
+      await waitForEditFocus();
     };
     async function delegate(label, agent) {
       const task = `ROLE-CHILD-${label}`;
@@ -320,8 +324,6 @@ try {
     await form.screenshot({ path: 'test-results/personal-subagent-editor-narrow-dark.png' });
     await save();
     assert.equal(await page.locator(`[data-definition-id="${personalId}"] select`).count(), 0);
-    assert.ok(await edit.evaluate(element =>
-      new Promise(resolve => requestAnimationFrame(() => resolve(document.activeElement === element)))));
     await duplicate.click();
     assert.equal(await model.inputValue(), '');
     assert.equal(await prompt.inputValue(), 'PERSONAL-ROLE-SENTINEL-V1');
@@ -348,6 +350,9 @@ try {
     await page.evaluate(() => window.desktop.preferences({ theme: 'light' }));
     await openRoles();
     await chooseRole(personalId);
+    await edit.click();
+    await form.getByRole('button', { name: '取消', exact: true }).click();
+    await waitForEditFocus();
     await edit.click();
     await prompt.fill('PERSONAL-ROLE-SENTINEL-V2');
     await model.selectOption('');

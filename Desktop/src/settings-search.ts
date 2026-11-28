@@ -5,6 +5,7 @@ const entries = [
   ['web-search', '', '搜索顺序', 'Search order', '阶跃 Tavily Exa Brave 博查 Bocha SearXNG 降级 优先级 fallback'],
   ['browser', 'browser-profiles', '浏览器资料', 'Browser profiles', 'Cookie 登录 站点数据 sign-in storage'],
   ['browser', 'browser-presets', 'Agent 打开预设', 'Agent opening presets', '匿名 会话 站点 anonymous website'],
+  ['subagents', '', '子代理模型', 'Subagent models', '自定义 角色 提示词 内置角色 思考强度 agent role model tools thinking effort'],
   ['general', 'approvalNotifications', '审批请求通知', 'Approval request notifications', '审批 提醒 banner'],
   ['general', 'completionNotifications', '任务完成通知', 'Task completion notifications', '提醒 banner'],
   ['general', 'completionSound', '完成提示音', 'Completion sound', '声音 音效 铃声 audio'],

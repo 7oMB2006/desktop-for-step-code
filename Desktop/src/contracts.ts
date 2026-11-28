@@ -280,6 +280,9 @@ export interface DesktopBridge extends SessionImportBridge, BtwBridge, Backgroun
   settings(): Promise<Settings>;
   compactionSettings(): Promise<import('./compaction-settings').CompactionSettings>;
   subagentRoleSettings(): Promise<import('./subagent-role-models').SubagentRoleSettings>;
+  subagentDefinitions(): Promise<import('./subagent-definitions').SubagentDefinitionCatalog>;
+  saveSubagentDefinition(input: import('./subagent-definitions').SubagentDefinitionDraft & { revision: string | null }): Promise<import('./subagent-definitions').PersonalSubagent>;
+  removeSubagentDefinition(input: { slug: string; revision: string }): Promise<null>;
   saveSubagentRole(role: import('./subagent-role-models').SubagentRole, model: import('./subagent-role-models').SubagentRoleModel | null): Promise<import('./subagent-role-models').SubagentRoleModels>;
   saveCompactionSettings(update: import('./compaction-settings').CompactionSettingsUpdate): Promise<import('./compaction-settings').CompactionSettings>;
   accountAllowance(refresh?: boolean): Promise<import('./account-allowance').AccountAllowance>;

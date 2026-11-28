@@ -30,20 +30,27 @@ test('Plugin cards distinguish current-session failures from enabled configurati
   const component = source.statements.find((node): node is ts.FunctionDeclaration =>
     ts.isFunctionDeclaration(node) && node.name?.text === 'PluginCenter');
   const status = component?.body?.statements.flatMap(node => ts.isVariableStatement(node)
-    ? [...node.declarationList.declarations] : []).find(node => node.name.getText(source) === 'status');
+    ? [...node.declarationList.declarations] : []).find(node => node.name.getText(source) === 'statusLabel');
   assert.ok(status?.initializer);
   const compiled = ts.transpileModule(`return (${status.initializer.getText(source)});`, {
     compilerOptions: { target: ts.ScriptTarget.ES2022 },
   }).outputText;
-  const present = (startup?: RuntimeStartup, runtimeId?: string) =>
+  const present = (startup?: RuntimeStartup, runtimeId?: string, hideToggleLabel = false, enabled = true) =>
     new Function('startup', 'runtimeId', 'servers', 'backgroundState', 't', compiled)(
-      startup, runtimeId, () => [{ name: 'fixture', enabled: true }], undefined, (_zh: string, en: string) => en,
-    )({ id: 'plugin' });
+      startup, runtimeId, () => [{ name: 'fixture', enabled }], undefined, (_zh: string, en: string) => en,
+    )({ id: 'plugin' }, hideToggleLabel);
   assert.equal(present(), 'Services enabled');
+  assert.equal(present(undefined, undefined, false, false), 'Services disabled');
+  assert.equal(present(undefined, undefined, true), undefined);
+  assert.equal(present(undefined, undefined, true, false), undefined);
   const failed = state({ runtimeId: 'current', tools: [{ name: 'fixture', status: 'failed', toolCount: 0, startedAt: 0 }] });
   assert.equal(present(failed, 'current'), 'Unavailable in current session');
+  assert.equal(present(failed, 'current', true), 'Unavailable in current session');
   assert.equal(present(failed, 'other'), 'Services enabled');
-  assert.equal(present(state({ runtimeId: 'current', tools: [{
+  assert.equal(present(failed, 'other', true), undefined);
+  const cleanupUnconfirmed = state({ runtimeId: 'current', tools: [{
     name: 'fixture', status: 'connected', cleanupConfirmed: false, toolCount: 1, startedAt: 0,
-  }] }), 'current'), 'Current session cleanup unconfirmed');
+  }] });
+  assert.equal(present(cleanupUnconfirmed, 'current'), 'Current session cleanup unconfirmed');
+  assert.equal(present(cleanupUnconfirmed, 'current', true), 'Current session cleanup unconfirmed');
 });

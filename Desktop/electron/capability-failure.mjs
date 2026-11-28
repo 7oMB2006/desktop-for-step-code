@@ -1,6 +1,6 @@
 const codes = new Set([
   'invalid-input', 'already-exists', 'not-found', 'stale', 'plugin-conflict',
-  'invalid-configuration', 'stale-configuration', 'settings-committed-unverified', 'configuration-schema-changed',
+  'invalid-configuration', 'stale-configuration', 'update-configuration-mismatch', 'settings-committed-unverified', 'configuration-schema-changed',
   'configuration-consumer-conflict', 'invalid-path', 'read-only', 'too-large',
   'marketplace-failed', 'profile-isolation', 'resource-in-use', 'storage',
   'invalid-presentation', 'invalid-release', 'update-capabilities-changed', 'update-recovery-required',

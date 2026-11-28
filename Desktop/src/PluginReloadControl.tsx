@@ -1,6 +1,6 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { ArrowUpRight, Info, LoaderCircle, RotateCcw, X } from 'lucide-react';
+import { ArrowUpRight, Info, LoaderCircle, Radio, RotateCcw, X } from 'lucide-react';
 import { CapabilityDisclosure } from './CapabilitySettings';
 import { capabilityErrorText } from './capability-errors';
 import { PluginInstanceRing, type PluginInstancePhase } from './PluginInstanceRing';
@@ -15,10 +15,11 @@ function instancePhase(item: PluginReloadSession): PluginInstancePhase {
   return item.reason === 'unsupported' ? 'unknown' : 'cancelled';
 }
 
-export function PluginReloadControl({ bridge, plugin, language, active, disabled, disabledReason, onFinished, onError, onSession }: {
+export function PluginReloadControl({ bridge, plugin, language, active, disabled, disabledReason, onFinished, onError, onSession, onRemote }: {
   bridge: PluginReloadBridge; plugin: { id: string; name: string; ref: string }; language: string;
   active: boolean; disabled?: boolean; disabledReason?: string;
   onFinished(state: PluginReloadState): void; onError?(message: string): void; onSession?(id: string): void;
+  onRemote?(): void;
 }) {
   const zh = language === 'zh', t = (cn: string, en: string) => zh ? cn : en;
   const id = useId(), anchor = useRef<HTMLButtonElement>(null);
@@ -100,11 +101,15 @@ export function PluginReloadControl({ bridge, plugin, language, active, disabled
   };
   const show = (button: HTMLButtonElement) => { returnFocus.current = button; setOpen(true); };
   const sessions = state?.sessions ?? [], phases = sessions.map(instancePhase);
+  const start = () => bridge.pluginReloadStart({ id: plugin.id, ref: plugin.ref });
+  const remoteSkipped = sessions.some(item => item.phase === 'cancelled' && item.reason === 'remote-attached');
+  const externalSkipped = sessions.some(item => item.phase === 'cancelled' && item.reason === 'external');
   const ready = phases.filter(phase => phase === 'idle').length;
   const loaded = phases.filter(phase => phase === 'done').length;
   const failed = phases.filter(phase => phase === 'failed').length;
   const preflight = phases.every(phase => ['idle', 'occupied', 'unknown'].includes(phase)) && running;
   const canCancel = sessions.some(item => item.phase === 'waiting' || item.phase === 'ready');
+  const canRetry = !running && (remoteSkipped || externalSkipped);
   const count = preflight ? t(`${ready}/${sessions.length} 可立即加载`, `${ready}/${sessions.length} ready`)
     : t(`${loaded}/${sessions.length} 已加载${failed ? `，${failed} 个失败` : ''}`,
       `${loaded}/${sessions.length} loaded${failed ? `, ${failed} failed` : ''}`);
@@ -119,7 +124,7 @@ export function PluginReloadControl({ bridge, plugin, language, active, disabled
         aria-label={t(`重载 ${plugin.name}`, `Reload ${plugin.name}`)}
         data-tooltip={running ? details : disabledReason ?? t('重载插件', 'Reload plugin')} title={!running ? disabledReason : undefined}
         aria-haspopup={running ? 'dialog' : undefined} aria-expanded={running ? open : undefined}
-        onClick={event => running ? show(event.currentTarget) : void request(() => bridge.pluginReloadStart({ id: plugin.id, ref: plugin.ref }))}>
+        onClick={event => running ? show(event.currentTarget) : void request(start)}>
         {checking && !running ? <LoaderCircle size={14} className="pc-spin"/> : <RotateCcw size={14}/>}
       </button>
       <button className="icon-button pc-reload-status" type="button" aria-label={details} aria-description={sessions.length ? count : undefined}
@@ -145,9 +150,19 @@ export function PluginReloadControl({ bridge, plugin, language, active, disabled
               onClick={() => { setOpen(false); onSession(item.sessionId!); }}><ArrowUpRight size={14}/></button>}
           </li>)}</ul>
         </CapabilityDisclosure>}
-      {canCancel && state?.operationId && <footer><button type="button" disabled={checking}
-        onClick={() => void request(() => bridge.pluginReloadCancel({ id: plugin.id, operationId: state.operationId! }))}>
-        {t('取消等待', 'Cancel waiting')}</button></footer>}
+      {remoteSkipped && <p>{t('此会话没有在等待重载。如需重载，请先在 Remote 面板解除绑定。', 'This session is not queued for reload. To reload it, unbind it in the Remote panel first.')}</p>}
+      {externalSkipped && <p>{t('此会话没有在等待重载。外部任务结束后，可重新检查并重载。', 'This session is not queued for reload. Check again after the external task ends.')}</p>}
+      {(canCancel && state?.operationId || remoteSkipped && onRemote || canRetry) && <footer>
+        {remoteSkipped && onRemote && <button type="button" onClick={() => { setOpen(false); onRemote(); }}>
+          <Radio size={14}/>{t('打开 Remote', 'Open Remote')}</button>}
+        {canCancel && state?.operationId ? <button type="button" disabled={checking}
+          onClick={() => void request(() => bridge.pluginReloadCancel({ id: plugin.id, operationId: state.operationId! }))}>
+          {t('取消等待', 'Cancel waiting')}</button>
+        : canRetry &&
+          <button type="button" disabled={checking || disabled} onClick={() => { setOpen(false); void request(start); }}>
+            <RotateCcw size={14}/>
+            {t('重新检查并重载', 'Check again and reload')}</button>}
+      </footer>}
     </dialog>, document.body)}
   </>;
 }

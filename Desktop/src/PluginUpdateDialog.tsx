@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
-import { ArrowUpFromLine, Check, CircleAlert, LoaderCircle, RotateCcw, Trash2, X } from 'lucide-react';
-import { capabilityErrorText } from './capability-errors';
+import { ArrowUpRight, Check, CircleAlert, LoaderCircle, RotateCcw, Trash2, X } from 'lucide-react';
+import { capabilityErrorText, pluginUpdateErrorText } from './capability-errors';
 import { CapabilityDisclosure } from './CapabilitySettings';
 import { PluginInstanceRing, type PluginInstancePhase } from './PluginInstanceRing';
 import type { PluginUpdateOperation, PluginUpdatePreflight } from './plugin-update';
@@ -9,6 +9,7 @@ export interface PluginUpdatePanel {
   intent?: 'remove';
   pluginId: string; name: string; preflight?: PluginUpdatePreflight;
   operation?: PluginUpdateOperation; running: boolean; error?: string;
+  version?: string; checkUnavailable?: boolean;
 }
 export function pluginUpdateChangeText(code: string, zh: boolean) {
   const labels: Record<string, [string, string]> = {
@@ -61,6 +62,9 @@ export function PluginUpdateDialog({ panel, open, language, onClose, onApply, on
   if (!panel) return null;
   const { preflight, operation, running } = panel;
   const removing = panel.intent === 'remove';
+  const needsRelease = preflight?.readiness === 'needs-release';
+  const blocked = preflight?.readiness === 'blocked';
+  const ready = preflight?.readiness === 'ready';
   const sessions = operation?.sessions ?? preflight?.sessions ?? [];
   const phases = sessions.map((item): PluginInstancePhase => {
     if (!('restoration' in item)) return item.status === 'idle' ? 'idle' : item.status === 'busy' ? 'occupied' : 'unknown';
@@ -74,19 +78,34 @@ export function PluginUpdateDialog({ panel, open, language, onClose, onApply, on
   const title = operation ? operation.installation === 'committed' ? removing ? t('插件已卸载', 'Plugin uninstalled') : t('新版已安装', 'New version installed')
     : operation.installation === 'unknown' ? removing ? t('卸载结果待核对', 'Removal outcome needs review') : t('更新结果待核对', 'Update outcome needs review')
       : removing ? t('尚未卸载', 'Not uninstalled') : t('尚未更新', 'Not updated')
-    : preflight?.readiness === 'needs-release' ? t('需要释放会话占用', 'Sessions need to release this plugin')
-      : removing && preflight?.readiness === 'ready' ? t('确认卸载插件', 'Confirm plugin removal') : t('需要重新检查', 'Check again before updating');
+    : needsRelease ? t('需要释放会话占用', 'Sessions need to release this plugin')
+      : ready ? removing ? t('确认卸载插件', 'Confirm plugin removal') : t('确认更新插件', 'Confirm plugin update')
+        : panel.checkUnavailable ? t('插件配置记录不匹配', 'Plugin configuration mismatch')
+          : blocked && !removing ? t('暂不能更新', 'Update blocked')
+            : t('需要重新检查', 'Check again before proceeding');
   const phase = operation?.phase;
   const stage = phase === 'releasing' ? t('正在释放占用', 'Releasing sessions')
     : phase === 'applying' ? removing ? t('正在卸载插件', 'Uninstalling plugin') : t('正在应用更新', 'Applying update')
       : phase === 'restoring' ? t('正在恢复会话', 'Restoring sessions') : title;
+  const version = operation?.version ?? preflight?.version ?? panel.version;
+  const sessionList = <ul className="pc-update-sessions">{sessions.map(item => <li key={item.runtimeId}>
+    <span>{item.name}</span><small>{'restoration' in item ? item.restoration === 'restored' ? t('已恢复', 'Restored')
+      : item.restoration === 'failed' ? t('未恢复', 'Not restored')
+        : item.restoration === 'unknown' ? t('状态待核对', 'Needs review')
+          : item.restoration === 'untouched' ? t('未中断', 'Not interrupted') : t('待恢复', 'Pending restoration')
+      : item.status === 'idle' ? needsRelease ? t('空闲，将重启', 'Idle; will restart') : t('空闲', 'Idle')
+        : item.status === 'busy' ? t('需先处理任务', 'Work needs attention') : t('状态未知', 'Unknown')}</small>
+    {!running && (removing || !needsRelease) && item.sessionId && onSession && <button className="icon-button"
+      aria-label={t(`查看会话 ${item.name}`, `View session ${item.name}`)} data-tooltip={t('打开会话', 'Open session')}
+      onClick={() => onSession(item.sessionId!)}><ArrowUpRight size={14}/></button>}
+  </li>)}</ul>;
   return <dialog ref={dialog} className="pc-dialog pc-update-dialog" aria-label={removing ? t('卸载插件', 'Uninstall plugin') : t('插件更新', 'Plugin update')}
     onCancel={event => { event.preventDefault(); onClose(); }}>
     <header><h2>{panel.name}</h2><button className="icon-button" aria-label={removing ? t('关闭卸载详情', 'Close removal details') : t('关闭更新详情', 'Close update details')}
       onClick={onClose}><X size={16}/></button></header>
     <div className="pc-update-dialog-status" role="status" aria-live="polite">
       {running ? <LoaderCircle size={17} className="pc-spin"/> : operation?.phase === 'done' ? <Check size={17}/> : <CircleAlert size={17}/>}
-      <strong>{running ? stage : title}</strong><span>v{operation?.version ?? preflight?.version}</span>
+      <strong>{running ? stage : title}</strong>{version && <span>v{version}</span>}
     </div>
     {!operation && removing && <p>{preflight?.readiness === 'needs-release' ? t(
       '将暂停以下空闲会话，卸载插件后恢复原会话。运行时临时状态会重置，会话记录不会删除。',
@@ -96,25 +115,19 @@ export function PluginUpdateDialog({ panel, open, language, onClose, onApply, on
     {!operation && !removing && preflight?.readiness === 'needs-release' && <p>{t(
       '将暂停以下空闲会话，安装新版后恢复原会话。运行时临时状态会重置，已有配置和服务开关保持不变。',
       'These idle sessions will pause, then reopen after installation. Runtime-only state resets; saved settings and service switches are kept.')}</p>}
+    {!operation && !removing && blocked && !!sessions.length && <p>{t(
+      '可以打开下方会话查看阻塞项；处理后回到这里重新检查。不会强行停止任何任务。',
+      'Open the affected sessions below, resolve their state, then check again. Work will not be forcibly stopped.')}</p>}
     {running && <p>{t('关闭此窗口不会取消操作。', 'Closing this window will not cancel the operation.')}</p>}
-    {!!sessions.length && <CapabilityDisclosure key={`${panel.pluginId}:${panel.intent ?? 'update'}`}
+    {!!sessions.length && (!removing && !operation && !running ? sessionList : <CapabilityDisclosure key={`${panel.pluginId}:${panel.intent ?? 'update'}`}
       className="pc-operation-instances" label={<span className="pc-reload-heading">
         <span>{t('运行实例', 'Running instances')}</span><PluginInstanceRing phases={phases} language={language} doneLabel={t('已恢复', 'restored')}/>
         <span key={countLabel} className="lc-instance-count" role="status">{countLabel}</span>
       </span>}>
-      <ul className="pc-update-sessions">{sessions.map(item => <li key={item.runtimeId}>
-      <span>{item.name}</span><small>{'restoration' in item ? item.restoration === 'restored' ? t('已恢复', 'Restored')
-        : item.restoration === 'failed' ? t('未恢复', 'Not restored')
-          : item.restoration === 'unknown' ? t('状态待核对', 'Needs review')
-            : item.restoration === 'untouched' ? t('未中断', 'Not interrupted') : t('待恢复', 'Pending restoration')
-        : item.status === 'idle' ? preflight?.readiness === 'needs-release' ? t('空闲，将重启', 'Idle; will restart') : t('空闲', 'Idle')
-          : item.status === 'busy' ? t('需先处理任务', 'Work needs attention') : t('状态未知', 'Unknown')}</small>
-      {!running && item.sessionId && onSession && <button className="icon-button"
-        aria-label={t(`查看会话 ${item.name}`, `View session ${item.name}`)} onClick={() => onSession(item.sessionId!)}><ArrowUpFromLine size={14}/></button>}
-    </li>)}</ul></CapabilityDisclosure>}
+      {sessionList}</CapabilityDisclosure>)}
     {!operation && preflight && <ul className="pc-update-reasons">{[...preflight.changes, ...preflight.blockers.map(code => ({ code }))].map((change, index) =>
       <li key={index}>{'field' in change && typeof change.field === 'string' && <code>{change.field}: </code>}{pluginUpdateChangeText(change.code, zh)}</li>)}</ul>}
-    {operation?.error && <p role="alert">{capabilityErrorText(operation.error, zh)}</p>}
+    {operation?.error && <p role="alert">{(removing ? capabilityErrorText : pluginUpdateErrorText)(operation.error, zh)}</p>}
     {panel.error && <p role="alert">{panel.error}</p>}
     {removing && operation?.installation === 'unknown' && <p>{t(
       '暂不能确认卸载结果。请保留现场并核对插件和会话状态，不要重复卸载。',
@@ -123,10 +136,10 @@ export function PluginUpdateDialog({ panel, open, language, onClose, onApply, on
       <p>{removing ? t('插件已卸载，但部分会话未恢复。请打开对应会话处理，不要重复卸载。', 'The plugin was removed, but some sessions need recovery. Open those sessions; do not repeat removal.')
         : t('新版已安装，但部分会话未恢复。请查看对应会话并重启，不要重复更新。', 'The new version is installed, but some sessions need recovery. Open those sessions and restart them; do not repeat the update.')}</p>}
     <footer><button autoFocus onClick={onClose}>{running || operation ? t('关闭', 'Close') : t('取消', 'Cancel')}</button>
-      {!running && !operation && (preflight?.readiness === 'needs-release' || removing && preflight?.readiness === 'ready') && <button className={removing ? 'pc-danger-button' : 'primary'} onClick={onApply}>
-        {removing ? <Trash2 size={14}/> : <RotateCcw size={14}/>}{removing ? preflight?.readiness === 'needs-release' ? t('释放占用并卸载', 'Release sessions and uninstall') : t('卸载插件', 'Uninstall plugin')
-          : t('重启相关会话并更新', 'Restart affected sessions and update')}</button>}
-      {!running && (!operation && preflight?.readiness !== 'needs-release' && !(removing && preflight?.readiness === 'ready')
+      {!running && !operation && (needsRelease || ready) && <button className={removing ? 'pc-danger-button' : 'primary'} onClick={onApply}>
+        {removing ? <Trash2 size={14}/> : <RotateCcw size={14}/>}{removing ? needsRelease ? t('释放占用并卸载', 'Release sessions and uninstall') : t('卸载插件', 'Uninstall plugin')
+          : needsRelease ? t('重启相关会话并更新', 'Restart affected sessions and update') : t('安装更新', 'Install update')}</button>}
+      {!running && !panel.checkUnavailable && (!operation && !needsRelease && !ready
         || operation?.installation === 'unchanged') && <button onClick={onCheck}>
         <RotateCcw size={14}/>{t('重新检查', 'Check again')}</button>}
     </footer>

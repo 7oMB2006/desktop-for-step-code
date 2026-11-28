@@ -4,7 +4,7 @@ import type { McpServer, SessionSummary } from './contracts';
 import type { CapabilityCatalog, CapabilityMutation, CapabilityPlugin, MarketplacePlugin, PluginPackage, PluginStarSnapshot } from './capabilities';
 import type { CapabilityTarget, PluginTab } from './capability-command';
 import { capabilityNeedsIdle } from './capability-locks';
-import { capabilityWarningText } from './capability-errors';
+import { capabilityWarningText, pluginUpdateErrorText } from './capability-errors';
 import { CapabilityDisclosure, CapabilityPluginIconView, capabilityErrorText, type CapabilityBridge } from './CapabilitySettings';
 import { BvrConfigurationForm, type BvrSettingsBridge } from './BvrConfigurationForm';
 import { PluginConfigurationForm } from './PluginConfigurationForm';
@@ -57,7 +57,7 @@ function ProjectLink({ entry, language }: { entry: Entry; language: string }) {
     <span className="pc-github-mark" aria-hidden="true"/></a>;
 }
 export function PluginCenter({ bridge, language, busy, active, runtimeId, currentVersion, settings, target, updates: previewUpdates, startup, startupDisabled,
-  customBackgroundState, onAppearance, onChanged, onRestart, onManageMcp, onBack, onOpenDesktop, onOpenSession }: {
+  customBackgroundState, onAppearance, onChanged, onRestart, onManageMcp, onBack, onOpenDesktop, onOpenSession, onOpenRemote }: {
   bridge: PluginCenterBridge; language: string; busy: boolean; active: boolean; runtimeId?: string;
   currentVersion?: string;
   settings?: { mcp: Record<string, McpServer> }; target?: CapabilityTarget;
@@ -67,6 +67,7 @@ export function PluginCenter({ bridge, language, busy, active, runtimeId, curren
   onChanged(): Promise<void>; onRestart(): Promise<void>; onManageMcp(name?: string): void; onBack(): void;
   onOpenDesktop?(plugin: CapabilityPlugin): void;
   onOpenSession?(id: string): Promise<void>;
+  onOpenRemote?(): void;
 }) {
   const t = (cn: string, en: string) => language === 'zh' ? cn : en;
   const [catalog, setCatalog] = useState<CapabilityCatalog>();
@@ -166,7 +167,8 @@ export function PluginCenter({ bridge, language, busy, active, runtimeId, curren
       setUpdatePanels(current => ({ ...current, [pluginId]: { pluginId, name, operation: result, running: false } }));
       setWarnings(result.warnings);
       setUpdateStates(current => ({ ...current, [pluginId]: { phase: result.installation === 'committed' ? 'updated' : 'assistance',
-        version: result.version, detailsAvailable: result.phase === 'attention', summary: capabilityErrorText(result.error ?? '', language === 'zh') } }));
+        version: result.version, detailsAvailable: result.phase === 'attention',
+        summary: result.error ? pluginUpdateErrorText(result.error, language === 'zh') : undefined } }));
       if (result.phase === 'attention') setUpdatePanelId(pluginId);
     }
     if (result.installation !== 'unknown') {
@@ -259,7 +261,7 @@ export function PluginCenter({ bridge, language, busy, active, runtimeId, curren
         if (result?.id === preflight.token) return acceptOperation(pluginId, name, result);
       } catch {}
       if (alive.current) {
-        const message = capabilityErrorText(error, language === 'zh');
+        const message = pluginUpdateErrorText(error, language === 'zh');
         setUpdatePanels(current => ({ ...current, [pluginId]: { pluginId, name, running: false, error: message } }));
         setUpdateStates(current => ({ ...current, [pluginId]: {
           phase: 'assistance', version: preflight.version, detailsAvailable: true, summary: message,
@@ -307,11 +309,12 @@ export function PluginCenter({ bridge, language, busy, active, runtimeId, curren
       try {
         if (nativeUpdates) {
           const preflight = await bridge.pluginUpdatePreflight!({ id: pluginId, ref: plugin.package.ref, candidate: candidate.ref });
-          if (preflight.readiness === 'ready') return await applyPreflight(pluginId, plugin.name, preflight);
+          const setup = preflight.changes.some(change => change.code === 'configuration-added' || change.code === 'host-reconfigure');
+          if (preflight.readiness === 'ready' && !setup) return await applyPreflight(pluginId, plugin.name, preflight);
           if (alive.current) {
             setUpdatePanels(current => ({ ...current, [pluginId]: { pluginId, name: plugin.name, preflight, running: false } }));
             setUpdateStates(current => ({ ...current, [pluginId]: { phase: preflight.readiness === 'blocked' ? 'blocked' : 'assistance',
-              version, detailsAvailable: true, summary: preflight.status === 'compatible'
+              version, detailsAvailable: true, summary: preflight.status === 'compatible' && !setup
                 ? t('查看占用会话与处理方式', 'Review affected sessions and next steps')
                 : preflight.changes.map(change => pluginUpdateChangeText(change.code, language === 'zh')).join('; ') } }));
             setUpdatePanelId(pluginId);
@@ -331,9 +334,17 @@ export function PluginCenter({ bridge, language, busy, active, runtimeId, curren
         }
         return true;
       } catch (error) {
-        if (alive.current) setUpdateStates(current => ({ ...current, [pluginId]: {
-          phase: 'failed', version, error: capabilityErrorText(error, language === 'zh'),
-        } }));
+        if (alive.current) {
+          const configurationMismatch = nativeUpdates && /capability:update-configuration-mismatch(?![a-z-])/u.test(String(error));
+          const message = pluginUpdateErrorText(error, language === 'zh');
+          if (configurationMismatch) {
+            setUpdatePanels(current => ({ ...current, [pluginId]: { pluginId, name: plugin.name, version,
+              running: false, error: message, checkUnavailable: true } }));
+            setUpdatePanelId(pluginId);
+            setUpdateStates(current => ({ ...current, [pluginId]: { phase: 'assistance', version,
+              detailsAvailable: true, summary: message } }));
+          } else setUpdateStates(current => ({ ...current, [pluginId]: { phase: 'failed', version, error: message } }));
+        }
         // A rejected native operation may invalidate opaque package references.
         // Rebind retry to a fresh catalog without discarding the failure message.
         try { const next = await bridge.capabilityCatalog(); if (alive.current) acceptCatalog(next); } catch {}
@@ -397,7 +408,7 @@ export function PluginCenter({ bridge, language, busy, active, runtimeId, curren
           : { ...panels, [plugin.id]: { pluginId: plugin.id, name: current.name, operation: result, running } });
         setUpdateStates(states => ({ ...states, [plugin.id]: {
           phase: result.installation === 'committed' ? 'updated' : 'assistance', version: result.version,
-          detailsAvailable: true, summary: capabilityErrorText(result.error ?? '', language === 'zh'),
+          detailsAvailable: true, summary: result.error ? pluginUpdateErrorText(result.error, language === 'zh') : undefined,
         } }));
         setWarnings(result.warnings);
         if (running) setUpdateBusy(true);
@@ -547,15 +558,20 @@ export function PluginCenter({ bridge, language, busy, active, runtimeId, curren
       onFinished={state => {
         const failed = state.sessions.filter(item => item.phase === 'failed').length;
         const loaded = state.sessions.filter(item => item.phase === 'applied').length;
+        const skipped = state.sessions.filter(item => item.phase === 'cancelled'
+          && (item.reason === 'external' || item.reason === 'remote-attached')).length;
         if (failed) setReloadNotice({ id: Date.now(), type: 'warning',
           message: t(`${plugin.name} 有 ${failed} 个实例重载失败`, `${plugin.name}: ${failed} instance${failed === 1 ? '' : 's'} failed to reload`) });
+        else if (skipped) setReloadNotice({ id: Date.now(), type: 'warning',
+          message: t(`${plugin.name} 已跳过 ${skipped} 个受保护的会话`, `${plugin.name}: skipped ${skipped} protected session${skipped === 1 ? '' : 's'}`) });
         else if (loaded && loaded === state.sessions.length)
           setReloadNotice({ id: Date.now(), type: 'success', message: t(`${plugin.name} 已重载`, `${plugin.name} reloaded`) });
         if (!failed && !loaded) return;
         setLive(undefined); setObservationRevision(value => value + 1);
         void onChanged().catch(error => setError(capabilityErrorText(error, language === 'zh')));
       }} onError={message => setReloadNotice({ id: Date.now(), type: 'warning', message })}
-      onSession={onOpenSession ? sessionId => navigate(() => { void onOpenSession(sessionId); }) : undefined}/>
+      onSession={onOpenSession ? sessionId => navigate(() => { void onOpenSession(sessionId); }) : undefined}
+      onRemote={onOpenRemote ? () => navigate(onOpenRemote) : undefined}/>
     : null;
   const toggle = (plugin: CapabilityPlugin) => {
     if (plugin.package?.hostConfiguration === 'custom-background-v1') return null;
@@ -641,8 +657,9 @@ export function PluginCenter({ bridge, language, busy, active, runtimeId, curren
   const updatePlugin = (pluginId: string) => {
     const panel = updatePanels[pluginId];
     const candidate = catalog?.plugins.find(item => item.id === pluginId)?.update;
-    if (panel?.running || panel?.operation?.installation === 'unknown'
-      || panel?.operation?.installation === 'committed' && candidate?.status !== 'available') {
+    if (panel && (panel.running || panel.operation?.installation === 'unknown'
+      || updates?.items[pluginId]?.detailsAvailable
+      || panel.operation?.installation === 'committed' && candidate?.status !== 'available')) {
       setUpdatePanelId(pluginId); return;
     }
     navigateUpdate(() => {
@@ -662,7 +679,7 @@ export function PluginCenter({ bridge, language, busy, active, runtimeId, curren
   };
   const continueUpdate = () => navigateUpdate(() => {
     const panel = updatePanelId ? updatePanels[updatePanelId] : undefined;
-    if (!panel?.preflight || updateOperation.current) return;
+    if (!panel?.preflight || panel.preflight.readiness === 'blocked' || updateOperation.current) return;
     updateRequests.current.set(panel.pluginId, Symbol(panel.pluginId));
     updateOperation.current = true; setUpdateBusy(true);
     void applyPreflight(panel.pluginId, panel.name, panel.preflight).then(async success => {

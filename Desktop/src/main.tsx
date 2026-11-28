@@ -2517,7 +2517,7 @@ function App() {
         runtimeId={data.runtimeId} settings={settings ?? undefined} target={capabilityTarget?.page === 'plugins' ? capabilityTarget : undefined}
         customBackgroundState={data.customBackground}
         onAppearance={() => { setPluginsOpen(false); setTab('appearance'); void openSettings(); }}
-        onBack={() => setPluginsOpen(false)} onOpenDesktop={openInstalledDesktop}
+        onBack={() => setPluginsOpen(false)} onOpenDesktop={openInstalledDesktop} onOpenRemote={openRemote}
         onOpenSession={async id => {
           const session = data.sessions.find(item => item.id === id);
           if (!session || !await navigateSession(session)) throw new Error('capability:runtime-unavailable');

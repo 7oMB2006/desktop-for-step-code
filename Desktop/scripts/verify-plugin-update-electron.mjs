@@ -237,8 +237,15 @@ try {
   await page.getByRole('button', { name: 'Plugin marketplace', exact: true }).click();
   await page.getByRole('region', { name: 'Plugin center', exact: true })
     .getByRole('button', { name: `Update ${name} to v0.1.0`, exact: true }).click();
+  const firstUpdateDialog = page.getByRole('dialog', { name: 'Plugin update', exact: true });
+  await firstUpdateDialog.getByText('Confirm plugin update', { exact: true }).waitFor();
+  assert.match(await firstUpdateDialog.innerText(), /First configuration added/);
+  assert.equal((await plugin()).version, '0.0.1', 'Configuration setup changes are explained before installation');
+  await firstUpdateDialog.getByRole('button', { name: 'Install update', exact: true }).click();
   const firstApplied = await until(() => ipc('pluginUpdateOperation', { pluginId: id }),
     value => value?.phase === 'done', 'The real update button did not commit the first configuration upgrade');
+  await firstUpdateDialog.getByText('New version installed', { exact: true }).waitFor();
+  await firstUpdateDialog.getByRole('button', { name: 'Close update details', exact: true }).click();
   operations.push(firstApplied);
   assert.equal(firstApplied.installation, 'committed');
   assert.deepEqual(firstApplied.sessions, []);

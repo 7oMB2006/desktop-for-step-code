@@ -26,6 +26,9 @@ hosted authorization and service-topology changes do not fall back to
 restarting the session. Closing details does not cancel pending work, which
 is tied to the package/configuration, runtime generation and session identity.
 Do not wake disconnected sessions or show a chat/composer banner.
+Inspect target membership before displaying ownership. Confirmed Remote and
+external-task owners are skipped, not queued. Use the existing dialog and
+session navigation, with the appropriate next step and an explicit retry.
 
 ## Plugin Update And Removal
 
@@ -36,6 +39,11 @@ force-stop action. Uninstall remains destructive even without runtime owners and
 always requires confirmation. Keep conversation history, unrelated MCP settings
 and production profiles outside removal scope. A failed release blocks deletion;
 an uncertain result offers review instead of an automatic retry.
+Update blockers list affected sessions without a disclosure. Viewing saved
+details does not start another update. A configuration mismatch is separate
+from ownership, and explicit configuration setup changes are disclosed before
+applying. Installed card footers wrap the action group when space runs out;
+the service state remains on one line.
 
 ## Plugin Risk Confirmation
 

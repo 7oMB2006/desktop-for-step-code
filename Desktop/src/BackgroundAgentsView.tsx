@@ -17,7 +17,7 @@ interface ReplyDraft {
   text: string;
   requestId?: string;
   pending?: boolean;
-  error?: boolean;
+  error?: 'unconfirmed' | 'role-changed';
   receipt?: BackgroundAgentReplyReceipt;
 }
 function FollowUpComposer({ draft, disabled, running, language, onChange, onSend }: {
@@ -68,7 +68,10 @@ function FollowUpComposer({ draft, disabled, running, language, onChange, onSend
     </div>
     {tooLong && <p className="background-agent-error" role="alert">{zh
       ? '追加任务不能超过 8000 字符。' : 'Follow-up tasks cannot exceed 8,000 characters.'}</p>}
-    {draft.error && <p className="background-agent-error" role="alert">{zh
+    {draft.error && <p className="background-agent-error" role="alert">{draft.error === 'role-changed'
+      ? zh ? '这次没有发送。角色或模型设置已更改或移除，请重新委派。输入已保留。'
+        : 'Not sent. The role or model settings changed or were removed. Start a new delegation. Your text is retained.'
+      : zh
       ? '发送结果未确认，内容已保留，未自动重试。可先核对任务状态；原文再次提交会复用同一请求编号。'
       : 'Delivery unconfirmed. Your text is retained; no automatic retry. Check the task before resubmitting the same request.'}</p>}
   </form>;
@@ -319,9 +322,10 @@ export function BackgroundAgentsView({ open, runtimeId, sessionId, connected, se
       if (receipt.sessionId !== sessionId || receipt.laneId !== lane.id || receipt.requestId !== requestId
         || !['queued', 'started'].includes(receipt.delivery)) throw new Error('Unconfirmed reply');
       if (owner.current === identity) setReplyDrafts(value => ({ ...value, [lane.id]: { text: '', receipt } }));
-    } catch {
+    } catch (cause) {
       if (owner.current === identity) setReplyDrafts(value => ({ ...value,
-        [lane.id]: { text: prompt, requestId, error: true } }));
+        [lane.id]: { text: prompt, requestId, error: String(cause).includes('Subagent role or model settings changed or were removed.')
+          ? 'role-changed' : 'unconfirmed' } }));
     } finally {
       locks.delete(lane.id);
       if (owner.current === identity) refresh.current();

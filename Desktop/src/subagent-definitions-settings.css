@@ -1,0 +1,140 @@
+.settings-dialog .settings-content.is-subagents:not([hidden]) {
+  display: flex;
+  min-height: 0;
+  padding: 0;
+  overflow: hidden;
+  scrollbar-gutter: auto;
+  container: subagent-catalog / inline-size;
+}
+.subagent-definitions {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+.subagent-definition-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  padding: 16px 24px;
+  border-bottom: 1px solid var(--border);
+}
+.subagent-definitions .subagent-definition-header h3 { margin: 0; font-size: 19px; }
+.subagent-definition-header .subagent-definition-actions { margin-inline-start: auto; }
+.subagent-definition-message { padding-inline: 24px; }
+.subagent-definition-actions, .subagent-definition-identity { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.subagent-definition-actions > button { display: inline-flex; align-items: center; gap: 6px; }
+.subagent-definition-workspace {
+  display: grid;
+  grid-template-columns: minmax(230px, 37%) minmax(0, 1fr);
+  min-height: 0;
+  flex: 1;
+}
+.subagent-definition-list, .subagent-definition-inspector {
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  scroll-padding: 12px;
+}
+.subagent-definition-list { padding: 14px 12px 20px; border-inline-end: 1px solid var(--border); }
+.subagent-definition-columns {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 27px 9px 10px;
+  border-bottom: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 12px;
+}
+.subagent-definition-group { margin-top: 14px; }
+.subagent-definition-group h4, .subagent-definition-group > .muted { margin: 0 10px 4px; color: var(--muted); font-size: 12px; }
+.settings-dialog .subagent-definition-row {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1.1fr) minmax(0, 1fr) 14px;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  height: 50px;
+  padding: 5px 8px;
+  border: 1px solid transparent;
+  background: transparent;
+  text-align: start;
+}
+.settings-dialog .subagent-definition-row:hover { background: var(--side); }
+.settings-dialog .subagent-definition-row[aria-current="true"] {
+  background: color-mix(in oklch, var(--primary) 8%, var(--bg));
+  border-color: color-mix(in oklch, var(--primary) 22%, var(--border));
+}
+.subagent-definition-row > svg, .subagent-definition-row .agent-role-icon { color: var(--muted); }
+.subagent-definition-row[aria-current="true"] > svg:last-child { color: var(--primary); }
+.subagent-definition-row > :is(span, strong) { min-width: 0; }
+.subagent-definition-row :is(strong, small), .subagent-definition-row-model {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.subagent-definition-row strong { font-size: 13px; }
+.subagent-definition-row-model { text-align: end; font-size: 12px; }
+.subagent-definition-row small { margin-top: 2px; font-size: 11px; color: var(--muted); }
+.subagent-definition-inspector { padding: 22px 24px 28px; container: subagent-detail / inline-size; }
+.settings-dialog .subagent-definition-back { display: none; }
+.subagent-definition-heading { display: flex; justify-content: space-between; align-items: start; gap: 8px; margin-bottom: 14px; }
+.subagent-definition-heading > div { min-width: 0; }
+.subagent-definitions .subagent-definition-heading h3 { margin: 0 0 4px; font-size: 19px; overflow-wrap: anywhere; }
+.subagent-definition-identity { margin: 0; gap: 3px 8px; color: var(--muted); font-size: 12px; }
+.subagent-definition-identity > button { width: 24px; height: 24px; min-height: 24px; }
+.subagent-definition-duty { margin: 0 0 18px; line-height: 1.5; overflow-wrap: anywhere; }
+.subagent-definition-model, .subagent-definition-definition { padding-top: 14px; border-top: 1px solid var(--border); }
+.subagent-definition-model { margin-bottom: 18px; }
+.subagent-definition-inspector h4 { margin: 0 0 11px; font-size: 14px; }
+.subagent-definition-model-fields {
+  display: grid;
+  grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr);
+  align-items: end;
+  gap: 12px;
+}
+.subagent-definition-model-fields label, .subagent-definition-model-value { margin: 0; min-width: 0; gap: 5px; }
+.subagent-definition-model-value { display: grid; font-size: calc(13px + var(--ui-delta)); }
+.subagent-definition-model-value > span:last-child {
+  display: flex;
+  align-items: center;
+  min-height: 37px;
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--side);
+  overflow-wrap: anywhere;
+}
+.subagent-definition-model-fields :is(.appearance-select, select), .subagent-definition-form :is(input, .appearance-select) {
+  width: 100%;
+  min-width: 0;
+}
+.subagent-definition-model-fields select { min-height: 37px; }
+.subagent-definition-properties { display: grid; grid-template-columns: minmax(5em, 24%) minmax(0, 1fr); gap: 8px 16px; margin: 0; font-size: 13px; }
+.subagent-definition-properties dt { color: var(--muted); }
+.subagent-definition-properties dd { margin: 0; }
+.subagent-definition-identity code, .subagent-definition-properties dd, .subagent-role-dialog code { overflow-wrap: anywhere; }
+.subagent-definition-prompt { line-height: 1.55; white-space: pre-wrap; max-width: 65ch; }
+.subagent-definition-definition > button { margin-top: 14px; }
+.subagent-definition-form fieldset { min-width: 0; margin: -4px; padding: 4px; border: 0; }
+.subagent-definition-form textarea { display: block; width: 100%; min-height: 152px; padding: 10px; resize: vertical; line-height: 1.5; }
+.subagent-definition-footer { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; min-height: 34px; margin-top: 14px; }
+.subagent-definition-footer > :last-child { margin-inline-start: auto; }
+.subagent-definition-error, .subagent-definition-footer [role="alert"] { color: var(--danger); }
+.subagent-definition-footer [aria-disabled="true"] { opacity: .55; cursor: default; }
+@container subagent-detail (max-width: 300px) {
+  .subagent-definition-model-fields { grid-template-columns: minmax(0, 1fr); }
+}
+@container subagent-catalog (max-width: 650px) {
+  .subagent-definition-workspace { grid-template-columns: minmax(0, 1fr); }
+  .subagent-definitions[data-detail="closed"] .subagent-definition-inspector,
+  .subagent-definitions[data-detail="open"] :is(.subagent-definition-list, .subagent-definition-header .subagent-definition-actions) { display: none; }
+  .subagent-definition-header { padding: 12px 14px; }
+  .subagent-definition-inspector { padding: 16px 14px 24px; }
+  .subagent-definition-list { border-inline-end: 0; }
+  .settings-dialog .subagent-definition-back { display: inline-flex; margin-bottom: 16px; }
+}

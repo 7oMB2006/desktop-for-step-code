@@ -122,7 +122,8 @@ import { useAppUpdates } from './AppUpdates';
 import { AboutSettings } from './AboutSettings';
 import { AppearanceSettings } from './AppearanceSettings';
 import { CompactionSettings } from './CompactionSettings';
-import { SubagentRoleSettings } from './SubagentRoleSettings';
+import { LegacySubagentRoleSettings } from './SubagentRoleSettings';
+import { SubagentDefinitionsSettings } from './SubagentDefinitionsSettings';
 import { SpeechInput } from './SpeechInput';
 import { SpeechSettings } from './SpeechSettings';
 import { appendSpeechText } from './speech-segments';
@@ -1630,6 +1631,7 @@ function App() {
     ['web-search', WorldSearchIcon, '联网搜索', 'Web search'],
     ...(!isMini ? [['browser', Globe, '内置浏览器', 'Built-in browser'] as const] : []),
     ['plugins', Plug, '插件', 'Plugins'], ['mcp', McpIcon, 'MCP', 'MCP'], ['skills', BookOpen, 'Skills', 'Skills'],
+    ['subagents', Bot, '子代理', 'Subagents'],
     ['instructions', FileText, '全局指令', 'Global instructions'], ['general', SunMoon, '通用', 'General'],
     ['interface', SlidersHorizontal, '界面复杂度', 'Interface complexity'], ['appearance', Pencil, '外观', 'Appearance'],
     ['import', ArrowRightLeft, '会话迁移', 'Session migration'], ['archived', Archive, '已归档', 'Archived'],
@@ -3108,9 +3110,10 @@ function App() {
               </button>
             </li>)}</ul>
           </div>}
-      <div key={tab} ref={settingsContent} hidden={searchingSettings} className={`settings-content${tab === 'skills' ? ' is-skills' : ''}`}
+      <div key={tab} ref={settingsContent} hidden={searchingSettings} className={`settings-content${tab === 'skills' ? ' is-skills' : tab === 'subagents' ? ' is-subagents' : ''}`}
         onFocusCapture={revealFocusedTextField}>
       {tab === 'web-search' && bridge ? <WebSearchSettings bridge={bridge} language={data.preferences.language} onAccount={() => selectSettingsTab('account')}/>
+        : tab === 'subagents' && bridge ? <SubagentDefinitionsSettings bridge={bridge} language={data.preferences.language} models={data.models}/>
         : tab === 'browser' && bridge && !isMini ? <BrowserSettings bridge={bridge} language={data.preferences.language} onOpen={openBrowserProfile}/>
         : tab === 'instructions' ? <GlobalInstructionsSettings editor={globalInstructionsEditor} language={data.preferences.language}/> : tab === 'interface' ? <InterfaceSettings value={interfaceSettings} language={data.preferences.language} onChange={interfaceSettings => setPreference({ interfaceSettings })}/> : tab === 'appearance' ? <>
         <ThemeSettings preferences={data.preferences} systemDark={systemDark} language={data.preferences.language} packs={data.themePacks}
@@ -3133,7 +3136,7 @@ function App() {
         </div>)}
       </section>}
       {settings && tab === 'general' && <>
-        {bridge && <SubagentRoleSettings bridge={bridge} language={data.preferences.language} models={data.models}/>}
+        {bridge && <LegacySubagentRoleSettings bridge={bridge} language={data.preferences.language} models={data.models}/>}
         <NotificationSettings preferences={data.preferences} onChange={setPreference}/>
         <h3>{t('会话', 'Sessions')}</h3>
         <label data-settings-anchor="session-order">{t('会话排序', 'Session order')}

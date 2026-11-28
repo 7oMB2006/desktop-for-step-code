@@ -1,0 +1,432 @@
+diff --git a/packages/coding-agent/src/features/step-subagent-agents.ts b/packages/coding-agent/src/features/step-subagent-agents.ts
+index 788ce0e..b6e6faf 100644
+--- a/packages/coding-agent/src/features/step-subagent-agents.ts
++++ b/packages/coding-agent/src/features/step-subagent-agents.ts
+@@ -7,13 +7,13 @@
+  */
+ 
+ import type { Dirent } from "node:fs";
+-import { readdir, readFile, stat } from "node:fs/promises";
++import { lstat, readdir, readFile, realpath, stat } from "node:fs/promises";
+ import path from "node:path";
+ import { CONFIG_DIR_NAME, getAgentDir } from "../config.ts";
+ import { parseFrontmatter } from "../utils/frontmatter.ts";
+ 
+ export type StepAgentScope = "user" | "project" | "both";
+-export type StepAgentSource = "builtin" | "user" | "project";
++export type StepAgentSource = "builtin" | "user" | "project" | "personal";
+ 
+ export interface StepAgentConfig {
+ 	name: string;
+@@ -41,6 +41,8 @@ export interface StepAgentDiscoveryOptions {
+ 	scope?: StepAgentScope;
+ 	/** Include the four safe, built-in role definitions. */
+ 	includeBuiltin?: boolean;
++	/** Explicit opt-in for ordinary Desktop delegation and its settings catalog. */
++	desktopStorageRoot?: string;
+ }
+ 
+ type AgentFrontmatter = {
+@@ -48,8 +50,22 @@ type AgentFrontmatter = {
+ 	description?: unknown;
+ 	tools?: unknown;
+ 	model?: unknown;
++	"dfsc-managed"?: unknown;
++	"dfsc-tool-profile"?: unknown;
+ };
+ 
++export const desktopSubagentSlug = /^[a-z0-9][a-z0-9-]{0,47}$/u;
++const readTools = ["read_file", "find_files", "search_files", "list_directory"] as const;
++export const desktopSubagentProfiles = {
++	read: readTools,
++	command: [...readTools, "run_command"],
++	edit: [...readTools, "write_file", "edit_file", "run_command"],
++} as const;
++
++export function desktopSubagentModel(value: unknown): value is string {
++	return typeof value === "string" && value.length <= 220 && /^[^\s/\x00-\x1f]+\/[^\s\x00-\x1f]+$/u.test(value);
++}
++
+ /** Built-ins make the feature useful on a fresh Step install. User files with
+  * the same name override these definitions, then project files override user
+  * files when both scopes are selected. */
+@@ -114,7 +130,10 @@ async function isDirectory(directory: string): Promise<boolean> {
+ 	}
+ }
+ 
+-async function loadAgentsFromDirectory(directory: string, source: "user" | "project"): Promise<StepAgentConfig[]> {
++async function loadAgentsFromDirectory(
++	directory: string,
++	source: Exclude<StepAgentSource, "builtin">,
++): Promise<StepAgentConfig[]> {
+ 	let entries: Dirent<string>[];
+ 	try {
+ 		entries = await readdir(directory, { encoding: "utf8", withFileTypes: true });
+@@ -128,6 +147,10 @@ async function loadAgentsFromDirectory(directory: string, source: "user" | "proj
+ 		const filePath = path.join(directory, entry.name);
+ 		let content: string;
+ 		try {
++			if (source === "personal") {
++				const info = await lstat(filePath);
++				if (!info.isFile() || info.size > 64 * 1024) continue;
++			}
+ 			content = await readFile(filePath, "utf8");
+ 		} catch {
+ 			continue;
+@@ -142,6 +165,33 @@ async function loadAgentsFromDirectory(directory: string, source: "user" | "proj
+ 		}
+ 		if (typeof parsed.frontmatter.name !== "string" || typeof parsed.frontmatter.description !== "string") continue;
+ 
++		if (source === "personal") {
++			const slug = parsed.frontmatter.name.slice("custom:".length);
++			const profile = parsed.frontmatter["dfsc-tool-profile"];
++			const allowed =
++				typeof profile === "string" && Object.hasOwn(desktopSubagentProfiles, profile)
++					? desktopSubagentProfiles[profile as keyof typeof desktopSubagentProfiles]
++					: undefined;
++			const tools = parsed.frontmatter.tools;
++			if (
++				parsed.frontmatter.name !== `custom:${slug}` ||
++				!desktopSubagentSlug.test(slug) ||
++				entry.name !== `dfsc-personal-${slug}.md` ||
++				parsed.frontmatter["dfsc-managed"] !== true ||
++				!allowed ||
++				!Array.isArray(tools) ||
++				tools.length !== allowed.length ||
++				!allowed.every((tool, index) => tool === tools[index]) ||
++				(parsed.frontmatter.model !== undefined && !desktopSubagentModel(parsed.frontmatter.model)) ||
++				!parsed.body.trim() ||
++				parsed.body.length > 12_000 ||
++				parsed.body.includes("\0") ||
++				parsed.frontmatter.description.length > 240 ||
++				/[\x00-\x1f\x7f]/u.test(parsed.frontmatter.description)
++			)
++				continue;
++		}
++
+ 		agents.push({
+ 			name: parsed.frontmatter.name.trim(),
+ 			description: parsed.frontmatter.description.trim(),
+@@ -155,6 +205,14 @@ async function loadAgentsFromDirectory(directory: string, source: "user" | "proj
+ 	return agents.filter((agent) => agent.name.length > 0 && agent.description.length > 0);
+ }
+ 
++async function isPlainDirectory(directory: string): Promise<boolean> {
++	try {
++		return (await lstat(directory)).isDirectory() && path.relative(directory, await realpath(directory)) === "";
++	} catch {
++		return false;
++	}
++}
++
+ async function findNearestProjectAgentsDir(cwd: string, configDirName: string): Promise<string | null> {
+ 	let current = path.resolve(cwd);
+ 	while (true) {
+@@ -186,13 +244,21 @@ export async function discoverStepAgents(
+ 
+ 	const scope = options.scope ?? "both";
+ 	const visible = definitions.filter(
+-		(agent) => agent.source === "builtin" || scope === "both" || scope === agent.source,
++		(agent) =>
++			(agent.source === "builtin" || scope === "both" || scope === agent.source) &&
++			(!options.desktopStorageRoot || !agent.name.startsWith("custom:")),
+ 	);
+ 	const byName = new Map<string, StepAgentConfig>();
+ 	for (const agent of visible) {
+ 		// Iteration order encodes precedence: built-in < user < project.
+ 		byName.set(agent.name, agent);
+ 	}
++	if (options.desktopStorageRoot && scope !== "project") {
++		const personal = path.join(options.desktopStorageRoot, "subagent-roles");
++		if (await isPlainDirectory(personal)) {
++			for (const role of await loadAgentsFromDirectory(personal, "personal")) byName.set(role.name, role);
++		}
++	}
+ 
+ 	return { agents: [...byName.values()], userAgentsDir, projectAgentsDir };
+ }
+diff --git a/packages/coding-agent/src/features/step-subagent.ts b/packages/coding-agent/src/features/step-subagent.ts
+index 910b216..faffad6 100644
+--- a/packages/coding-agent/src/features/step-subagent.ts
++++ b/packages/coding-agent/src/features/step-subagent.ts
+@@ -1011,12 +1011,14 @@ export function createStepSubagentExtension(options: StepSubagentExtensionOption
+ 					if (!prompt) return controlResult('agent_send: prompt is required for action:"reply"');
+ 					if (_id.startsWith("desktop-background-reply:")) {
+ 						let delivery: "queued" | "started" | "not_sent" | undefined;
+-						const text = lifecycle.replyToLane(lane, prompt, false, (value) => {
++						let reason: "role_changed" | undefined;
++						const text = await lifecycle.replyToLane(lane, prompt, false, (value, refusal) => {
+ 							delivery = value;
++							reason = refusal;
+ 						});
+-						return { ...controlResult(text, [lane.details]), delivery };
++						return { ...controlResult(text, [lane.details]), delivery, reason };
+ 					}
+-					return controlResult(lifecycle.replyToLane(lane, prompt, params.interrupt === true), [lane.details]);
++					return controlResult(await lifecycle.replyToLane(lane, prompt, params.interrupt === true), [lane.details]);
+ 				}
+ 				return controlResult(lifecycle.stopLane(lane), [lane.details]);
+ 			},
+diff --git a/packages/coding-agent/src/features/subagent/execute.ts b/packages/coding-agent/src/features/subagent/execute.ts
+index 212869b..003de71 100644
+--- a/packages/coding-agent/src/features/subagent/execute.ts
++++ b/packages/coding-agent/src/features/subagent/execute.ts
+@@ -304,11 +304,14 @@ export async function prepareSubagentRun(
+ 	preflight: { requireKnownAgents?: boolean } = {},
+ ): Promise<SubagentPreflight> {
+ 	const scope = params.agentScope ?? "user";
++	const desktopStorage =
++		process.env.STEP_CLIENT === "desktop-for-step-code" ? process.env.STEPCODE_STORAGE_ROOT_DIR?.trim() : undefined;
+ 	const discovery = await discoverStepAgents(ctx.cwd, {
+ 		agentDir: options.agentDir,
+ 		configDirName: options.configDirName,
+ 		includeBuiltin: options.includeBuiltinAgents,
+ 		scope,
++		desktopStorageRoot: desktopStorage,
+ 	});
+ 	const parallelInput = params.tasks;
+ 	const chainInput = params.chain;
+@@ -488,6 +491,21 @@ export async function runPreparedSubagent(
+ 			return failed;
+ 		}
+ 		reportCreated(agent, index);
++		if (agent.source === "personal" && agent.model) {
++			const separator = agent.model.indexOf("/");
++			if (!ctx.modelRegistry.find(agent.model.slice(0, separator), agent.model.slice(separator + 1))) {
++				const failed = makeFailureResult(
++					agent.name,
++					task.task,
++					`Configured model unavailable for ${agent.name}: ${agent.model}. Choose another model in Desktop settings. No fallback model was used.`,
++					agent.source,
++				);
++				records[index] = failed;
++				emit(mode);
++				reportFinished(failed, index);
++				return failed;
++			}
++		}
+ 		// A parallel batch shares the process-wide window with workflow nodes. The
+ 		// window's capacity is the smallest ceiling among the runs attached, so a batch
+ 		// and a workflow running together are bound by the more conservative of the two.
+@@ -581,6 +599,7 @@ export async function runPreparedSubagent(
+ 			};
+ 			const desktopRoleModel =
+ 				agent.source === "builtin" && !task.model ? desktopRoleModels?.get(agent.name) : undefined;
++			const taskModel = agent.source === "personal" ? undefined : task.model;
+ 			const child = await options.runner({
+ 				parentCwd,
+ 				parentSessionId,
+@@ -588,7 +607,7 @@ export async function runPreparedSubagent(
+ 				agent,
+ 				task: task.task,
+ 				cwd: childCwd,
+-				model: task.model ?? (ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : undefined),
++				model: taskModel ?? (ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : undefined),
+ 				thinkingLevel: ctx.thinkingLevel,
+ 				...(desktopRoleModels
+ 					? {
+@@ -597,7 +616,7 @@ export async function runPreparedSubagent(
+ 								? "role"
+ 								: agent.model
+ 									? "definition"
+-									: task.model
++									: taskModel
+ 										? "explicit"
+ 										: "inherited",
+ 						}
+diff --git a/packages/coding-agent/src/features/subagent/lane-lifecycle.ts b/packages/coding-agent/src/features/subagent/lane-lifecycle.ts
+index 7649e1f..6311e86 100644
+--- a/packages/coding-agent/src/features/subagent/lane-lifecycle.ts
++++ b/packages/coding-agent/src/features/subagent/lane-lifecycle.ts
+@@ -17,6 +17,7 @@ import type {
+ 	StepSubagentRpcSession,
+ 	SubagentParams,
+ } from "../step-subagent.ts";
++import { resolveStepAgent } from "../step-subagent-agents.ts";
+ import { redactSensitiveText } from "./display-text.ts";
+ import type { PreparedSubagentRun, SubagentPreflight } from "./execute.ts";
+ import { SUBAGENT_SESSION_ID_PREFIX } from "./helpers.ts";
+@@ -214,8 +215,8 @@ export interface LaneLifecycle {
+ 		lane: BackgroundAgentLane,
+ 		prompt: string,
+ 		interrupt: boolean,
+-		onDelivery?: (delivery: "queued" | "started" | "not_sent") => void,
+-	) => string;
++		onDelivery?: (delivery: "queued" | "started" | "not_sent", reason?: "role_changed") => void,
++	) => Promise<string>;
+ 	laneStatus: (lane: BackgroundAgentLane) => string;
+ 	/**
+ 	 * Stop every lane this session owns, wait up to LANE_SHUTDOWN_WAIT_MS for
+@@ -228,6 +229,14 @@ export interface LaneLifecycle {
+ 
+ type LaneTurnSource = { prepared: PreparedSubagentRun } | { params: SubagentParams };
+ 
++function desktopRoleContext(run: PreparedSubagentRun, ctx: ExtensionContext): string | undefined {
++	if (run.mode !== "single" || !run.tasks[0]) return undefined;
++	const role = resolveStepAgent(run.discovery.agents, run.tasks[0].agent);
++	if (role?.source !== "personal") return undefined;
++	const model = role.model ?? (ctx.model && `${ctx.model.provider}/${ctx.model.id}`);
++	return JSON.stringify([role.source, role.name, role.description, role.systemPrompt, role.tools, role.model, model, ctx.thinkingLevel]);
++}
++
+ export function createLaneLifecycle(host: LaneLifecycleHost): LaneLifecycle {
+ 	const { pi, lanes } = host;
+ 	const updateLaneWidget = (lane: BackgroundAgentLane): void => {
+@@ -239,6 +248,11 @@ export function createLaneLifecycle(host: LaneLifecycleHost): LaneLifecycle {
+ 	const laneEpochs = new WeakMap<BackgroundAgentLane, number>();
+ 	const closedRetention = new WeakSet<BackgroundAgentLane>();
+ 	const retentionOwners = new WeakMap<BackgroundAgentLane, object>();
++	const desktopRoleContexts = new WeakMap<BackgroundAgentLane, string>();
++	const roleChanged = (lane: BackgroundAgentLane): string =>
++		`The role or model settings for lane ${lane.id} changed or are no longer available. Start a new subagent call instead of replying to this lane.`;
++	const matchesDesktopRole = (lane: BackgroundAgentLane, result: SubagentPreflight): boolean =>
++		result.ok && desktopRoleContext(result.run, lane.ctx) === desktopRoleContexts.get(lane);
+ 	const isCurrent = (lane: BackgroundAgentLane, generation: number): boolean =>
+ 		laneEpochs.get(lane) === epoch && lane.runGeneration === generation;
+ 
+@@ -457,6 +471,10 @@ export function createLaneLifecycle(host: LaneLifecycleHost): LaneLifecycle {
+ 			if ("prepared" in source) prepared = source.prepared;
+ 			else {
+ 				const preflight = await host.prepare(source.params, lane.ctx);
++				if (desktopRoleContexts.has(lane) && !matchesDesktopRole(lane, preflight)) {
++					lane.queuedPrompts.length = 0;
++					throw new Error(roleChanged(lane));
++				}
+ 				if (!preflight.ok) return preflight.result;
+ 				prepared = preflight.run;
+ 			}
+@@ -553,6 +571,8 @@ export function createLaneLifecycle(host: LaneLifecycleHost): LaneLifecycle {
+ 			completedResponses: [],
+ 		};
+ 		laneEpochs.set(lane, epoch);
++		const roleContext = desktopRoleContext(prepared, ctx);
++		if (roleContext !== undefined) desktopRoleContexts.set(lane, roleContext);
+ 		lanes.set(id, lane);
+ 		startLane(lane, { prepared });
+ 		return lane;
+@@ -615,7 +635,7 @@ export function createLaneLifecycle(host: LaneLifecycleHost): LaneLifecycle {
+ 	});
+ 
+ 	/** Shared "reply" verb: deliver a prompt into a single-agent lane's ongoing transcript. */
+-	const replyToLane: LaneLifecycle["replyToLane"] = (lane, prompt, interrupt, onDelivery) => {
++	const replyToLane: LaneLifecycle["replyToLane"] = async (lane, prompt, interrupt, onDelivery) => {
+ 		if (onDelivery && pendingFinal.has(lane)) {
+ 			onDelivery("not_sent");
+ 			return "Wait for the background lane to settle";
+@@ -624,6 +644,21 @@ export function createLaneLifecycle(host: LaneLifecycleHost): LaneLifecycle {
+ 			onDelivery?.("not_sent");
+ 			return `agent_send: reply only works for single-agent lanes; lane ${lane.id} ran in ${lane.details.mode} mode. Start a new subagent call with the follow-up task instead.`;
+ 		}
++		const params = followUpParams(lane, prompt);
++		let source: LaneTurnSource = { params };
++		if (desktopRoleContexts.has(lane)) {
++			const generation = lane.runGeneration;
++			const preflight = await host.prepare(params, lane.ctx).catch(() => undefined);
++			if (!isCurrent(lane, generation) || lanes.get(lane.id) !== lane || (onDelivery && pendingFinal.has(lane))) {
++				onDelivery?.("not_sent");
++				return "The background lane changed while checking the reply. Check its status before retrying.";
++			}
++			if (!preflight?.ok || !matchesDesktopRole(lane, preflight)) {
++				onDelivery?.("not_sent", "role_changed");
++				return roleChanged(lane);
++			}
++			source = { prepared: preflight.run };
++		}
+ 		const live = getLiveSubagentSession(lane.sessionId);
+ 		if (lane.status === "running" && live?.isTurnActive()) {
+ 			const delivered = live.send(
+@@ -649,7 +684,7 @@ export function createLaneLifecycle(host: LaneLifecycleHost): LaneLifecycle {
+ 			}
+ 			lane.controller.abort();
+ 			lane.queuedPrompts.length = 0;
+-			startLane(lane, { params: followUpParams(lane, prompt) });
++			startLane(lane, source);
+ 			onDelivery?.("started");
+ 			return `Interrupted lane ${lane.id} and started the follow-up`;
+ 		}
+@@ -658,7 +693,7 @@ export function createLaneLifecycle(host: LaneLifecycleHost): LaneLifecycle {
+ 			onDelivery?.("not_sent");
+ 			return `agent_send: this session already has ${running} running background lanes (limit ${MAX_RUNNING_LANES}); wait for one to finish before replying to lane ${lane.id}.`;
+ 		}
+-		startLane(lane, { params: followUpParams(lane, prompt) });
++		startLane(lane, source);
+ 		onDelivery?.("started");
+ 		return `Started follow-up for lane ${lane.id}; its transcript continues from the previous turns. You will be notified when it finishes.`;
+ 	};
+diff --git a/packages/coding-agent/src/features/subagent/rpc-adapter.ts b/packages/coding-agent/src/features/subagent/rpc-adapter.ts
+index 74611c8..a1d87da 100644
+--- a/packages/coding-agent/src/features/subagent/rpc-adapter.ts
++++ b/packages/coding-agent/src/features/subagent/rpc-adapter.ts
+@@ -270,6 +270,8 @@ export async function createSubagentRpcSession(
+ 	const args = ["--mode", "rpc", "--session-id", sessionId, "--include-live-events"];
+ 	const selected = input.desktopRoleModel;
+ 	const model = selected ? `${selected.provider}/${selected.id}` : (input.agent.model ?? input.model);
++	const exactDefinitionModel =
++		input.agent.source === "personal" ? model : undefined;
+ 	if (model) args.push("--model", model);
+ 	if (selected) args.push("--thinking", selected.effort);
+ 	else if (input.thinkingLevel && !input.agent.model) args.push("--thinking", input.thinkingLevel);
+@@ -494,14 +496,21 @@ export async function createSubagentRpcSession(
+ 						typeof id === "string" &&
+ 						typeof effort === "string";
+ 					if (
+-						selected &&
+-						(!hasModel || provider !== selected.provider || id !== selected.id || effort !== selected.effort)
++						(selected &&
++							(!hasModel ||
++								provider !== selected.provider ||
++								id !== selected.id ||
++								effort !== selected.effort)) ||
++						(exactDefinitionModel && (!hasModel || `${provider}/${id}` !== exactDefinitionModel))
+ 					) {
+ 						closeStdin();
+ 						settleTurn((current) => {
+ 							current.exitCode = 1;
+ 							current.stopReason = "error";
+-							current.errorMessage = `Configured model or thinking level unavailable for ${input.agent.name}: ${selected.provider}/${selected.id} (${selected.effort}). Update the role in Desktop settings. No fallback model was used.`;
++							const expected = selected
++								? `${selected.provider}/${selected.id} (${selected.effort})`
++								: exactDefinitionModel;
++							current.errorMessage = `Configured model or thinking level unavailable for ${input.agent.name}: ${expected}. Check the model in Desktop settings. No fallback model was used.`;
+ 						});
+ 						return;
+ 					}
+@@ -714,7 +723,7 @@ export async function createSubagentRpcSession(
+ 			}
+ 			armIdleWatchdog();
+ 			armWallClock(turnInput.turnTimeoutMs);
+-			if (selected || input.desktopModelSource) {
++			if (selected || exactDefinitionModel || input.desktopModelSource) {
+ 				active.preflightId = randomUUID();
+ 				if (!send({ type: "get_state", id: active.preflightId })) {
+ 					closeStdin();
+diff --git a/packages/coding-agent/src/index.ts b/packages/coding-agent/src/index.ts
+index 884e97a..b91de27 100644
+--- a/packages/coding-agent/src/index.ts
++++ b/packages/coding-agent/src/index.ts
+@@ -956,6 +956,12 @@ export {
+ 	readClipboardImagePath,
+ 	wslPathToPosix,
+ } from "./utils/clipboard-image.ts";
++export {
++	desktopSubagentModel,
++	desktopSubagentProfiles,
++	desktopSubagentSlug,
++	discoverStepAgents,
++} from "./features/step-subagent-agents.ts";
+ export { parseFrontmatter, stripFrontmatter } from "./utils/frontmatter.ts";
+ export { parseGitUrl } from "./utils/git.ts";
+ export { convertToPng } from "./utils/image-convert.ts";
+diff --git a/packages/coding-agent/src/modes/rpc/rpc-mode.ts b/packages/coding-agent/src/modes/rpc/rpc-mode.ts
+index 32623b4..6ea89bb 100644
+--- a/packages/coding-agent/src/modes/rpc/rpc-mode.ts
++++ b/packages/coding-agent/src/modes/rpc/rpc-mode.ts
+@@ -744,6 +744,8 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntimeHost, options:
+ 							// Keep the identity, but allow a fresh manual attempt only after native
+ 							// code confirms no delivery. Throws/missing receipts remain deduplicated.
+ 							receipt.promise = undefined;
++							if (sent.reason === "role_changed")
++								throw new Error("Subagent role or model settings changed or were removed. Start a new delegation.");
+ 							throw new Error(
+ 								"Background reply was not delivered; wait for the lane to settle or a slot to free, then retry",
+ 							);

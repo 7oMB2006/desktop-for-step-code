@@ -6,6 +6,21 @@ import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
+test('v0.1.8 pins the ordinary Desktop role discovery overlay', async () => {
+  const root = resolve('../patches/v018');
+  const manifest = JSON.parse(await readFile(join(root, 'manifest.json'), 'utf8'));
+  const name = 'step-code-desktop-custom-subagents.patch';
+  assert.ok(manifest.patchIds.includes('desktop-custom-subagents'));
+  const bytes = Buffer.from((await readFile(join(root, name), 'utf8')).replace(/\r\n/g, '\n'));
+  assert.equal(createHash('sha1').update(`blob ${bytes.length}\0`).update(bytes).digest('hex'), manifest.patches[name]);
+  for (const match of bytes.toString().matchAll(/^\+\+\+ b\/(.+)$/gm)) {
+    assert.match(manifest.sources[match[1]], /^[0-9a-f]{40}$/);
+    assert.match(manifest.patchedSources[match[1]], /^[0-9a-f]{40}$/);
+    assert.notEqual(manifest.sources[match[1]], manifest.patchedSources[match[1]]);
+  }
+  assert.match(await readFile(resolve('scripts/stage-runtime.mjs'), 'utf8'), /cp\('electron\/subagent-definitions\.mjs'/);
+});
+
 test('v0.1.7 retains the complete Desktop patch inventory without duplicate upstream overlays', async () => {
   const root = resolve('../patches/v017');
   const manifest = JSON.parse(await readFile(join(root, 'manifest.json'), 'utf8'));

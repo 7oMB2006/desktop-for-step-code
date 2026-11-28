@@ -953,6 +953,19 @@ Subagent details distinguish confirmed runtime model and source from unverified
 legacy records. An invalid explicit role selection must fail before sending the
 child prompt, without silently substituting another model.
 
+Settings > Subagents is a role catalog grouped by ownership, not an execution
+surface. Personal roles can be created, edited, duplicated and deleted. Built-in
+and local-file definitions are inspectable and can be duplicated without
+carrying over their tools or model. Show the stable invocation ID and source.
+Use a grouped list and one detail inspector; narrow settings show the list or the
+detail, with a return action that restores focus. The detail shows identity, duty,
+model settings, and role definition in that order. Built-in model and effort use
+the shared selects and an inline save; older runtimes retain those controls in
+General. Personal roles share the model layout, but show editable fields only
+after Edit. Switching roles keeps drafts; cancel requires an explicit discard
+for changed drafts, and failed writes retain them. Local-file definitions stay
+read-only in Settings. Confirm deletion in a modal.
+
 ## Interface Complexity
 
 Interface complexity is a dedicated Settings category, separate from typography.

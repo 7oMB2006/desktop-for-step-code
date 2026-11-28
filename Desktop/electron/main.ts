@@ -3445,6 +3445,15 @@ async function handle(method: string, args: any[], surface: Surface = 'main', ma
       const available = runtimeManifest.patches?.includes('desktop-subagent-role-models') === true;
       return { available, values: available ? await subagentRoleStore.read() : {} };
     }
+    case 'subagentDefinitions': {
+      const available = runtimeManifest.patches?.includes('desktop-custom-subagents') === true;
+      return { available, roles: available ? await admin.request('subagent_definitions') : [] };
+    }
+    case 'saveSubagentDefinition':
+    case 'removeSubagentDefinition': {
+      if (!runtimeManifest.patches?.includes('desktop-custom-subagents')) throw new Error('Unsupported subagent definitions');
+      return admin.request(method === 'saveSubagentDefinition' ? 'save_subagent_definition' : 'remove_subagent_definition', { input: args[0] });
+    }
     case 'saveSubagentRole': {
       if (!runtimeManifest.patches?.includes('desktop-subagent-role-models')) throw new Error('Unsupported subagent role settings');
       const current = await viewSnapshot(undefined, false);

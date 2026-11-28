@@ -111,63 +111,6 @@ test('native update keeps the installation, settings revision, secrets and disab
     await assert.rejects(readFile(join(root, 'desktop-plugins/update-transaction.json')), { code: 'ENOENT' });
   } finally { await service.stop(); await rm(folder, { recursive: true, force: true, maxRetries: 5 }); }
 });
-test('a reinstalled plugin updates without reviving the previous instance configuration', { timeout: 90000 }, async () => {
-  const { folder, service, market, root } = await fixture();
-  try {
-    const schemaPath = join(market, 'plugins/dfsc-config-example/dfsc.settings.json');
-    const schema = JSON.parse(await readFile(schemaPath, 'utf8'));
-    schema.groups[0].fields.push({ id: 'key', label: 'Key', type: 'secret' });
-    await writeFile(schemaPath, JSON.stringify(schema));
-    await service.mutate({ action: 'marketplace-add', source: market });
-    const install = () => service.mutate({ action: 'plugin-install', name: 'dfsc-config-example', marketplace: 'dfsc-config-example-local' });
-    await install();
-    const old = (await service.catalog()).plugins[0];
-    const initial = await service.configuration({ ref: old.package!.ref });
-    const saved = await service.configuration({ ref: old.package!.ref }, {
-      ref: old.package!.ref, revision: initial.revision,
-      values: { ...initial.values, prefix: 'Do not restore ' },
-      secrets: { key: { action: 'replace', value: 'old-instance-secret' } },
-    });
-    const receiptPath = join(root, 'desktop-plugins/installations.json');
-    const receipt = async () => JSON.parse(await readFile(receiptPath, 'utf8')).installations[0];
-    const previous = await receipt();
-    const bindingPath = join(root, 'desktop-plugins/bindings', `${previous.folder}.json`);
-    const oldBinding = await readFile(bindingPath);
-    const privatePath = join(root, 'desktop-plugins/settings', previous.instance, `${saved.revision}.json`);
-    const privateBytes = await readFile(privatePath);
-    await service.mutate({ action: 'plugin-remove', id: old.id });
-    await install();
-    const installed = await receipt();
-    assert.notEqual(installed.instance, previous.instance);
-    const tombstone = await readFile(bindingPath);
-    assert.deepEqual(JSON.parse(tombstone.toString('utf8')), {
-      version: 1, instance: previous.instance, id: previous.id, revoked: true,
-    });
-    const source = (await service.catalog()).marketplaces.find(item => item.kind === 'local')!.name;
-    const manifestPath = join(root, 'marketplaces', source, 'plugins/dfsc-config-example/step.plugin.json');
-    await writeFile(manifestPath, JSON.stringify({ ...JSON.parse(await readFile(manifestPath, 'utf8')), version: '0.2.0' }));
-    const plugin = (await service.catalog()).plugins[0];
-    const input = { id: plugin.id, ref: plugin.package!.ref, candidate: plugin.update!.ref! };
-    for (const invalidBinding of [oldBinding, JSON.stringify({ ...JSON.parse(tombstone.toString('utf8')), id: 'another-plugin' })]) {
-      await writeFile(bindingPath, invalidBinding);
-      await assert.rejects(service.preflightUpdate(input), /capability:update-configuration-mismatch/);
-      assert.deepEqual(await receipt(), installed);
-    }
-    await writeFile(bindingPath, tombstone);
-    const checked = await service.preflightUpdate(input);
-    assert.equal(checked.status, 'compatible');
-    await service.mutate({ action: 'plugin-update', ...input }, undefined, checked);
-    const updated = (await service.catalog()).plugins[0];
-    assert.equal(updated.version, '0.2.0');
-    assert.equal((await receipt()).instance, installed.instance);
-    assert.deepEqual(await readFile(bindingPath), tombstone);
-    assert.deepEqual(await readFile(privatePath), privateBytes);
-    const configuration = await service.configuration({ ref: updated.package!.ref });
-    assert.equal(configuration.revision, 'unconfigured');
-    assert.equal(configuration.hasSecret.key, false);
-    assert.notEqual(configuration.values.prefix, 'Do not restore ');
-  } finally { await service.stop(); await rm(folder, { recursive: true, force: true, maxRetries: 5 }); }
-});
 for (const host of ['none', 'added', 'existing'] as const) test(`first configuration upgrade preserves legacy data and requires explicit setup (${host} host)`, { timeout: 90000 }, async () => {
   const { folder, service, market, root } = await fixture(true);
   try {

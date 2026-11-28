@@ -46,7 +46,6 @@ function Preview() {
   const params = new URLSearchParams(location.search);
   const lifecycle = params.has('lifecycle');
   const reloadFailure = params.get('reloadOutcome') === 'failure';
-  const reloadProtection = params.get('reloadProtection');
   const [marketTab, setMarketTab] = useState<'discover' | 'sources'>();
   const [previewRevision, setPreviewRevision] = useState(0);
   const [loadFailure, setLoadFailure] = useState(false);
@@ -143,10 +142,6 @@ function Preview() {
               reason: occupancy === 'busy' ? 'occupied' : occupancy === 'unknown' ? 'unavailable' : undefined },
             { runtimeId: 'mock-second', sessionId: 'preview-research', name: '每周资料整理', phase: 'applying' },
           ] };
-        if (!current && (reloadProtection === 'external' || reloadProtection === 'remote-attached')) {
-          result.sessions[0] = { runtimeId: 'mock-owner', sessionId: 'preview-chat', name: 'Relatum',
-            phase: 'cancelled', reason: reloadProtection };
-        }
         reloads.current.set(input.id, result);
         return structuredClone(result);
       },
@@ -196,7 +191,7 @@ function Preview() {
       stepPageState: async () => ({ status: 'ready', version: '1.0.0' }),
       prepareStepPage: async () => ({ status: 'ready', version: '1.0.0' }),
     } as unknown as PluginCenterBridge;
-  }, [mode, enabled, occupancy, removed, updated, reloadFailure, reloadProtection]);
+  }, [mode, enabled, occupancy, removed, updated, reloadFailure]);
   const settings = { mcp: Object.fromEntries(plugins.map(plugin => [
     plugin.mcpServers[0], { enabled: enabled[plugin.mcpServers[0]] !== false, command: 'web-preview' },
   ])) };
@@ -259,7 +254,6 @@ function Preview() {
           runtimeId="web-preview" settings={settings} startup={state} startupDisabled={false}
           onChanged={async () => {}} onRestart={async () => changeMode('ready')}
           onOpenSession={async id => { setSessionName(id === 'preview-research' ? '每周资料整理' : '插件联调记录'); navigate('chat'); }}
-          onOpenRemote={() => { setSessionName('Remote'); navigate('chat'); }}
           onManageMcp={() => setMcpOpen(true)} onBack={() => lifecycle && marketTab ? setMarketTab(undefined) : navigate('chat')}/>
           : view === 'scheduled' ? <section className="web-preview-scheduled"><h2>定时任务</h2><p className="muted">暂无定时任务</p></section>
           : <div className="web-preview-chat">

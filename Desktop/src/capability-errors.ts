@@ -10,7 +10,6 @@ export function capabilityErrorText(error: unknown, zh: boolean) {
     'invalid-configuration': ['配置或字段声明无效，未应用更改。', 'Invalid configuration or field declaration. No changes were applied.'],
     'invalid-release': ['插件发布包含开发残留、敏感文件或未声明的运行依赖。请作者检查发布目录；本次未安装或替换。', 'The plugin release contains development artifacts, sensitive files or undeclared runtime dependencies. Ask its author to review the release directory; nothing was installed or replaced.'],
     'stale-configuration': ['配置已被其他操作更新。当前草稿已保留，请重新载入后核对。', 'Configuration changed elsewhere. Your draft is retained; reload and review it.'],
-    'update-configuration-mismatch': ['已保存的配置与当前安装记录不匹配。释放会话无法解决此问题，请保留现场以便排查。', 'Saved configuration does not match this installation. Releasing sessions will not help; preserve the files for diagnosis.'],
     'settings-committed-unverified': ['配置已保存，但插件内容或完整性复查失败。请勿重复提交；刷新目录后核对已保存的配置。', 'Settings were saved, but the plugin content or integrity recheck failed. Do not submit again; refresh the catalog and review the saved settings.'],
     'configuration-schema-changed': ['插件配置格式已变化，旧配置未自动转换。', 'The plugin configuration schema changed. Existing settings were not converted.'],
     'configuration-consumer-conflict': ['MCP 设置覆盖了插件服务，请先检查该服务的启动配置。', 'MCP settings override this plugin service. Review its launch configuration first.'],
@@ -69,13 +68,6 @@ export function capabilityErrorText(error: unknown, zh: boolean) {
     ?? (zh ? '操作未完成，请检查资源及运行状态后重试。' : 'The operation did not complete. Check the resource and session state, then retry.');
   const diagnosticId = /\bdiagnostic:([a-f0-9]{12})\b/u.exec(message)?.[1];
   return diagnosticId ? `${text} ${zh ? '诊断编号：' : 'Diagnostic ID: '}${diagnosticId}` : text;
-}
-
-export function pluginUpdateErrorText(error: unknown, zh: boolean) {
-  if (!/capability:stale-configuration(?![a-z-])/u.test(String(error))) return capabilityErrorText(error, zh);
-  return zh
-    ? '插件配置在更新检查后发生了变化，请重新检查。'
-    : 'Plugin configuration changed after the update check. Check again.';
 }
 
 export function capabilityWarningText(value: string, zh: boolean) {

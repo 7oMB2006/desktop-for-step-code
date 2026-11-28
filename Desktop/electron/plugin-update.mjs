@@ -17,10 +17,8 @@ const bindingPath = receipt => `desktop-plugins/bindings/${receipt.folder}.json`
 const parse = bytes => { try { return JSON.parse(bytes.toString('utf8')); } catch { fail(); } };
 const bindingValid = (binding, receipt) => {
   if (!object(binding) || binding.version !== 1) return false;
-  // A reinstall can leave the same plugin's revocation from an older instance.
-  // It is not a live binding, and the transaction must leave it untouched.
   if (binding.revoked === true) return equal(binding, { version: 1, revoked: true })
-    || Object.keys(binding).length === 4 && uuid(binding.instance) && binding.id === receipt.id;
+    || Object.keys(binding).length === 4 && binding.instance === receipt.instance && binding.id === receipt.id;
   return [7, 8].includes(Object.keys(binding).length) && (binding.revoked === undefined || binding.revoked === false)
     && binding.instance === receipt.instance && binding.id === receipt.id
     && binding.fingerprint === receipt.fingerprint && ['schemaHash', 'revision', 'contentHash'].every(key => hash(binding[key]))
@@ -34,7 +32,7 @@ export async function updateBinding(root, receipt) {
   if (!bytes) return null;
   const binding = parse(bytes);
   if (!bindingValid(binding, receipt))
-    throw new PluginFileError('update-configuration-mismatch');
+    throw new PluginFileError('stale-configuration');
   return binding;
 }
 const nextBinding = journal => journal.version === 2 ? journal.nextBinding : journal.binding && !journal.binding.revoked

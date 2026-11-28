@@ -17,7 +17,6 @@ function fixture(count = 2) {
   let beforeRefresh: ((worker: SessionRuntime) => Promise<void>) | undefined;
   const refreshed: string[] = [], queried: string[] = [];
   const unoccupied = new Set<string>();
-  const absent = new Set<string>(), external = new Set<string>();
   const gate = new CapabilityGate();
   const workers = Array.from({ length: count }, (_, index) => {
     const worker = {
@@ -32,7 +31,6 @@ function fixture(count = 2) {
         if (payload.action === 'inspect') {
           queried.push(worker.id);
           await beforeIdle?.(worker);
-          if (absent.has(worker.id)) return { status: 'absent' };
           return { status: worker.busy && !unoccupied.has(worker.id) ? 'busy' : 'ready' };
         }
         assert.equal(payload.action, 'reload');
@@ -59,7 +57,7 @@ function fixture(count = 2) {
       return { name: 'Example', stamp, root: 'C:/fixture-plugins/example' };
     },
     assertAvailable() { if (!available) throw new Error('capability:busy'); },
-    external: worker => external.has(worker.id),
+    external: () => false,
   });
   async function settle() {
     for (let index = 0; index < 100; index++) {
@@ -80,7 +78,7 @@ function fixture(count = 2) {
     beforeIdle: (action: typeof beforeIdle) => { beforeIdle = action; },
     beforeCheck: (action: typeof beforeCheck) => { beforeCheck = action; },
     beforeRefresh: (action: typeof beforeRefresh) => { beforeRefresh = action; },
-    maxConcurrent: () => maxConcurrent, unoccupied, absent, external };
+    maxConcurrent: () => maxConcurrent, unoccupied };
 }
 
 test('preview inspects all live runtimes without changing selection or restarting', async () => {
@@ -212,51 +210,15 @@ test('a failed target is not automatically retried and does not stop subsequent 
   assert.equal(state.sessions[0].reason, 'failed');
   assert.ok(!JSON.stringify(state).includes('private runtime detail'));
 });
-for (const protection of ['external', 'remote-attached', 'operation'] as const) {
-  const protect = (f: ReturnType<typeof fixture>, active: boolean) => {
-    const worker = f.workers[0];
-    if (protection === 'external') {
-      if (active) f.external.add(worker.id);
-      else f.external.delete(worker.id);
-    } else if (protection === 'remote-attached') worker.remoteAttached = active;
-    else worker.mutating = active;
-  };
-  test(`a nonmember is not counted even with ${protection} protection`, async () => {
-    const f = fixture();
-    protect(f, true);
-    f.absent.add('runtime-0');
-    const result = await f.apply();
-    assert.ok(f.queried.includes('runtime-0'));
-    assert.deepEqual(result.sessions.map(item => item.runtimeId), ['runtime-1']);
-    assert.deepEqual(f.refreshed, ['runtime-1']);
-  });
-  test(`a confirmed member retains ${protection} protection`, async () => {
-    const f = fixture(1);
-    protect(f, true);
-    const state = await f.apply();
-    assert.equal(state.sessions[0].reason, protection);
-    assert.equal(state.sessions[0].phase, protection === 'operation' ? 'waiting' : 'cancelled');
+for (const [reason, patch] of [['external', { remoteAttached: true }], ['operation', { mutating: true }]] as const) {
+  test(`preview explains protected state: ${reason}`, async () => {
+    const f = fixture(1); Object.assign(f.workers[0], patch);
+    const state = await f.coordinator.preview(input);
+    assert.equal(state.sessions[0].reason, reason);
+    assert.equal(state.sessions[0].phase, reason === 'external' ? 'cancelled' : 'waiting');
     assert.deepEqual(f.refreshed, []);
-    protect(f, false);
-    await f.coordinator.tick();
-    if (protection !== 'operation') {
-      assert.deepEqual(f.refreshed, []);
-      assert.equal(f.coordinator.state(input)?.sessions[0].phase, 'cancelled');
-      const retry = await f.coordinator.start(input);
-      assert.notEqual(retry.operationId, state.operationId);
-      await f.settle();
-    }
-    assert.deepEqual(f.refreshed, ['runtime-0']);
   });
 }
-test('Remote attachment during inspect prevents a reload', async () => {
-  const f = fixture(1);
-  const preview = await f.coordinator.preview(input);
-  f.beforeIdle(async worker => { worker.remoteAttached = true; });
-  await f.coordinator.apply({ token: preview.token!, whenIdle: true });
-  assert.equal((await f.settle()).sessions[0].reason, 'remote-attached');
-  assert.deepEqual(f.refreshed, []);
-});
 test('nonmembers are not woken or reported as loaded', async () => {
   const f = fixture(1);
   f.workers[0].rpc.request = async () => ({ status: 'absent' });
@@ -364,14 +326,9 @@ test('idle-only consent does not turn into deferred scheduling after a target be
 });
 test('unknown inventory is disclosed without leaking transport details', async () => {
   const f = fixture(1);
-  f.workers[0].remoteAttached = true;
-  f.beforeIdle(async () => { throw new Error('private-path-and-token'); });
-  const result = await f.apply();
-  assert.equal(result.sessions[0].reason, 'unavailable');
-  assert.equal(result.sessions[0].phase, 'cancelled');
-  assert.doesNotMatch(JSON.stringify(result), /private-path-and-token/);
-  f.beforeIdle(undefined);
-  f.workers[0].remoteAttached = false;
-  await f.coordinator.tick();
+  f.workers[0].rpc.request = async () => { throw new Error('private-path-and-token'); };
+  const preview = await f.coordinator.preview(input);
+  assert.equal(preview.sessions[0].reason, 'unavailable');
+  assert.doesNotMatch(JSON.stringify(preview), /private-path-and-token/);
   assert.deepEqual(f.refreshed, []);
 });

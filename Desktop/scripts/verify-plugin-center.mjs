@@ -119,8 +119,6 @@ try {
     assert.equal(await updates.locator('.pc-update-action').count(), 1);
     assert.equal(await action.locator('..').getAttribute('class'), 'pc-card-actions', 'Update uses the existing footer actions');
     assert.equal(await action.getByRole('button').innerText(), '更新', 'The update action has a visible text label');
-    assert.equal(await card.locator('.pc-card-state .pc-status').count(), 0, 'An available update hides the redundant service label');
-    assert.equal(await card.getByRole('switch').getAttribute('aria-checked'), 'true');
     const oldIcon = await card.locator('img').getAttribute('src');
     const initialHeight = (await card.boundingBox()).height;
     const initialFooterHeight = (await card.locator('.pc-card-footer').boundingBox()).height;
@@ -131,11 +129,9 @@ try {
     await updates.waitForFunction(() => !window.pluginUpdateTest.snapshot().checking);
     await updates.getByRole('switch', { name: '启用 Bilibili Video Research 服务', exact: true }).click();
     await updates.waitForFunction(() => document.querySelector('[aria-label="启用 Bilibili Video Research 服务"]')?.getAttribute('aria-checked') === 'false');
-    assert.equal(await card.locator('.pc-card-state .pc-status').count(), 0, 'The update also hides the redundant off label');
     await updates.getByRole('button', { name: '更新 Bilibili Video Research 至 v0.1.1', exact: true }).dblclick();
     await action.getByRole('progressbar').waitFor();
     assert.equal(await action.getByRole('button').innerText(), '更新中');
-    assert.equal(await card.locator('.pc-card-state .pc-status').count(), 0);
     assert.equal((await card.boundingBox()).height, initialHeight, 'Downloading does not increase card height');
     assert.equal(await action.getByRole('progressbar').evaluate(element => {
       const progress = element.getBoundingClientRect(), footer = element.closest('.pc-card-footer').getBoundingClientRect();
@@ -148,7 +144,6 @@ try {
     await updates.waitForFunction(() => document.querySelector('.pc-card-version')?.textContent.includes('v0.1.1'));
     assert.notEqual(await card.locator('img').getAttribute('src'), oldIcon);
     assert.equal(await card.getByRole('switch').getAttribute('aria-checked'), 'false', 'Updating keeps the saved service switch');
-    assert.equal(await card.locator('.pc-card-state .pc-status').innerText(), '服务已停用', 'Completion restores the service label');
     assert.deepEqual(await updates.evaluate(() => window.pluginCenterTest.configuration()), originalConfiguration);
     assert.equal((await card.boundingBox()).height, initialHeight, 'Update phases keep card height stable');
     assert.equal((await card.locator('.pc-card-footer').boundingBox()).height, initialFooterHeight, 'Update actions do not enlarge the footer');
@@ -218,44 +213,6 @@ try {
     assert.deepEqual(updateErrors, []);
     console.log('Plugin update presentation preview passed; installation operations are simulated.');
   } finally { await updates.close(); }
-  const crowded = await browser.newPage();
-  try {
-    await crowded.goto(`${base}/tests/fixtures/plugin-center-live.html?updates=native&crowded=1`);
-    await crowded.emulateMedia({ reducedMotion: 'reduce' });
-    const card = crowded.locator('.pc-plugin-row').filter({
-      has: crowded.locator('.pc-card-heading strong', { hasText: /^Bilibili Video Research$/ }),
-    });
-    await card.locator('.pc-reload-status .lc-instance-ring').waitFor();
-    for (const [language, theme] of [['zh', 'light'], ['en', 'dark']]) {
-      await crowded.evaluate(([language, theme]) => {
-        window.pluginCenterTest.language(language);
-        window.pluginCenterTest.theme(theme);
-      }, [language, theme]);
-      await card.getByRole('switch', { name: language === 'zh' ? /^启用 / : /^Enable / }).waitFor();
-      for (const width of [1440, 1008, 740, 390, 320]) {
-        await crowded.setViewportSize({ width, height: 900 });
-        const footer = card.locator('.pc-card-footer');
-        const layout = await footer.evaluate(element => {
-          const bounds = element.getBoundingClientRect();
-          const controls = [...element.querySelectorAll('button:not([data-empty]), a')];
-          const status = element.querySelector('.pc-status');
-          const boxes = controls.map(control => control.getBoundingClientRect());
-          const inside = boxes.every(box => box.left >= bounds.left - 1 && box.right <= bounds.right + 1
-            && box.top >= bounds.top - 1 && box.bottom <= bounds.bottom + 1);
-          const separate = boxes.every((a, i) => boxes.slice(i + 1).every(b =>
-            Math.min(a.right, b.right) - Math.max(a.left, b.left) < 1
-            || Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top) < 1));
-          return { controls: controls.length, hasStatus: Boolean(status), inside, separate };
-        });
-        assert.deepEqual(layout, { controls: 7, hasStatus: false, inside: true, separate: true }, `${language}/${width}: full card footer`);
-        const update = footer.locator('.pc-update-trigger');
-        await update.focus();
-        assert.deepEqual(await update.evaluate(focusClips), []);
-        if (width === 1440 || width === 320)
-          await crowded.screenshot({ path: `${output}/updates-crowded-${theme}-${width}.png` });
-      }
-    }
-  } finally { await crowded.close(); }
   const native = await browser.newPage({ viewport: { width: 1440, height: 980 } });
   const nativeErrors = [];
   native.on('pageerror', error => nativeErrors.push(error.message));
@@ -467,11 +424,6 @@ try {
     assert.equal(await native.evaluate(() => window.pluginCenterTest.updateCounts().retiredReferences), 1);
     assert.match(await dialog.innerText(), /仍被会话占用/,
       'Refreshing retired package references preserves the unchanged operation and its error');
-    await closeUpdate();
-    await action.getByRole('button', { name: '查看 Bilibili Video Research 更新详情', exact: true }).click();
-    await dialog.getByText('尚未更新', { exact: true }).waitFor();
-    assert.equal(await native.evaluate(() => window.pluginCenterTest.updateCounts().preflights), 1,
-      'Viewing a failed operation does not enter a new preflight');
     await dialog.getByRole('button', { name: '重新检查', exact: true }).click();
     await native.waitForFunction(() => window.pluginCenterTest.updateCounts().preflights === 2);
     assert.equal(await native.evaluate(() => window.pluginCenterTest.updateCounts().staleRequests), 0,
@@ -522,63 +474,14 @@ try {
     await startUpdate();
     await dialog.waitFor();
     assert.match(await dialog.innerText(), /有会话仍有任务或受保护的运行状态/);
-    const affectedSession = dialog.getByRole('button', { name: '查看会话 当前研究会话', exact: true });
-    assert.equal(await affectedSession.isVisible(), true, 'A blocker links directly to its session without expanding details');
     assert.equal(await dialog.getByRole('button', { name: '重启相关会话并更新', exact: true }).count(), 0);
     assert.equal(await native.evaluate(() => window.pluginCenterTest.updateCounts().attempts), 0);
     assert.doesNotMatch(await card.locator('.pc-update-badge').innerText(), /更新失败/);
-    await affectedSession.click();
-    assert.equal(await native.evaluate(() => window.pluginCenterTest.openedSession()), 'fixture-session');
-    await native.getByRole('button', { name: '插件市场', exact: true }).click();
-    await action.getByRole('button', { name: '查看 Bilibili Video Research 更新详情', exact: true }).click();
-    assert.equal(await affectedSession.isVisible(), true);
-    assert.equal(await native.evaluate(() => window.pluginCenterTest.updateCounts().preflights), 1,
-      'Opening details again does not implicitly recheck or apply an update');
     await native.evaluate(() => window.pluginCenterTest.updateReadiness('ready'));
     await dialog.getByRole('button', { name: '重新检查', exact: true }).click();
     await native.waitForFunction(() => window.pluginCenterTest.updateCounts().attempts === 1);
     await native.evaluate(() => window.pluginCenterTest.releaseUpdate());
     await action.waitFor({ state: 'hidden' });
-
-    await loadNative();
-    await native.evaluate(() => window.pluginCenterTest.updateMismatch());
-    await startUpdate();
-    await dialog.getByText('插件配置记录不匹配', { exact: true }).waitFor();
-    assert.match(await dialog.getByRole('alert').innerText(), /释放会话无法解决/);
-    assert.equal(await dialog.locator('.pc-update-sessions li').count(), 0);
-    assert.equal(await dialog.getByRole('button', { name: '重新检查', exact: true }).count(), 0);
-    await closeUpdate();
-    await action.getByRole('button', { name: '查看 Bilibili Video Research 更新详情', exact: true }).click();
-    await dialog.getByText('插件配置记录不匹配', { exact: true }).waitFor();
-    assert.equal(await native.evaluate(() => window.pluginCenterTest.updateCounts().attempts), 0);
-
-    await loadNative();
-    await native.evaluate(() => window.pluginCenterTest.changeConfigurationDuringUpdate());
-    await startUpdate();
-    await native.waitForFunction(() => window.pluginCenterTest.updateCounts().attempts === 1);
-    await native.evaluate(() => window.pluginCenterTest.releaseUpdate());
-    await dialog.getByText('尚未更新', { exact: true }).waitFor();
-    assert.match(await dialog.getByRole('alert').innerText(), /配置在更新检查后发生了变化/);
-    assert.equal(await dialog.locator('.pc-update-sessions li').count(), 0);
-    await native.waitForFunction(() => !document.querySelector('[aria-label="启用 Bilibili Video Research 服务"]')?.disabled);
-    await dialog.getByRole('button', { name: '重新检查', exact: true }).click();
-    await native.waitForFunction(() => window.pluginCenterTest.updateCounts().attempts === 2);
-    assert.deepEqual(await native.evaluate(() => window.pluginCenterTest.updateCounts().consents), [false, false]);
-    assert.equal(await native.evaluate(() => window.pluginCenterTest.updateCounts().preflights), 2);
-    await native.evaluate(() => window.pluginCenterTest.releaseUpdate());
-    await action.waitFor({ state: 'hidden' });
-
-    await loadNative();
-    await native.evaluate(() => window.pluginCenterTest.updateNeedsSetup());
-    await startUpdate();
-    await dialog.getByText('确认更新插件', { exact: true }).waitFor();
-    assert.match(await dialog.innerText(), /重新选择调用来源并重新授权/);
-    assert.equal(await native.evaluate(() => window.pluginCenterTest.updateCounts().attempts), 0);
-    await dialog.getByRole('button', { name: '安装更新', exact: true }).click();
-    await native.waitForFunction(() => window.pluginCenterTest.updateCounts().attempts === 1);
-    assert.deepEqual(await native.evaluate(() => window.pluginCenterTest.updateCounts().consents), [false]);
-    await native.evaluate(() => window.pluginCenterTest.releaseUpdate());
-    await dialog.getByText('新版已安装', { exact: true }).waitFor();
 
     await loadNative('needs-release');
     await startUpdate();

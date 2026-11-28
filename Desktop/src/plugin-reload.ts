@@ -1,6 +1,6 @@
 export interface PluginReloadRequest { id: string; ref: string }
 export type PluginReloadReason = 'running' | 'approval' | 'queue' | 'background' | 'goal' | 'cron'
-  | 'external' | 'remote-attached' | 'operation' | 'disconnected' | 'startup' | 'history' | 'changed' | 'unavailable' | 'expired' | 'failed'
+  | 'external' | 'operation' | 'disconnected' | 'startup' | 'history' | 'changed' | 'unavailable' | 'expired' | 'failed'
   | 'occupied' | 'unsupported';
 export interface PluginReloadSession {
   runtimeId: string; sessionId?: string; name: string;
@@ -26,8 +26,7 @@ export function pluginReloadReason(reason: PluginReloadReason | undefined, zh: b
     background: ['后台任务未结束', 'Background work active'],
     goal: ['目标仍在运行', 'Goal active'],
     cron: ['定时任务占用中', 'Scheduled work active'],
-    external: ['已跳过：由外部任务管理', 'Skipped: managed by an external task'],
-    'remote-attached': ['已跳过：会话仍绑定 Remote', 'Skipped: session still attached to Remote'],
+    external: ['由外部任务管理', 'Managed by an external task'],
     operation: ['其他操作处理中', 'Another operation is in progress'],
     disconnected: ['运行时未连接', 'Runtime disconnected'],
     startup: ['工具仍在连接', 'Tools still connecting'],

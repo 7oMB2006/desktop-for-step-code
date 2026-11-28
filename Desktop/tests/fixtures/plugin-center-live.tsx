@@ -249,10 +249,8 @@ let configuration: BvrConfiguration = { revision: 'fixture-1', configured: true,
 let saves = 0, restarts = 0, catalogReads = 0, preparationRefreshes = 0, repositoryReads = 0, installs = 0;
 let updateAttempts = 0, updateChecks = 0, updateApplied = 0, updatePreflights = 0, updateOperationReads = 0, legacyUpdates = 0;
 let updateReferenceRevision = 0, staleUpdateRequests = 0;
-let updateFailure: 'unchanged' | 'configuration-changed' | 'reject' | 'restoration' | undefined, releaseUpdate: (() => void) | undefined;
+let updateFailure: 'unchanged' | 'reject' | 'restoration' | undefined, releaseUpdate: (() => void) | undefined;
 let updateReadiness: PluginUpdatePreflight['readiness'] = 'ready';
-let updateMismatch = false, updateNeedsSetup = false, openedSession: string | undefined;
-const crowdedUpdate = new URLSearchParams(location.search).has('crowded');
 let latestUpdateOperation: PluginUpdateOperation | null = null;
 let nextOperationResponse: { snapshot: PluginUpdateOperation | null; held?: Promise<void> } | undefined;
 let releaseOperationResponse: (() => void) | undefined;
@@ -345,10 +343,9 @@ const nativeUpdateBridge: PluginUpdateBridge = {
       staleUpdateRequests++;
       throw new Error('capability:stale');
     }
-    if (updateMismatch) throw new Error('capability:update-configuration-mismatch');
     const preflight: PluginUpdatePreflight = {
       token: `fixture-preflight-${++updatePreflights}`, pluginId: input.id, version: plugin.update.version,
-      status: 'compatible', changes: [{ code: updateNeedsSetup ? 'host-reconfigure' : 'presentation' }], readiness: updateReadiness,
+      status: 'compatible', changes: [{ code: 'presentation' }], readiness: updateReadiness,
       sessions: updateReadiness === 'ready' ? [] : [
         { runtimeId: 'fixture-runtime', sessionId: 'fixture-session', name: '当前研究会话',
           status: updateReadiness === 'blocked' ? 'busy' : 'idle' },
@@ -379,12 +376,10 @@ const nativeUpdateBridge: PluginUpdateBridge = {
     const result = updateFailure;
     updateFailure = undefined;
     if (result === 'reject') { retireUpdateReferences(); latestUpdateOperation = null; throw new Error('capability:stale'); }
-    if (result === 'unchanged' || result === 'configuration-changed') {
+    if (result === 'unchanged') {
       retireUpdateReferences();
-      latestUpdateOperation = { ...latestUpdateOperation, phase: 'attention',
-        error: result === 'configuration-changed' ? 'capability:stale-configuration' : 'capability:resource-in-use',
-        sessions: latestUpdateOperation.sessions.map(session => ({ ...session,
-          restoration: result === 'configuration-changed' ? 'untouched' : 'restored' })) };
+      latestUpdateOperation = { ...latestUpdateOperation, phase: 'attention', error: 'capability:resource-in-use',
+        sessions: latestUpdateOperation.sessions.map(session => ({ ...session, restoration: 'restored' })) };
       return structuredClone(latestUpdateOperation);
     }
     plugin.version = preflight.version;
@@ -408,14 +403,6 @@ const nativeUpdateBridge: PluginUpdateBridge = {
 };
 const bridge: PluginCenterBridge = {
   ...(nativeUpdates ? nativeUpdateBridge : {}),
-  ...(crowdedUpdate ? {
-    pluginReloadState: async ({ id }: { id: string }) => id === 'bilibili-video-research' ? {
-      pluginId: id, name: 'Bilibili Video Research', mode: 'plugin-mcp' as const,
-      sessions: [{ runtimeId: 'fixture-runtime', name: '当前研究会话', phase: 'applied' as const }],
-    } : null,
-    pluginReloadStart: async () => { throw new Error('Not used by the layout fixture'); },
-    pluginReloadCancel: async () => { throw new Error('Not used by the layout fixture'); },
-  } : {}),
   platform: 'win32', capabilityCatalog: async () => { catalogReads++; await updateCatalogHeld; return structuredClone(catalog); },
   pluginRepositoryInfo: async input => {
     repositoryReads++;
@@ -548,14 +535,10 @@ Object.assign(window, { pluginCenterTest: { configuration: () => structuredClone
   releaseUpdateCatalog: () => { releaseUpdateCatalog?.(); updateCatalogHeld = undefined; },
   releaseUpdate: () => { releaseUpdate?.(); releaseUpdate = undefined; },
   failUpdate: () => { updateFailure = 'unchanged'; },
-  changeConfigurationDuringUpdate: () => { updateFailure = 'configuration-changed'; },
   rejectUpdate: () => { updateFailure = 'reject'; },
   failRestoration: () => { updateFailure = 'restoration'; },
   retireUpdateReferences,
   updateReadiness: (readiness: PluginUpdatePreflight['readiness']) => { updateReadiness = readiness; },
-  updateMismatch: () => { updateMismatch = true; },
-  updateNeedsSetup: () => { updateNeedsSetup = true; },
-  openedSession: () => openedSession,
   publishUpdate: (version: string) => {
     const plugin = catalog.plugins.find(item => item.id === 'bilibili-video-research')!;
     const candidate = `fixture-update-${version}`;
@@ -655,7 +638,6 @@ function Fixture() {
     <main><PluginCenter key={updatePreview ? updateState.revision : revision} bridge={bridge} active={active} language={language} busy={false}
       currentVersion={metadataPreview ? '0.6.0' : undefined}
       updates={updatePreview ? updateState.updates : undefined} runtimeId={hostRuntime} settings={{ mcp: {} }}
-      onOpenSession={async id => { openedSession = id; setActive(false); }}
       onChanged={async () => { if (preparationRefresh) { preparationRefreshes++; await preparationRefresh; } }}
       onRestart={updatePreview ? updateState.restart : async () => { restarts++; if (hostPreview) hostConnected(); }} onManageMcp={() => {}} onBack={() => setActive(false)}/>
       <section hidden={active}><textarea aria-label="会话草稿" value={message} onChange={event => setMessage(event.target.value)}/></section>

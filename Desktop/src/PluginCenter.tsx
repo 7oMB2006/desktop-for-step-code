@@ -4,7 +4,7 @@ import type { McpServer, SessionSummary } from './contracts';
 import type { CapabilityCatalog, CapabilityMutation, CapabilityPlugin, MarketplacePlugin, PluginPackage, PluginStarSnapshot } from './capabilities';
 import type { CapabilityTarget, PluginTab } from './capability-command';
 import { capabilityNeedsIdle } from './capability-locks';
-import { capabilityWarningText, pluginUpdateErrorText } from './capability-errors';
+import { capabilityWarningText } from './capability-errors';
 import { CapabilityDisclosure, CapabilityPluginIconView, capabilityErrorText, type CapabilityBridge } from './CapabilitySettings';
 import { BvrConfigurationForm, type BvrSettingsBridge } from './BvrConfigurationForm';
 import { PluginConfigurationForm } from './PluginConfigurationForm';
@@ -57,7 +57,7 @@ function ProjectLink({ entry, language }: { entry: Entry; language: string }) {
     <span className="pc-github-mark" aria-hidden="true"/></a>;
 }
 export function PluginCenter({ bridge, language, busy, active, runtimeId, currentVersion, settings, target, updates: previewUpdates, startup, startupDisabled,
-  customBackgroundState, onAppearance, onChanged, onRestart, onManageMcp, onBack, onOpenDesktop, onOpenSession, onOpenRemote }: {
+  customBackgroundState, onAppearance, onChanged, onRestart, onManageMcp, onBack, onOpenDesktop, onOpenSession }: {
   bridge: PluginCenterBridge; language: string; busy: boolean; active: boolean; runtimeId?: string;
   currentVersion?: string;
   settings?: { mcp: Record<string, McpServer> }; target?: CapabilityTarget;
@@ -67,7 +67,6 @@ export function PluginCenter({ bridge, language, busy, active, runtimeId, curren
   onChanged(): Promise<void>; onRestart(): Promise<void>; onManageMcp(name?: string): void; onBack(): void;
   onOpenDesktop?(plugin: CapabilityPlugin): void;
   onOpenSession?(id: string): Promise<void>;
-  onOpenRemote?(): void;
 }) {
   const t = (cn: string, en: string) => language === 'zh' ? cn : en;
   const [catalog, setCatalog] = useState<CapabilityCatalog>();
@@ -167,8 +166,7 @@ export function PluginCenter({ bridge, language, busy, active, runtimeId, curren
       setUpdatePanels(current => ({ ...current, [pluginId]: { pluginId, name, operation: result, running: false } }));
       setWarnings(result.warnings);
       setUpdateStates(current => ({ ...current, [pluginId]: { phase: result.installation === 'committed' ? 'updated' : 'assistance',
-        version: result.version, detailsAvailable: result.phase === 'attention',
-        summary: result.error ? pluginUpdateErrorText(result.error, language === 'zh') : undefined } }));
+        version: result.version, detailsAvailable: result.phase === 'attention', summary: capabilityErrorText(result.error ?? '', language === 'zh') } }));
       if (result.phase === 'attention') setUpdatePanelId(pluginId);
     }
     if (result.installation !== 'unknown') {
@@ -261,7 +259,7 @@ export function PluginCenter({ bridge, language, busy, active, runtimeId, curren
         if (result?.id === preflight.token) return acceptOperation(pluginId, name, result);
       } catch {}
       if (alive.current) {
-        const message = pluginUpdateErrorText(error, language === 'zh');
+        const message = capabilityErrorText(error, language === 'zh');
         setUpdatePanels(current => ({ ...current, [pluginId]: { pluginId, name, running: false, error: message } }));
         setUpdateStates(current => ({ ...current, [pluginId]: {
           phase: 'assistance', version: preflight.version, detailsAvailable: true, summary: message,
@@ -309,12 +307,11 @@ export function PluginCenter({ bridge, language, busy, active, runtimeId, curren
       try {
         if (nativeUpdates) {
           const preflight = await bridge.pluginUpdatePreflight!({ id: pluginId, ref: plugin.package.ref, candidate: candidate.ref });
-          const setup = preflight.changes.some(change => change.code === 'configuration-added' || change.code === 'host-reconfigure');
-          if (preflight.readiness === 'ready' && !setup) return await applyPreflight(pluginId, plugin.name, preflight);
+          if (preflight.readiness === 'ready') return await applyPreflight(pluginId, plugin.name, preflight);
           if (alive.current) {
             setUpdatePanels(current => ({ ...current, [pluginId]: { pluginId, name: plugin.name, preflight, running: false } }));
             setUpdateStates(current => ({ ...current, [pluginId]: { phase: preflight.readiness === 'blocked' ? 'blocked' : 'assistance',
-              version, detailsAvailable: true, summary: preflight.status === 'compatible' && !setup
+              version, detailsAvailable: true, summary: preflight.status === 'compatible'
                 ? t('查看占用会话与处理方式', 'Review affected sessions and next steps')
                 : preflight.changes.map(change => pluginUpdateChangeText(change.code, language === 'zh')).join('; ') } }));
             setUpdatePanelId(pluginId);
@@ -334,17 +331,9 @@ export function PluginCenter({ bridge, language, busy, active, runtimeId, curren
         }
         return true;
       } catch (error) {
-        if (alive.current) {
-          const configurationMismatch = nativeUpdates && /capability:update-configuration-mismatch(?![a-z-])/u.test(String(error));
-          const message = pluginUpdateErrorText(error, language === 'zh');
-          if (configurationMismatch) {
-            setUpdatePanels(current => ({ ...current, [pluginId]: { pluginId, name: plugin.name, version,
-              running: false, error: message, checkUnavailable: true } }));
-            setUpdatePanelId(pluginId);
-            setUpdateStates(current => ({ ...current, [pluginId]: { phase: 'assistance', version,
-              detailsAvailable: true, summary: message } }));
-          } else setUpdateStates(current => ({ ...current, [pluginId]: { phase: 'failed', version, error: message } }));
-        }
+        if (alive.current) setUpdateStates(current => ({ ...current, [pluginId]: {
+          phase: 'failed', version, error: capabilityErrorText(error, language === 'zh'),
+        } }));
         // A rejected native operation may invalidate opaque package references.
         // Rebind retry to a fresh catalog without discarding the failure message.
         try { const next = await bridge.capabilityCatalog(); if (alive.current) acceptCatalog(next); } catch {}
@@ -408,7 +397,7 @@ export function PluginCenter({ bridge, language, busy, active, runtimeId, curren
           : { ...panels, [plugin.id]: { pluginId: plugin.id, name: current.name, operation: result, running } });
         setUpdateStates(states => ({ ...states, [plugin.id]: {
           phase: result.installation === 'committed' ? 'updated' : 'assistance', version: result.version,
-          detailsAvailable: true, summary: result.error ? pluginUpdateErrorText(result.error, language === 'zh') : undefined,
+          detailsAvailable: true, summary: capabilityErrorText(result.error ?? '', language === 'zh'),
         } }));
         setWarnings(result.warnings);
         if (running) setUpdateBusy(true);
@@ -558,20 +547,15 @@ export function PluginCenter({ bridge, language, busy, active, runtimeId, curren
       onFinished={state => {
         const failed = state.sessions.filter(item => item.phase === 'failed').length;
         const loaded = state.sessions.filter(item => item.phase === 'applied').length;
-        const skipped = state.sessions.filter(item => item.phase === 'cancelled'
-          && (item.reason === 'external' || item.reason === 'remote-attached')).length;
         if (failed) setReloadNotice({ id: Date.now(), type: 'warning',
           message: t(`${plugin.name} 有 ${failed} 个实例重载失败`, `${plugin.name}: ${failed} instance${failed === 1 ? '' : 's'} failed to reload`) });
-        else if (skipped) setReloadNotice({ id: Date.now(), type: 'warning',
-          message: t(`${plugin.name} 已跳过 ${skipped} 个受保护的会话`, `${plugin.name}: skipped ${skipped} protected session${skipped === 1 ? '' : 's'}`) });
         else if (loaded && loaded === state.sessions.length)
           setReloadNotice({ id: Date.now(), type: 'success', message: t(`${plugin.name} 已重载`, `${plugin.name} reloaded`) });
         if (!failed && !loaded) return;
         setLive(undefined); setObservationRevision(value => value + 1);
         void onChanged().catch(error => setError(capabilityErrorText(error, language === 'zh')));
       }} onError={message => setReloadNotice({ id: Date.now(), type: 'warning', message })}
-      onSession={onOpenSession ? sessionId => navigate(() => { void onOpenSession(sessionId); }) : undefined}
-      onRemote={onOpenRemote ? () => navigate(onOpenRemote) : undefined}/>
+      onSession={onOpenSession ? sessionId => navigate(() => { void onOpenSession(sessionId); }) : undefined}/>
     : null;
   const toggle = (plugin: CapabilityPlugin) => {
     if (plugin.package?.hostConfiguration === 'custom-background-v1') return null;
@@ -583,7 +567,7 @@ export function PluginCenter({ bridge, language, busy, active, runtimeId, curren
       disabled={operationLocked || !owned.length || owned.some(server => !server.configurable)}
       onClick={() => void perform({ action: 'plugin-toggle', id: plugin.id, enabled: !owned.every(server => server.enabled) })}><span/></button>;
   };
-  const statusLabel = (plugin: CapabilityPlugin, hideToggleLabel: boolean) => {
+  const status = (plugin: CapabilityPlugin) => {
     if (plugin.package?.hostConfiguration === 'custom-background-v1')
       return !backgroundState?.available ? t('本机外观', 'Local appearance') : backgroundState.issue ? t('图片不可用', 'Image unavailable')
         : !backgroundState.image ? t('尚未选择图片', 'No image selected')
@@ -593,20 +577,12 @@ export function PluginCenter({ bridge, language, busy, active, runtimeId, curren
       ? startup.tools.filter(tool => owned.some(server => server.name === tool.name)) : [];
     if (observed.some(tool => tool.cleanupConfirmed === false)) return t('当前会话清理未确认', 'Current session cleanup unconfirmed');
     if (observed.some(tool => tool.status === 'failed')) return t('当前会话不可用', 'Unavailable in current session');
-    if (!owned.length) return t('无 MCP 服务', 'No MCP services');
-    if (owned.every(server => server.enabled)) return hideToggleLabel ? undefined : t('服务已启用', 'Services enabled');
-    if (owned.every(server => !server.enabled)) return hideToggleLabel ? undefined : t('服务已停用', 'Services disabled');
-    return t('部分服务启用', 'Some services enabled');
+    return !owned.length ? t('无 MCP 服务', 'No MCP services') : owned.every(server => server.enabled) ? t('服务已启用', 'Services enabled')
+      : owned.every(server => !server.enabled) ? t('服务已停用', 'Services disabled') : t('部分服务启用', 'Some services enabled');
   };
-  const renderStatus = (plugin: CapabilityPlugin, inCard = false) => {
-    const update = inCard ? updates?.items[plugin.id] : undefined;
-    const hideToggleLabel = Boolean(update && !['current', 'unavailable', 'updated'].includes(update.phase));
-    const label = statusLabel(plugin, hideToggleLabel);
-    if (!label) return null;
-    const failed = startup?.runtimeId === runtimeId
-      && startup?.tools.some(tool => tool.status === 'failed' && servers(plugin).some(server => server.name === tool.name));
-    return <span className={failed ? 'pc-status pc-status-unavailable' : 'pc-status'}>{label}</span>;
-  };
+  const statusClass = (plugin: CapabilityPlugin) => startup?.runtimeId === runtimeId
+    && startup?.tools.some(tool => tool.status === 'failed' && servers(plugin).some(server => server.name === tool.name))
+    ? 'pc-status pc-status-unavailable' : 'pc-status';
   const confirmInstall = (item: Entry) => {
     if (!item.available || installLocked(item) || item.available.installed || item.available.blocked) return;
     const available = item.available;
@@ -665,9 +641,8 @@ export function PluginCenter({ bridge, language, busy, active, runtimeId, curren
   const updatePlugin = (pluginId: string) => {
     const panel = updatePanels[pluginId];
     const candidate = catalog?.plugins.find(item => item.id === pluginId)?.update;
-    if (panel && (panel.running || panel.operation?.installation === 'unknown'
-      || updates?.items[pluginId]?.detailsAvailable
-      || panel.operation?.installation === 'committed' && candidate?.status !== 'available')) {
+    if (panel?.running || panel?.operation?.installation === 'unknown'
+      || panel?.operation?.installation === 'committed' && candidate?.status !== 'available') {
       setUpdatePanelId(pluginId); return;
     }
     navigateUpdate(() => {
@@ -687,7 +662,7 @@ export function PluginCenter({ bridge, language, busy, active, runtimeId, curren
   };
   const continueUpdate = () => navigateUpdate(() => {
     const panel = updatePanelId ? updatePanels[updatePanelId] : undefined;
-    if (!panel?.preflight || panel.preflight.readiness === 'blocked' || updateOperation.current) return;
+    if (!panel?.preflight || updateOperation.current) return;
     updateRequests.current.set(panel.pluginId, Symbol(panel.pluginId));
     updateOperation.current = true; setUpdateBusy(true);
     void applyPreflight(panel.pluginId, panel.name, panel.preflight).then(async success => {
@@ -796,7 +771,7 @@ export function PluginCenter({ bridge, language, busy, active, runtimeId, curren
               <PluginCategoryTags pkg={item.package} language={language} compact/>
               <span className="pc-card-meta"><span>{item.source}</span>
                 <PluginStars value={item.repository && item.package ? item.package.stars ?? { status: 'unknown' } : undefined} language={language}/></span>
-              <footer className="pc-card-footer"><div className="pc-card-state">{item.installed ? <>{toggle(item.installed)}{renderStatus(item.installed, true)}</>
+              <footer className="pc-card-footer"><div className="pc-card-state">{item.installed ? <>{toggle(item.installed)}<span className={statusClass(item.installed)}>{status(item.installed)}</span></>
                 : <button disabled={installLocked(item) || item.available?.installed || item.available?.blocked} onClick={() => confirmInstall(item)}>
                   {item.available?.installed ? <Check size={14}/> : <ArrowDownToLine size={14}/>} {item.available?.installed ? t('已安装', 'Installed') : t('安装', 'Install')}</button>}</div>
                 <div className="pc-card-actions">
@@ -829,7 +804,7 @@ export function PluginCenter({ bridge, language, busy, active, runtimeId, curren
             <PluginUpdateBadge state={!entry.available && entry.installed ? updates?.items[entry.installed.id] : undefined} language={language}/><span>{entry.source}</span></p>
           <p className="pc-plugin-byline"><PluginAuthor pkg={entry.package} language={language}/></p></div></div>
           <div className="pc-plugin-summary"><p>{entry.description}</p><PluginCategoryTags pkg={entry.package} language={language}/>
-            {entry.installed && renderStatus(entry.installed)}</div>
+            {entry.installed && <span className={statusClass(entry.installed)}>{status(entry.installed)}</span>}</div>
           <div className="pc-header-actions"><span className="pc-repository"><ProjectLink entry={entry} language={language}/><PluginStars value={entry.repository && entry.package ? entry.package.stars ?? { status: 'unknown' } : undefined} language={language}/>
             {entry.repository && entry.package && <button className="icon-button" disabled={repositoryPending} aria-label={t('刷新仓库信息', 'Refresh repository information')}
               onClick={() => void refreshRepository()}><RefreshCw size={13} className={repositoryPending ? 'pc-spin' : undefined}/></button>}</span>{entry.installed ? <>

@@ -97,33 +97,6 @@ try {
   await status.click();
   await dialog.getByText('0/2 已加载，2 个失败', { exact: true }).waitFor();
   checks.push('failed instances are explicit on the collapsed control and in the one-time notice');
-  for (const protection of ['external', 'remote-attached']) {
-    const protectedURL = new URL(url);
-    protectedURL.searchParams.set('reloadProtection', protection);
-    await page.setViewportSize({ width: 390, height: 840 });
-    await page.goto(protectedURL.href);
-    await trigger.click();
-    await page.getByText('Bilibili Video Research 已跳过 1 个受保护的会话', { exact: true }).waitFor();
-    await status.click();
-    await dialog.getByText(/此会话没有在等待重载/u).waitFor();
-    assert.equal(await dialog.getByRole('button', { name: '取消等待', exact: true }).count(), 0);
-    await dialog.locator('summary').click();
-    await dialog.getByText(protection === 'external' ? '已跳过：由外部任务管理' : '已跳过：会话仍绑定 Remote', { exact: true }).waitFor();
-    await dialog.getByRole('button', { name: '查看会话 Relatum', exact: true }).waitFor();
-    assert.equal(await dialog.evaluate(element => element.scrollWidth <= element.clientWidth + 1), true);
-    await shot(`protected-${protection}.png`);
-    if (protection === 'external') {
-      assert.equal(await dialog.getByRole('button', { name: '打开 Remote', exact: true }).count(), 0);
-      await dialog.getByRole('button', { name: '重新检查并重载', exact: true }).click();
-      await dialog.waitFor({ state: 'detached' });
-      await status.locator('[data-complete=true]').waitFor();
-    } else {
-      await dialog.getByRole('button', { name: '打开 Remote', exact: true }).click();
-      await dialog.waitFor({ state: 'detached' });
-      await page.getByText('Remote', { exact: true }).waitFor();
-    }
-  }
-  checks.push('protected sessions are skipped, with a fresh reload action or a direct Remote entry');
   assert.deepEqual(errors, []);
   await writeFile(join(output, 'results.json'), JSON.stringify({ scope: 'Production UI with mocked IPC', checks, errors }, null, 2));
 } catch (error) {

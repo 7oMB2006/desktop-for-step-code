@@ -12,7 +12,6 @@ const validRequest = (input: PluginReloadRequest) => input && identifier(input.i
   && input.ref.length <= 128 && Object.keys(input).every(key => key === 'id' || key === 'ref');
 const label = (value: string) => value.replace(/[\u0000-\u001f\u007f]/gu, ' ').slice(0, 120);
 const pending = (target: Target) => ['ready', 'waiting'].includes(target.view.phase);
-const protectedOwner = (reason?: PluginReloadReason) => reason === 'external' || reason === 'remote-attached';
 
 // The plugin is the operation owner. Session references are frozen targets, never the UI selection.
 export class PluginReloadCoordinator {
@@ -38,8 +37,7 @@ export class PluginReloadCoordinator {
   }
   private reason(worker: SessionRuntime): PluginReloadReason | undefined {
     if (worker.status !== 'connected') return 'disconnected';
-    if (this.options.external(worker)) return 'external';
-    if (worker.remoteAttached) return 'remote-attached';
+    if (this.options.external(worker) || worker.remoteAttached) return 'external';
     if (worker.mutating || worker.stopping) return 'operation';
   }
   private async request(target: Target, action: 'inspect' | 'reload') {
@@ -53,20 +51,17 @@ export class PluginReloadCoordinator {
   }
   private async readiness(target: Target): Promise<PluginReloadReason | 'absent' | undefined> {
     if (!this.current(target)) return 'changed';
-    if (target.worker.status !== 'connected') return 'disconnected';
+    const reason = this.reason(target.worker);
+    if (reason) return reason;
     try {
-      // Inspect is read-only. Establish membership before reporting ownership.
       const status = await this.request(target, 'inspect');
       if (!this.current(target)) return 'changed';
-      if (status === 'absent') return status;
-      if (status !== 'ready' && status !== 'busy' && status !== 'unsupported') return 'unavailable';
-      return this.reason(target.worker) ?? (status === 'busy' ? 'occupied' : status === 'unsupported' ? status : undefined);
+      return this.reason(target.worker) ?? (status === 'ready' ? undefined : status === 'busy' ? 'occupied'
+        : status === 'absent' || status === 'unsupported' ? status : 'unavailable');
     } catch { return this.current(target) ? 'unavailable' : 'changed'; }
   }
   private wait(target: Target, reason: PluginReloadReason | 'absent', whenIdle: boolean) {
-    const terminal = reason === 'absent' || reason === 'unsupported' || reason === 'changed'
-      || protectedOwner(reason)
-      || reason === 'unavailable' && protectedOwner(this.reason(target.worker));
+    const terminal = reason === 'absent' || reason === 'unsupported' || reason === 'changed' || reason === 'external';
     target.view.phase = whenIdle && !terminal ? 'waiting' : 'cancelled';
     target.view.reason = reason === 'absent' ? 'changed' : reason;
   }
